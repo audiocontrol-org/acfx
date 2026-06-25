@@ -36,12 +36,12 @@ Cross-platform C++ monorepo (per plan.md): `core/`, `host/`, `adapters/*`, `test
 
 ## Phase 1: Setup (build skeleton)
 
-- [ ] T001 Create the monorepo directory skeleton with placeholders (`core/dsp/`, `core/primitives/`, `core/effects/svf/`, `host/processor-node/`, `adapters/workbench/`, `adapters/plugin/`, `adapters/daisy/`, `adapters/teensy/`, `tests/core/`, `tests/support/`, `cmake/`, `external/`) per `plan.md` Project Structure
-- [ ] T002 Add top-level `CMakeLists.txt` defining the `acfx_core` interface/library target and orchestrating subdirectories, with C++17/C++20 handling (concept checks guarded by `__cpp_concepts`)
-- [ ] T003 [P] Add `cmake/CPM.cmake` and `cmake/dependencies.cmake` declaring CPM-pinned deps (JUCE 8, clap-juce-extensions, DaisySP, libDaisy, Teensy core+Audio Library, doctest); capture each exact tag in the declaration when first fetched (research.md §4)
-- [ ] T004 [P] Add `CMakePresets.json` with presets `desktop`, `daisy`, `teensy`, `test`
-- [ ] T005 [P] Add `cmake/toolchains/daisy.cmake` (arm-none-eabi-gcc) and `cmake/toolchains/teensy.cmake` toolchain files
-- [ ] T006 [P] Add `.clang-format` and `.editorconfig` aligned with strict typing (no implicit narrowing) at repo root
+- [X] T001 Create the monorepo directory skeleton with placeholders (`core/dsp/`, `core/primitives/`, `core/effects/svf/`, `host/processor-node/`, `adapters/workbench/`, `adapters/plugin/`, `adapters/daisy/`, `adapters/teensy/`, `tests/core/`, `tests/support/`, `cmake/`, `external/`) per `plan.md` Project Structure
+- [X] T002 Add top-level `CMakeLists.txt` defining the `acfx_core` interface/library target and orchestrating subdirectories, with C++17/C++20 handling (concept checks guarded by `__cpp_concepts`)
+- [X] T003 [P] Add `cmake/CPM.cmake` and `cmake/dependencies.cmake` declaring CPM-pinned deps (JUCE 8, clap-juce-extensions, DaisySP, libDaisy, Teensy core+Audio Library, doctest); capture each exact tag in the declaration when first fetched (research.md §4)
+- [X] T004 [P] Add `CMakePresets.json` with presets `desktop`, `daisy`, `teensy`, `test`
+- [X] T005 [P] Add `cmake/toolchains/daisy.cmake` (arm-none-eabi-gcc) and `cmake/toolchains/teensy.cmake` toolchain files
+- [X] T006 [P] Add `.clang-format` and `.editorconfig` aligned with strict typing (no implicit narrowing) at repo root
 
 **Checkpoint**: `cmake --preset test` configures cleanly (empty test target ok).
 

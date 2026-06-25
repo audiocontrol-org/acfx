@@ -1,1 +1,25 @@
 .stack-control/state/
+
+# Build output
+build/
+build-*/
+out/
+
+# CPM fetched dependencies + cache
+external/_deps/
+external/.cpm-cache/
+.cpmcache/
+
+# Compiled objects / artifacts
+*.o
+*.a
+*.so
+*.dll
+*.exe
+*.dylib
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
