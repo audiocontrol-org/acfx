@@ -115,9 +115,9 @@ mapping; no JUCE in the MCU builds.
 **Independent test**: quickstart Scenario D — `daisy` and `teensy` presets build & link
 the same `core/effects/svf`; each dependency graph shows core + adapter only.
 
-- [ ] T032 [P] [US3] Implement the Daisy adapter (libDaisy audio callback → `effect.process`; ADC/encoder → `setParameter`) in `adapters/daisy/daisy-main.cpp`
-- [ ] T033 [P] [US3] Implement the Teensy adapter (Teensy `AudioStream` node → `effect.process`; analog/MIDI → `setParameter`) in `adapters/teensy/teensy-main.cpp`
-- [ ] T034 [US3] Verify the installed Teensy toolchain's C++ standard (research.md §3 open item); set Teensy to the highest supported (≥C++17) in `cmake/toolchains/teensy.cmake` and confirm the concept-degradation path compiles the same `SvfEffect`
+- [X] T032 [P] [US3] Implement the Daisy adapter (libDaisy audio callback → `effect.process`; ADC/encoder → `setParameter`) in `adapters/daisy/daisy-main.cpp`
+- [X] T033 [P] [US3] Implement the Teensy adapter (Teensy `AudioStream` node → `effect.process`; analog/MIDI → `setParameter`) in `adapters/teensy/teensy-main.cpp`
+- [X] T034 [US3] Verify the installed Teensy toolchain's C++ standard (research.md §3 open item); set Teensy to the highest supported (≥C++17) in `cmake/toolchains/teensy.cmake` and confirm the concept-degradation path compiles the same `SvfEffect`
 - [ ] T035 [US3] Run quickstart Scenario D: build `daisy` + `teensy` presets, confirm linked artifacts and that neither dependency graph includes JUCE or desktop-only stubs (SC-007)
 
 **Checkpoint**: US3 done — the cross-platform claim is real (build + link on both MCUs).
