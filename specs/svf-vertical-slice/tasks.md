@@ -52,20 +52,20 @@ Cross-platform C++ monorepo (per plan.md): `core/`, `host/`, `adapters/*`, `test
 The platform-independent spine every story reuses. No JUCE/libDaisy/Teensy headers
 in any `core/` file (Constitution IV).
 
-- [ ] T007 [P] Implement `ParamId` + `ParamUnit`/`ParamSkew`/`ParamKind` enums in `core/dsp/param-id.h` (per contracts/parameter-model.md)
-- [ ] T008 [P] Implement `ParameterDescriptor` + allocation-free `normalize`/`denormalize` (linear, logarithmic, discrete) in `core/dsp/parameter.h` (per contracts/parameter-model.md)
-- [ ] T009 [P] Implement `ProcessContext` (sampleRate, maxBlockSize, numChannels) in `core/dsp/process-context.h`
-- [ ] T010 [P] Implement `AudioBlock` (fixed-size, non-owning, non-allocating view) in `core/dsp/audio-block.h`
-- [ ] T011 Define the `Effect` concept (C++20, `__cpp_concepts`-guarded; C++17 duck-typed fallback) in `core/dsp/effect.h` (per contracts/effect-concept.md) — depends on T007–T010
-- [ ] T012 [P] Implement the allocation sentinel (global `operator new`/`delete` counter, thread-local) in `tests/support/allocation-sentinel.h` + `tests/support/allocation-sentinel.cpp`
-- [ ] T013 [P] Capture known-good SVF frequency-response reference vectors in `tests/support/svf-reference.h`
-- [ ] T014 Write parameter scaling/skew tests in `tests/core/parameter-test.cpp` (assert linear/log/discrete mapping at min/mid/max + bounds) — fails until T008
-- [ ] T015 Implement the DaisySP `Svf` wrapper (allocation-free, mode-selectable) in `core/primitives/svf-primitive.h` (research.md §1) — depends on T003
-- [ ] T016 Write SVF effect tests (impulse/frequency response per mode vs T013 references, NaN/denormal stability at high resonance) in `tests/core/svf-test.cpp` — fails until T017
-- [ ] T017 Implement `SvfEffect` (constexpr param table cutoff[log]/resonance[linear]/mode[discrete×3]; `prepare`/`process`/`reset`/`setParameter`) in `core/effects/svf/svf-effect.h` (+ `.cpp` if needed) satisfying `Effect` — makes T014/T016 pass
-- [ ] T018 Write + pass the no-heap-allocation-in-`process()` invariant test in `tests/core/no-allocation-test.cpp` using the T012 sentinel across several block sizes (FR-014) — depends on T017
-- [ ] T019 Implement `ProcessorNode` interface + `EffectNode<T>` template in `host/processor-node/processor-node.h` (per contracts/processor-node.md; desktop-only, ≤1 vcall/block) — depends on T011
-- [ ] T020 Wire the `test` preset target so `ctest --preset test` builds + runs all `tests/core/*` (FR-013)
+- [X] T007 [P] Implement `ParamId` + `ParamUnit`/`ParamSkew`/`ParamKind` enums in `core/dsp/param-id.h` (per contracts/parameter-model.md)
+- [X] T008 [P] Implement `ParameterDescriptor` + allocation-free `normalize`/`denormalize` (linear, logarithmic, discrete) in `core/dsp/parameter.h` (per contracts/parameter-model.md)
+- [X] T009 [P] Implement `ProcessContext` (sampleRate, maxBlockSize, numChannels) in `core/dsp/process-context.h`
+- [X] T010 [P] Implement `AudioBlock` (fixed-size, non-owning, non-allocating view) in `core/dsp/audio-block.h`
+- [X] T011 Define the `Effect` concept (C++20, `__cpp_concepts`-guarded; C++17 duck-typed fallback) in `core/dsp/effect.h` (per contracts/effect-concept.md) — depends on T007–T010
+- [X] T012 [P] Implement the allocation sentinel (global `operator new`/`delete` counter, thread-local) in `tests/support/allocation-sentinel.h` + `tests/support/allocation-sentinel.cpp`
+- [X] T013 [P] Capture known-good SVF frequency-response reference vectors in `tests/support/svf-reference.h`
+- [X] T014 Write parameter scaling/skew tests in `tests/core/parameter-test.cpp` (assert linear/log/discrete mapping at min/mid/max + bounds) — fails until T008
+- [X] T015 Implement the DaisySP `Svf` wrapper (allocation-free, mode-selectable) in `core/primitives/svf-primitive.h` (research.md §1) — depends on T003
+- [X] T016 Write SVF effect tests (impulse/frequency response per mode vs T013 references, NaN/denormal stability at high resonance) in `tests/core/svf-test.cpp` — fails until T017
+- [X] T017 Implement `SvfEffect` (constexpr param table cutoff[log]/resonance[linear]/mode[discrete×3]; `prepare`/`process`/`reset`/`setParameter`) in `core/effects/svf/svf-effect.h` (+ `.cpp` if needed) satisfying `Effect` — makes T014/T016 pass
+- [X] T018 Write + pass the no-heap-allocation-in-`process()` invariant test in `tests/core/no-allocation-test.cpp` using the T012 sentinel across several block sizes (FR-014) — depends on T017
+- [X] T019 Implement `ProcessorNode` interface + `EffectNode<T>` template in `host/processor-node/processor-node.h` (per contracts/processor-node.md; desktop-only, ≤1 vcall/block) — depends on T011
+- [X] T020 Wire the `test` preset target so `ctest --preset test` builds + runs all `tests/core/*` (FR-013)
 
 **Checkpoint**: `cmake --build --preset test && ctest --preset test` is green — the
 core spine + SVF are proven host-side. User stories can now proceed in any order.

@@ -24,23 +24,17 @@
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
 # --- Core: DaisySP (platform-independent pure-DSP math; wrapped by core/primitives)
-# Needed by core/ on every target, so it is always declared.
+# Needed by core/ on every target, so it is always declared. DaisySP ships its own
+# CMakeLists that defines the `DaisySP` static-lib target with the correct (bare-
+# name) include directories for its sources; we use it directly rather than
+# re-globbing. It is portable C++ (no platform headers), so it builds host-side.
 CPMAddPackage(
   NAME DaisySP
   GITHUB_REPOSITORY electro-smith/DaisySP
   GIT_TAG 599511b740f8f3a9b8db72a0642aa45b8a23c3a3
-  DOWNLOAD_ONLY YES
 )
 
-if(DaisySP_ADDED)
-  # DaisySP's own CMake assumes an ARM cross-build; for a portable host build we
-  # compile its sources into a small static lib directly against the wrapped
-  # primitives we use. The full library is available, but we only need the DSP
-  # translation units, which are platform-independent C++.
-  file(GLOB_RECURSE _daisysp_sources CONFIGURE_DEPENDS "${DaisySP_SOURCE_DIR}/Source/*.cpp")
-  add_library(DaisySP STATIC ${_daisysp_sources})
-  target_include_directories(DaisySP PUBLIC "${DaisySP_SOURCE_DIR}/Source")
-  target_compile_features(DaisySP PUBLIC cxx_std_17)
+if(TARGET DaisySP)
   set_target_properties(DaisySP PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
