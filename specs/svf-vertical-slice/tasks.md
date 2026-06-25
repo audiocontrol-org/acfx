@@ -79,12 +79,12 @@ core spine + SVF are proven host-side. User stories can now proceed in any order
 **Independent test**: quickstart Scenario B — build + launch the workbench, route audio,
 sweep cutoff/resonance/mode, drive a bound MIDI CC, toggle A/B; edit + rebuild + relaunch.
 
-- [ ] T021 [US1] Add the JUCE standalone workbench target in `adapters/workbench/CMakeLists.txt` (under the `desktop` preset)
-- [ ] T022 [US1] Implement the workbench app holding `std::unique_ptr<ProcessorNode>` = `EffectNode<SvfEffect>` and the audio device callback in `adapters/workbench/workbench-app.cpp` — depends on T019
-- [ ] T023 [P] [US1] Auto-render a control per descriptor from `SvfEffect::parameters()` in `adapters/workbench/parameter-view.cpp`
-- [ ] T024 [P] [US1] Bind MIDI CCs → `setParameter(id, normalized)` in `adapters/workbench/midi-binding.cpp`
-- [ ] T025 [P] [US1] Implement the audio source (built-in loop/file player + live input device selection; descriptive error if neither available — Constitution V) in `adapters/workbench/audio-source.cpp`
-- [ ] T026 [US1] Implement the dry/processed A/B toggle in the workbench signal path in `adapters/workbench/workbench-app.cpp`
+- [X] T021 [US1] Add the JUCE standalone workbench target in `adapters/workbench/CMakeLists.txt` (under the `desktop` preset)
+- [X] T022 [US1] Implement the workbench app holding `std::unique_ptr<ProcessorNode>` = `EffectNode<SvfEffect>` and the audio device callback in `adapters/workbench/workbench-app.cpp` — depends on T019
+- [X] T023 [P] [US1] Auto-render a control per descriptor from `SvfEffect::parameters()` in `adapters/workbench/parameter-view.cpp`
+- [X] T024 [P] [US1] Bind MIDI CCs → `setParameter(id, normalized)` in `adapters/workbench/midi-binding.cpp`
+- [X] T025 [P] [US1] Implement the audio source (built-in loop/file player + live input device selection; descriptive error if neither available — Constitution V) in `adapters/workbench/audio-source.cpp`
+- [X] T026 [US1] Implement the dry/processed A/B toggle in the workbench signal path in `adapters/workbench/workbench-app.cpp`
 - [ ] T027 [US1] Run quickstart Scenario B end-to-end and confirm all US1 acceptance scenarios
 
 **Checkpoint**: US1 is independently shippable — a working sketch-and-hear workbench.
