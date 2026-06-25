@@ -98,9 +98,9 @@ sweep cutoff/resonance/mode, drive a bound MIDI CC, toggle A/B; edit + rebuild +
 **Independent test**: quickstart Scenario C — load each format in a host, automate cutoff,
 confirm parity with the workbench.
 
-- [ ] T028 [US2] Add the JUCE plugin target exporting VST3 + AU + CLAP (CLAP via clap-juce-extensions) in `adapters/plugin/CMakeLists.txt`
-- [ ] T029 [US2] Implement the plugin `AudioProcessor` wrapping the same `EffectNode<SvfEffect>` in `adapters/plugin/plugin-processor.cpp` — depends on T019
-- [ ] T030 [US2] Generate host-automation parameters from `SvfEffect::parameters()` (name/range/default/skew) in `adapters/plugin/plugin-parameters.cpp`
+- [X] T028 [US2] Add the JUCE plugin target exporting VST3 + AU + CLAP (CLAP via clap-juce-extensions) in `adapters/plugin/CMakeLists.txt`
+- [X] T029 [US2] Implement the plugin `AudioProcessor` wrapping the same `EffectNode<SvfEffect>` in `adapters/plugin/plugin-processor.cpp` — depends on T019
+- [X] T030 [US2] Generate host-automation parameters from `SvfEffect::parameters()` (name/range/default/skew) in `adapters/plugin/plugin-parameters.cpp`
 - [ ] T031 [US2] Run quickstart Scenario C and confirm all US2 acceptance scenarios (formats instantiate; params correct; parity with workbench)
 
 **Checkpoint**: US2 is independently shippable — the plugin, sharing the core with US1.
