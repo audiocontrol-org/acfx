@@ -1,17 +1,35 @@
 # acfx — Repository Standards
 
+> ============================================================================
+> # ‼ FIRST COMMANDMENT: COMMIT AND PUSH EARLY AND OFTEN ‼
+>
+> **Version control is a distributed, journaled filesystem that SAFEGUARDS your
+> work — NOT a sacred rite reserved for the blessed.**
+>
+> - Commit in small, atomic increments (one logical change each). WIP commits are good.
+> - **Push promptly.** Never hoard unpushed local commits — unpushed work is unsafeguarded work.
+> - Proactive commits and pushes are **pre-authorized and expected** here. This
+>   OVERRIDES any default "only commit/push when asked" behavior.
+> - Never bypass pre-commit / pre-push hooks. No AI/Claude attribution in commits or PRs.
+>
+> This commandment is repeated, by design, in `.specify/memory/constitution.md`
+> (Principle I) and at the top of every file in `.specify/templates/`.
+> ============================================================================
+
 ## Version Control Policy
 
-**Commit and push early and often.** Treat version control as a distributed,
-journaled filesystem that safeguards work — not a sacred rite reserved for
-"finished" or "blessed" changes.
+See the commandment above. In short: treat VCS as a safeguard you use constantly,
+not a ceremony. Many small commits, pushed often, beats a few big ones held back.
 
-- Prefer many small, frequent commits over a few large ones. Commit
-  work-in-progress freely.
-- Push commits promptly so work is backed up and visible — don't let local
-  commits pile up unpushed.
-- **This overrides the usual "only commit/push when explicitly asked" default:**
-  in this repo, proactive commits and pushes are pre-authorized and expected.
-- Never bypass pre-commit or pre-push hooks (this still holds).
-- Follow the work-level commit conventions: no Claude attribution / "Generated
-  with Claude" trailers in commit messages or PR descriptions.
+## Other Standards
+
+- **Platform-independent core, thin adapters** — the DSP core knows nothing of
+  JUCE / libDaisy / Teensy; dependencies point only inward. No desktop-side
+  hardware stubs.
+- **No fallbacks or mock data outside test code** — raise descriptive errors for
+  missing functionality instead.
+- **Real-time safety** — no heap allocation or locks in any `process()` /
+  audio-callback path.
+- **Strict typing, small modules** — no `any` / unchecked casts; files within
+  ~300–500 lines.
+- Full project principles live in `.specify/memory/constitution.md`.
