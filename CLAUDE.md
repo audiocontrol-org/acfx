@@ -44,3 +44,8 @@
 - **Strict typing, small modules** — no `any` / unchecked casts; files within
   ~300–500 lines.
 - Full project principles live in `.specify/memory/constitution.md`.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
