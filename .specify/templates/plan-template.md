@@ -1,7 +1,9 @@
-> ‼ **COMMIT AND PUSH EARLY AND OFTEN** — version control is a distributed, journaled
+> ‼ **acfx COMMANDMENTS — non-negotiable** ‼
+> **1. COMMIT AND PUSH EARLY AND OFTEN** — version control is a distributed, journaled
 > filesystem that safeguards your work, **NOT a sacred rite reserved for the blessed.**
-> Small atomic commits, pushed promptly; never hoard unpushed work; never bypass hooks.
-> (acfx Constitution, Principle I — `.specify/memory/constitution.md`.)
+> Small atomic commits, pushed promptly; never hoard unpushed work.
+> **2. NO GIT HOOKS, EVER** — this repo uses zero git hooks; none exist, none get added.
+> (acfx Constitution, Principles I–II — `.specify/memory/constitution.md`.)
 
 # Implementation Plan: [FEATURE]
 
