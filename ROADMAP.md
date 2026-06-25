@@ -21,5 +21,5 @@ graph (it fails loud on a cycle / dangling ref / duplicate id).
 
 ## design:feature/svf-vertical-slice
 - status: planned
-- spec: docs/superpowers/specs/2026-06-25-acfx-platform-design.md
+- spec: specs/svf-vertical-slice
 Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — core abstractions (Effect concept, ProcessContext, AudioBlock, Parameter model, ProcessorNode boundary), the SVF effect (host-tested), desktop workbench + plugin fully working, Daisy+Teensy cross-compile/link proven, CMake presets + CPM pinning + CI
