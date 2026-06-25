@@ -46,6 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
+Active Spec Kit feature: **svf-vertical-slice**.
+For technologies, project structure, and the implementation approach, read the
+current plan at `specs/svf-vertical-slice/plan.md` (spec: `specs/svf-vertical-slice/spec.md`).
 <!-- SPECKIT END -->
