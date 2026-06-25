@@ -8,7 +8,9 @@ description: "Task list template for feature implementation"
 > filesystem that safeguards your work, **NOT a sacred rite reserved for the blessed.**
 > Small atomic commits, pushed promptly; never hoard unpushed work.
 > **2. NO GIT HOOKS, EVER** — this repo uses zero git hooks; none exist, none get added.
-> (acfx Constitution, Principles I–II — `.specify/memory/constitution.md`.)
+> **3. DESCRIPTIVE NAMES, NEVER NUMERIC PREFIXES** — names carry information; fake sequence
+> numbers (`001-`) imply false order and false precision (datestamps excepted).
+> (acfx Constitution, Principles I–III — `.specify/memory/constitution.md`.)
 
 # Tasks: [FEATURE NAME]
 

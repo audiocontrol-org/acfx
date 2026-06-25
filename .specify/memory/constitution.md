@@ -6,6 +6,8 @@
       the blessed. Small atomic commits, pushed promptly. Never hoard unpushed work.
   II. NO GIT HOOKS, EVER. This repository uses ZERO git hooks. None exist, none get
       added. Quality gates are explicit and visible, never hidden hooks.
+  III.DESCRIPTIVE NAMES, NEVER NUMERIC PREFIXES. Names carry information; numbers
+      imply a false order and false precision. Datestamps are the one exception.
 ================================================================================
 -->
 
@@ -54,34 +56,49 @@ they block or rewrite work behind your back and create "works on my machine"
 asymmetry. Explicit, portable gates beat hidden ones — and hidden gates directly
 conflict with Principle I's "commit and push without ceremony."
 
-### III. Platform-Independent Core, Thin Adapters
+### III. Descriptive Names, Never Numeric Prefixes (NON-NEGOTIABLE)
+
+**Name things for what they ARE.** Numbers in names imply a false order and false
+precision that the things themselves do not have.
+
+- Branches, worktrees, directories, files, and identifiers use descriptive names
+  (`platform-foundation`, `svf-filter`), never ordinal/sequence prefixes
+  (`001-`, `02_`, `v2`, `step3`).
+- **Exception: datestamps** (`2026-06-25-…`) are permitted — a date carries real,
+  factual information (when something was authored), not invented ordering.
+
+Rationale: a name like `001-platform-foundation` lies twice — it implies there was
+a `000`, and that order matters. `platform-foundation` ferries the information that
+actually matters: what the thing is.
+
+### IV. Platform-Independent Core, Thin Adapters
 
 The DSP core compiles with no knowledge of JUCE, libDaisy, or Teensy. Dependencies
 point only inward (targets → core; core → nothing platform-specific). Each target
 is a thin shell that feeds the core audio and parameters. No desktop-side hardware
 stubs.
 
-### IV. No Fallbacks, No Mock Data Outside Tests
+### V. No Fallbacks, No Mock Data Outside Tests
 
 Outside test code, the system MUST NOT implement fallbacks or use mock data.
 Missing functionality or data MUST raise a descriptive error naming what is absent.
 Fallbacks and mock data hide unimplemented paths and become permanent bug
 factories; an error surfaces the gap immediately.
 
-### V. Real-Time Safety in the Audio Path
+### VI. Real-Time Safety in the Audio Path
 
 No heap allocation, locks, or unbounded work in any `process()` / audio-callback
 path. The hot path stays templated/inlined; polymorphism is confined to the
 host-side block boundary (at most one virtual call per block). This is what keeps
 the core safe on a microcontroller and on a real-time audio thread.
 
-### VI. Strict Typing & Small Modules
+### VII. Strict Typing & Small Modules
 
 Composition over inheritance; interface-first design across boundaries. No `any`,
 no unchecked casts, no suppressed type errors. Source files stay within 300–500
 lines; larger files are refactored for modularity.
 
-### VII. Test the Core Host-Side
+### VIII. Test the Core Host-Side
 
 The platform-independent core is unit-tested on the host with no hardware:
 parameter scaling, DSP correctness (impulse/frequency response against known-good
@@ -99,4 +116,4 @@ Versioning policy (semantic):
 - MINOR: a new principle/section added or materially expanded guidance.
 - PATCH: clarifications, wording, non-semantic refinements.
 
-**Version**: 1.1.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-06-25
+**Version**: 1.2.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-06-25

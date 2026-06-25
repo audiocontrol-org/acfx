@@ -20,8 +20,16 @@
 >   never hidden hooks that fire on commit/push.
 > - This supersedes any general "never bypass hooks" rule: there is nothing to bypass.
 >
+> ## 3. DESCRIPTIVE NAMES, NEVER NUMERIC PREFIXES
+> **Names carry information; numbers imply a false order and false precision.**
+> - Name branches, worktrees, directories, and files for what they ARE
+>   (`platform-foundation`, not `001-platform-foundation`; `v2`, sequence numbers,
+>   and ordinal prefixes are forbidden).
+> - **Exception: datestamps** (`2026-06-25-…`) are fine — a date carries real
+>   information, not invented ordering.
+>
 > These commandments are repeated, by design, in `.specify/memory/constitution.md`
-> (Principles I–II) and at the top of every file in `.specify/templates/`.
+> (Principles I–III) and at the top of every file in `.specify/templates/`.
 > ============================================================================
 
 ## Other Standards
