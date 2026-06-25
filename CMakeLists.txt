@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # acfx — cross-platform audio DSP platform.
 # One platform-independent core, four thin target adapters. Dependencies point
 # only inward (adapters -> core; core -> nothing platform-specific).
-project(acfx LANGUAGES CXX)
+project(acfx VERSION 0.1.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Build-surface options. Each preset (CMakePresets.json) flips exactly the set

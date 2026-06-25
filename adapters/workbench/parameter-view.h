@@ -38,7 +38,9 @@ private:
     };
 
     OnChange onChange_;
-    std::vector<Row> rows_;
+    // Heap-allocated rows: Row holds a juce::Label/Component, which is non-movable,
+    // so the vector stores pointers (not Rows) to satisfy reallocation.
+    std::vector<std::unique_ptr<Row>> rows_;
 };
 
 } // namespace acfx::workbench

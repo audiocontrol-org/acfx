@@ -77,7 +77,7 @@ public:
         applyPendingParams();
 
         juce::AudioBuffer<float>& buffer = *info.buffer;
-        const int startSample = info.startSampleInDestBuffer;
+        const int startSample = info.startSample;
         const int numSamples = info.numSamples;
         const int numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
 

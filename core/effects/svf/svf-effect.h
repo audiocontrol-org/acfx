@@ -39,13 +39,13 @@ public:
         sampleRate_ = static_cast<float>(ctx.sampleRate);
         numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
         for (int ch = 0; ch < numChannels_; ++ch)
-            filters_[ch].init(sampleRate_);
+            filters_[static_cast<std::size_t>(ch)].init(sampleRate_);
         applyAll();
     }
 
     void reset() noexcept {
         for (int ch = 0; ch < numChannels_; ++ch)
-            filters_[ch].reset();
+            filters_[static_cast<std::size_t>(ch)].reset();
         applyAll();
     }
 
@@ -54,7 +54,7 @@ public:
         const int samples = io.numSamples();
         for (int ch = 0; ch < channels; ++ch) {
             float* x = io.channel(ch);
-            SvfPrimitive& f = filters_[ch];
+            SvfPrimitive& f = filters_[static_cast<std::size_t>(ch)];
             for (int n = 0; n < samples; ++n)
                 x[n] = f.process(x[n]);
         }
@@ -110,15 +110,15 @@ private:
     void applyCutoff() noexcept {
         const float f = clampedCutoff();
         for (int ch = 0; ch < numChannels_; ++ch)
-            filters_[ch].setFreq(f);
+            filters_[static_cast<std::size_t>(ch)].setFreq(f);
     }
     void applyResonance() noexcept {
         for (int ch = 0; ch < numChannels_; ++ch)
-            filters_[ch].setRes(resonance_);
+            filters_[static_cast<std::size_t>(ch)].setRes(resonance_);
     }
     void applyMode() noexcept {
         for (int ch = 0; ch < numChannels_; ++ch)
-            filters_[ch].setMode(mode_);
+            filters_[static_cast<std::size_t>(ch)].setMode(mode_);
     }
     void applyAll() noexcept {
         applyCutoff();

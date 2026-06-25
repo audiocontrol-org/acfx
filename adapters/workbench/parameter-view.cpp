@@ -6,8 +6,8 @@ ParameterView::ParameterView(span<const ParameterDescriptor> params, OnChange on
     : onChange_(std::move(onChange)) {
     rows_.reserve(params.size());
     for (const ParameterDescriptor& d : params) {
-        rows_.emplace_back();
-        Row& row = rows_.back();
+        rows_.push_back(std::make_unique<Row>());
+        Row& row = *rows_.back();
         row.descriptor = d;
 
         row.label.setText(juce::String(std::string(d.name)), juce::dontSendNotification);
@@ -53,7 +53,8 @@ ParameterView::ParameterView(span<const ParameterDescriptor> params, OnChange on
 }
 
 void ParameterView::setNormalized(ParamId id, float normalized) {
-    for (Row& row : rows_) {
+    for (std::unique_ptr<Row>& rowPtr : rows_) {
+        Row& row = *rowPtr;
         if (row.descriptor.id != id)
             continue;
         if (row.slider)
@@ -72,7 +73,8 @@ void ParameterView::setNormalized(ParamId id, float normalized) {
 void ParameterView::resized() {
     auto area = getLocalBounds().reduced(8);
     const int rowHeight = 32;
-    for (Row& row : rows_) {
+    for (std::unique_ptr<Row>& rowPtr : rows_) {
+        Row& row = *rowPtr;
         auto r = area.removeFromTop(rowHeight);
         row.label.setBounds(r.removeFromLeft(120));
         if (row.slider)
