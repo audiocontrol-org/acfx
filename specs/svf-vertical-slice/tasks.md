@@ -126,10 +126,10 @@ the same `core/effects/svf`; each dependency graph shows core + adapter only.
 
 ## Phase 6: Polish & cross-cutting concerns
 
-- [ ] T036 [P] Add a CI workflow building + testing the `test` and `desktop` presets on every change (quickstart Scenario A + desktop build), as explicit steps — NOT a git hook (Constitution II, FR-015)
-- [ ] T037 [P] Add explicit script/CI checks for the file-size budget (~300–500 lines, Constitution VII) and "no JUCE in MCU dependency graph" (SC-007) — visible steps, not hooks
-- [ ] T038 [P] Confirm the one-source-many-targets invariant (quickstart Scenario E): the identical `core/effects/svf` built all four targets with no per-target `#ifdef` forks of the effect (SC-001, SC-005)
-- [ ] T039 Update `README.md` with build/run instructions referencing `quickstart.md`
+- [X] T036 [P] Add a CI workflow building + testing the `test` and `desktop` presets on every change (quickstart Scenario A + desktop build), as explicit steps — NOT a git hook (Constitution II, FR-015)
+- [X] T037 [P] Add explicit script/CI checks for the file-size budget (~300–500 lines, Constitution VII) and "no JUCE in MCU dependency graph" (SC-007) — visible steps, not hooks
+- [X] T038 [P] Confirm the one-source-many-targets invariant (quickstart Scenario E): the identical `core/effects/svf` built all four targets with no per-target `#ifdef` forks of the effect (SC-001, SC-005)
+- [X] T039 Update `README.md` with build/run instructions referencing `quickstart.md`
 
 ---
 
