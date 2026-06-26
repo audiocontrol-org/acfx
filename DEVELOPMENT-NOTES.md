@@ -2,24 +2,83 @@
 
 ---
 
-## 2026-06-26: <!-- session title -->
+## 2026-06-26: Govern the SVF slice to graduation; build + verify the workbench; author the next feature through the front door
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take the runnable `svf-vertical-slice` spec through the governed execution
+front door (`/stack-control:execute`) to a graduated state; make the workbench
+actually runnable; then design and author the next feature — in-UI audio
+device/source/MIDI selection — through the front door (`/stack-control:define`).
 
 **Accomplished:**
-- <!-- compose -->
+- **Executed svf-vertical-slice** via `/stack-control:execute` → drove native
+  `/speckit-implement` over all 39 tasks: the platform-independent core spine
+  (Effect concept, parameter model with compile-time validation, AudioBlock,
+  ProcessorNode boundary, DaisySP-wrapped SVF), the JUCE workbench, the VST3/AU/CLAP
+  plugin, and the Daisy + Teensy adapters. **11/11 host doctests green**; all 5 JUCE
+  adapters compile clean against real JUCE 8; the same core compiles at C++17 **and**
+  C++20 (host).
+- **Built + verified artifacts:** the `acfx Workbench.app` and all three plugin
+  formats (real Mach-O arm64 bundles) — real compilation caught real bugs (JUCE API
+  misuse, missing `project(VERSION/C)`).
+- **Whole-feature governance:** 9 cross-model rounds; ~30 findings fixed, all the
+  substantive RT/correctness ones — cross-thread `setParameter` race
+  (atomic-pending handoff), audio-thread `throw`/alloc, file-player use-after-free,
+  NaN poisoning filter state, non-lock-free atomics, per-block `std::function`,
+  non-atomic guard, missing `<utility>`, channel-count mismatch — plus honesty
+  corrections to my own overclaims. Concluded by a **documented `--override`** →
+  `terminal-outcome=graduated`.
+- **Authored the next feature** through the front door: brainstormed + wrote the
+  design doc, then `/stack-control:define` drove specify → plan → tasks → analyze for
+  `workbench-audio-config` (in-UI device/source/MIDI selection + persistence). Roadmap
+  node `design:feature/workbench-audio-config` linked; spec runnable; the
+  audio-stopped-reconfigure RT mechanism verified against the pinned JUCE source.
 
 **Didn't Work:**
-- <!-- compose -->
+- **Govern did not converge monotonically** (9→7→4→4→6→6→3→3→3) — fix-induced surface
+  growth plus recurring **cross-chunk false positives**: the chunked auditor can't see
+  `core/`/JUCE in a sibling chunk, so it repeatedly re-flagged the mode-knob (the core
+  `denormalize` clamps, tested), the live-input passthrough (JUCE's `AudioSourcePlayer`
+  memcpys input — confirmed in JUCE source), and `reset()` tuning (the effect's
+  `applyAll()` re-applies). Several wasted rounds.
+- **I overclaimed twice** — said the core "cross-compiles for Cortex-M7" when the
+  `arm-none-eabi` compile actually *failed* (C-only toolchain, no libstdc++; only the
+  host dual-standard compile ran), and "built all four targets" when only the two
+  desktop targets were built. Govern caught both.
+- **Spec Kit's numeric-prefix enforcement** (`create-new-feature.sh` /
+  `check-prerequisites.sh`) collided head-on with acfx Commandment 3 (descriptive
+  names) — had to set `SPECIFY_FEATURE_DIRECTORY` explicitly and `--paths-only` around
+  the branch guard.
 
 **Course Corrections:**
-- <!-- compose -->
+- The operator corrected me for **parking governance behind manual acceptance** —
+  governance audits the *code* and should run as soon as the code is complete, not wait
+  on DAW/hardware acceptance. Re-ordered and saved to memory.
+- Corrected the ARM/targets **overclaims** in T035/T038 + their checkpoints to state
+  exactly what was verified (host dual-standard compile + no-JUCE) vs the on-hardware
+  checkpoint.
+- `/speckit-analyze` caught a real **HIGH**: the `SourceConfig` "pure host-side test
+  seam" was specified with `juce::String` but the test target links no JUCE →
+  remediated to a `std::string` JUCE-free seam with the persistence split into its own
+  TU, so the feature's one automated test is buildable.
 
 **Insights:**
-- <!-- compose -->
+- The chunked audit-barrage's blindness to sibling chunks is the dominant source of
+  wasted govern rounds. Two mitigations that worked: (a) make the handled-boundary
+  evidence **visible in-chunk** (a comment citing the core clamp / the JUCE memcpy),
+  and (b) **verify the claim against the actual source** (JUCE / the core) rather than
+  argue — that turned three recurring "high" findings into decisive false positives.
+- `--override` with a written, specific justification is the sanctioned terminal for an
+  `override-eligible` govern once the substantive surface is clean and the residual is
+  false-positive/environmental. Grinding more rounds just re-mints cross-chunk noise.
+- Building against *real* JUCE (not just syntax-checking) is what catches the API bugs;
+  the desktop-build verification paid for itself immediately.
 
 **Quantitative (auto-derived from git; verify before publishing):**
-- Commits: 24
+- Commits: 25 (the auto-derived list below; +the narrative commit)
+- Files-changed note: the ~700 figure is dominated by **~638
+  `.stack-control/audit-runs/` artifacts** from the 9 govern rounds (committed
+  per-model barrage output); the actual **source/spec changes are ~60 files**
+  (core/adapters/host/tests/cmake/specs/docs).
   - analyze remediation: make SourceConfig serde JUCE-free + split persistence TU
   - Generate workbench-audio-config tasks (Spec Kit tasks phase)
   - Plan workbench-audio-config via Spec Kit (plan phase + Phase 0/1 artifacts)
