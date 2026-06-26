@@ -457,3 +457,115 @@ Surface:    adapters/plugin/plugin-processor.cpp:30-34; adapters/plugin/plugin-p
 `processBlock` (cpp:30-34) calls `parameters_.apply([this](ParamId id, float normalized){ node_.setParameter(id, normalized); })`, and `apply` takes `const ApplyFn&` where `ApplyFn = std::function<void(ParamId,float)>` (header:21). Every audio callback therefore constructs a fresh `std::function` from the lambda on the realtime thread. The inline comment explicitly claims *"Allocation-free."* That claim is only true by small-buffer-optimization luck: `std::function` is *not* guaranteed by the standard to avoid heap allocation. For a single `this`-pointer capture, libc++ and libstdc++ both SBO it, so on JUCE's actual targets it happens to be allocation-free today — but the guarantee is the library's, not the code's.
 
 Given this feature's entire govern history is RT-safety hardening (commits 2fef393/bd79479: "no heap allocation in process()"), a comment asserting allocation-freedom via a non-guaranteed mechanism is a fragility worth closing. The latent failure mode: anyone who adds a second capture to that lambda (or builds against a stdlib without SBO) silently introduces a per-block heap allocation on the audio thread, and the allocation sentinel test (`tests/core/no-allocation-test.cpp`, other chunk) almost certainly does not exercise this JUCE plugin path. Fix: pass the apply target as a non-owning function-ref type or a template/concrete callable instead of constructing `std::function` per block, or at minimum static_assert/document the SBO dependency.
+
+## 2026-06-26 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260626-31 — T035 claims Cortex-M7 C++ compile-verification with a toolchain it simultaneously describes as C-only
+
+Finding-ID: AUDIT-20260626-31
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    specs/svf-vertical-slice/tasks.md (T035 task line + Phase 5 checkpoint)
+
+T035 (now marked `[X]`) asserts two things in one breath: "the identical `core/effects/svf` cross-compiles for Cortex-M7 at both C++17 (concept degraded) and C++20 (named concept), the lock-free `is_always_lock_free` static_assert holds on-target" — and then, as the reason the *link* is deferred, "blocked in this environment by a C-only `arm-none-eabi-gcc` with no libstdc++." These contradict each other. A `static_assert(... is_always_lock_free ...)` is a *compile-time* gate inside a C++ translation unit; for it to "hold on-target" the C++ source must have been compiled by an ARM C++ frontend with `<atomic>` available. A genuinely "C-only `arm-none-eabi-gcc` with no libstdc++" cannot compile `core/effects/svf` at all — `#include <atomic>`/`<cstdint>` fail at the compile step, not the link step. So either the compile happened (and the toolchain is not C-only) or it didn't (and the "compile-verifies at C++17 and C++20" + "static_assert holds on-target" claims are unsupported).
+
+Blast radius: an agent or adopter reading the Phase 5 checkpoint ("US3 compile-verified — the identical core cross-compiles for Cortex-M7 at both C++17 and C++20") will treat the MCU portability claim (SC-007, the central thesis of the feature) as machine-proven and build downstream work on it. The artifact's own toolchain description says that verification was impossible here, so the agent inherits an unverified claim presented as verified. A reasonable fix: state precisely *what compiler actually performed the compile-verify* (e.g. a host `clang --target=arm-none-eabi -nostdlib` syntax/semantic check, or a different g++), and if no ARM C++ compile actually ran, downgrade the claim from "compile-verified for Cortex-M7" to "host-compiled with ARM-target flags" or mark it unverified.
+
+### AUDIT-20260626-32 — T035 is marked complete while the required MCU link is explicitly unverified
+
+Finding-ID: AUDIT-20260626-32
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    specs/svf-vertical-slice/tasks.md:116-132
+
+Phase 5 still defines the user-story goal and independent test as “compiles and links” for Daisy/Teensy, and says Scenario D should “build & link” the same core. But T035 is checked off while its new text narrows the completed work to compile-only verification and explicitly says the “full firmware ELF link + flashing” is an unchecked operator/on-hardware checkpoint blocked by the current toolchain.
+
+The blast radius is high because a downstream consumer or unattended agent reading task completion mechanically will conclude US3’s build-and-link acceptance is done, even though the file itself says the link has not been performed. A reasonable fix is to split T035 into an automated compile/portability task that can be checked and a separate unchecked link/flash acceptance task, or leave T035 unchecked until the stated Scenario D link criterion is satisfied.
+
+### AUDIT-20260626-33 — README Scenario C tells users to build `acfx_plugin`, which (per CI's own comment) produces no plugin bundles
+
+Finding-ID: AUDIT-20260626-33 (claude-01 + codex-01 + claude-01; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=high, codex=high, sonnet=medium
+Decision:   agreement (gate-counted high)
+Surface:    README.md:73-76 (Scenario C block) vs `.github/workflows/ci.yml:46-49` and `adapters/plugin/CMakeLists.txt`
+
+The lifted finding `6a56babffbf5b038::…CI builds the shared-code target, not the plugin formats` was fixed **only in CI** — `ci.yml:49` now builds `acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP`, and the CI comment at `ci.yml:46-48` explicitly states: *"The aggregate acfx_plugin target builds only the shared code; the format wrappers are separate targets that produce the actual bundles."* The README was not updated to match. README Scenario C (`README.md:75-76`) still instructs:
+
+```
+cmake --build --preset desktop --target acfx_plugin
+```
+
+By the workflow's own documented semantics, this builds the shared-code object library and produces **no VST3/AU/CLAP bundle**. Blast radius: a user or unattended agent following the README's "Desktop plugin (VST3 / AU / CLAP)" section runs a build that succeeds, sees no error, and concludes the plugin built — then finds nothing to load in a DAW. This is the round-0 self-red-team case: the fix for the CI finding closed the CI surface while leaving the sibling README surface holding the exact shape the finding identified. Fix: change README Scenario C to build the format targets (`--target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP`), matching CI.
+
+### AUDIT-20260626-34 — Daisy mode-knob normalization — lifted HIGH finding still open with no fix visible in this chunk
+
+Finding-ID: AUDIT-20260626-34
+Status:     open
+Severity:   high
+Per-lane:   sonnet=high
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    adapters/daisy/daisy-main.cpp:33-39
+
+The convergence JSON (`liftedFindings`) carries this finding as unresolved:
+
+> "Daisy mode-knob normalization reproduces the lifted Teensy out-of-range exposure on an unaudited sibling"
+
+In `daisy-main.cpp`, `maybeSet()` forwards the raw ADC float (`hw.adc.GetFloat(adc)`, range `[0.0, 1.0]`) directly to `setParameter` for all three parameters including mode:
+
+```cpp
+void maybeSet(acfx::SvfEffect::Param param, int adc) {
+    const float v = hw.adc.GetFloat(adc);
+    if (v < lastKnob[adc] - kKnobDeadband || v > lastKnob[adc] + kKnobDeadband) {
+        lastKnob[adc] = v;
+        svf.setParameter(acfx::ParamId{static_cast<std::uint8_t>(param)}, v);
+    }
+}
+```
+
+Mode is a discrete enum (LP / BP / HP). If the descriptor maps `[0, 1)` to mode index 0, `[1/3, 2/3)` to index 1, and `[2/3, 1.0]` to index 2 (or any comparable scheme), values near `1.0` from a fully-clockwise knob must land in a defined bucket. The Teensy finding (in another chunk) identified that this boundary was not being clamped or validated, producing an out-of-range mode index. No fix to the Daisy adapter is visible here — the `maybeSet` implementation is unchanged — and the finding is not listed under `closedInLoopFindings`. The fix may live in a core-side denormalization path visible only in another chunk (e.g., the parameter descriptor); if so, that chunk should close this finding explicitly. As written, the Daisy adapter is an unverified sibling with the same surface.
+
+### AUDIT-20260626-35 — useLiveInput() leaves hasFile_ set, creating asymmetric state that relies on fillBlock's check order
+
+Finding-ID: AUDIT-20260626-35 (claude-05 + claude-01; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=low, sonnet=high
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    adapters/workbench/audio-source.cpp:33-40 (vs 17-31)
+
+`useFilePlayer` carefully resets the *other* source's flag
+(`live_.store(false, release)` at line 30) so the two selection paths are
+mutually exclusive. `useLiveInput` does not do the mirror: it sets
+`live_.store(true)` but never clears `hasFile_`. So the sequence
+`useFilePlayer(f)` then `useLiveInput(n)` (both legal before `prepare()`, since
+`configured_` is still false) leaves `hasFile_ == true` AND `live_ == true`
+simultaneously.
+
+Today this is masked because `fillBlock` checks `live_` first and returns
+(line 53), so live correctly wins. But the invariant "exactly one source
+selected" is not actually maintained in the state — it's maintained only by the
+ordering of two reads in a different function. If that check order is ever
+reordered, or `isLiveInput()` is consulted alongside `hasFile_` elsewhere, the
+inconsistency becomes a bug. Add `hasFile_.store(false, std::memory_order_release)`
+to `useLiveInput` to make the two selectors symmetric and the state
+self-consistent regardless of who reads it.
+```
+
+### AUDIT-20260626-36 — Workbench file length overflows before validation
+
+Finding-ID: AUDIT-20260626-36
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/workbench/audio-source.cpp:19-24
+
+`reader->lengthInSamples` is a 64-bit value, but the code casts it to `int` before validating it: `const int numSamples = static_cast<int>(reader->lengthInSamples);`. A valid long audio file whose sample count exceeds `INT_MAX` can wrap or truncate, after which the code either rejects it as “empty” or allocates/reads the wrong length.
+
+The blast radius is high because this is a user-facing workbench source path: an adopter can hit it with a real long recording, and the failure mode is misleading or incorrect playback rather than a clear “file too large” diagnostic. A reasonable fix is to validate `reader->lengthInSamples` in its original integer width first, reject values larger than `std::numeric_limits<int>::max()` with a descriptive `AudioSourceError`, and only then cast for `AudioBuffer`.

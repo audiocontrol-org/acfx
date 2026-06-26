@@ -124,12 +124,13 @@ the same `core/effects/svf`; each dependency graph shows core + adapter only.
 - [X] T032 [P] [US3] Implement the Daisy adapter (libDaisy audio callback → `effect.process`; ADC/encoder → `setParameter`) in `adapters/daisy/daisy-main.cpp`
 - [X] T033 [P] [US3] Implement the Teensy adapter (Teensy `AudioStream` node → `effect.process`; analog/MIDI → `setParameter`) in `adapters/teensy/teensy-main.cpp`
 - [X] T034 [US3] Verify the installed Teensy toolchain's C++ standard (research.md §3 open item); set Teensy to the highest supported (≥C++17) in `cmake/toolchains/teensy.cmake` and confirm the concept-degradation path compiles the same `SvfEffect`
-- [X] T035 [US3] Compile-verify the MCU cross-build (Scenario D core): the identical `core/effects/svf` cross-compiles for Cortex-M7 at both C++17 (concept degraded) and C++20 (named concept), the lock-free `is_always_lock_free` static_assert holds on-target, and `core/` + both MCU adapters reference no JUCE / ProcessorNode (portability gate green). (The full firmware ELF **link** + flashing is an operator/on-hardware checkpoint in **Manual acceptance** below — blocked in this environment by a C-only `arm-none-eabi-gcc` with no libstdc++.)
+- [X] T035 [US3] Standard-portability + no-JUCE verification (Scenario D core): the identical `core/effects/svf` compiles at both C++17 (concept degraded) **and** C++20 (named concept) — verified on the **host** toolchain, which proves the source is standard-portable (the Teensy concept-degradation concern, T034) and that the lock-free `is_always_lock_free` static_assert holds; `core/` + both MCU adapters reference no JUCE / ProcessorNode (portability gate green). **Not verified here:** the actual `arm-none-eabi` Cortex-M7 compile and the firmware ELF link — the installed `arm-none-eabi-gcc` is C-only (no libstdc++), so the on-target compile, link, and flashing are the on-hardware checkpoint in **Manual acceptance** below.
 
-**Checkpoint**: US3 compile-verified — the identical `core/effects/svf` cross-compiles
-for Cortex-M7 at both C++17 (concept degraded) and C++20, with no JUCE in either MCU
-adapter's surface. The full firmware ELF **link** + flashing is the on-hardware
-checkpoint (T035), blocked here by a C-only `arm-none-eabi-gcc` (no libstdc++).
+**Checkpoint**: US3 standard-portability verified — the identical `core/effects/svf`
+compiles at both C++17 and C++20 on the host (proving the cross-standard claim) with
+no JUCE in either MCU adapter's surface. The on-target `arm-none-eabi` compile + the
+firmware ELF link + flashing are NOT done here (the installed toolchain is C-only,
+no libstdc++); they are the on-hardware checkpoint (T035, Manual acceptance below).
 
 ---
 
@@ -157,8 +158,9 @@ these confirm the human-in-the-loop behaviour on top of that.
 - ☐ **US2 / Scenario C** — load the plugin as VST3, AU, and CLAP in a host;
   automate cutoff; confirm audible parity with the workbench for identical settings.
 - ☐ **US3 / Scenario D** — on a machine with a full ARM embedded toolchain (with
-  libstdc++), build + link the `daisy` and `teensy` presets; flash and listen on a
-  physical board.
+  libstdc++), run the actual on-target `arm-none-eabi` compile, build + link the
+  `daisy` and `teensy` presets, and flash + listen on a physical board. (Only the
+  host dual-standard compile + no-JUCE check are done in the automated pipeline.)
 
 ## Dependencies & completion order
 

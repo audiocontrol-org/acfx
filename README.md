@@ -59,10 +59,17 @@ built-in player or live input, a bound MIDI CC, and a dry/processed A/B toggle.
 
 ```bash
 cmake --preset desktop
-cmake --build --preset desktop --target acfx_plugin
+# Build the format wrappers (the acfx_plugin aggregate is shared code only):
+cmake --build --preset desktop --target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP
 ```
 
+To play the built-in player for reproducible A/B, point the workbench at a file
+with `ACFX_WORKBENCH_FILE=/path/to/audio.wav`; otherwise it uses the live input.
+
 ### Hardware cross-compile — Scenario D
+
+Requires an ARM embedded toolchain **with the C++ standard library** (the stock
+`arm-none-eabi-gcc` may be C-only and cannot build the C++ core):
 
 ```bash
 cmake --preset daisy  && cmake --build --preset daisy

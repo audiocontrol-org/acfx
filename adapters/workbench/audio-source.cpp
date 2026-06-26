@@ -1,5 +1,6 @@
 #include "audio-source.h"
 
+#include <cstdint>
 #include <memory>
 
 namespace acfx::workbench {
@@ -18,9 +19,17 @@ void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
         throw AudioSourceError("No decoder for audio file: " + file.getFullPathName());
 
     const int numChannels = static_cast<int>(reader->numChannels);
-    const int numSamples = static_cast<int>(reader->lengthInSamples);
-    if (numChannels <= 0 || numSamples <= 0)
+    // Validate length BEFORE narrowing to int (lengthInSamples is 64-bit). Bound
+    // the in-memory buffer to a sane size (~93 min at 48 kHz) so a huge/corrupt
+    // header can't overflow the int or exhaust memory.
+    const std::int64_t lengthSamples = reader->lengthInSamples;
+    constexpr std::int64_t kMaxSamples = std::int64_t{1} << 28;
+    if (numChannels <= 0 || lengthSamples <= 0)
         throw AudioSourceError("Audio file is empty: " + file.getFullPathName());
+    if (lengthSamples > kMaxSamples)
+        throw AudioSourceError("Audio file is too long to load into memory: " +
+                               file.getFullPathName());
+    const int numSamples = static_cast<int>(lengthSamples);
 
     // Decode the whole file into memory on this (setup) thread. The audio thread
     // only ever reads fileBuffer_ thereafter — no reader, no transport, no lock.
@@ -40,6 +49,7 @@ void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
     if (availableInputChannels <= 0)
         throw AudioSourceError("Live input selected but the audio device offers no "
                                "input channels.");
+    hasFile_.store(false, std::memory_order_release); // symmetric with useFilePlayer
     live_.store(true, std::memory_order_release);
 }
 
