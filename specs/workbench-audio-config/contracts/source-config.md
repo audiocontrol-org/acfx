@@ -12,15 +12,21 @@ enum class SourceMode { live, file };
 
 struct SourceConfig {
     SourceMode mode = SourceMode::live;
-    juce::String filePath; // empty unless mode == file
+    std::string filePath; // empty unless mode == file
 };
 ```
 
-## Functions (pure — no device, no audio thread, no UI)
+> **JUCE-free by design.** `SourceConfig` and its serde use `std::string`, not
+> `juce::String`, so this seam compiles and is unit-tested in the JUCE-free host test
+> target (`acfx_core_tests` links `acfx_core`/`acfx_host`/doctest only — no JUCE). The
+> workbench converts `std::string ↔ juce::String` at the UI/file boundary
+> (`juce::String::toStdString()` / `juce::String(std::string)`).
+
+## Functions (pure — no device, no audio thread, no UI, no JUCE)
 
 ```cpp
-juce::String serialize(const SourceConfig& cfg);   // -> a stable settings string
-SourceConfig parse(const juce::String& text);      // <- never throws
+std::string serialize(const SourceConfig& cfg);    // -> a stable settings string
+SourceConfig parse(const std::string& text);       // <- never throws
 ```
 
 ## Behavioral guarantees (normative)
@@ -40,8 +46,9 @@ SourceConfig parse(const juce::String& text);      // <- never throws
 
 ## Consumers
 
-- The persistence unit (`workbench-settings`) writes `serialize(cfg)` into the
-  settings file and reads it back with `parse`.
+- The persistence unit (`workbench-persistence`, JUCE) writes `serialize(cfg)` into
+  the settings file and reads it back with `parse` — these pure functions live in the
+  JUCE-free `workbench-settings` unit.
 - The unit test (`tests/core/workbench-settings-test.cpp`) asserts the round-trip and
   the safe-default-on-garbage guarantees.
 

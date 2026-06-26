@@ -36,7 +36,7 @@ No change to `core/`, `host/`, the plugin, or the MCU adapters. Descriptive name
 
 ## Phase 1: Setup
 
-- [ ] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` to `adapters/workbench/CMakeLists.txt`, and `tests/core/workbench-settings-test.cpp` to the `test` target in `tests/CMakeLists.txt` (create empty stubs so both the `desktop` and `test` presets still configure + build)
+- [ ] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` (JUCE-free serde), and `workbench-persistence.cpp` (JUCE) to `adapters/workbench/CMakeLists.txt`; add `tests/core/workbench-settings-test.cpp` AND `adapters/workbench/workbench-settings.cpp` to the `acfx_core_tests` target in `tests/CMakeLists.txt` (the serde TU is JUCE-free so it links there). Create empty stubs so both the `desktop` and `test` presets still configure + build
 
 **Checkpoint**: `cmake --build --preset desktop --target acfx_workbench` and `ctest --preset test` still green with the stubs in place.
 
@@ -47,7 +47,7 @@ No change to `core/`, `host/`, the plugin, or the MCU adapters. Descriptive name
 The audio-stopped reconfigure lifecycle and the persistable source config every story
 reuses. No change to the audio callback or the lock-free parameter handoff.
 
-- [ ] T002 Implement `SourceMode` + `SourceConfig` + pure `serialize`/`parse` (never throws; safe default on garbage) in `adapters/workbench/workbench-settings.h` (+ `.cpp`) per `contracts/source-config.md`
+- [ ] T002 Implement `SourceMode` + `SourceConfig` (`std::string filePath`) + pure JUCE-free `serialize`/`parse` (`std::string`; never throws; safe default on garbage) in `adapters/workbench/workbench-settings.h` (+ `.cpp`) per `contracts/source-config.md` — JUCE-free so it links into the JUCE-free `acfx_core_tests`; the workbench converts to/from `juce::String` at the boundary
 - [ ] T003 Write the `SourceConfig` serialize/parse unit test (round-trip for both modes incl. paths with spaces/unicode; safe-default on `""`/garbage/unknown-mode) in `tests/core/workbench-settings-test.cpp` — fails until T002
 - [ ] T004 Rework the workbench source lifecycle in `adapters/workbench/workbench-app.cpp`: hold message-thread `SourceMode`/`sourceFile_` state; make `prepareToPlay()` the single reconfigure point (release → configure live/file from state → prepare); add `restartAudio()` using `deviceManager.restartLastAudioDevice()` (research.md §1) so source changes apply with the callback stopped
 - [ ] T005 Relax `adapters/workbench/audio-source.h`/`.cpp`: replace the "throw if already configured" guard with the release-before-reconfigure lifecycle invariant; keep `fillBlock` `noexcept` + the in-memory player byte-for-byte (RT-safety preserved, Constitution VI)
@@ -94,7 +94,7 @@ looped; switch back to Live; cancel-with-no-file stays valid.
 **Independent test**: quickstart Scenario D — select non-defaults, quit, relaunch,
 confirm restored.
 
-- [ ] T012 [US3] Implement persistence in `adapters/workbench/workbench-settings.h`/`.cpp`: save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
+- [ ] T012 [US3] Implement persistence in `adapters/workbench/workbench-persistence.h`/`.cpp` (JUCE; separate TU from the JUCE-free serde): save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
 - [ ] T013 [US3] Wire load-on-launch + save-on-change/quit into `adapters/workbench/workbench-app.cpp`; corrupt/missing settings → safe defaults + surfaced message; a saved device/file that is gone at launch → fall back + surface (FR-009, edge cases)
 - [ ] T014 [US3] Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
 

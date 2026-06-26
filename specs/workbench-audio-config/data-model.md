@@ -13,7 +13,10 @@ lists are conceptual (exact C++ spelling lives in `contracts/`).
 ## SourceConfig
 
 - **What**: the source selection as a persistable value (the one host-testable seam).
-- **Fields**: `mode: SourceMode`, `filePath: string` (empty unless `mode == file`).
+- **Fields**: `mode: SourceMode`, `filePath: std::string` (empty unless `mode ==
+  file`). Deliberately `std::string`, not `juce::String`, so the seam is JUCE-free
+  and unit-testable in the JUCE-free host test target; the workbench converts at the
+  boundary.
 - **Rules**: pure `serialize → string` / `parse string → SourceConfig` round-trips;
   parsing a malformed/empty string yields the safe default (`live`, empty path) rather
   than throwing — this is config parsing, not audio-path data (Constitution V applies

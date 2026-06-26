@@ -42,9 +42,11 @@ external dependency.
 Workbench") holding the device-manager state XML + a small source/MIDI config. This is
 the milestone's only persistence; it is local config, not application data.
 
-**Testing**: doctest, host-side. The one pure, device-free seam — `SourceConfig`
-serialize/parse — is unit-tested. Device/restart/UI behaviour is interactive
-(manual-acceptance), with compile-verification against real JUCE in CI.
+**Testing**: doctest, host-side. The one pure, **JUCE-free** (`std::string`),
+device-free seam — `SourceConfig` serialize/parse — is unit-tested in the JUCE-free
+core test target (the workbench converts `std::string ↔ juce::String` at the
+boundary). Device/restart/UI behaviour is interactive (manual-acceptance), with
+compile-verification against real JUCE in CI.
 
 **Target Platform**: desktop standalone (the `desktop` CMake preset). macOS first
 (arm64); the JUCE selector + properties are cross-platform, so Linux/Windows desktop
@@ -112,7 +114,10 @@ adapters/workbench/
 │                             #   selector + first-run default
 ├── audio-settings.h/.cpp     # NEW: AudioSettingsWindow over AudioDeviceSelectorComponent
 ├── source-bar.h/.cpp         # NEW: Live/File + "Load file…" component (callbacks only)
-├── workbench-settings.h/.cpp # NEW: persistence + pure SourceConfig serialize/parse
+├── workbench-settings.h/.cpp # NEW: JUCE-FREE — SourceMode/SourceConfig + serialize/
+│                             #   parse (the tested seam; compiled into acfx_core_tests)
+├── workbench-persistence.h/.cpp # NEW: JUCE — save/load the device XML + SourceConfig
+│                             #   via ApplicationProperties (workbench only)
 ├── audio-source.h/.cpp       # CHANGED: relax the "throw if configured" guard into the
 │                             #   release-before-reconfigure lifecycle (fillBlock + the
 │                             #   in-memory player stay byte-for-byte RT-safe)
