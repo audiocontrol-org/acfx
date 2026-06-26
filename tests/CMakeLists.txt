@@ -8,11 +8,18 @@ add_executable(acfx_core_tests
   core/parameter-test.cpp
   core/svf-test.cpp
   core/no-allocation-test.cpp
+  core/workbench-settings-test.cpp
+  # The SourceConfig serde seam is JUCE-free (std::string only), so its TU links
+  # into this JUCE-free test target directly (contracts/source-config.md).
+  "${CMAKE_SOURCE_DIR}/adapters/workbench/workbench-settings.cpp"
   support/allocation-sentinel.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
 target_include_directories(acfx_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+# adapters/workbench on the include path so the serde test (and its TU) resolve
+# #include "workbench-settings.h".
+target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
 target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host doctest::doctest)
 target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
 

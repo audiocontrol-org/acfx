@@ -27,4 +27,5 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:feature/workbench-audio-config
 - status: planned
+- analyze-clean: yes
 - spec: specs/workbench-audio-config

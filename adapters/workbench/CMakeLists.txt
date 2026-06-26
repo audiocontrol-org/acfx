@@ -11,6 +11,10 @@ target_sources(acfx_workbench PRIVATE
   workbench-app.cpp
   parameter-view.cpp
   audio-source.cpp
+  audio-settings.cpp
+  source-bar.cpp
+  workbench-settings.cpp
+  workbench-persistence.cpp
 )
 
 target_compile_features(acfx_workbench PRIVATE cxx_std_20)
