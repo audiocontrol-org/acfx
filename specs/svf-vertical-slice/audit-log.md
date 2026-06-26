@@ -323,3 +323,57 @@ Surface:    adapters/workbench/audio-source.cpp:28-31 (the swap) vs. :63-75 (the
 `useFilePlayer()` performs `fileBuffer_ = std::move(decoded);` (line 28) — a non-atomic move-assignment that destroys the previous `AudioBuffer<float>`'s heap storage — while the audio thread may be inside `fillBlock()` calling `fileBuffer_.getReadPointer(...)` and dereferencing `src[pos]` (lines 63-67). The `std::atomic` flags (`hasFile_`, `playPos_`) are published *after* the move (lines 29-31), so they order the *flag* but provide no protection for the buffer storage itself: an in-flight reader holding a `getReadPointer` into the old buffer gets a use-after-free the moment the move frees it. Notably the code does not even set `hasFile_=false` *before* the swap, which would at least let a fresh `fillBlock` bail out.
 
 The header (audio-source.h:11-18) makes an *absolute* RT-safety claim and specifically says it eliminated "no transport object whose source pointer the audio thread could see freed mid-swap." That fix removed the transport but moved the same race onto the buffer reassignment — the channel was relocated, not closed. For a "sketch-and-hear workbench," loading a new file *during live playback* is the obvious use case, and `useFilePlayer()` exposes no precondition guard or documented stop-the-audio contract. Blast radius: an adopter wiring a "load file" button to this method while audio runs gets intermittent UAF crashes that won't reproduce deterministically. A correct fix double-buffers (hold both old and new, swap an `atomic<int>` active-index) or requires the caller to quiesce the audio graph first and states that as an enforced precondition, not a comment.
+
+## 2026-06-26 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260626-21 — Completed tasks still contain pending or blocked acceptance
+
+Finding-ID: AUDIT-20260626-21
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    specs/svf-vertical-slice/tasks.md:88, specs/svf-vertical-slice/tasks.md:107, specs/svf-vertical-slice/tasks.md:127
+
+`T027`, `T031`, and `T035` are marked `[X]`, but their own text says parts of the acceptance remain pending or blocked: US1 still needs live sweep/MIDI/A-B listening, US2 still needs DAW instantiation/automation/parity, and US3 says the firmware ELF link is blocked by a C-only `arm-none-eabi-gcc`. This contradicts the task-list completion signal: an unattended downstream agent or release gate will read `[X]` as complete and close the feature despite acceptance gaps.
+
+The blast radius is high because these are the user-story acceptance tasks, not cosmetic notes. A reasonable correction is to split each item into completed automated/build verification versus explicit unchecked manual/hardware acceptance tasks, or leave the parent acceptance task unchecked until the stated independent test is actually satisfied.
+
+### AUDIT-20260626-22 — `clamp01` passes NaN/non-finite values straight through, poisoning RT filter state irrecoverably
+
+Finding-ID: AUDIT-20260626-22
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    core/dsp/parameter.h:27 (`detail::clamp01`), consumed by `denormalize` at :34-58 and `SvfEffect::applyPending`/`applyCutoff`
+
+`clamp01` is `x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x)`. For `x = NaN`, both `NaN < 0.0f` and `NaN > 1.0f` evaluate false, so the function **returns NaN unchanged** — the one input class a 0..1 clamp exists to neutralize is the one it lets through. The path is reachable end-to-end: `SvfEffect::setParameter` stores the caller's float bits verbatim (`svf-effect.h:floatBits`), `applyPending` reads them back and calls `denormalize(kParams[kCutoff], NaN)`, whose logarithmic branch computes `min * std::pow(max/min, NaN) = NaN` (parameter.h:52-53). That NaN reaches `SvfPrimitive::setFreq` → `daisysp::Svf::SetFreq`, and a NaN coefficient propagates into the filter's recursive state on the very next sample, corrupting **all future output on that channel until `reset()`** — there is no self-healing.
+
+Blast radius: a single malformed automation value (buggy host automation curves, a denormalized/uninitialized control read, an MCU control loop with a divide-by-zero) silently and permanently destroys the audio path with no error surfaced — exactly the "fallback that hides a failure mode" the project guidelines forbid, except here it's a guard that fails open. An unattended adopter wiring up parameter automation will trust the clamp and never see the corruption coming. Fix: make `clamp01` non-finite-safe, e.g. `return x >= 0.0f ? (x <= 1.0f ? x : 1.0f) : 0.0f;` — because `NaN >= 0.0f` is false, NaN maps to 0, and `±inf` clamp correctly. This is the round-0 self-red-team driver applied: the round-3 atomic hardening is correct, but it faithfully *transports* a poisoned value into the hot path.
+
+### AUDIT-20260626-23 — ProcessContext is prepared for a hardcoded 2 channels but process() drives up to 8 channels from the live buffer
+
+Finding-ID: AUDIT-20260626-23
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/workbench/workbench-app.cpp:60 (prepare) vs :97-103 (process)
+
+`prepareToPlay` builds `const ProcessContext ctx{sampleRate, blockSize, 2}` with a literal channel count of 2 (line 60). `getNextAudioBlock` then derives the actual channel count from the live device buffer: `numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels)` (line 90, `kMaxChannels == 8`) and constructs `AudioBlock block(chans.data(), numChannels, numSamples)` (line 102) passed to `node_->processBlock`. `setAudioChannels(2, 2)` is a *request*, not a guarantee — JUCE may open a device with a different active channel count, in which case `buffer.getNumChannels()` can exceed 2.
+
+If `SvfEffect::prepare` sizes its per-channel state (filter z-state, atomics) to `ctx.numChannels()`, and `process()` iterates `block.numChannels()`, a device that opens with >2 channels yields out-of-bounds reads/writes on the per-channel state — in the RT callback, the worst place for it. Even short of OOB, preparing for 2 while processing N is a contract violation the effect can't defend against. The prepared channel count must be the same quantity the process path uses: derive it from the device (`numInputChannels()`/output count) or clamp `processBlock` to `ctx.numChannels()`. I can't see `SvfEffect` in this chunk to confirm the OOB, so the blast radius is conditional on its state sizing — but the inconsistency itself is real and the failure mode is severe, hence high.
+
+### AUDIT-20260626-24 — Teensy mode-pin normalization produces `norm = 1.0`, potentially yielding out-of-range discrete index
+
+Finding-ID: AUDIT-20260626-24
+Status:     open
+Severity:   high
+Per-lane:   sonnet=high
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    adapters/teensy/teensy-main.cpp:86
+
+`analogRead()` returns values in `[0, 1023]`. The mapping `static_cast<float>(analogRead(kModePin)) / 1023.0f` yields exactly `1.0f` when the pin reads 1023 — its documented maximum. If `SvfEffect::setParameter` discretizes mode using the common idiom `floor(norm * count)` (count = 3 for LP/HP/BP), then `floor(1.0f * 3) = 3`, which is an out-of-range index. This is a 1-in-1024 frequency hardware bug that would manifest as unpredictable filter behaviour when the cutoff knob sits at its physical maximum. The project constitution forbids defensive clamping in the core ("no fallbacks outside test code"), so the adapter must guard this boundary. The fix is `std::min(static_cast<float>(analogRead(kModePin)) / 1023.0f, std::nextbelow(1.0f))` or `analogRead(kModePin) * count / 1024` in integer arithmetic, depending on how the effect's discretization is defined.
+
+---

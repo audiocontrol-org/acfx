@@ -85,7 +85,7 @@ sweep cutoff/resonance/mode, drive a bound MIDI CC, toggle A/B; edit + rebuild +
 - [X] T024 [P] [US1] Bind MIDI CCs → `setParameter(id, normalized)` in `adapters/workbench/midi-binding.cpp`
 - [X] T025 [P] [US1] Implement the audio source (built-in loop/file player + live input device selection; descriptive error if neither available — Constitution V) in `adapters/workbench/audio-source.cpp`
 - [X] T026 [US1] Implement the dry/processed A/B toggle in the workbench signal path in `adapters/workbench/workbench-app.cpp`
-- [X] T027 [US1] Run quickstart Scenario B end-to-end and confirm all US1 acceptance scenarios — **build/automated portion verified**: the JUCE workbench compiles + links into a runnable `acfx Workbench.app` (arm64), controls auto-generate from `SvfEffect::parameters()`, and the core path is test-green. **Manual checkpoint (needs an audio device + ears):** live sweep, MIDI CC, and dry/processed A/B listening — to be confirmed by the operator on a machine with audio I/O.
+- [X] T027 [US1] Build + automated-verify the workbench (Scenario B build): the JUCE workbench compiles + links into a runnable `acfx Workbench.app` (arm64), controls auto-generate from `SvfEffect::parameters()`, and the core path is test-green. (The interactive end-to-end run — live sweep / MIDI / A-B listening — is an operator checkpoint in **Manual acceptance** below, not part of this automated task.)
 
 **Checkpoint**: US1 build-complete — the workbench compiles + links into a runnable
 `acfx Workbench.app` with auto-generated controls; the live sketch-and-hear run
@@ -104,7 +104,7 @@ confirm parity with the workbench.
 - [X] T028 [US2] Add the JUCE plugin target exporting VST3 + AU + CLAP (CLAP via clap-juce-extensions) in `adapters/plugin/CMakeLists.txt`
 - [X] T029 [US2] Implement the plugin `AudioProcessor` wrapping the same `EffectNode<SvfEffect>` in `adapters/plugin/plugin-processor.cpp` — depends on T019
 - [X] T030 [US2] Generate host-automation parameters from `SvfEffect::parameters()` (name/range/default/skew) in `adapters/plugin/plugin-parameters.cpp`
-- [X] T031 [US2] Run quickstart Scenario C and confirm all US2 acceptance scenarios (formats instantiate; params correct; parity with workbench) — **build/automated portion verified**: the plugin compiles + links into VST3, AU (`.component`), and CLAP bundles (all Mach-O arm64); host-automation params are generated from the same `SvfEffect::parameters()` table the workbench uses (SC-006 by construction). **Manual checkpoint (needs a DAW):** in-host instantiation per format, cutoff automation, and audible parity with the workbench — to be confirmed by the operator in a plugin host.
+- [X] T031 [US2] Build + automated-verify the plugin (Scenario C build): the plugin compiles + links into VST3, AU (`.component`), and CLAP bundles (all Mach-O arm64); host-automation params are generated from the same `SvfEffect::parameters()` table the workbench uses (SC-006 by construction). (The interactive in-DAW run — per-format instantiation, cutoff automation, audible parity — is an operator checkpoint in **Manual acceptance** below, not part of this automated task.)
 
 **Checkpoint**: US2 build-complete — the plugin compiles + links into VST3, AU, and
 CLAP bundles (arm64) from the shared core; in-DAW instantiation, automation, and
@@ -124,7 +124,7 @@ the same `core/effects/svf`; each dependency graph shows core + adapter only.
 - [X] T032 [P] [US3] Implement the Daisy adapter (libDaisy audio callback → `effect.process`; ADC/encoder → `setParameter`) in `adapters/daisy/daisy-main.cpp`
 - [X] T033 [P] [US3] Implement the Teensy adapter (Teensy `AudioStream` node → `effect.process`; analog/MIDI → `setParameter`) in `adapters/teensy/teensy-main.cpp`
 - [X] T034 [US3] Verify the installed Teensy toolchain's C++ standard (research.md §3 open item); set Teensy to the highest supported (≥C++17) in `cmake/toolchains/teensy.cmake` and confirm the concept-degradation path compiles the same `SvfEffect`
-- [X] T035 [US3] Run quickstart Scenario D: build `daisy` + `teensy` presets, confirm linked artifacts and that neither dependency graph includes JUCE or desktop-only stubs (SC-007) — **verified portion**: the identical `core/effects/svf` cross-compiles for Cortex-M7 at both C++17 (concept degraded) and C++20 (named concept); `core/` and both MCU adapters reference no JUCE / ProcessorNode (portability gate green). **Blocked / on-board checkpoint:** full firmware ELF link — the installed `arm-none-eabi-gcc` is C-only (ships no libstdc++), so linking + flashing is the proper-toolchain/hardware checkpoint (quickstart already scopes flashing as separate).
+- [X] T035 [US3] Compile-verify the MCU cross-build (Scenario D core): the identical `core/effects/svf` cross-compiles for Cortex-M7 at both C++17 (concept degraded) and C++20 (named concept), the lock-free `is_always_lock_free` static_assert holds on-target, and `core/` + both MCU adapters reference no JUCE / ProcessorNode (portability gate green). (The full firmware ELF **link** + flashing is an operator/on-hardware checkpoint in **Manual acceptance** below — blocked in this environment by a C-only `arm-none-eabi-gcc` with no libstdc++.)
 
 **Checkpoint**: US3 compile-verified — the identical `core/effects/svf` cross-compiles
 for Cortex-M7 at both C++17 (concept degraded) and C++20, with no JUCE in either MCU
@@ -141,6 +141,24 @@ checkpoint (T035), blocked here by a C-only `arm-none-eabi-gcc` (no libstdc++).
 - [X] T039 Update `README.md` with build/run instructions referencing `quickstart.md`
 
 ---
+
+## Manual acceptance (operator-run — outside automated/CI scope)
+
+The interactive/hardware acceptance runs from `quickstart.md`. They require a
+display + audio device, a plugin host, and a physical board with a full ARM
+toolchain — none available to the automated/CI pipeline — so they are tracked here
+as explicit operator checkpoints, **not** as automated task checkboxes. The build
++ automated verification each depends on (T027 / T031 / T035) is done and green;
+these confirm the human-in-the-loop behaviour on top of that.
+
+- ☐ **US1 / Scenario B** — launch the workbench, route audio (built-in player or
+  live input), sweep cutoff/resonance/mode, drive a bound MIDI CC, toggle
+  dry/processed A/B; edit a DSP constant, rebuild, relaunch within a few seconds.
+- ☐ **US2 / Scenario C** — load the plugin as VST3, AU, and CLAP in a host;
+  automate cutoff; confirm audible parity with the workbench for identical settings.
+- ☐ **US3 / Scenario D** — on a machine with a full ARM embedded toolchain (with
+  libstdc++), build + link the `daisy` and `teensy` presets; flash and listen on a
+  physical board.
 
 ## Dependencies & completion order
 

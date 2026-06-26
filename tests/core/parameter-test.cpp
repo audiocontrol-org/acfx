@@ -1,5 +1,8 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
+#include <limits>
+
 #include "dsp/param-id.h"
 #include "dsp/parameter.h"
 
@@ -66,4 +69,20 @@ TEST_CASE("out-of-range normalized inputs clamp to the parameter bounds") {
     CHECK(denormalize(linearRes, 1.5f) == doctest::Approx(1.0f));
     CHECK(denormalize(logCutoff, -1.0f) == doctest::Approx(20.0f));
     CHECK(denormalize(logCutoff, 2.0f) == doctest::Approx(20000.0f));
+}
+
+TEST_CASE("non-finite normalized inputs are neutralized, never propagated") {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+
+    // NaN must map to the minimum (0 normalized), not pass through and poison the
+    // filter state. +inf -> max, -inf -> min. All results must be finite.
+    for (const ParameterDescriptor& d : {linearRes, logCutoff, discreteMode}) {
+        CHECK(std::isfinite(denormalize(d, nan)));
+        CHECK(std::isfinite(denormalize(d, inf)));
+        CHECK(std::isfinite(denormalize(d, -inf)));
+    }
+    CHECK(denormalize(logCutoff, nan) == doctest::Approx(20.0f));
+    CHECK(denormalize(logCutoff, inf) == doctest::Approx(20000.0f));
+    CHECK(denormalize(logCutoff, -inf) == doctest::Approx(20.0f));
 }

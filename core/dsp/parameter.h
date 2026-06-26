@@ -27,7 +27,12 @@ struct ParameterDescriptor {
 };
 
 namespace detail {
-constexpr float clamp01(float x) noexcept { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+// Clamp to [0,1] AND neutralize non-finite input: NaN must map to 0, not pass
+// through. Written so that NaN (for which every comparison is false) takes the
+// final else branch: NaN >= 0 is false -> 0. +inf -> 1, -inf -> 0. A plain
+// `x < 0 ? 0 : (x > 1 ? 1 : x)` would return NaN unchanged and poison the filter
+// state irrecoverably (a guard that fails open).
+constexpr float clamp01(float x) noexcept { return x >= 0.0f ? (x <= 1.0f ? x : 1.0f) : 0.0f; }
 } // namespace detail
 
 // norm (0..1) -> plain units. Pure, allocation-free, audio-thread safe.

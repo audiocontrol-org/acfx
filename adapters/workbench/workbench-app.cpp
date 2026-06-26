@@ -63,7 +63,12 @@ public:
     }
 
     void prepareToPlay(int blockSize, double sampleRate) override {
-        const ProcessContext ctx{sampleRate, blockSize, 2};
+        // Prepare for the device's ACTUAL output channel count (setAudioChannels
+        // is a request, not a guarantee), bounded by kMaxChannels — so the count
+        // the effect is prepared for matches the count process() drives.
+        const int outputs = numOutputChannels();
+        preparedChannels_ = juce::jlimit(1, kMaxChannels, outputs > 0 ? outputs : 2);
+        const ProcessContext ctx{sampleRate, blockSize, preparedChannels_};
         node_->prepare(ctx);
 
         // Default to live input when the device offers it; otherwise the operator
@@ -90,7 +95,8 @@ public:
         juce::AudioBuffer<float>& buffer = *info.buffer;
         const int startSample = info.startSample;
         const int numSamples = info.numSamples;
-        const int numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
+        // Bound to the count the effect was prepared for (never exceed it).
+        const int numChannels = juce::jmin(buffer.getNumChannels(), preparedChannels_);
 
         // Pull the source audio into the destination region (live input is already
         // present and passes through). fillBlock is noexcept and lock-free.
@@ -123,6 +129,12 @@ private:
         return 0;
     }
 
+    int numOutputChannels() const {
+        if (auto* device = deviceManager.getCurrentAudioDevice())
+            return device->getActiveOutputChannels().countNumberOfSetBits();
+        return 0;
+    }
+
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg) override {
         midi_.handle(msg, [this](ParamId id, float norm) {
             node_->setParameter(id, norm); // core is thread-safe (atomic pending)
@@ -143,6 +155,7 @@ private:
     WorkbenchAudioSource source_;
     juce::ToggleButton abToggle_;
 
+    int preparedChannels_ = 2;
     std::atomic<bool> processed_{true};
 };
 

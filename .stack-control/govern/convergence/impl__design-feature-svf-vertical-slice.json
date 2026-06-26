@@ -15,23 +15,23 @@
   "rounds": 1,
   "liftedFindings": [
     {
+      "id": "1d366441c57c4606::AUDIT-BARRAGE-codex-01",
+      "title": "Completed tasks still contain pending or blocked acceptance",
+      "severity": "high"
+    },
+    {
       "id": "51a61c640621e280::AUDIT-BARRAGE-claude-01",
-      "title": "Thread-ownership comment over-claims: prepare()/reset() mutate coefficients off the audio thread with no synchronization",
+      "title": "`clamp01` passes NaN/non-finite values straight through, poisoning RT filter state irrecoverably",
       "severity": "high"
     },
     {
-      "id": "51a61c640621e280::AUDIT-BARRAGE-codex-01",
-      "title": "Non-lock-free float atomics leak into the embedded audio/control path",
+      "id": "561c01cdba330da9::AUDIT-BARRAGE-claude-02",
+      "title": "ProcessContext is prepared for a hardcoded 2 channels but process() drives up to 8 channels from the live buffer",
       "severity": "high"
     },
     {
-      "id": "561c01cdba330da9::AUDIT-BARRAGE-codex-01",
-      "title": "Workbench parameter edits bypass the claimed RT-safe handoff",
-      "severity": "high"
-    },
-    {
-      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-codex-02+AUDIT-BARRAGE-claude-02+AUDIT-BARRAGE-claude-08",
-      "title": "Non-atomic `fileBuffer_` swap in `useFilePlayer()` races with the audio thread's `fillBlock()`",
+      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01",
+      "title": "Teensy mode-pin normalization produces `norm = 1.0`, potentially yielding out-of-range discrete index",
       "severity": "high"
     }
   ],
