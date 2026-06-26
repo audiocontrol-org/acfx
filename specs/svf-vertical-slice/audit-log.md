@@ -569,3 +569,48 @@ Surface:    adapters/workbench/audio-source.cpp:19-24
 `reader->lengthInSamples` is a 64-bit value, but the code casts it to `int` before validating it: `const int numSamples = static_cast<int>(reader->lengthInSamples);`. A valid long audio file whose sample count exceeds `INT_MAX` can wrap or truncate, after which the code either rejects it as “empty” or allocates/reads the wrong length.
 
 The blast radius is high because this is a user-facing workbench source path: an adopter can hit it with a real long recording, and the failure mode is misleading or incorrect playback rather than a clear “file too large” diagnostic. A reasonable fix is to validate `reader->lengthInSamples` in its original integer width first, reject values larger than `std::numeric_limits<int>::max()` with a descriptive `AudioSourceError`, and only then cast for `AudioBuffer`.
+
+## 2026-06-26 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260626-37 — T038 still claims "built all four targets" — contradicts T035's admission that the MCU targets are not built
+
+Finding-ID: AUDIT-20260626-37
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    specs/svf-vertical-slice/tasks.md — T038 (Phase 6) vs. T035 (Phase 5)
+
+T035 was honestly reworded to admit the MCU build is **not** done: *"the installed `arm-none-eabi-gcc` is C-only (no libstdc++), so the on-target compile, link, and flashing are the on-hardware checkpoint… Not verified here: the actual arm-none-eabi Cortex-M7 compile and the firmware ELF link."* But T038 — marked `[X]` and left with its original text — asserts *"the identical `core/effects/svf` **built all four targets** with no per-target `#ifdef` forks of the effect (SC-001, SC-005)."* Only two targets (workbench, plugin) were actually built; daisy and teensy were host-compile-verified, not built for their real target. The two completed tasks cannot both be true as written.
+
+The blast radius is exactly the overclaim that commit d183a18 ("correct ARM overclaim") set out to remove: an unattended agent scanning the ledger for "are all four targets built?" lands on T038's affirmative `[X]` and propagates "cross-platform build proven on all four targets" downstream — skipping the ARM-toolchain setup the feature still needs, or reporting the cross-platform claim as fully realized. T035's nearby correction does not reach a reader who keys on T038. A reasonable fix mirrors the T035/T027/T031 reframing: reword T038 to "built the two desktop targets and host-compile-verified the identical core for the two MCU targets (the on-target MCU build is the Manual-acceptance checkpoint)," so the one-source-many-targets claim is scoped to what was actually proven.
+
+### AUDIT-20260626-38 — Daisy mode-knob normalization — lifted HIGH finding remains unaddressed in this chunk
+
+Finding-ID: AUDIT-20260626-38
+Status:     open
+Severity:   high
+Per-lane:   sonnet=high
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=yes; no down-calibration signal — high retained.
+Surface:    adapters/daisy/daisy-main.cpp:31–36, 47
+
+`maybeSet` passes the raw `hw.adc.GetFloat(adc)` value — a continuous float in [0.0, 1.0] — directly to `svf.setParameter(...)` for all three parameters, including mode (line 47: `maybeSet(acfx::SvfEffect::kMode, kAdcMode)`). The comment says "the effect denormalizes via its descriptor — identical mapping to every other adapter," implying the descriptor handles the mapping. However, mode is a discrete parameter (LP / HP / BP / Notch). For cutoff and resonance, a normalized float passing through to a continuous range is straightforward. For a discrete mode, the descriptor's quantization logic must explicitly floor/round the [0,1] float into an integer mode index, scaling by the number of modes. If it treats the incoming value as a direct integer (i.e., `static_cast<int>(0.73f) == 0`), the mode knob is effectively broken — it maps the entire travel of the knob to mode 0.
+
+The governance file (`impl__design-feature-svf-vertical-slice.json`, line 28–31) lists this as a lifted HIGH finding from a prior round: `"title": "Daisy mode-knob normalization — lifted HIGH finding still open with no fix visible in this chunk"`. No discretization or rounding logic has been added to `maybeSet` or around line 47 in this diff. The core SVF parameter definitions are in other chunks (not visible here), so whether the descriptor does the right thing cannot be confirmed from this surface alone. The fix needs to be visible here or evidenced by the descriptor's quantization behavior being explicitly called out in the comment — neither is present.
+
+---
+
+### AUDIT-20260626-39 — Missing-synchronization defect: the `configured_` guard meant to prevent the audio-thread race is itself a non-atomic cross-thread bool
+
+Finding-ID: AUDIT-20260626-39 (claude-01 + claude-05; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=high, sonnet=low
+Decision:   adjudicated (gate-counted high) — blast-radius=high, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    adapters/workbench/audio-source.h:60 (`bool configured_ = false;`); adapters/workbench/audio-source.cpp:10,33,52,55
+
+The header makes a strong safety claim (audio-source.h:18-22): *"That precondition is ENFORCED — a selection call while already configured throws — so the audio thread never reads a buffer being reassigned."* The enforcement is `if (configured_) throw …` in `useFilePlayer`/`useLiveInput` (audio-source.cpp:10,33). But `configured_` is a plain `bool`, written in `prepare()`/`release()` (cpp:52,55) and read in the selection calls. `prepare()`/`release()` run on JUCE's audio/device thread (via `prepareToPlay`/`releaseResources`); the selection calls run on the message thread. Every other shared field here (`hasFile_`, `live_`, `playPos_`) is correctly a `std::atomic` with acquire/release ordering — `configured_` is the one that isn't.
+
+The consequence is not merely formal UB on a bool. The misuse this guard exists to catch is "call `useFilePlayer` while the stream is running." In exactly that case, with no acquire/release on `configured_`, the message thread may fail to observe the `configured_ = true` written by the audio-setup thread, the guard passes, and `useFilePlayer` then does `fileBuffer_ = std::move(decoded)` (cpp:38) — reassigning a non-atomic `juce::AudioBuffer` that the audio thread is concurrently reading in `fillBlock` (cpp:78). That is a real data race on `fileBuffer_` (torn read of a half-moved buffer → garbage/crash), and the guard the comment relies on does not reliably fire to stop it.
+
+Fix: make `configured_` `std::atomic<bool>` with `store(release)`/`load(acquire)`, mirroring the treatment already applied to `hasFile_`/`live_`. That at least gives the guard the visibility guarantee its own comment promises (a fuller fix would also close the check-then-reassign TOCTOU window).

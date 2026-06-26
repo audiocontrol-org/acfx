@@ -37,9 +37,12 @@ void maybeSet(acfx::SvfEffect::Param param, int adc) {
 }
 
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size) {
-    // Map the knobs to normalized parameter values (the effect denormalizes via
-    // its descriptor — identical mapping to every other adapter). Dead-banded so
-    // a steady knob does not trigger a coefficient recompute every block.
+    // Map the knobs to normalized 0..1 values. The effect denormalizes each via
+    // its descriptor — identical mapping to every other adapter. For the discrete
+    // `mode` knob the descriptor quantizes 0..1 to a mode index and CLAMPS it to
+    // [0, count) (verified in tests/core/parameter-test.cpp), so full knob travel
+    // selects the last mode, never an out-of-range index. Dead-banded so a steady
+    // knob does not recompute coefficients every block.
     maybeSet(acfx::SvfEffect::kCutoff, kAdcCutoff);
     maybeSet(acfx::SvfEffect::kResonance, kAdcResonance);
     maybeSet(acfx::SvfEffect::kMode, kAdcMode);

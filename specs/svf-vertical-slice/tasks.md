@@ -138,7 +138,7 @@ no libstdc++); they are the on-hardware checkpoint (T035, Manual acceptance belo
 
 - [X] T036 [P] Add a CI workflow building + testing the `test` and `desktop` presets on every change (quickstart Scenario A + desktop build), as explicit steps — NOT a git hook (Constitution II, FR-015)
 - [X] T037 [P] Add explicit script/CI checks for the file-size budget (~300–500 lines, Constitution VII) and "no JUCE in MCU dependency graph" (SC-007) — visible steps, not hooks
-- [X] T038 [P] Confirm the one-source-many-targets invariant (quickstart Scenario E): the identical `core/effects/svf` built all four targets with no per-target `#ifdef` forks of the effect (SC-001, SC-005)
+- [X] T038 [P] Confirm the one-source-many-targets invariant (quickstart Scenario E): the identical `core/effects/svf` (no per-target `#ifdef` forks of the effect) built the two desktop targets here and was host-compile-verified at C++17/C++20 for the two MCU targets; the on-target MCU build is the Manual-acceptance checkpoint (SC-001, SC-005)
 - [X] T039 Update `README.md` with build/run instructions referencing `quickstart.md`
 
 ---

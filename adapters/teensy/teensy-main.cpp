@@ -80,8 +80,11 @@ void setup() {
 }
 
 void loop() {
-    // Sample the knobs and map to normalized parameter values (the effect
-    // denormalizes via its descriptor — identical mapping to every adapter).
+    // Sample the knobs and map to normalized 0..1 values (the effect denormalizes
+    // via its descriptor — identical mapping to every adapter). For the discrete
+    // `mode` knob the descriptor quantizes 0..1 to a mode index CLAMPED to
+    // [0, count) (verified in tests/core/parameter-test.cpp), so full travel
+    // selects the last mode, never an out-of-range index.
     // Read off the audio ISR, then publish the three values as a group under
     // AudioNoInterrupts so update() (the audio ISR) cannot observe a partial
     // update between them.

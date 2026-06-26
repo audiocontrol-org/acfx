@@ -57,7 +57,10 @@ private:
     std::atomic<int> playPos_{0};
     std::atomic<bool> live_{false};
     std::atomic<bool> hasFile_{false};
-    bool configured_ = false;
+    // Atomic like its siblings: written on the audio/device thread (prepare/
+    // release) and read on the message thread (the selection-call guard), so the
+    // guard reliably observes a running stream.
+    std::atomic<bool> configured_{false};
 };
 
 } // namespace acfx::workbench

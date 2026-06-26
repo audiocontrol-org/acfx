@@ -8,7 +8,7 @@ namespace acfx::workbench {
 WorkbenchAudioSource::WorkbenchAudioSource() { formatManager_.registerBasicFormats(); }
 
 void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
-    if (configured_)
+    if (configured_.load(std::memory_order_acquire))
         throw AudioSourceError("Audio source must be selected before the stream "
                                "starts; stop audio to switch sources.");
     if (!file.existsAsFile())
@@ -43,7 +43,7 @@ void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
 }
 
 void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
-    if (configured_)
+    if (configured_.load(std::memory_order_acquire))
         throw AudioSourceError("Audio source must be selected before the stream "
                                "starts; stop audio to switch sources.");
     if (availableInputChannels <= 0)
@@ -57,10 +57,10 @@ void WorkbenchAudioSource::prepare(double, int) {
     if (!live_.load(std::memory_order_acquire) && !hasFile_.load(std::memory_order_acquire))
         throw AudioSourceError("No audio source configured: select the built-in "
                                "player (with a file) or a live input device.");
-    configured_ = true;
+    configured_.store(true, std::memory_order_release);
 }
 
-void WorkbenchAudioSource::release() { configured_ = false; }
+void WorkbenchAudioSource::release() { configured_.store(false, std::memory_order_release); }
 
 void WorkbenchAudioSource::fillBlock(juce::AudioBuffer<float>& block) noexcept {
     if (live_.load(std::memory_order_relaxed))
