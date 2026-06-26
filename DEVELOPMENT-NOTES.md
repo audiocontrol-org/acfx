@@ -2,6 +2,51 @@
 
 ---
 
+## 2026-06-26: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 24
+  - analyze remediation: make SourceConfig serde JUCE-free + split persistence TU
+  - Generate workbench-audio-config tasks (Spec Kit tasks phase)
+  - Plan workbench-audio-config via Spec Kit (plan phase + Phase 0/1 artifacts)
+  - Author workbench-audio-config spec via Spec Kit (specify phase)
+  - docs(design): workbench in-UI audio device + source + MIDI selection
+  - Record whole-feature govern convergence (graduated by override)
+  - Address round-9 govern: gate AU on Apple; verify 43/45 as false positives
+  - Address round-8 govern findings: <utility> include; live-input evidence
+  - Address round-7 govern findings: T038 wording, atomic configured_, mode-knob evidence
+  - Address round-6 govern findings: correct ARM overclaim, README, source hygiene
+  - Address round-5 govern findings: compile-time validation, RT alloc, CI, source path
+  - Address round-4 govern findings: NaN-safe clamp, channel consistency, honest ledger
+  - Address round-3 govern findings: precise contracts, lock-free atomics, enforced precondition
+  - Address round-2 govern findings: RT-safety, error surfacing, adapter races
+  - Address govern findings: RT-safety, thread ownership, doc drift
+  - Replace vendored CPM.cmake with pinned auto-download bootstrap
+  - Close acceptance tasks with honest verified/manual split (T027/T031/T035)
+  - Fix desktop build integration + JUCE-API bugs caught by real compilation
+  - Phase 6 (polish): CI, explicit portability gates, README
+  - Phase 5 (US3): Daisy + Teensy adapters; core proven ARM-portable
+  - Phase 4 (US2): DAW plugin (VST3 / AU / CLAP)
+  - Phase 3 (US1): desktop sketch-and-hear workbench (JUCE)
+  - Phase 2 (foundational): core spine + host-side tests, all green
+  - Phase 1 (setup): monorepo skeleton + CMake build system
+- Files changed: 699
+- Backlog touched: (none)
+
 ## 2026-06-25: SVF vertical slice — full front-door specifying phase (design → runnable tasks)
 
 **Goal:** Pick up the approved acfx platform design (which had nothing downstream)
