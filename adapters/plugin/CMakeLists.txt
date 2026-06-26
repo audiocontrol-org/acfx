@@ -3,12 +3,19 @@
 # same boundary the workbench uses) and adds only JUCE plugin glue. Built under the
 # `desktop` preset.
 
+# AU is an Apple-only format; request it only on Apple so the desktop preset stays
+# buildable on Linux/Windows (VST3 + CLAP there, VST3 + AU + CLAP on macOS).
+set(_acfx_plugin_formats VST3)
+if(APPLE)
+  list(APPEND _acfx_plugin_formats AU)
+endif()
+
 juce_add_plugin(acfx_plugin
   PRODUCT_NAME "acfx SVF"
   COMPANY_NAME "acfx"
   PLUGIN_MANUFACTURER_CODE Acfx
   PLUGIN_CODE Asvf
-  FORMATS VST3 AU
+  FORMATS ${_acfx_plugin_formats}
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT FALSE
   NEEDS_MIDI_OUTPUT FALSE

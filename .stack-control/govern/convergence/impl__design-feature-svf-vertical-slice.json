@@ -16,18 +16,18 @@
   "rounds": 1,
   "liftedFindings": [
     {
-      "id": "4cfb00d5b3480886::AUDIT-BARRAGE-codex-01",
-      "title": "Live input mode never copies device input into the processed buffer",
+      "id": "4cfb00d5b3480886::AUDIT-BARRAGE-claude-01",
+      "title": "prepareToPlay never reaches the promised \"surfaced error\" branch — unconfigured source still sets sourceReady_ = true",
       "severity": "high"
     },
     {
-      "id": "66d76089d898899c::AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-claude-05",
-      "title": "Checked-off tasks still leave required acceptance unchecked",
+      "id": "6a56babffbf5b038::AUDIT-BARRAGE-codex-01",
+      "title": "CI desktop build always requests an AU target on Linux-incompatible hosts",
       "severity": "high"
     },
     {
-      "id": "e7b284327d06692a::AUDIT-BARRAGE-codex-01",
-      "title": "C++17 effect diagnostics use `std::declval` without including `<utility>`",
+      "id": "a05731de7f2cca0b::AUDIT-BARRAGE-claude-01",
+      "title": "`reset()` silently reverts configured cutoff/resonance to DaisySP defaults",
       "severity": "high"
     }
   ],

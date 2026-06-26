@@ -655,3 +655,56 @@ Surface:    core/dsp/effect.h:36-54
 The C++17 path includes only `<type_traits>` but uses `std::declval` in the `is_effect` trait. `std::declval` is declared by `<utility>`, so a conforming or lean embedded standard library can fail the Teensy/C++17 build at this header. That directly hits the feature’s portability goal because the Teensy path is the one forced through this branch.
 
 The blast radius is high: an adopter compiling the core on a C++17 embedded toolchain can hit a hard compile failure before any SVF code runs. The reasonable fix is to include `<utility>` in the C++17 branch, or unconditionally near the top of the header.
+
+## 2026-06-26 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260626-43 — prepareToPlay never reaches the promised "surfaced error" branch — unconfigured source still sets sourceReady_ = true
+
+Finding-ID: AUDIT-20260626-43
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/workbench/workbench-app.cpp (prepareToPlay source-selection try/catch, ~lines 90–118)
+
+The comment block directly above the source selection promises three outcomes: file player "when ACFX_WORKBENCH_FILE points at an audio file … else the live device input, else a surfaced error." The code implements only the first two:
+
+```cpp
+if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
+    source_.useFilePlayer(...);
+} else if (inputs > 0) {
+    source_.useLiveInput(inputs);
+}                         // <-- no else; nothing configured if !path && inputs==0
+source_.prepare(sampleRate, blockSize);
+sourceReady_ = true;      // <-- set true unconditionally on the success path
+```
+
+When there is no `ACFX_WORKBENCH_FILE` **and** the device exposes zero input channels (an output-only interface — a common, reachable configuration), neither `useFilePlayer` nor `useLiveInput` is called, yet `source_.prepare()` runs and `sourceReady_ = true` is set. There is no "else a surfaced error" branch anywhere in this function. Whether this becomes a silent fallback depends on the unseen `WorkbenchAudioSource::prepare()` (in audio-source.h, another chunk): if `prepare()` on a default-constructed/unconfigured source throws `AudioSourceError`, the catch surfaces it and the comment is merely misplaced; if it succeeds as a no-op, the workbench reports `sourceReady_ = true` and `getNextAudioBlock` calls `fillBlock` on an unconfigured source with no error — exactly the silent fallback Constitution V forbids, and exactly the failure mode the comment claims to prevent. Blast radius: an adopter on an output-only device, or an agent reading the comment as a guarantee, takes the "no silent fallback" promise at face value while the code does not enforce it in this function. Fix: add the explicit `else { throw AudioSourceError("no audio source: set ACFX_WORKBENCH_FILE or enable a live input"); }` so the promised error is in this function rather than presumed in a callee, and only set `sourceReady_` after a source is actually selected.
+
+### AUDIT-20260626-44 — CI desktop build always requests an AU target on Linux-incompatible hosts
+
+Finding-ID: AUDIT-20260626-44
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    `.github/workflows/ci.yml:33-48`, `adapters/plugin/CMakeLists.txt:6-13`
+
+The CI desktop job always builds `acfx_plugin_AU` on `macos-latest`, and the plugin target always declares `FORMATS VST3 AU`. That is coherent for the current runner, but the workflow step is named “Install JUCE Linux/macOS build prerequisites” and the build surface is not actually portable across the implied hosts: AU is macOS-only. If this job is later moved to Linux, matrixed across Linux/macOS, or copied as the desktop verification recipe, the target list fails at configure/build rather than proving the portable VST3/CLAP surface.
+
+Blast radius is high because a downstream CI consumer acting on this as the declared “Desktop workbench + plugin build” gate can produce a broken required gate simply by using the documented Linux/macOS host shape. A reasonable fix is to make plugin formats host-conditional in CMake or split CI targets by OS, with AU built only on Apple runners and VST3/CLAP built where supported.
+
+### AUDIT-20260626-45 — `reset()` silently reverts configured cutoff/resonance to DaisySP defaults
+
+Finding-ID: AUDIT-20260626-45
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    core/primitives/svf-primitive.h:40-41 (`reset()`), with cross-file dependency on `core/effects/svf/svf-effect.h` (chunk e7b284327d06692a)
+
+`reset()` is implemented as `svf_.Init(sampleRate_)`. DaisySP's `Svf::Init` does **not** merely clear filter state — it re-seeds the cutoff (`fc_`) and resonance (`res_`) to its built-in defaults (≈200 Hz, ≈0.5) and recomputes coefficients from them. The wrapper stores only `sampleRate_` and `mode_`; it does **not** store the last `hz`/`res` it was given, so after `reset()` there is no way for it to restore the configured tuning. The result is an asymmetric reset: `mode_` survives (it's a wrapper member), but the cutoff and resonance the user dialed in are dropped back to DaisySP defaults. The doc comment claims only "cleared-but-prepared state (DaisySP's Init clears state)" — it does not disclose that frequency and resonance revert, so the comment drifts from behavior.
+
+Whether this is observable depends on `SvfEffect::reset()` (not in this chunk). Per the thread contract in `processor-node.h:18-24`, `SvfEffect` "publishes an atomic pending value that the audio thread consumes inside `process()`" — i.e. parameters are applied on *change*. If `SvfEffect::reset()` calls `primitive.reset()` but does not unconditionally re-push the current freq/res (because the atomic pending value hasn't changed since the last block), the filter will run at 200 Hz / 0.5 Q after every reset until the user next moves a knob. That is a latent, audible mis-tuning on every transport stop/start or host reset call.
+
+Blast-radius: a downstream consumer wiring `EffectNode<SvfEffect>` into a DAW or the workbench will get correct audio on first play, then a wrongly-tuned filter after any `reset()`, with nothing in the code or comment warning them. Fix: have `SvfPrimitive` store the last `hz_`/`res_` and re-apply them inside `reset()` after `Init`, or split "clear state" from "reconfigure" so `reset()` preserves tuning — and update the comment to state exactly what survives a reset. (Verify the precise DaisySP `Svf::Init` body against the pinned CPM version before fixing.)
