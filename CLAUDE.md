@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **svf-vertical-slice**.
+Active Spec Kit feature: **workbench-audio-config**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/svf-vertical-slice/plan.md` (spec: `specs/svf-vertical-slice/spec.md`).
+current plan at `specs/workbench-audio-config/plan.md` (spec: `specs/workbench-audio-config/spec.md`).
 <!-- SPECKIT END -->
