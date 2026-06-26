@@ -16,7 +16,7 @@ inline constexpr double kPi = 3.14159265358979323846;
 // frequency. `proc` is any callable float(float). A settling prefix is discarded
 // so only the steady-state RMS ratio is measured.
 template <typename Proc>
-double measureMagnitude(Proc proc, double freqHz, double sampleRate, int settle = 8192,
+double measureMagnitude(Proc&& proc, double freqHz, double sampleRate, int settle = 8192,
                         int measure = 16384) {
     const double w = 2.0 * kPi * freqHz / sampleRate;
     for (int n = 0; n < settle; ++n)

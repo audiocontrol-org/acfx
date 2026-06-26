@@ -23,7 +23,6 @@
 namespace acfx::workbench {
 
 namespace {
-constexpr int kMaxParams = 8;
 constexpr int kMaxChannels = 8;
 } // namespace
 
@@ -33,7 +32,7 @@ public:
     WorkbenchComponent()
         : node_(std::make_unique<EffectNode<SvfEffect>>()),
           paramView_(node_->parameters(),
-                     [this](ParamId id, float norm) { postParam(id, norm); }) {
+                     [this](ParamId id, float norm) { node_->setParameter(id, norm); }) {
         params_ = node_->parameters();
 
         // Default MIDI map: CC 74 -> cutoff (the conventional filter-cutoff CC).
@@ -74,8 +73,8 @@ public:
     }
 
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override {
-        applyPendingParams();
-
+        // Parameter edits are consumed inside SvfEffect::process() (atomic
+        // pending), so the audio thread needs no separate apply step here.
         juce::AudioBuffer<float>& buffer = *info.buffer;
         const int startSample = info.startSample;
         const int numSamples = info.numSamples;
@@ -117,29 +116,16 @@ private:
         return 0;
     }
 
-    // --- lock-free parameter handoff (GUI/MIDI thread -> audio thread) ---
-    void postParam(ParamId id, float normalized) {
-        const int idx = id.value;
-        if (idx < 0 || idx >= kMaxParams)
-            return;
-        pendingValue_[idx].store(normalized);
-        pendingDirty_[idx].store(true);
-    }
-
-    void applyPendingParams() {
-        for (int i = 0; i < kMaxParams; ++i) {
-            if (pendingDirty_[i].exchange(false))
-                node_->setParameter(ParamId{static_cast<std::uint8_t>(i)},
-                                    pendingValue_[i].load());
-        }
-    }
-
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg) override {
         midi_.handle(msg, [this](ParamId id, float norm) {
-            postParam(id, norm);
-            // Reflect into the GUI on the message thread.
-            juce::MessageManager::callAsync(
-                [this, id, norm] { paramView_.setNormalized(id, norm); });
+            node_->setParameter(id, norm); // core is thread-safe (atomic pending)
+            // Reflect into the GUI on the message thread, guarded so a callback
+            // queued before teardown never touches a destroyed component.
+            juce::Component::SafePointer<ParameterView> safeView(&paramView_);
+            juce::MessageManager::callAsync([safeView, id, norm] {
+                if (safeView != nullptr)
+                    safeView->setNormalized(id, norm);
+            });
         });
     }
 
@@ -152,8 +138,6 @@ private:
     juce::String lastSourceError_;
 
     std::atomic<bool> processed_{true};
-    std::array<std::atomic<float>, kMaxParams> pendingValue_{};
-    std::array<std::atomic<bool>, kMaxParams> pendingDirty_{};
 };
 
 class WorkbenchApplication final : public juce::JUCEApplication {

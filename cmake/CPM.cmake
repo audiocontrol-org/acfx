@@ -16,6 +16,11 @@ endif()
 
 get_filename_component(CPM_DOWNLOAD_LOCATION "${CPM_DOWNLOAD_LOCATION}" ABSOLUTE)
 
+# Ensure the destination directory exists before downloading (defensive — current
+# CMake creates it, but this keeps the bootstrap robust across versions).
+get_filename_component(_cpm_download_dir "${CPM_DOWNLOAD_LOCATION}" DIRECTORY)
+file(MAKE_DIRECTORY "${_cpm_download_dir}")
+
 file(DOWNLOAD
   "https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake"
   "${CPM_DOWNLOAD_LOCATION}"

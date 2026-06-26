@@ -3,6 +3,7 @@
 #include "dsp/param-id.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <string_view>
@@ -49,7 +50,11 @@ inline float denormalize(const ParameterDescriptor& d, float norm) noexcept {
 
     switch (d.skew) {
     case ParamSkew::logarithmic:
-        // Requires min, max > 0. plain = min * (max/min)^norm.
+        // Requires 0 < min < max (else 0*pow(inf,n) or log(1)=0 yield NaN). The
+        // invariant is enforced in debug builds; it compiles out in release, so
+        // the audio path stays branch-bounded and allocation-free.
+        assert(d.min > 0.0f && d.max > d.min &&
+               "logarithmic parameter requires 0 < min < max");
         return d.min * std::pow(d.max / d.min, norm);
     case ParamSkew::linear:
     default:
@@ -76,6 +81,8 @@ inline float normalize(const ParameterDescriptor& d, float plain) noexcept {
     plain = std::clamp(plain, d.min, d.max);
     switch (d.skew) {
     case ParamSkew::logarithmic:
+        assert(d.min > 0.0f && d.max > d.min &&
+               "logarithmic parameter requires 0 < min < max");
         return std::log(plain / d.min) / std::log(d.max / d.min);
     case ParamSkew::linear:
     default:

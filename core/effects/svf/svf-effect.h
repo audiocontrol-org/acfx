@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
 
 #include "dsp/audio-block.h"
@@ -14,6 +16,13 @@
 // spine. Satisfies the Effect contract (no base class, no vtable in the hot
 // path). One constexpr parameter table (cutoff/resonance/mode) drives every
 // adapter (FR-003). Per-channel DaisySP Svf state, allocation-free process.
+//
+// Thread-ownership boundary: setParameter() may be called from ANY thread (a UI
+// loop, a MIDI callback, an MCU main loop). It only publishes an atomic pending
+// normalized value; the audio thread consumes pending values at the top of
+// process(). So the actual filter coefficients are mutated on exactly one thread,
+// with no torn-coefficient data race against process() — an invariant the core
+// encodes itself rather than asking every adapter to honor.
 
 namespace acfx {
 
@@ -33,6 +42,13 @@ public:
          ParamSkew::linear, ParamKind::discrete, 3},
     }};
 
+    SvfEffect() noexcept {
+        for (std::size_t i = 0; i < kNumParams; ++i) {
+            pendingNorm_[i].store(0.0f, std::memory_order_relaxed);
+            pendingDirty_[i].store(false, std::memory_order_relaxed);
+        }
+    }
+
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
     void prepare(const ProcessContext& ctx) noexcept {
@@ -50,6 +66,7 @@ public:
     }
 
     void process(AudioBlock& io) noexcept {
+        applyPending(); // consume cross-thread parameter edits on the audio thread
         const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
         const int samples = io.numSamples();
         for (int ch = 0; ch < channels; ++ch) {
@@ -60,28 +77,20 @@ public:
         }
     }
 
-    // Normalized 0..1 in; mapped to plain units via the matching descriptor.
+    // Publish a normalized 0..1 value for a parameter. Callable from any thread;
+    // the audio thread applies it at the next process() (no immediate filter
+    // mutation here — that keeps coefficient updates single-threaded).
     void setParameter(ParamId id, float normalized) noexcept {
-        switch (id.value) {
-        case kCutoff:
-            cutoffHz_ = denormalize(kParams[kCutoff], normalized);
-            applyCutoff();
-            break;
-        case kResonance:
-            resonance_ = denormalize(kParams[kResonance], normalized);
-            applyResonance();
-            break;
-        case kMode:
-            mode_ = toMode(denormalize(kParams[kMode], normalized));
-            applyMode();
-            break;
-        default:
-            break; // out-of-range id: a programming error; no silent state change
-        }
+        const std::uint8_t i = id.value;
+        if (i >= kNumParams)
+            return; // out-of-range id: a programming error; no silent state change
+        pendingNorm_[i].store(normalized, std::memory_order_relaxed);
+        pendingDirty_[i].store(true, std::memory_order_release);
     }
 
 private:
     static constexpr int kMaxChannels = 8;
+    static constexpr std::size_t kNumParams = 3;
 
     static SvfMode toMode(float index) noexcept {
         switch (static_cast<int>(index)) {
@@ -92,6 +101,25 @@ private:
         case 0:
         default:
             return SvfMode::lowpass;
+        }
+    }
+
+    // Apply any parameter values published since the last block (audio thread).
+    void applyPending() noexcept {
+        if (pendingDirty_[kCutoff].exchange(false, std::memory_order_acquire)) {
+            cutoffHz_ = denormalize(kParams[kCutoff],
+                                    pendingNorm_[kCutoff].load(std::memory_order_relaxed));
+            applyCutoff();
+        }
+        if (pendingDirty_[kResonance].exchange(false, std::memory_order_acquire)) {
+            resonance_ = denormalize(kParams[kResonance],
+                                     pendingNorm_[kResonance].load(std::memory_order_relaxed));
+            applyResonance();
+        }
+        if (pendingDirty_[kMode].exchange(false, std::memory_order_acquire)) {
+            mode_ = toMode(denormalize(kParams[kMode],
+                                       pendingNorm_[kMode].load(std::memory_order_relaxed)));
+            applyMode();
         }
     }
 
@@ -130,10 +158,15 @@ private:
     float sampleRate_ = 48000.0f;
     int numChannels_ = 0;
 
-    // Current plain-unit parameter state (seeded from the descriptor defaults).
+    // Applied parameter state — owned by the audio thread (read/written only in
+    // prepare/reset/applyPending).
     float cutoffHz_ = kParams[kCutoff].defaultValue;
     float resonance_ = kParams[kResonance].defaultValue;
     SvfMode mode_ = SvfMode::lowpass;
+
+    // Cross-thread pending edits: any thread publishes, the audio thread consumes.
+    std::array<std::atomic<float>, kNumParams> pendingNorm_;
+    std::array<std::atomic<bool>, kNumParams> pendingDirty_;
 };
 
 } // namespace acfx

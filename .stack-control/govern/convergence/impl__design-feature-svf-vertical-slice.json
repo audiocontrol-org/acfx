@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "mode": "impl",
+  "item": "design:feature/svf-vertical-slice",
+  "governedShaBase": "ff3426a",
+  "headSha": "HEAD",
+  "chunkIds": [
+    "5d46bb000cdab808",
+    "952c352cc6eab725",
+    "b04c878073d5d626",
+    "b74f59c0c4fc198b",
+    "ba29de07a54f0920",
+    "e8e701847d91847a"
+  ],
+  "rounds": 1,
+  "liftedFindings": [
+    {
+      "id": "b04c878073d5d626::AUDIT-BARRAGE-codex-01",
+      "title": "CPM bootstrap writes into a directory it never creates",
+      "severity": "high"
+    },
+    {
+      "id": "b04c878073d5d626::AUDIT-BARRAGE-codex-02",
+      "title": "Queued MIDI UI callback can outlive the workbench component",
+      "severity": "high"
+    },
+    {
+      "id": "b04c878073d5d626::AUDIT-BARRAGE-claude-01",
+      "title": "Logarithmic parameter math: missing precondition guard produces silent NaN in audio path",
+      "severity": "high"
+    },
+    {
+      "id": "b74f59c0c4fc198b::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-codex-02",
+      "title": "T035 closed as [X] while its own body documents the MCU firmware link as blocked — the adjacent Phase 5 checkpoint still claims \"build + link on both MCUs\"",
+      "severity": "blocking"
+    },
+    {
+      "id": "b74f59c0c4fc198b::AUDIT-BARRAGE-codex-01",
+      "title": "Completion ledger marks acceptance tasks done while their own acceptance remains unverified",
+      "severity": "high"
+    },
+    {
+      "id": "ba29de07a54f0920::AUDIT-BARRAGE-claude-03+AUDIT-BARRAGE-codex-02+AUDIT-BARRAGE-claude-02",
+      "title": "`WorkbenchAudioSource::fillBlock` contains a throwing path on the audio callback thread",
+      "severity": "high"
+    },
+    {
+      "id": "ba29de07a54f0920::AUDIT-BARRAGE-codex-01",
+      "title": "Workbench runtime source switching installs an unprepared file transport",
+      "severity": "high"
+    },
+    {
+      "id": "ba29de07a54f0920::AUDIT-BARRAGE-claude-01",
+      "title": "Concurrent parameter writes from `loop()` race against audio ISR in Teensy adapter",
+      "severity": "high"
+    },
+    {
+      "id": "e8e701847d91847a::AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-claude-02",
+      "title": "`SvfEffect::setParameter` mutates filter state with no audio-thread ownership boundary",
+      "severity": "high"
+    }
+  ],
+  "closedInLoopFindings": [],
+  "seamResult": {
+    "boundaryPairs": [
+      {
+        "a": "5d46bb000cdab808",
+        "b": "952c352cc6eab725"
+      },
+      {
+        "a": "5d46bb000cdab808",
+        "b": "b04c878073d5d626"
+      },
+      {
+        "a": "5d46bb000cdab808",
+        "b": "b74f59c0c4fc198b"
+      },
+      {
+        "a": "5d46bb000cdab808",
+        "b": "ba29de07a54f0920"
+      },
+      {
+        "a": "5d46bb000cdab808",
+        "b": "e8e701847d91847a"
+      },
+      {
+        "a": "952c352cc6eab725",
+        "b": "b04c878073d5d626"
+      },
+      {
+        "a": "952c352cc6eab725",
+        "b": "b74f59c0c4fc198b"
+      },
+      {
+        "a": "952c352cc6eab725",
+        "b": "ba29de07a54f0920"
+      },
+      {
+        "a": "952c352cc6eab725",
+        "b": "e8e701847d91847a"
+      },
+      {
+        "a": "b04c878073d5d626",
+        "b": "b74f59c0c4fc198b"
+      },
+      {
+        "a": "b04c878073d5d626",
+        "b": "ba29de07a54f0920"
+      },
+      {
+        "a": "b04c878073d5d626",
+        "b": "e8e701847d91847a"
+      },
+      {
+        "a": "b74f59c0c4fc198b",
+        "b": "ba29de07a54f0920"
+      },
+      {
+        "a": "b74f59c0c4fc198b",
+        "b": "e8e701847d91847a"
+      },
+      {
+        "a": "ba29de07a54f0920",
+        "b": "e8e701847d91847a"
+      }
+    ],
+    "findings": [],
+    "suppressedCompatible": 0
+  },
+  "splitClusterRefs": [
+    "9464593788d8bb87"
+  ],
+  "outcome": "override-eligible",
+  "anchorRoot": "/Users/orion/work/acfx-work/platform-foundation"
+}

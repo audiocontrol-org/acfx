@@ -37,7 +37,10 @@ public:
 
     // Fill `block` with the next chunk of source audio. For live input, `block`
     // already holds the device input on entry and is passed through unchanged.
-    void fillBlock(juce::AudioBuffer<float>& block);
+    // Runs on the audio thread: never throws and never allocates — an
+    // unconfigured source yields silence rather than an exception (RT-safety,
+    // Constitution VI).
+    void fillBlock(juce::AudioBuffer<float>& block) noexcept;
 
     bool isLiveInput() const noexcept { return live_; }
 
@@ -47,6 +50,8 @@ private:
     juce::AudioTransportSource transport_;
     bool live_ = false;
     bool configured_ = false;
+    double sampleRate_ = 0.0;
+    int blockSize_ = 0;
 };
 
 } // namespace acfx::workbench
