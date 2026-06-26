@@ -1,5 +1,6 @@
 #include <array>
 #include <atomic>
+#include <cstdlib>
 #include <memory>
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -71,16 +72,22 @@ public:
         const ProcessContext ctx{sampleRate, blockSize, preparedChannels_};
         node_->prepare(ctx);
 
-        // Default to live input when the device offers it; otherwise the operator
-        // must point the built-in player at a file (no silent fallback).
+        // Source selection (no silent fallback): the built-in file player when
+        // ACFX_WORKBENCH_FILE points at an audio file (the deterministic default
+        // for reproducible A/B), else the live device input, else a surfaced error.
         const int inputs = numInputChannels();
         try {
-            if (inputs > 0)
+            if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
+                source_.useFilePlayer(juce::File(juce::String::fromUTF8(path)));
+            } else if (inputs > 0) {
                 source_.useLiveInput(inputs);
+            }
             source_.prepare(sampleRate, blockSize);
+            sourceReady_ = true;
         } catch (const AudioSourceError& e) {
             // Surface the failure to the operator instead of swallowing it — no
             // silent fallback to silence (Constitution V).
+            sourceReady_ = false;
             const juce::String message(e.what());
             juce::MessageManager::callAsync([message] {
                 juce::NativeMessageBox::showMessageBoxAsync(
@@ -95,6 +102,14 @@ public:
         juce::AudioBuffer<float>& buffer = *info.buffer;
         const int startSample = info.startSample;
         const int numSamples = info.numSamples;
+
+        // No usable source (prepare failed): output silence rather than read an
+        // unprepared source. The failure was already surfaced in prepareToPlay.
+        if (!sourceReady_) {
+            buffer.clear(startSample, numSamples);
+            return;
+        }
+
         // Bound to the count the effect was prepared for (never exceed it).
         const int numChannels = juce::jmin(buffer.getNumChannels(), preparedChannels_);
 
@@ -156,6 +171,7 @@ private:
     juce::ToggleButton abToggle_;
 
     int preparedChannels_ = 2;
+    bool sourceReady_ = false;
     std::atomic<bool> processed_{true};
 };
 

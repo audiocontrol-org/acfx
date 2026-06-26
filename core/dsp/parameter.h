@@ -26,6 +26,21 @@ struct ParameterDescriptor {
     std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
 };
 
+// Compile-time descriptor validity: max>min; a logarithmic param needs min>0
+// (else denormalize yields NaN); a discrete param needs >=2 buckets. Effects
+// static_assert this over their constexpr table so a malformed descriptor is a
+// BUILD error, not a release-build NaN (the debug asserts below are defense in
+// depth for builds that compile them in).
+constexpr bool isValidDescriptor(const ParameterDescriptor& d) noexcept {
+    if (!(d.max > d.min))
+        return false;
+    if (d.skew == ParamSkew::logarithmic && !(d.min > 0.0f))
+        return false;
+    if (d.kind == ParamKind::discrete && d.discreteCount < 2)
+        return false;
+    return true;
+}
+
 namespace detail {
 // Clamp to [0,1] AND neutralize non-finite input: NaN must map to 0, not pass
 // through. Written so that NaN (for which every comparison is false) takes the

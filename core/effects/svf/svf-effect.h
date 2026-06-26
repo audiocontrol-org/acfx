@@ -55,6 +55,18 @@ public:
         }
     }
 
+    // Build-time guard: every descriptor in the table is valid (so a malformed
+    // entry — e.g. a log param with min<=0 — fails compilation, not the audio path).
+    static_assert(
+        [] {
+            for (const ParameterDescriptor& d : kParams)
+                if (!isValidDescriptor(d))
+                    return false;
+            return true;
+        }(),
+        "SvfEffect parameter table violates a descriptor invariant "
+        "(max>min; logarithmic => min>0; discrete => count>=2)");
+
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
     // Audio stream must be stopped — see the thread-ownership note above.

@@ -15,23 +15,33 @@
   "rounds": 1,
   "liftedFindings": [
     {
-      "id": "1d366441c57c4606::AUDIT-BARRAGE-codex-01",
-      "title": "Completed tasks still contain pending or blocked acceptance",
+      "id": "51a61c640621e280::AUDIT-BARRAGE-claude-03+AUDIT-BARRAGE-claude-01",
+      "title": "Logarithmic-descriptor invariant (0 < min < max) is enforced only by a debug `assert`, so a malformed descriptor produces NaN straight into the audio path in release builds",
       "severity": "high"
     },
     {
-      "id": "51a61c640621e280::AUDIT-BARRAGE-claude-01",
-      "title": "`clamp01` passes NaN/non-finite values straight through, poisoning RT filter state irrecoverably",
+      "id": "561c01cdba330da9::AUDIT-BARRAGE-codex-01",
+      "title": "Workbench has no path to select the required file-player source",
       "severity": "high"
     },
     {
-      "id": "561c01cdba330da9::AUDIT-BARRAGE-claude-02",
-      "title": "ProcessContext is prepared for a hardcoded 2 channels but process() drives up to 8 channels from the live buffer",
+      "id": "561c01cdba330da9::AUDIT-BARRAGE-claude-01",
+      "title": "`source_` used in audio callback after `prepareToPlay` exception skips `prepare`",
       "severity": "high"
     },
     {
-      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01",
-      "title": "Teensy mode-pin normalization produces `norm = 1.0`, potentially yielding out-of-range discrete index",
+      "id": "6a56babffbf5b038::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-claude-05+AUDIT-BARRAGE-codex-01",
+      "title": "CI \"Build plugin (VST3 / AU / CLAP)\" builds the shared-code target, not the plugin formats",
+      "severity": "high"
+    },
+    {
+      "id": "6a56babffbf5b038::AUDIT-BARRAGE-claude-02",
+      "title": "Daisy mode-knob normalization reproduces the lifted Teensy out-of-range exposure on an unaudited sibling",
+      "severity": "high"
+    },
+    {
+      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-02+AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-claude-01",
+      "title": "`processBlock` constructs a `std::function` every block — \"Allocation-free\" claim relies on unguaranteed SBO",
       "severity": "high"
     }
   ],

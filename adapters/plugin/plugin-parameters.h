@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <vector>
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -20,13 +19,25 @@ namespace acfx::plugin {
 
 class PluginParameters {
 public:
-    using ApplyFn = std::function<void(ParamId, float)>;
-
     // Create one JUCE parameter per descriptor and add it to the processor.
     void build(juce::AudioProcessor& processor, span<const ParameterDescriptor> descriptors);
 
-    // Push each parameter's current normalized value to the effect via `fn`.
-    void apply(const ApplyFn& fn) const;
+    // Push each parameter's current normalized value to the effect via `fn`
+    // (fn: void(ParamId, float)). A template, not std::function — so the audio
+    // thread never constructs a std::function whose allocation depends on SBO.
+    template <typename Fn>
+    void apply(Fn&& fn) const {
+        for (const Entry& e : entries_) {
+            if (e.floatParam != nullptr) {
+                fn(e.descriptor.id, e.floatParam->get());
+            } else if (e.choiceParam != nullptr) {
+                const int index = e.choiceParam->getIndex();
+                const int count = e.descriptor.discreteCount < 2 ? 2 : e.descriptor.discreteCount;
+                const float norm = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
+                fn(e.descriptor.id, norm);
+            }
+        }
+    }
 
 private:
     struct Entry {

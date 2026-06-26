@@ -78,19 +78,4 @@ void PluginParameters::build(juce::AudioProcessor& processor,
     }
 }
 
-void PluginParameters::apply(const ApplyFn& fn) const {
-    if (!fn)
-        return;
-    for (const Entry& e : entries_) {
-        if (e.floatParam != nullptr) {
-            fn(e.descriptor.id, e.floatParam->get());
-        } else if (e.choiceParam != nullptr) {
-            const int index = e.choiceParam->getIndex();
-            const int count = e.descriptor.discreteCount < 2 ? 2 : e.descriptor.discreteCount;
-            const float norm = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
-            fn(e.descriptor.id, norm);
-        }
-    }
-}
-
 } // namespace acfx::plugin

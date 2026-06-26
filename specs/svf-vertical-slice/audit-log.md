@@ -377,3 +377,83 @@ Surface:    adapters/teensy/teensy-main.cpp:86
 `analogRead()` returns values in `[0, 1023]`. The mapping `static_cast<float>(analogRead(kModePin)) / 1023.0f` yields exactly `1.0f` when the pin reads 1023 — its documented maximum. If `SvfEffect::setParameter` discretizes mode using the common idiom `floor(norm * count)` (count = 3 for LP/HP/BP), then `floor(1.0f * 3) = 3`, which is an out-of-range index. This is a 1-in-1024 frequency hardware bug that would manifest as unpredictable filter behaviour when the cutoff knob sits at its physical maximum. The project constitution forbids defensive clamping in the core ("no fallbacks outside test code"), so the adapter must guard this boundary. The fix is `std::min(static_cast<float>(analogRead(kModePin)) / 1023.0f, std::nextbelow(1.0f))` or `analogRead(kModePin) * count / 1024` in integer arithmetic, depending on how the effect's discretization is defined.
 
 ---
+
+## 2026-06-26 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260626-25 — Logarithmic-descriptor invariant (0 < min < max) is enforced only by a debug `assert`, so a malformed descriptor produces NaN straight into the audio path in release builds
+
+Finding-ID: AUDIT-20260626-25 (claude-03 + claude-01; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=low, sonnet=high
+Decision:   adjudicated (gate-counted high) — blast-radius=high, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    core/dsp/parameter.h:62-66 (denormalize logarithmic), :91-93 (normalize logarithmic)
+
+The same file that added `clamp01` specifically because a NaN "poison[s] the filter state irrecoverably" guards the logarithmic mapping's `0 < min < max` precondition with only `assert` (lines 64-65, 92), which compiles out in release. If a descriptor is authored with `min == 0` and `skew == logarithmic`, release-mode `denormalize` evaluates `0.0f * std::pow(max/0, norm)` → `0 * inf` → **NaN**, flowing directly into the audio path the round-4 work was hardening — the identical "guard that fails open" the file's own comment criticizes, just relocated from the `norm` channel to the descriptor channel.
+
+Blast radius is genuinely low because `ParameterDescriptor`s are static, developer-authored, compile-time constants, not runtime input — a bad descriptor is a build-time author error a debug test run would catch, not an adversary-reachable state. But the asymmetry is worth noting: the runtime input (`norm`) is now belt-and-suspenders NaN-safe while the equally-NaN-generating descriptor invariant relies entirely on someone running a debug build. A `static_assert` at the descriptor-table definition site (or a release-safe finite-and-ordered check that returns a clamped fallback) would close the channel without re-introducing a hot-path branch, matching the stated NaN-safety posture consistently across both inputs to the mapping.
+
+### AUDIT-20260626-26 — Workbench has no path to select the required file-player source
+
+Finding-ID: AUDIT-20260626-26
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/workbench/workbench-app.cpp:74-89
+
+`prepareToPlay()` says that when there is no live input “the operator must point the built-in player at a file,” but this component never exposes any file-selection path or calls `source_.useFilePlayer(...)`. The only source selection in the diff is `source_.useLiveInput(inputs)` when `inputs > 0`; otherwise `source_.prepare(...)` throws, the catch posts a warning, and audio startup continues with no configured source.
+
+That matters because the declared workbench behavior is sketch-and-hear with a built-in looping file player or live input. A downstream user on a desktop with no active input device will hit this as a functional failure: the app opens, reports “No audio source configured,” and has no in-app control to recover. The blast radius is `high` because this is a correctness defect a real adopter can hit on a fresh install, and it contradicts the “no silent fallback” discipline by leaving the stream alive after source setup failed. A reasonable fix is to add an actual setup-time file selection/default file-player path before `source_.prepare(...)`, or fail/disable audio until a source is explicitly configured instead of continuing after the exception.
+
+### AUDIT-20260626-27 — `source_` used in audio callback after `prepareToPlay` exception skips `prepare`
+
+Finding-ID: AUDIT-20260626-27
+Status:     open
+Severity:   high
+Per-lane:   sonnet=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/workbench/workbench-app.cpp:74–97
+
+`prepareToPlay` wraps both `source_.useLiveInput(inputs)` and `source_.prepare(sampleRate, blockSize)` in a single `try` block. If `useLiveInput` throws an `AudioSourceError`, execution jumps to the catch handler and `source_.prepare` is never called. The catch handler posts an async dialog but does not set any flag that would gate `getNextAudioBlock`. As a result, `source_.fillBlock(region)` at line ~97 runs on a `WorkbenchAudioSource` that was never prepared — a use-before-prepare that the RT callback cannot recover from. Whether `WorkbenchAudioSource::fillBlock` on an unprepared instance crashes, silently outputs garbage, or accesses freed memory is not visible in this diff, but the state is unconditionally reachable: live input present + driver-level error opening it. The constitution (Commandment V) says "raise descriptive errors for missing functionality instead of silently falling back" — the current code shows a dialog but continues running with a broken source, which is a soft fallback rather than a clean stop. A minimal fix: set `bool sourcePrepared_ = false` in the catch path and guard `source_.fillBlock` in `getNextAudioBlock` behind it, or re-throw to abort audio initialisation.
+
+---
+
+### AUDIT-20260626-28 — CI "Build plugin (VST3 / AU / CLAP)" builds the shared-code target, not the plugin formats
+
+Finding-ID: AUDIT-20260626-28 (claude-01 + claude-05 + codex-01; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=high, codex=high
+Decision:   agreement (gate-counted high)
+Surface:    .github/workflows/ci.yml:44-47 (cross-ref adapters/plugin/CMakeLists.txt:1-44)
+
+The desktop-build job's final step is labeled "Build plugin (VST3 / AU / CLAP)" and runs `cmake --build --preset desktop --target acfx_plugin -j`. But `juce_add_plugin(acfx_plugin ...)` (adapters/plugin/CMakeLists.txt:1) does **not** make `acfx_plugin` the plugin binary — JUCE creates `acfx_plugin` as the *shared-code* static library and emits the actual format artifacts as separate targets (`acfx_plugin_VST3`, `acfx_plugin_AU`, the CLAP target, and the aggregate `acfx_plugin_All`). Building the bare `acfx_plugin` target compiles the plugin sources but never links the VST3/AU/CLAP wrappers or produces any plugin bundle.
+
+The blast radius: this is the only CI gate that purports to prove the DAW-plugin slice (Phase 4, e74b0db) builds. A linker error in the JUCE format wrappers, a broken CLAP-extension registration (`clap_juce_extensions_plugin`, CMakeLists.txt:42), or a missing AU/VST3 symbol would all pass CI green while the step claims all three formats built. A downstream adopter trusting the green check would believe the plugin formats compile and link when CI never exercised them. A correct fix targets `acfx_plugin_All` (or enumerates the format targets explicitly) so the wrappers actually link.
+
+### AUDIT-20260626-29 — Daisy mode-knob normalization reproduces the lifted Teensy out-of-range exposure on an unaudited sibling
+
+Finding-ID: AUDIT-20260626-29
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/daisy/daisy-main.cpp:33-47
+
+The convergence ledger lifts `d58…claude-01`: "Teensy mode-pin normalization produces `norm = 1.0`, potentially yielding out-of-range discrete index." The daisy adapter has the identical exposure on a different surface, and nothing in this chunk shows it was covered by the round-4 fix. `maybeSet` (line 33) reads `hw.adc.GetFloat(adc)` — a value in the **closed** range [0.0, 1.0] — and passes it verbatim as the normalized parameter value via `svf.setParameter(... v)` (line 38). For `kMode` (line 47) the effect denormalizes a normalized value into a discrete mode index; if that mapping is `floor(norm * modeCount)` (the natural discrete denormalization), an ADC reading of exactly `1.0` yields index `modeCount`, one past the last valid mode.
+
+Applying the channel-enumeration / fix-review driver: the lifted finding was dispositioned on the Teensy path, but the *value channel* it opens (any adapter feeding a raw [0,1]-inclusive control into the mode descriptor) was not enumerated. The daisy path is precisely that channel and carries no fixture proving the `norm == 1.0` boundary is safe. If the descriptor clamps the discrete index this is benign; if it does not (which the existence of a Teensy-specific fix implies), a knob at full deflection selects an out-of-range mode and reads/writes past the mode table in the real-time callback. A correct fix clamps the discrete index in the descriptor (one fix covering all adapters) rather than per-adapter, and adds a `norm == 1.0` fixture.
+
+### AUDIT-20260626-30 — `processBlock` constructs a `std::function` every block — "Allocation-free" claim relies on unguaranteed SBO
+
+Finding-ID: AUDIT-20260626-30 (claude-02 + codex-01 + claude-01; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=medium, codex=high, sonnet=high
+Decision:   agreement (gate-counted high)
+Surface:    adapters/plugin/plugin-processor.cpp:30-34; adapters/plugin/plugin-parameters.h:21 (ApplyFn = std::function), plugin-parameters.cpp:76 (apply signature)
+
+`processBlock` (cpp:30-34) calls `parameters_.apply([this](ParamId id, float normalized){ node_.setParameter(id, normalized); })`, and `apply` takes `const ApplyFn&` where `ApplyFn = std::function<void(ParamId,float)>` (header:21). Every audio callback therefore constructs a fresh `std::function` from the lambda on the realtime thread. The inline comment explicitly claims *"Allocation-free."* That claim is only true by small-buffer-optimization luck: `std::function` is *not* guaranteed by the standard to avoid heap allocation. For a single `this`-pointer capture, libc++ and libstdc++ both SBO it, so on JUCE's actual targets it happens to be allocation-free today — but the guarantee is the library's, not the code's.
+
+Given this feature's entire govern history is RT-safety hardening (commits 2fef393/bd79479: "no heap allocation in process()"), a comment asserting allocation-freedom via a non-guaranteed mechanism is a fragility worth closing. The latent failure mode: anyone who adds a second capture to that lambda (or builds against a stdlib without SBO) silently introduces a per-block heap allocation on the audio thread, and the allocation sentinel test (`tests/core/no-allocation-test.cpp`, other chunk) almost certainly does not exercise this JUCE plugin path. Fix: pass the apply target as a non-owning function-ref type or a template/concrete callable instead of constructing `std::function` per block, or at minimum static_assert/document the SBO dependency.

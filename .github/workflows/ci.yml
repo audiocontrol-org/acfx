@@ -43,5 +43,7 @@ jobs:
         run: cmake --preset desktop
       - name: Build workbench
         run: cmake --build --preset desktop --target acfx_workbench -j
-      - name: Build plugin (VST3 / AU / CLAP)
-        run: cmake --build --preset desktop --target acfx_plugin -j
+      - name: Build plugin formats (VST3 / AU / CLAP)
+        # The aggregate acfx_plugin target builds only the shared code; the format
+        # wrappers are separate targets that produce the actual bundles.
+        run: cmake --build --preset desktop --target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP -j
