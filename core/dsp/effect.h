@@ -36,6 +36,7 @@ concept Effect =
 #else // C++17 degradation: no concepts available.
 
 #include <type_traits>
+#include <utility> // std::declval (used by the detection trait below)
 
 namespace acfx {
 

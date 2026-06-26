@@ -1,0 +1,1873 @@
+Reading prompt from stdin...
+OpenAI Codex v0.141.0
+--------
+workdir: /Users/orion/work/acfx-work/platform-foundation
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: detailed
+session id: 019f01f1-f87e-7ae2-9fd1-e0e683023097
+--------
+user
+# Audit-barrage — multi-model audit prompt template
+
+You are an **independent audit reviewer** firing as part of a multi-model audit barrage. Your siblings (other CLIs running this same prompt in parallel) emit their own findings independently; the operator triages all of your outputs side-by-side after every model has settled. Your job is to surface the kinds of defects listed under **What to look for** below, in the work product captured under **Under audit**.
+
+You are NOT collaborating with the other models. You write what you see. The cross-model genetic diversity comes from each of you reporting independently.
+
+## Feature under audit
+
+svf-vertical-slice
+
+## Feature scope (workplan / PRD summary)
+
+
+
+## Commit subjects in the audited range
+
+8a4c5d6 Address round-7 govern findings: T038 wording, atomic configured_, mode-knob evidence
+d183a18 Address round-6 govern findings: correct ARM overclaim, README, source hygiene
+9ae4b58 Address round-5 govern findings: compile-time validation, RT alloc, CI, source path
+3262fb3 Address round-4 govern findings: NaN-safe clamp, channel consistency, honest ledger
+2406235 Address round-3 govern findings: precise contracts, lock-free atomics, enforced precondition
+2fef393 Address round-2 govern findings: RT-safety, error surfacing, adapter races
+bd79479 Address govern findings: RT-safety, thread ownership, doc drift
+8e0e37b Replace vendored CPM.cmake with pinned auto-download bootstrap
+f88525b Close acceptance tasks with honest verified/manual split (T027/T031/T035)
+60b4523 Fix desktop build integration + JUCE-API bugs caught by real compilation
+ee53b33 Phase 6 (polish): CI, explicit portability gates, README
+ae69f91 Phase 5 (US3): Daisy + Teensy adapters; core proven ARM-portable
+e74b0db Phase 4 (US2): DAW plugin (VST3 / AU / CLAP)
+e27e832 Phase 3 (US1): desktop sketch-and-hear workbench (JUCE)
+0ebd7d3 Phase 2 (foundational): core spine + host-side tests, all green
+1b05595 Phase 1 (setup): monorepo skeleton + CMake build system
+
+
+## Recent audit-log excerpt (prior findings on this feature)
+
+Use this to avoid re-reporting findings that have already been triaged. If a finding was previously dispositioned (`closed`, `won't-fix`, `accepted-trade-off`), don't re-litigate the disposition; only surface a new instance if the underlying shape regressed.
+
+
+
+## Under audit
+
+The actual code under review. Read it carefully. The findings you emit must be anchored to specific files + line ranges in this diff (or call out a missing surface that should be in the diff but isn't).
+
+Governance pass over the just-implemented work for feature 'svf-vertical-slice', diffed against ff3426a. The differentiated back half audits a plan it did not author or execute.
+## Other chunks (file lists only — context for cross-file dependencies this chunk cannot see):
+- 31c30149ec9faef5: tests/core/parameter-test.cpp, tests/core/svf-test.cpp, tests/core/test-main.cpp, tests/support/allocation-sentinel.cpp, tests/support/allocation-sentinel.h, tests/support/svf-reference.h
+- 66d76089d898899c: specs/svf-vertical-slice/tasks.md, tests/CMakeLists.txt, tests/core/no-allocation-test.cpp
+- 6a56babffbf5b038: .clang-format, .editorconfig, .github/workflows/ci.yml, .gitignore, .stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json, CMakeLists.txt, CMakePresets.json, README.md, adapters/daisy/CMakeLists.txt, adapters/daisy/daisy-main.cpp, adapters/plugin/CMakeLists.txt
+- a05731de7f2cca0b: core/primitives/svf-primitive.h, external/.gitkeep, host/processor-node/CMakeLists.txt, host/processor-node/processor-node.h, scripts/check-portability.sh
+- a70ef633c8635ce4: adapters/plugin/plug
+…[shared context truncated to fit the fleet envelope]
+
+## Chunk 4cfb00d5b3480886
+Files in scope: adapters/workbench/midi-binding.h, adapters/workbench/parameter-view.cpp, adapters/workbench/parameter-view.h, adapters/workbench/workbench-app.cpp, cmake/CPM.cmake, cmake/dependencies.cmake, cmake/toolchains/daisy.cmake
+
+## Diffs
+
+### adapters/workbench/midi-binding.h
+diff --git a/adapters/workbench/midi-binding.h b/adapters/workbench/midi-binding.h
+new file mode 100644
+index 0000000..cacdad2
+--- /dev/null
++++ b/adapters/workbench/midi-binding.h
+@@ -0,0 +1,42 @@
++#pragma once
++
++#include <functional>
++#include <unordered_map>
++
++#include <juce_audio_basics/juce_audio_basics.h>
++
++#include "dsp/param-id.h"
++
++// Maps MIDI continuous-controller messages to normalized parameter changes
++// (T024). A CC value 0..127 becomes a normalized 0..1 value handed to
++// setParameter(id, normalized) — the effect denormalizes via its descriptor, so
++// the binding stays parameter-agnostic.
++
++namespace acfx::workbench {
++
++class MidiBinding {
++public:
++    using OnParam = std::function<void(ParamId, float)>;
++
++    // Bind a CC number (0..127) to a parameter id. Re-binding a CC replaces it.
++    void bind(int ccNumber, ParamId id) { bindings_[ccNumber] = id; }
++
++    // Feed a MIDI message; if it is a CC we have a binding for, invokes onParam
++    // with the normalized value and returns true.
++    bool handle(const juce::MidiMessage& msg, const OnParam& onParam) const {
++        if (!msg.isController())
++            return false;
++        const auto it = bindings_.find(msg.getControllerNumber());
++        if (it == bindings_.end())
++            return false;
++        const float normalized = static_cast<float>(msg.getControllerValue()) / 127.0f;
++        if (onParam)
++            onParam(it->second, normalized);
++        return true;
++    }
++
++private:
++    std::unordered_map<int, ParamId> bindings_;
++};
++
++} // namespace acfx::workbench
+
+
+### adapters/workbench/parameter-view.cpp
+diff --git a/adapters/workbench/parameter-view.cpp b/adapters/workbench/parameter-view.cpp
+new file mode 100644
+index 0000000..d85d7fc
+--- /dev/null
++++ b/adapters/workbench/parameter-view.cpp
+@@ -0,0 +1,88 @@
++#include "parameter-view.h"
++
++namespace acfx::workbench {
++
++ParameterView::ParameterView(span<const ParameterDescriptor> params, OnChange onChange)
++    : onChange_(std::move(onChange)) {
++    rows_.reserve(params.size());
++    for (const ParameterDescriptor& d : params) {
++        rows_.push_back(std::make_unique<Row>());
++        Row& row = *rows_.back();
++        row.descriptor = d;
++
++        row.label.setText(juce::String(std::string(d.name)), juce::dontSendNotification);
++        addAndMakeVisible(row.label);
++
++        if (d.kind == ParamKind::discrete) {
++            row.combo = std::make_unique<juce::ComboBox>();
++            for (int i = 0; i < d.discreteCount; ++i)
++                row.combo->addItem(juce::String(i), i + 1); // item ids are 1-based
++            row.combo->setSelectedItemIndex(0, juce::dontSendNotification);
++
++            const ParamId id = d.id;
++            const std::uint8_t count = d.discreteCount;
++            juce::ComboBox* combo = row.combo.get();
++            OnChange& cb = onChange_;
++            combo->onChange = [combo, id, count, &cb] {
++                const int index = combo->getSelectedItemIndex();
++                // Centre-of-bucket normalized value for this discrete index.
++                const float norm = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
++                if (cb)
++                    cb(id, norm);
++            };
++            addAndMakeVisible(*row.combo);
++        } else {
++            row.slider = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal,
++                                                        juce::Slider::TextBoxRight);
++            // The slider works in normalized 0..1 space; the descriptor owns the
++            // skew, so the effect maps back to plain units on setParameter.
++            row.slider->setRange(0.0, 1.0, 0.0);
++            row.slider->setValue(static_cast<double>(normalize(d, d.defaultValue)),
++                                 juce::dontSendNotification);
++
++            const ParameterDescriptor desc = d;
++            juce::Slider* slider = row.slider.get();
++            OnChange& cb = onChange_;
++            slider->onValueChange = [slider, desc, &cb] {
++                if (cb)
++                    cb(desc.id, static_cast<float>(slider->getValue()));
++            };
++            addAndMakeVisible(*row.slider);
++        }
++    }
++}
++
++void ParameterView::setNormalized(ParamId id, float normalized) {
++    for (std::unique_ptr<Row>& rowPtr : rows_) {
++        Row& row = *rowPtr;
++        if (row.descriptor.id != id)
++            continue;
++        if (row.slider)
++            row.slider->setValue(static_cast<double>(normalized), juce::dontSendNotification);
++        else if (row.combo) {
++            const int count = row.descriptor.discreteCount < 2 ? 2 : row.descriptor.discreteCount;
++            int index = static_cast<int>(normalized * static_cast<float>(count));
++            if (index >= count)
++                index = count - 1;
++            row.combo->setSelectedItemIndex(index, juce::dontSendNotification);
++        }
++        return;
++    }
++}
++
++void ParameterView::resized() {
++    auto area = getLocalBounds().reduced(8);
++    const int rowHeight = 32;
++    for (std::unique_ptr<Row>& rowPtr : rows_) {
++        Row& row = *rowPtr;
++        auto r = area.removeFromTop(rowHeight);
++        row.label.setBounds(r.removeFromLeft(120));
++        if (row.slider)
++            row.slider->setBounds(r);
++        else if (row.combo)
++            row.combo->setBounds(r.removeFromLeft(160));
++        area.removeFromTop(6);
++    }
++}
++
++} // namespace acfx::workbench
+
+
+### adapters/workbench/parameter-view.h
+diff --git a/adapters/workbench/parameter-view.h b/adapters/workbench/parameter-view.h
+new file mode 100644
+index 0000000..f1e53d2
+--- /dev/null
++++ b/adapters/workbench/parameter-view.h
+@@ -0,0 +1,46 @@
++#pragma once
++
++#include <functional>
++#include <vector>
++
++#include <juce_gui_basics/juce_gui_basics.h>
++
++#include "dsp/param-id.h"
++#include "dsp/parameter.h"
++#include "dsp/span.h"
++
++// Auto-renders one control per ParameterDescriptor (T023). There is no per-effect
++// UI code: the view iterates the effect's parameters() table and builds a slider
++// (continuous) or combo (discrete) for each, labelled from the descriptor. This
++// is the same descriptor table every other adapter consumes (FR-003, SC-006).
++
++namespace acfx::workbench {
++
++class ParameterView : public juce::Component {
++public:
++    // Called when a control moves, with the normalized 0..1 value for that id.
++    using OnChange = std::function<void(ParamId, float)>;
++
++    ParameterView(span<const ParameterDescriptor> params, OnChange onChange);
++
++    // Reflect an externally-driven change (e.g. a MIDI CC) back into the control
++    // without re-firing onChange.
++    void setNormalized(ParamId id, float normalized);
++
++    void resized() override;
++
++private:
++    struct Row {
++        ParameterDescriptor descriptor;
++        juce::Label label;
++        std::unique_ptr<juce::Slider> slider; // continuous
++        std::unique_ptr<juce::ComboBox> combo; // discrete
++    };
++
++    OnChange onChange_;
++    // Heap-allocated rows: Row holds a juce::Label/Component, which is non-movable,
++    // so the vector stores pointers (not Rows) to satisfy reallocation.
++    std::vector<std::unique_ptr<Row>> rows_;
++};
++
++} // namespace acfx::workbench
+
+
+### adapters/workbench/workbench-app.cpp
+diff --git a/adapters/workbench/workbench-app.cpp b/adapters/workbench/workbench-app.cpp
+new file mode 100644
+index 0000000..fc0e120
+--- /dev/null
++++ b/adapters/workbench/workbench-app.cpp
+@@ -0,0 +1,210 @@
++#include <array>
++#include <atomic>
++#include <cstdlib>
++#include <memory>
++
++#include <juce_audio_utils/juce_audio_utils.h>
++#include <juce_gui_basics/juce_gui_basics.h>
++
++#include "audio-source.h"
++#include "dsp/audio-block.h"
++#include "dsp/process-context.h"
++#include "effects/svf/svf-effect.h"
++#include "midi-binding.h"
++#include "parameter-view.h"
++#include "processor-node/processor-node.h"
++
++// The desktop sketch-and-hear workbench (T022, T026). Holds the effect behind the
++// same host boundary the plugin uses — std::unique_ptr<ProcessorNode> =
++// EffectNode<SvfEffect> — routes audio from the selected source through it, draws
++// the auto-generated controls, binds MIDI CCs, and offers a dry/processed A/B
++// toggle. Parameter edits from the GUI/MIDI threads go through
++// ProcessorNode::setParameter, the RT-safe cross-thread ingress: the effect
++// publishes each value as a lock-free atomic that process() consumes, so no
++// separate workbench-side queue is needed.
++
++namespace acfx::workbench {
++
++namespace {
++constexpr int kMaxChannels = 8;
++} // namespace
++
++class WorkbenchComponent final : public juce::AudioAppComponent,
++                                 private juce::MidiInputCallback {
++public:
++    WorkbenchComponent()
++        : node_(std::make_unique<EffectNode<SvfEffect>>()),
++          paramView_(node_->parameters(),
++                     [this](ParamId id, float norm) { node_->setParameter(id, norm); }) {
++        params_ = node_->parameters();
++
++        // Default MIDI map: CC 74 -> cutoff (the conventional filter-cutoff CC).
++        midi_.bind(74, ParamId{SvfEffect::kCutoff});
++        midi_.bind(71, ParamId{SvfEffect::kResonance});
++
++        addAndMakeVisible(paramView_);
++        abToggle_.setButtonText("Process (A/B)");
++        abToggle_.setToggleState(true, juce::dontSendNotification);
++        abToggle_.onClick = [this] { processed_.store(abToggle_.getToggleState()); };
++        addAndMakeVisible(abToggle_);
++
++        setSize(520, 220);
++        // Stereo in/out: input present for live-input mode.
++        setAudioChannels(2, 2);
++        // Enable the available MIDI inputs — registering a callback alone does
++        // not enable any device, so without this the CC bindings stay inert.
++        for (const auto& input : juce::MidiInput::getAvailableDevices())
++            deviceManager.setMidiInputDeviceEnabled(input.identifier, true);
++        deviceManager.addMidiInputDeviceCallback({}, this);
++    }
++
++    ~WorkbenchComponent() override {
++        deviceManager.removeMidiInputDeviceCallback({}, this);
++        shutdownAudio();
++    }
++
++    void prepareToPlay(int blockSize, double sampleRate) override {
++        // Prepare for the device's ACTUAL output channel count (setAudioChannels
++        // is a request, not a guarantee), bounded by kMaxChannels — so the count
++        // the effect is prepared for matches the count process() drives.
++        const int outputs = numOutputChannels();
++        preparedChannels_ = juce::jlimit(1, kMaxChannels, outputs > 0 ? outputs : 2);
++        const ProcessContext ctx{sampleRate, blockSize, preparedChannels_};
++        node_->prepare(ctx);
++
++        // Source selection (no silent fallback): the built-in file player when
++        // ACFX_WORKBENCH_FILE points at an audio file (the deterministic default
++        // for reproducible A/B), else the live device input, else a surfaced error.
++        const int inputs = numInputChannels();
++        try {
++            if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
++                source_.useFilePlayer(juce::File(juce::String::fromUTF8(path)));
++            } else if (inputs > 0) {
++                source_.useLiveInput(inputs);
++            }
++            source_.prepare(sampleRate, blockSize);
++            sourceReady_ = true;
++        } catch (const AudioSourceError& e) {
++            // Surface the failure to the operator instead of swallowing it — no
++            // silent fallback to silence (Constitution V).
++            sourceReady_ = false;
++            const juce::String message(e.what());
++            juce::MessageManager::callAsync([message] {
++                juce::NativeMessageBox::showMessageBoxAsync(
++                    juce::MessageBoxIconType::WarningIcon, "Audio source unavailable", message);
++            });
++        }
++    }
++
++    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override {
++        // Parameter edits are consumed inside SvfEffect::process() (atomic
++        // pending), so the audio thread needs no separate apply step here.
++        juce::AudioBuffer<float>& buffer = *info.buffer;
++        const int startSample = info.startSample;
++        const int numSamples = info.numSamples;
++
++        // No usable source (prepare failed): output silence rather than read an
++        // unprepared source. The failure was already surfaced in prepareToPlay.
++        if (!sourceReady_) {
++            buffer.clear(startSample, numSamples);
++            return;
++        }
++
++        // Bound to the count the effect was prepared for (never exceed it).
++        const int numChannels = juce::jmin(buffer.getNumChannels(), preparedChannels_);
++
++        // Pull the source audio into the destination region (live input is already
++        // present and passes through). fillBlock is noexcept and lock-free.
++        juce::AudioBuffer<float> region(buffer.getArrayOfWritePointers(),
++                                        buffer.getNumChannels(), startSample, numSamples);
++        source_.fillBlock(region);
++
++        if (!processed_.load())
++            return; // A/B: dry — leave the source audio untouched
++
++        std::array<float*, kMaxChannels> chans{};
++        for (int ch = 0; ch < numChannels; ++ch)
++            chans[ch] = buffer.getWritePointer(ch, startSample);
++        AudioBlock block(chans.data(), numChannels, numSamples);
++        node_->processBlock(block);
++    }
++
++    void releaseResources() override { source_.release(); }
++
++    void resized() override {
++        auto area = getLocalBounds();
++        abToggle_.setBounds(area.removeFromBottom(32).reduced(8, 4));
++        paramView_.setBounds(area);
++    }
++
++private:
++    int numInputChannels() const {
++        if (auto* device = deviceManager.getCurrentAudioDevice())
++            return device->getActiveInputChannels().countNumberOfSetBits();
++        return 0;
++    }
++
++    int numOutputChannels() const {
++        if (auto* device = deviceManager.getCurrentAudioDevice())
++            return device->getActiveOutputChannels().countNumberOfSetBits();
++        return 0;
++    }
++
++    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg) override {
++        midi_.handle(msg, [this](ParamId id, float norm) {
++            node_->setParameter(id, norm); // core is thread-safe (atomic pending)
++            // Reflect into the GUI on the message thread, guarded so a callback
++            // queued before teardown never touches a destroyed component.
++            juce::Component::SafePointer<ParameterView> safeView(&paramView_);
++            juce::MessageManager::callAsync([safeView, id, norm] {
++                if (safeView != nullptr)
++                    safeView->setNormalized(id, norm);
++            });
++        });
++    }
++
++    std::unique_ptr<ProcessorNode> node_;
++    span<const ParameterDescriptor> params_;
++    ParameterView paramView_;
++    MidiBinding midi_;
++    WorkbenchAudioSource source_;
++    juce::ToggleButton abToggle_;
++
++    int preparedChannels_ = 2;
++    bool sourceReady_ = false;
++    std::atomic<bool> processed_{true};
++};
++
++class WorkbenchApplication final : public juce::JUCEApplication {
++public:
++    const juce::String getApplicationName() override { return "acfx Workbench"; }
++    const juce::String getApplicationVersion() override { return "0.1.0"; }
++
++    void initialise(const juce::String&) override {
++        mainWindow_ = std::make_unique<MainWindow>(getApplicationName());
++    }
++    void shutdown() override { mainWindow_ = nullptr; }
++
++private:
++    class MainWindow final : public juce::DocumentWindow {
++    public:
++        explicit MainWindow(const juce::String& name)
++            : juce::DocumentWindow(name, juce::Colours::darkgrey,
++                                   juce::DocumentWindow::allButtons) {
++            setUsingNativeTitleBar(true);
++            setContentOwned(new WorkbenchComponent(), true);
++            setResizable(true, true);
++            centreWithSize(getWidth(), getHeight());
++            setVisible(true);
++        }
++        void closeButtonPressed() override {
++            juce::JUCEApplication::getInstance()->systemRequestedQuit();
++        }
++    };
++
++    std::unique_ptr<MainWindow> mainWindow_;
++};
++
++} // namespace acfx::workbench
++
++START_JUCE_APPLICATION(acfx::workbench::WorkbenchApplication)
+
+
+### cmake/CPM.cmake
+diff --git a/cmake/CPM.cmake b/cmake/CPM.cmake
+new file mode 100644
+index 0000000..b635155
+--- /dev/null
++++ b/cmake/CPM.cmake
+@@ -0,0 +1,30 @@
++# CPM.cmake bootstrap — downloads the pinned CPM package manager on first
++# configure rather than vendoring its (large) source into the repo. The exact
++# version + content hash are pinned here, so the fetch is reproducible (research.md
++# decision 4) and the downloaded file lands in the gitignored CPM cache.
++
++set(CPM_DOWNLOAD_VERSION 0.40.5)
++set(CPM_HASH_SUM "c46b876ae3b9f994b4f05a4c15553e0485636862064f1fcc9d8b4f832086bc5d")
++
++if(CPM_SOURCE_CACHE)
++  set(CPM_DOWNLOAD_LOCATION "${CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
++elseif(DEFINED ENV{CPM_SOURCE_CACHE})
++  set(CPM_DOWNLOAD_LOCATION "$ENV{CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
++else()
++  set(CPM_DOWNLOAD_LOCATION "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
++endif()
++
++get_filename_component(CPM_DOWNLOAD_LOCATION "${CPM_DOWNLOAD_LOCATION}" ABSOLUTE)
++
++# Ensure the destination directory exists before downloading (defensive — current
++# CMake creates it, but this keeps the bootstrap robust across versions).
++get_filename_component(_cpm_download_dir "${CPM_DOWNLOAD_LOCATION}" DIRECTORY)
++file(MAKE_DIRECTORY "${_cpm_download_dir}")
++
++file(DOWNLOAD
++  "https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake"
++  "${CPM_DOWNLOAD_LOCATION}"
++  EXPECTED_HASH SHA256=${CPM_HASH_SUM}
++)
++
++include("${CPM_DOWNLOAD_LOCATION}")
+
+
+### cmake/dependencies.cmake
+diff --git a/cmake/dependencies.cmake b/cmake/dependencies.cmake
+new file mode 100644
+index 0000000..b18a3b4
+--- /dev/null
++++ b/cmake/dependencies.cmake
+@@ -0,0 +1,88 @@
++# acfx external dependencies — CPM-pinned to explicit, known-good refs.
++#
++# Per research.md (Phase 0, decision 4): every dependency is fetched by CPM and
++# pinned to an explicit ref. The pin is a real, reproducible tag/commit captured
++# when the dependency is first fetched and verified to build — never a fabricated
++# version number.
++#
++# Pins verified by an in-session fetch+build (the `test` preset path):
++#   - DaisySP   599511b740f8f3a9b8db72a0642aa45b8a23c3a3   (core SVF primitive)
++#   - doctest   v2.5.2                                      (host-side test runner)
++#
++# Pins captured from the upstream repos (real refs); first-fetch verification
++# happens the first time each target's preset is configured on a machine with the
++# matching toolchain (desktop / daisy / teensy):
++#   - JUCE                    8.0.14    (workbench + plugin)
++#   - clap-juce-extensions    16e9d4c   (CLAP export, plugin only)
++#   - libDaisy                c02245d   (daisy adapter)
++#   - Teensy cores            a664eff   (teensy adapter)
++#   - Teensy Audio Library    3039be2   (teensy adapter)
++#
++# Dependencies are fetched lazily: a dependency is only declared when a target
++# that needs it is enabled, so the `test` preset pulls only DaisySP + doctest.
++
++include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
++
++# --- Core: DaisySP (platform-independent pure-DSP math; wrapped by core/primitives)
++# Needed by core/ on every target, so it is always declared. DaisySP ships its own
++# CMakeLists that defines the `DaisySP` static-lib target with the correct (bare-
++# name) include directories for its sources; we use it directly rather than
++# re-globbing. It is portable C++ (no platform headers), so it builds host-side.
++CPMAddPackage(
++  NAME DaisySP
++  GITHUB_REPOSITORY electro-smith/DaisySP
++  GIT_TAG 599511b740f8f3a9b8db72a0642aa45b8a23c3a3
++)
++
++if(TARGET DaisySP)
++  set_target_properties(DaisySP PROPERTIES POSITION_INDEPENDENT_CODE ON)
++endif()
++
++# --- Host-side tests: doctest
++if(ACFX_BUILD_TESTS)
++  CPMAddPackage(
++    NAME doctest
++    GITHUB_REPOSITORY doctest/doctest
++    GIT_TAG v2.5.2
++  )
++endif()
++
++# --- Desktop (workbench + plugin): JUCE 8, plus clap-juce-extensions for CLAP.
++if(ACFX_BUILD_DESKTOP)
++  CPMAddPackage(
++    NAME JUCE
++    GITHUB_REPOSITORY juce-framework/JUCE
++    GIT_TAG 8.0.14
++  )
++  CPMAddPackage(
++    NAME clap-juce-extensions
++    GITHUB_REPOSITORY free-audio/clap-juce-extensions
++    GIT_TAG 16e9d4ca7b1e86c76e04584b2c08e85a764bcda8
++  )
++endif()
++
++# --- Daisy: libDaisy (provides the STM32 HAL + audio callback glue).
++if(ACFX_BUILD_DAISY)
++  CPMAddPackage(
++    NAME libDaisy
++    GITHUB_REPOSITORY electro-smith/libDaisy
++    GIT_TAG c02245d22b38acad3916d9c2f156bcba34fa15af
++    DOWNLOAD_ONLY YES
++  )
++endif()
++
++# --- Teensy: Teensy cores + Audio Library.
++if(ACFX_BUILD_TEENSY)
++  CPMAddPackage(
++    NAME teensy_cores
++    GITHUB_REPOSITORY PaulStoffregen/cores
++    GIT_TAG a664effb008d1ac8d8f00f3f19b47c0d1ea46e3b
++    DOWNLOAD_ONLY YES
++  )
++  CPMAddPackage(
++    NAME teensy_audio
++    GITHUB_REPOSITORY PaulStoffregen/Audio
++    GIT_TAG 3039be2773e86daf1f381a1e8bdc1e6a55ed11f1
++    DOWNLOAD_ONLY YES
++  )
++endif()
+
+
+### cmake/toolchains/daisy.cmake
+diff --git a/cmake/toolchains/daisy.cmake b/cmake/toolchains/daisy.cmake
+new file mode 100644
+index 0000000..03f3d97
+--- /dev/null
++++ b/cmake/toolchains/daisy.cmake
+@@ -0,0 +1,35 @@
++# Toolchain — Daisy (STM32H750, Cortex-M7) via arm-none-eabi-gcc.
++#
++# Daisy's SoC is an STM32H750IB (Cortex-M7 w/ double-precision FPU). These flags
++# match the libDaisy/Daisy bootloader expectations. The core/ sources are
++# platform-independent; this file only describes how the cross-compiler is
++# invoked for the daisy adapter target.
++
++set(CMAKE_SYSTEM_NAME Generic)
++set(CMAKE_SYSTEM_PROCESSOR arm)
++
++# A bare-metal cross toolchain cannot link a hosted test executable; build a
++# static library for CMake's compiler probe instead.
++set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
++
++find_program(ARM_CC  arm-none-eabi-gcc)
++find_program(ARM_CXX arm-none-eabi-g++)
++if(NOT ARM_CC OR NOT ARM_CXX)
++  message(FATAL_ERROR
++    "arm-none-eabi-gcc / arm-none-eabi-g++ not found on PATH. Install the ARM "
++    "embedded toolchain to build the daisy preset (no host-side fallback).")
++endif()
++
++set(CMAKE_C_COMPILER   "${ARM_CC}")
++set(CMAKE_CXX_COMPILER "${ARM_CXX}")
++set(CMAKE_ASM_COMPILER "${ARM_CC}")
++
++set(_daisy_cpu_flags "-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard")
++set(CMAKE_C_FLAGS_INIT   "${_daisy_cpu_flags}")
++set(CMAKE_CXX_FLAGS_INIT "${_daisy_cpu_flags} -fno-exceptions -fno-rtti")
++set(CMAKE_EXE_LINKER_FLAGS_INIT "${_daisy_cpu_flags} --specs=nano.specs --specs=nosys.specs")
++
++set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
++set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
++set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
++set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+
+## What to look for
+
+- **Correctness bugs** — logic errors, off-by-one, null/undefined paths, race conditions, missing error handling, swallowed exceptions.
+- **Design issues** — coupling between layers that should be independent, leaking abstractions, primitives that should compose but don't, configuration that should be data ending up as code.
+- **Missed edge cases** — what happens with empty input? Maximum input? Concurrent calls? Partial failure? Network unavailability? Operator interrupt mid-operation? What is the behavior on a fresh install vs. an upgrade?
+- **Code-quality concerns** — files growing past a reasonable cap, names that don't reveal intent, dead code, duplicated logic, magic numbers without explanation, tests that don't test the contract they claim to test.
+- **Cross-cutting impact** — does this diff touch a surface that other surfaces depend on? Are those other surfaces updated? Are migrations needed? Are doctor rules / schemas / validators updated to match the new shape?
+- **Documentation drift** — does the README / SKILL.md / PRD describe the behavior the code actually implements? If the spec changed, did the implementation? If the implementation changed, did the spec?
+- **Operator-discipline traps** — placeholder comments, swallowed errors, hardcoded paths/values that should be configurable, fallbacks that hide failure modes, mock data outside test code. These are bug-factories per project guidelines.
+
+## Process drivers (029 US8 / FR-029)
+
+These codify the structural drivers of myopic convergence (TASK-60), so the loop converges in fewer rounds with less fix-induced surface growth. The first three (channel-enumeration, invariant-first boundary, round-0 self-red-team) are **fix-review** drivers — apply them when the work under audit is a fix for a prior finding. The last two (fleet-degradation pricing, severity-rubric anchoring) are **general** controls that apply to every round:
+
+- **Channel-enumeration.** When a fix ADDS to an allowlist/surface (a new flag, a new accepted value, a new parser branch, a new fold path), do not accept it on the one example it fixes — enumerate the channels it opens: the **value** channel (other inputs now accepted), the **state** channel (new reachable states), the **multiline / composition** channel (how it composes with adjacent surfaces). Flag any opened channel that lacks a fixture.
+- **Invariant-first boundary.** When a finding is dispositioned as a scope boundary, state the boundary as the **mechanism's invariant plus an in-scope exception**, NOT as the exclusion of the one counterexample. "We exclude X" is a smell; "the invariant is I, and X is the in-scope exception because…" is the disposition.
+- **Round-0 self-red-team.** When the work under audit is itself a FIX for a prior finding, audit the **fix diff as a fresh surface in its own right** — do not assume it is correct merely because it targets a known bug. Ask what new edge the fix opened and what it moved rather than removed; a fix that resolves one finding while opening an unaudited channel is itself a finding.
+- **Fleet-degradation pricing.** A convergence claim is only as strong as the fleet that produced it. When the fleet is **degraded** (a timed-out / killed / zero-byte lane — US2 observability), price the round's "0 HIGH" accordingly: it is computed over fewer models, so cross-model agreement is weaker. Do not treat a degraded-fleet quiet round as full convergence.
+- **Severity-rubric anchoring.** Rate every finding by the blast-radius rubric below (US3), not by how alarming it feels — a quietly-plausible wrong reading an unattended agent would build outranks an obvious contradiction a reader would resolve.
+
+## Output format
+
+For each finding you surface, emit ONE markdown block in this exact shape:
+
+```
+### <heading: one-line summary of the finding>
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-<NN>
+Status:     open
+Severity:   <blocking | high | medium | low | informational>
+Surface:    <repo-relative-path:line-range> OR <description of the surface if not anchored to a single file>
+
+<one-to-three paragraphs of body: what the finding is, why it matters, what evidence you relied on, what a reasonable fix would look like. Be specific. Cite line numbers from the diff. If the finding is structural / cross-file, name every file affected.>
+```
+
+Number the findings sequentially (`-01`, `-02`, ...).
+
+**Severity — rate each finding by downstream blast-radius:** the consequence if a downstream consumer acts on the audited surface *as written*. The consumer may be an adopter running the code, or — especially for a spec — an AI agent building **unattended** from it, with no human to catch a wrong reading. Rate by what would actually happen if this shipped as-is, **not by how alarming the finding feels**. State the blast-radius reasoning in the finding body for every finding, at every level.
+
+- `blocking` — acting on it as-written breaks the feature's stated goals in obvious ways; OR (for a spec) the more natural reading an agent reaches first is the wrong one, so it will likely be built wrong by default and nothing in the artifact corrects it.
+- `high` — a correctness/safety defect a consumer will hit; OR a spec contradiction/ambiguity where the readings are roughly equally plausible and the artifact doesn't disambiguate — an agent might build either, including the wrong one.
+- `medium` — a design issue that compounds over time; OR a spec inconsistency a reasonable consumer would resolve correctly anyway (readings barely diverge, or context makes the intended one obvious).
+- `low` — hygiene; cosmetic wording with no behavioral or implementation consequence.
+- `informational` — context worth seeing, not itself a defect.
+
+**Calibrate by consequence, not by alarm.** A genuine contradiction a reader would obviously resolve the right way is at most `medium`. A quietly-plausible wrong reading an agent would actually build is `high`/`blocking` even if it looks minor. A spec's internal consistency is load-bearing — it is the input to an unattended build.
+
+## If you find nothing — say so explicitly
+
+If you walk the diff carefully and find no findings worth surfacing, emit ONE block in this shape instead:
+
+```
+### No findings
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-CLEAN
+Status:     open
+Severity:   informational
+Surface:    (the entire diff)
+
+I walked the diff for the feature named above and found no findings worth surfacing. My specific reasoning: <three-to-five sentences explaining what you checked, why those checks came back clean, and what you would have flagged if it had been present.>
+```
+
+**Do not pad with weak findings.** A confident "I checked X, Y, Z and they are clean for these reasons" is more useful to the operator than three vague low-severity notes. The cross-model diversity gives the operator independent signal; an empty clean report from your CLI is itself a signal when paired with findings from your siblings.
+
+## Hard constraints
+
+- **No deferral phrases.** Don't write phrases like "fix later", "address in a follow-up", or other commitments to deferred work. The dispatch-wrapper rejects these as bug-factories. If you spot a deferral phrase IN the diff, surface it as a finding.
+- **Anchor findings to evidence.** A finding that says "this might be a problem" without naming the specific file + line is not actionable. Name the surface, quote the relevant code, explain what's wrong.
+- **One issue per finding block.** Don't bundle multiple concerns into one entry; the operator triages each block as a discrete signal.
+- **Provenance is your model name.** Replace `<your-model-name>` in the Finding-ID with the CLI you are (`claude`, `codex`, `gemini`, etc.). This is how the operator joins findings across models.
+
+**Preparing audit findings**
+
+I need to produce audit findings from the provided diff, so maybe I'll inspect the repository. Reading the files with line numbers might be enough, as a read-only approach is fine. I want to make sure I'm being independent in my analysis. It's also important that the line references from the diff are exact. I can use natural language processing to help with that, which could streamline my work.
+codex
+I’ll treat this as a code-review audit over the provided chunk, and I’m going to anchor anything I report to concrete lines in the local files so the findings are actionable.
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/parameter-view.cpp | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include "parameter-view.h"
+     2	
+     3	namespace acfx::workbench {
+     4	
+     5	ParameterView::ParameterView(span<const ParameterDescriptor> params, OnChange onChange)
+     6	    : onChange_(std::move(onChange)) {
+     7	    rows_.reserve(params.size());
+     8	    for (const ParameterDescriptor& d : params) {
+     9	        rows_.push_back(std::make_unique<Row>());
+    10	        Row& row = *rows_.back();
+    11	        row.descriptor = d;
+    12	
+    13	        row.label.setText(juce::String(std::string(d.name)), juce::dontSendNotification);
+    14	        addAndMakeVisible(row.label);
+    15	
+    16	        if (d.kind == ParamKind::discrete) {
+    17	            row.combo = std::make_unique<juce::ComboBox>();
+    18	            for (int i = 0; i < d.discreteCount; ++i)
+    19	                row.combo->addItem(juce::String(i), i + 1); // item ids are 1-based
+    20	            row.combo->setSelectedItemIndex(0, juce::dontSendNotification);
+    21	
+    22	            const ParamId id = d.id;
+    23	            const std::uint8_t count = d.discreteCount;
+    24	            juce::ComboBox* combo = row.combo.get();
+    25	            OnChange& cb = onChange_;
+    26	            combo->onChange = [combo, id, count, &cb] {
+    27	                const int index = combo->getSelectedItemIndex();
+    28	                // Centre-of-bucket normalized value for this discrete index.
+    29	                const float norm = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
+    30	                if (cb)
+    31	                    cb(id, norm);
+    32	            };
+    33	            addAndMakeVisible(*row.combo);
+    34	        } else {
+    35	            row.slider = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal,
+    36	                                                        juce::Slider::TextBoxRight);
+    37	            // The slider works in normalized 0..1 space; the descriptor owns the
+    38	            // skew, so the effect maps back to plain units on setParameter.
+    39	            row.slider->setRange(0.0, 1.0, 0.0);
+    40	            row.slider->setValue(static_cast<double>(normalize(d, d.defaultValue)),
+    41	                                 juce::dontSendNotification);
+    42	
+    43	            const ParameterDescriptor desc = d;
+    44	            juce::Slider* slider = row.slider.get();
+    45	            OnChange& cb = onChange_;
+    46	            slider->onValueChange = [slider, desc, &cb] {
+    47	                if (cb)
+    48	                    cb(desc.id, static_cast<float>(slider->getValue()));
+    49	            };
+    50	            addAndMakeVisible(*row.slider);
+    51	        }
+    52	    }
+    53	}
+    54	
+    55	void ParameterView::setNormalized(ParamId id, float normalized) {
+    56	    for (std::unique_ptr<Row>& rowPtr : rows_) {
+    57	        Row& row = *rowPtr;
+    58	        if (row.descriptor.id != id)
+    59	            continue;
+    60	        if (row.slider)
+    61	            row.slider->setValue(static_cast<double>(normalized), juce::dontSendNotification);
+    62	        else if (row.combo) {
+    63	            const int count = row.descriptor.discreteCount < 2 ? 2 : row.descriptor.discreteCount;
+    64	            int index = static_cast<int>(normalized * static_cast<float>(count));
+    65	            if (index >= count)
+    66	                index = count - 1;
+    67	            row.combo->setSelectedItemIndex(index, juce::dontSendNotification);
+    68	        }
+    69	        return;
+    70	    }
+    71	}
+    72	
+    73	void ParameterView::resized() {
+    74	    auto area = getLocalBounds().reduced(8);
+    75	    const int rowHeight = 32;
+    76	    for (std::unique_ptr<Row>& rowPtr : rows_) {
+    77	        Row& row = *rowPtr;
+    78	        auto r = area.removeFromTop(rowHeight);
+    79	        row.label.setBounds(r.removeFromLeft(120));
+    80	        if (row.slider)
+    81	            row.slider->setBounds(r);
+    82	        else if (row.combo)
+    83	            row.combo->setBounds(r.removeFromLeft(160));
+    84	        area.removeFromTop(6);
+    85	    }
+    86	}
+    87	
+    88	} // namespace acfx::workbench
+
+exec
+/bin/zsh -lc "nl -ba cmake/CPM.cmake | sed -n '1,80p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# CPM.cmake bootstrap — downloads the pinned CPM package manager on first
+     2	# configure rather than vendoring its (large) source into the repo. The exact
+     3	# version + content hash are pinned here, so the fetch is reproducible (research.md
+     4	# decision 4) and the downloaded file lands in the gitignored CPM cache.
+     5	
+     6	set(CPM_DOWNLOAD_VERSION 0.40.5)
+     7	set(CPM_HASH_SUM "c46b876ae3b9f994b4f05a4c15553e0485636862064f1fcc9d8b4f832086bc5d")
+     8	
+     9	if(CPM_SOURCE_CACHE)
+    10	  set(CPM_DOWNLOAD_LOCATION "${CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+    11	elseif(DEFINED ENV{CPM_SOURCE_CACHE})
+    12	  set(CPM_DOWNLOAD_LOCATION "$ENV{CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+    13	else()
+    14	  set(CPM_DOWNLOAD_LOCATION "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+    15	endif()
+    16	
+    17	get_filename_component(CPM_DOWNLOAD_LOCATION "${CPM_DOWNLOAD_LOCATION}" ABSOLUTE)
+    18	
+    19	# Ensure the destination directory exists before downloading (defensive — current
+    20	# CMake creates it, but this keeps the bootstrap robust across versions).
+    21	get_filename_component(_cpm_download_dir "${CPM_DOWNLOAD_LOCATION}" DIRECTORY)
+    22	file(MAKE_DIRECTORY "${_cpm_download_dir}")
+    23	
+    24	file(DOWNLOAD
+    25	  "https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake"
+    26	  "${CPM_DOWNLOAD_LOCATION}"
+    27	  EXPECTED_HASH SHA256=${CPM_HASH_SUM}
+    28	)
+    29	
+    30	include("${CPM_DOWNLOAD_LOCATION}")
+
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/workbench-app.cpp | sed -n '1,240p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include <array>
+     2	#include <atomic>
+     3	#include <cstdlib>
+     4	#include <memory>
+     5	
+     6	#include <juce_audio_utils/juce_audio_utils.h>
+     7	#include <juce_gui_basics/juce_gui_basics.h>
+     8	
+     9	#include "audio-source.h"
+    10	#include "dsp/audio-block.h"
+    11	#include "dsp/process-context.h"
+    12	#include "effects/svf/svf-effect.h"
+    13	#include "midi-binding.h"
+    14	#include "parameter-view.h"
+    15	#include "processor-node/processor-node.h"
+    16	
+    17	// The desktop sketch-and-hear workbench (T022, T026). Holds the effect behind the
+    18	// same host boundary the plugin uses — std::unique_ptr<ProcessorNode> =
+    19	// EffectNode<SvfEffect> — routes audio from the selected source through it, draws
+    20	// the auto-generated controls, binds MIDI CCs, and offers a dry/processed A/B
+    21	// toggle. Parameter edits from the GUI/MIDI threads go through
+    22	// ProcessorNode::setParameter, the RT-safe cross-thread ingress: the effect
+    23	// publishes each value as a lock-free atomic that process() consumes, so no
+    24	// separate workbench-side queue is needed.
+    25	
+    26	namespace acfx::workbench {
+    27	
+    28	namespace {
+    29	constexpr int kMaxChannels = 8;
+    30	} // namespace
+    31	
+    32	class WorkbenchComponent final : public juce::AudioAppComponent,
+    33	                                 private juce::MidiInputCallback {
+    34	public:
+    35	    WorkbenchComponent()
+    36	        : node_(std::make_unique<EffectNode<SvfEffect>>()),
+    37	          paramView_(node_->parameters(),
+    38	                     [this](ParamId id, float norm) { node_->setParameter(id, norm); }) {
+    39	        params_ = node_->parameters();
+    40	
+    41	        // Default MIDI map: CC 74 -> cutoff (the conventional filter-cutoff CC).
+    42	        midi_.bind(74, ParamId{SvfEffect::kCutoff});
+    43	        midi_.bind(71, ParamId{SvfEffect::kResonance});
+    44	
+    45	        addAndMakeVisible(paramView_);
+    46	        abToggle_.setButtonText("Process (A/B)");
+    47	        abToggle_.setToggleState(true, juce::dontSendNotification);
+    48	        abToggle_.onClick = [this] { processed_.store(abToggle_.getToggleState()); };
+    49	        addAndMakeVisible(abToggle_);
+    50	
+    51	        setSize(520, 220);
+    52	        // Stereo in/out: input present for live-input mode.
+    53	        setAudioChannels(2, 2);
+    54	        // Enable the available MIDI inputs — registering a callback alone does
+    55	        // not enable any device, so without this the CC bindings stay inert.
+    56	        for (const auto& input : juce::MidiInput::getAvailableDevices())
+    57	            deviceManager.setMidiInputDeviceEnabled(input.identifier, true);
+    58	        deviceManager.addMidiInputDeviceCallback({}, this);
+    59	    }
+    60	
+    61	    ~WorkbenchComponent() override {
+    62	        deviceManager.removeMidiInputDeviceCallback({}, this);
+    63	        shutdownAudio();
+    64	    }
+    65	
+    66	    void prepareToPlay(int blockSize, double sampleRate) override {
+    67	        // Prepare for the device's ACTUAL output channel count (setAudioChannels
+    68	        // is a request, not a guarantee), bounded by kMaxChannels — so the count
+    69	        // the effect is prepared for matches the count process() drives.
+    70	        const int outputs = numOutputChannels();
+    71	        preparedChannels_ = juce::jlimit(1, kMaxChannels, outputs > 0 ? outputs : 2);
+    72	        const ProcessContext ctx{sampleRate, blockSize, preparedChannels_};
+    73	        node_->prepare(ctx);
+    74	
+    75	        // Source selection (no silent fallback): the built-in file player when
+    76	        // ACFX_WORKBENCH_FILE points at an audio file (the deterministic default
+    77	        // for reproducible A/B), else the live device input, else a surfaced error.
+    78	        const int inputs = numInputChannels();
+    79	        try {
+    80	            if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
+    81	                source_.useFilePlayer(juce::File(juce::String::fromUTF8(path)));
+    82	            } else if (inputs > 0) {
+    83	                source_.useLiveInput(inputs);
+    84	            }
+    85	            source_.prepare(sampleRate, blockSize);
+    86	            sourceReady_ = true;
+    87	        } catch (const AudioSourceError& e) {
+    88	            // Surface the failure to the operator instead of swallowing it — no
+    89	            // silent fallback to silence (Constitution V).
+    90	            sourceReady_ = false;
+    91	            const juce::String message(e.what());
+    92	            juce::MessageManager::callAsync([message] {
+    93	                juce::NativeMessageBox::showMessageBoxAsync(
+    94	                    juce::MessageBoxIconType::WarningIcon, "Audio source unavailable", message);
+    95	            });
+    96	        }
+    97	    }
+    98	
+    99	    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override {
+   100	        // Parameter edits are consumed inside SvfEffect::process() (atomic
+   101	        // pending), so the audio thread needs no separate apply step here.
+   102	        juce::AudioBuffer<float>& buffer = *info.buffer;
+   103	        const int startSample = info.startSample;
+   104	        const int numSamples = info.numSamples;
+   105	
+   106	        // No usable source (prepare failed): output silence rather than read an
+   107	        // unprepared source. The failure was already surfaced in prepareToPlay.
+   108	        if (!sourceReady_) {
+   109	            buffer.clear(startSample, numSamples);
+   110	            return;
+   111	        }
+   112	
+   113	        // Bound to the count the effect was prepared for (never exceed it).
+   114	        const int numChannels = juce::jmin(buffer.getNumChannels(), preparedChannels_);
+   115	
+   116	        // Pull the source audio into the destination region (live input is already
+   117	        // present and passes through). fillBlock is noexcept and lock-free.
+   118	        juce::AudioBuffer<float> region(buffer.getArrayOfWritePointers(),
+   119	                                        buffer.getNumChannels(), startSample, numSamples);
+   120	        source_.fillBlock(region);
+   121	
+   122	        if (!processed_.load())
+   123	            return; // A/B: dry — leave the source audio untouched
+   124	
+   125	        std::array<float*, kMaxChannels> chans{};
+   126	        for (int ch = 0; ch < numChannels; ++ch)
+   127	            chans[ch] = buffer.getWritePointer(ch, startSample);
+   128	        AudioBlock block(chans.data(), numChannels, numSamples);
+   129	        node_->processBlock(block);
+   130	    }
+   131	
+   132	    void releaseResources() override { source_.release(); }
+   133	
+   134	    void resized() override {
+   135	        auto area = getLocalBounds();
+   136	        abToggle_.setBounds(area.removeFromBottom(32).reduced(8, 4));
+   137	        paramView_.setBounds(area);
+   138	    }
+   139	
+   140	private:
+   141	    int numInputChannels() const {
+   142	        if (auto* device = deviceManager.getCurrentAudioDevice())
+   143	            return device->getActiveInputChannels().countNumberOfSetBits();
+   144	        return 0;
+   145	    }
+   146	
+   147	    int numOutputChannels() const {
+   148	        if (auto* device = deviceManager.getCurrentAudioDevice())
+   149	            return device->getActiveOutputChannels().countNumberOfSetBits();
+   150	        return 0;
+   151	    }
+   152	
+   153	    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg) override {
+   154	        midi_.handle(msg, [this](ParamId id, float norm) {
+   155	            node_->setParameter(id, norm); // core is thread-safe (atomic pending)
+   156	            // Reflect into the GUI on the message thread, guarded so a callback
+   157	            // queued before teardown never touches a destroyed component.
+   158	            juce::Component::SafePointer<ParameterView> safeView(&paramView_);
+   159	            juce::MessageManager::callAsync([safeView, id, norm] {
+   160	                if (safeView != nullptr)
+   161	                    safeView->setNormalized(id, norm);
+   162	            });
+   163	        });
+   164	    }
+   165	
+   166	    std::unique_ptr<ProcessorNode> node_;
+   167	    span<const ParameterDescriptor> params_;
+   168	    ParameterView paramView_;
+   169	    MidiBinding midi_;
+   170	    WorkbenchAudioSource source_;
+   171	    juce::ToggleButton abToggle_;
+   172	
+   173	    int preparedChannels_ = 2;
+   174	    bool sourceReady_ = false;
+   175	    std::atomic<bool> processed_{true};
+   176	};
+   177	
+   178	class WorkbenchApplication final : public juce::JUCEApplication {
+   179	public:
+   180	    const juce::String getApplicationName() override { return "acfx Workbench"; }
+   181	    const juce::String getApplicationVersion() override { return "0.1.0"; }
+   182	
+   183	    void initialise(const juce::String&) override {
+   184	        mainWindow_ = std::make_unique<MainWindow>(getApplicationName());
+   185	    }
+   186	    void shutdown() override { mainWindow_ = nullptr; }
+   187	
+   188	private:
+   189	    class MainWindow final : public juce::DocumentWindow {
+   190	    public:
+   191	        explicit MainWindow(const juce::String& name)
+   192	            : juce::DocumentWindow(name, juce::Colours::darkgrey,
+   193	                                   juce::DocumentWindow::allButtons) {
+   194	            setUsingNativeTitleBar(true);
+   195	            setContentOwned(new WorkbenchComponent(), true);
+   196	            setResizable(true, true);
+   197	            centreWithSize(getWidth(), getHeight());
+   198	            setVisible(true);
+   199	        }
+   200	        void closeButtonPressed() override {
+   201	            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+   202	        }
+   203	    };
+   204	
+   205	    std::unique_ptr<MainWindow> mainWindow_;
+   206	};
+   207	
+   208	} // namespace acfx::workbench
+   209	
+   210	START_JUCE_APPLICATION(acfx::workbench::WorkbenchApplication)
+
+exec
+/bin/zsh -lc "nl -ba cmake/dependencies.cmake | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# acfx external dependencies — CPM-pinned to explicit, known-good refs.
+     2	#
+     3	# Per research.md (Phase 0, decision 4): every dependency is fetched by CPM and
+     4	# pinned to an explicit ref. The pin is a real, reproducible tag/commit captured
+     5	# when the dependency is first fetched and verified to build — never a fabricated
+     6	# version number.
+     7	#
+     8	# Pins verified by an in-session fetch+build (the `test` preset path):
+     9	#   - DaisySP   599511b740f8f3a9b8db72a0642aa45b8a23c3a3   (core SVF primitive)
+    10	#   - doctest   v2.5.2                                      (host-side test runner)
+    11	#
+    12	# Pins captured from the upstream repos (real refs); first-fetch verification
+    13	# happens the first time each target's preset is configured on a machine with the
+    14	# matching toolchain (desktop / daisy / teensy):
+    15	#   - JUCE                    8.0.14    (workbench + plugin)
+    16	#   - clap-juce-extensions    16e9d4c   (CLAP export, plugin only)
+    17	#   - libDaisy                c02245d   (daisy adapter)
+    18	#   - Teensy cores            a664eff   (teensy adapter)
+    19	#   - Teensy Audio Library    3039be2   (teensy adapter)
+    20	#
+    21	# Dependencies are fetched lazily: a dependency is only declared when a target
+    22	# that needs it is enabled, so the `test` preset pulls only DaisySP + doctest.
+    23	
+    24	include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
+    25	
+    26	# --- Core: DaisySP (platform-independent pure-DSP math; wrapped by core/primitives)
+    27	# Needed by core/ on every target, so it is always declared. DaisySP ships its own
+    28	# CMakeLists that defines the `DaisySP` static-lib target with the correct (bare-
+    29	# name) include directories for its sources; we use it directly rather than
+    30	# re-globbing. It is portable C++ (no platform headers), so it builds host-side.
+    31	CPMAddPackage(
+    32	  NAME DaisySP
+    33	  GITHUB_REPOSITORY electro-smith/DaisySP
+    34	  GIT_TAG 599511b740f8f3a9b8db72a0642aa45b8a23c3a3
+    35	)
+    36	
+    37	if(TARGET DaisySP)
+    38	  set_target_properties(DaisySP PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    39	endif()
+    40	
+    41	# --- Host-side tests: doctest
+    42	if(ACFX_BUILD_TESTS)
+    43	  CPMAddPackage(
+    44	    NAME doctest
+    45	    GITHUB_REPOSITORY doctest/doctest
+    46	    GIT_TAG v2.5.2
+    47	  )
+    48	endif()
+    49	
+    50	# --- Desktop (workbench + plugin): JUCE 8, plus clap-juce-extensions for CLAP.
+    51	if(ACFX_BUILD_DESKTOP)
+    52	  CPMAddPackage(
+    53	    NAME JUCE
+    54	    GITHUB_REPOSITORY juce-framework/JUCE
+    55	    GIT_TAG 8.0.14
+    56	  )
+    57	  CPMAddPackage(
+    58	    NAME clap-juce-extensions
+    59	    GITHUB_REPOSITORY free-audio/clap-juce-extensions
+    60	    GIT_TAG 16e9d4ca7b1e86c76e04584b2c08e85a764bcda8
+    61	  )
+    62	endif()
+    63	
+    64	# --- Daisy: libDaisy (provides the STM32 HAL + audio callback glue).
+    65	if(ACFX_BUILD_DAISY)
+    66	  CPMAddPackage(
+    67	    NAME libDaisy
+    68	    GITHUB_REPOSITORY electro-smith/libDaisy
+    69	    GIT_TAG c02245d22b38acad3916d9c2f156bcba34fa15af
+    70	    DOWNLOAD_ONLY YES
+    71	  )
+    72	endif()
+    73	
+    74	# --- Teensy: Teensy cores + Audio Library.
+    75	if(ACFX_BUILD_TEENSY)
+    76	  CPMAddPackage(
+    77	    NAME teensy_cores
+    78	    GITHUB_REPOSITORY PaulStoffregen/cores
+    79	    GIT_TAG a664effb008d1ac8d8f00f3f19b47c0d1ea46e3b
+    80	    DOWNLOAD_ONLY YES
+    81	  )
+    82	  CPMAddPackage(
+    83	    NAME teensy_audio
+    84	    GITHUB_REPOSITORY PaulStoffregen/Audio
+    85	    GIT_TAG 3039be2773e86daf1f381a1e8bdc1e6a55ed11f1
+    86	    DOWNLOAD_ONLY YES
+    87	  )
+    88	endif()
+
+**Inspecting audio source**
+
+I think I need to inspect the audio source to confirm if `source_.prepare` is functioning properly. If there's no source, it might throw an error, and I want to figure that out. Should I also consider processing the audio in some way while I'm at it? I'm curious about the implications of not having a source and how that could affect everything else. Let’s ensure everything is in order before proceeding.
+codex
+I’ve got the main line-numbered surfaces. I’m checking the adjacent workbench source contract now, because one likely issue depends on whether the audio source treats “no selected source” as an error or as silence.
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/audio-source.h | sed -n '1,220p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include <atomic>
+     4	#include <stdexcept>
+     5	
+     6	#include <juce_audio_basics/juce_audio_basics.h>
+     7	#include <juce_audio_formats/juce_audio_formats.h>
+     8	
+     9	// The workbench audio source (T025): a built-in looping file player OR live input
+    10	// device, selectable at runtime (research.md decision 2). The player is the
+    11	// deterministic default for reproducible A/B; live input is the real sketch use.
+    12	// If neither is available the source raises a descriptive error — never silent
+    13	// zeros or mock audio (Constitution V).
+    14	//
+    15	// RT-safety (Constitution VI): the file is decoded into an in-memory buffer
+    16	// before the stream starts (off the audio thread); fillBlock() then reads that
+    17	// buffer at an atomic play position with no locks and no allocation. Source
+    18	// selection (useFilePlayer / useLiveInput) is a setup-time operation: it must
+    19	// happen before prepare(), and switching sources requires stopping the stream
+    20	// first. That precondition is ENFORCED — a selection call while already
+    21	// configured throws — so the audio thread never reads a buffer being reassigned.
+    22	
+    23	namespace acfx::workbench {
+    24	
+    25	class AudioSourceError : public std::runtime_error {
+    26	public:
+    27	    explicit AudioSourceError(const juce::String& what)
+    28	        : std::runtime_error(what.toStdString()) {}
+    29	};
+    30	
+    31	class WorkbenchAudioSource {
+    32	public:
+    33	    WorkbenchAudioSource();
+    34	
+    35	    // Decode the given file into memory and select it as the source. Throws
+    36	    // AudioSourceError if the file cannot be opened/decoded. Call at setup (off
+    37	    // the audio thread).
+    38	    void useFilePlayer(const juce::File& file);
+    39	
+    40	    // Use the live device input. `availableInputChannels` is what the device
+    41	    // offers; throws AudioSourceError if there are none.
+    42	    void useLiveInput(int availableInputChannels);
+    43	
+    44	    void prepare(double sampleRate, int blockSize);
+    45	    void release();
+    46	
+    47	    // Fill `block` with the next chunk of source audio. For live input, `block`
+    48	    // already holds the device input on entry and is passed through unchanged.
+    49	    // Runs on the audio thread: never throws, never allocates, takes no locks.
+    50	    void fillBlock(juce::AudioBuffer<float>& block) noexcept;
+    51	
+    52	    bool isLiveInput() const noexcept { return live_.load(std::memory_order_relaxed); }
+    53	
+    54	private:
+    55	    juce::AudioFormatManager formatManager_;
+    56	    juce::AudioBuffer<float> fileBuffer_; // whole file decoded into memory at setup
+    57	    std::atomic<int> playPos_{0};
+    58	    std::atomic<bool> live_{false};
+    59	    std::atomic<bool> hasFile_{false};
+    60	    // Atomic like its siblings: written on the audio/device thread (prepare/
+    61	    // release) and read on the message thread (the selection-call guard), so the
+    62	    // guard reliably observes a running stream.
+    63	    std::atomic<bool> configured_{false};
+    64	};
+    65	
+    66	} // namespace acfx::workbench
+
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/audio-source.cpp | sed -n '1,260p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include "audio-source.h"
+     2	
+     3	#include <cstdint>
+     4	#include <memory>
+     5	
+     6	namespace acfx::workbench {
+     7	
+     8	WorkbenchAudioSource::WorkbenchAudioSource() { formatManager_.registerBasicFormats(); }
+     9	
+    10	void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
+    11	    if (configured_.load(std::memory_order_acquire))
+    12	        throw AudioSourceError("Audio source must be selected before the stream "
+    13	                               "starts; stop audio to switch sources.");
+    14	    if (!file.existsAsFile())
+    15	        throw AudioSourceError("Audio file does not exist: " + file.getFullPathName());
+    16	
+    17	    std::unique_ptr<juce::AudioFormatReader> reader(formatManager_.createReaderFor(file));
+    18	    if (reader == nullptr)
+    19	        throw AudioSourceError("No decoder for audio file: " + file.getFullPathName());
+    20	
+    21	    const int numChannels = static_cast<int>(reader->numChannels);
+    22	    // Validate length BEFORE narrowing to int (lengthInSamples is 64-bit). Bound
+    23	    // the in-memory buffer to a sane size (~93 min at 48 kHz) so a huge/corrupt
+    24	    // header can't overflow the int or exhaust memory.
+    25	    const std::int64_t lengthSamples = reader->lengthInSamples;
+    26	    constexpr std::int64_t kMaxSamples = std::int64_t{1} << 28;
+    27	    if (numChannels <= 0 || lengthSamples <= 0)
+    28	        throw AudioSourceError("Audio file is empty: " + file.getFullPathName());
+    29	    if (lengthSamples > kMaxSamples)
+    30	        throw AudioSourceError("Audio file is too long to load into memory: " +
+    31	                               file.getFullPathName());
+    32	    const int numSamples = static_cast<int>(lengthSamples);
+    33	
+    34	    // Decode the whole file into memory on this (setup) thread. The audio thread
+    35	    // only ever reads fileBuffer_ thereafter — no reader, no transport, no lock.
+    36	    juce::AudioBuffer<float> decoded(numChannels, numSamples);
+    37	    reader->read(&decoded, 0, numSamples, 0, true, true);
+    38	
+    39	    fileBuffer_ = std::move(decoded);
+    40	    playPos_.store(0, std::memory_order_relaxed);
+    41	    hasFile_.store(true, std::memory_order_release);
+    42	    live_.store(false, std::memory_order_release);
+    43	}
+    44	
+    45	void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
+    46	    if (configured_.load(std::memory_order_acquire))
+    47	        throw AudioSourceError("Audio source must be selected before the stream "
+    48	                               "starts; stop audio to switch sources.");
+    49	    if (availableInputChannels <= 0)
+    50	        throw AudioSourceError("Live input selected but the audio device offers no "
+    51	                               "input channels.");
+    52	    hasFile_.store(false, std::memory_order_release); // symmetric with useFilePlayer
+    53	    live_.store(true, std::memory_order_release);
+    54	}
+    55	
+    56	void WorkbenchAudioSource::prepare(double, int) {
+    57	    if (!live_.load(std::memory_order_acquire) && !hasFile_.load(std::memory_order_acquire))
+    58	        throw AudioSourceError("No audio source configured: select the built-in "
+    59	                               "player (with a file) or a live input device.");
+    60	    configured_.store(true, std::memory_order_release);
+    61	}
+    62	
+    63	void WorkbenchAudioSource::release() { configured_.store(false, std::memory_order_release); }
+    64	
+    65	void WorkbenchAudioSource::fillBlock(juce::AudioBuffer<float>& block) noexcept {
+    66	    if (live_.load(std::memory_order_relaxed))
+    67	        return; // device input is already present in `block`
+    68	
+    69	    const int fileLen = fileBuffer_.getNumSamples();
+    70	    if (!hasFile_.load(std::memory_order_relaxed) || fileLen <= 0) {
+    71	        block.clear();
+    72	        return;
+    73	    }
+    74	
+    75	    const int fileChannels = fileBuffer_.getNumChannels();
+    76	    const int numSamples = block.getNumSamples();
+    77	    const int startPos = playPos_.load(std::memory_order_relaxed);
+    78	
+    79	    for (int ch = 0; ch < block.getNumChannels(); ++ch) {
+    80	        const float* src = fileBuffer_.getReadPointer(ch < fileChannels ? ch : fileChannels - 1);
+    81	        float* dst = block.getWritePointer(ch);
+    82	        int pos = startPos;
+    83	        for (int i = 0; i < numSamples; ++i) {
+    84	            dst[i] = src[pos];
+    85	            if (++pos >= fileLen)
+    86	                pos = 0;
+    87	        }
+    88	    }
+    89	
+    90	    playPos_.store((startPos + numSamples) % fileLen, std::memory_order_relaxed);
+    91	}
+    92	
+    93	} // namespace acfx::workbench
+
+exec
+/bin/zsh -lc 'rg -n "class WorkbenchAudioSource|struct WorkbenchAudioSource|useLiveInput|fillBlock|prepare" adapters/workbench -S' in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+adapters/workbench/workbench-app.cpp:66:    void prepareToPlay(int blockSize, double sampleRate) override {
+adapters/workbench/workbench-app.cpp:69:        // the effect is prepared for matches the count process() drives.
+adapters/workbench/workbench-app.cpp:71:        preparedChannels_ = juce::jlimit(1, kMaxChannels, outputs > 0 ? outputs : 2);
+adapters/workbench/workbench-app.cpp:72:        const ProcessContext ctx{sampleRate, blockSize, preparedChannels_};
+adapters/workbench/workbench-app.cpp:73:        node_->prepare(ctx);
+adapters/workbench/workbench-app.cpp:83:                source_.useLiveInput(inputs);
+adapters/workbench/workbench-app.cpp:85:            source_.prepare(sampleRate, blockSize);
+adapters/workbench/workbench-app.cpp:106:        // No usable source (prepare failed): output silence rather than read an
+adapters/workbench/workbench-app.cpp:107:        // unprepared source. The failure was already surfaced in prepareToPlay.
+adapters/workbench/workbench-app.cpp:113:        // Bound to the count the effect was prepared for (never exceed it).
+adapters/workbench/workbench-app.cpp:114:        const int numChannels = juce::jmin(buffer.getNumChannels(), preparedChannels_);
+adapters/workbench/workbench-app.cpp:117:        // present and passes through). fillBlock is noexcept and lock-free.
+adapters/workbench/workbench-app.cpp:120:        source_.fillBlock(region);
+adapters/workbench/workbench-app.cpp:173:    int preparedChannels_ = 2;
+adapters/workbench/audio-source.h:16:// before the stream starts (off the audio thread); fillBlock() then reads that
+adapters/workbench/audio-source.h:18:// selection (useFilePlayer / useLiveInput) is a setup-time operation: it must
+adapters/workbench/audio-source.h:19:// happen before prepare(), and switching sources requires stopping the stream
+adapters/workbench/audio-source.h:31:class WorkbenchAudioSource {
+adapters/workbench/audio-source.h:42:    void useLiveInput(int availableInputChannels);
+adapters/workbench/audio-source.h:44:    void prepare(double sampleRate, int blockSize);
+adapters/workbench/audio-source.h:50:    void fillBlock(juce::AudioBuffer<float>& block) noexcept;
+adapters/workbench/audio-source.h:60:    // Atomic like its siblings: written on the audio/device thread (prepare/
+adapters/workbench/audio-source.cpp:45:void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
+adapters/workbench/audio-source.cpp:56:void WorkbenchAudioSource::prepare(double, int) {
+adapters/workbench/audio-source.cpp:65:void WorkbenchAudioSource::fillBlock(juce::AudioBuffer<float>& block) noexcept {
+
+**Evaluating potential audio issues**
+
+I need to look into some findings regarding how the `prepareToPlay` calls work. It seems that the `useFilePlayer` or `useLiveInput` methods trigger every time. If the audio device reinitializes while the source is configured as true, it can lead to errors. I'm also noting that the `ParameterView` should set a default value accurately to avoid confusion in the UI. There’s a bit to unravel here, especially with how sources release and prepare resources.
+exec
+/bin/zsh -lc "nl -ba core/effects/svf/svf-effect.h | sed -n '1,220p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include <array>
+     4	#include <atomic>
+     5	#include <cstddef>
+     6	#include <cstdint>
+     7	#include <cstring>
+     8	
+     9	#include "dsp/audio-block.h"
+    10	#include "dsp/param-id.h"
+    11	#include "dsp/parameter.h"
+    12	#include "dsp/process-context.h"
+    13	#include "dsp/span.h"
+    14	#include "primitives/svf-primitive.h"
+    15	
+    16	// The State-Variable Filter effect — the one effect proving the cross-platform
+    17	// spine. Satisfies the Effect contract (no base class, no vtable in the hot
+    18	// path). One constexpr parameter table (cutoff/resonance/mode) drives every
+    19	// adapter (FR-003). Per-channel DaisySP Svf state, allocation-free process.
+    20	//
+    21	// Thread-ownership boundary:
+    22	//   - setParameter() may be called from ANY thread (a UI loop, a MIDI callback,
+    23	//     an MCU main loop). It only publishes a lock-free atomic pending value; the
+    24	//     audio thread consumes pending values at the top of process(). So parameter
+    25	//     edits never race process() — the core encodes that handoff itself.
+    26	//   - prepare()/reset() DO mutate filter coefficients directly and are NOT
+    27	//     synchronized against process(). They must be called only while the audio
+    28	//     stream is stopped (before start, or during a device change with audio
+    29	//     paused) — the standard prepare/process lifecycle already implies this, and
+    30	//     that quiescence is the adapter's responsibility, not something the core can
+    31	//     enforce.
+    32	
+    33	namespace acfx {
+    34	
+    35	class SvfEffect {
+    36	public:
+    37	    // Stable parameter ids — the dense index into kParams.
+    38	    enum Param : std::uint8_t { kCutoff = 0, kResonance = 1, kMode = 2 };
+    39	
+    40	    // The single source of parameter truth (SC-006). cutoff: log Hz; resonance:
+    41	    // linear 0..1; mode: discrete {lowpass, highpass, bandpass}.
+    42	    static constexpr std::array<ParameterDescriptor, 3> kParams = {{
+    43	        {ParamId{kCutoff}, "cutoff", ParamUnit::hz, 20.0f, 20000.0f, 1000.0f,
+    44	         ParamSkew::logarithmic, ParamKind::continuous, 0},
+    45	        {ParamId{kResonance}, "resonance", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+    46	         ParamSkew::linear, ParamKind::continuous, 0},
+    47	        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 2.0f, 0.0f,
+    48	         ParamSkew::linear, ParamKind::discrete, 3},
+    49	    }};
+    50	
+    51	    SvfEffect() noexcept {
+    52	        for (std::size_t i = 0; i < kNumParams; ++i) {
+    53	            pendingBits_[i].store(0u, std::memory_order_relaxed);
+    54	            pendingDirty_[i].store(0u, std::memory_order_relaxed);
+    55	        }
+    56	    }
+    57	
+    58	    // Build-time guard: every descriptor in the table is valid (so a malformed
+    59	    // entry — e.g. a log param with min<=0 — fails compilation, not the audio path).
+    60	    static_assert(
+    61	        [] {
+    62	            for (const ParameterDescriptor& d : kParams)
+    63	                if (!isValidDescriptor(d))
+    64	                    return false;
+    65	            return true;
+    66	        }(),
+    67	        "SvfEffect parameter table violates a descriptor invariant "
+    68	        "(max>min; logarithmic => min>0; discrete => count>=2)");
+    69	
+    70	    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+    71	
+    72	    // Audio stream must be stopped — see the thread-ownership note above.
+    73	    void prepare(const ProcessContext& ctx) noexcept {
+    74	        sampleRate_ = static_cast<float>(ctx.sampleRate);
+    75	        numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
+    76	        for (int ch = 0; ch < numChannels_; ++ch)
+    77	            filters_[static_cast<std::size_t>(ch)].init(sampleRate_);
+    78	        applyAll();
+    79	    }
+    80	
+    81	    // Audio stream must be stopped — see the thread-ownership note above.
+    82	    void reset() noexcept {
+    83	        for (int ch = 0; ch < numChannels_; ++ch)
+    84	            filters_[static_cast<std::size_t>(ch)].reset();
+    85	        applyAll();
+    86	    }
+    87	
+    88	    void process(AudioBlock& io) noexcept {
+    89	        applyPending(); // consume cross-thread parameter edits on the audio thread
+    90	        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
+    91	        const int samples = io.numSamples();
+    92	        for (int ch = 0; ch < channels; ++ch) {
+    93	            float* x = io.channel(ch);
+    94	            SvfPrimitive& f = filters_[static_cast<std::size_t>(ch)];
+    95	            for (int n = 0; n < samples; ++n)
+    96	                x[n] = f.process(x[n]);
+    97	        }
+    98	    }
+    99	
+   100	    // Publish a normalized 0..1 value for a parameter. Callable from any thread;
+   101	    // the audio thread applies it at the next process() (no immediate filter
+   102	    // mutation here — that keeps coefficient updates single-threaded).
+   103	    void setParameter(ParamId id, float normalized) noexcept {
+   104	        const std::uint8_t i = id.value;
+   105	        if (i >= kNumParams)
+   106	            return; // out-of-range id: a programming error; no silent state change
+   107	        pendingBits_[i].store(floatBits(normalized), std::memory_order_relaxed);
+   108	        pendingDirty_[i].store(1u, std::memory_order_release);
+   109	    }
+   110	
+   111	private:
+   112	    static constexpr int kMaxChannels = 8;
+   113	    static constexpr std::size_t kNumParams = 3;
+   114	
+   115	    // float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy is a
+   116	    // register move). Lets the cross-thread atomics be provably lock-free.
+   117	    static std::uint32_t floatBits(float f) noexcept {
+   118	        std::uint32_t u = 0;
+   119	        std::memcpy(&u, &f, sizeof(u));
+   120	        return u;
+   121	    }
+   122	    static float bitsFloat(std::uint32_t u) noexcept {
+   123	        float f = 0.0f;
+   124	        std::memcpy(&f, &u, sizeof(f));
+   125	        return f;
+   126	    }
+   127	
+   128	    static SvfMode toMode(float index) noexcept {
+   129	        switch (static_cast<int>(index)) {
+   130	        case 1:
+   131	            return SvfMode::highpass;
+   132	        case 2:
+   133	            return SvfMode::bandpass;
+   134	        case 0:
+   135	        default:
+   136	            return SvfMode::lowpass;
+   137	        }
+   138	    }
+   139	
+   140	    float pendingValue(Param p) const noexcept {
+   141	        return bitsFloat(pendingBits_[p].load(std::memory_order_relaxed));
+   142	    }
+   143	
+   144	    // Apply any parameter values published since the last block (audio thread).
+   145	    void applyPending() noexcept {
+   146	        if (pendingDirty_[kCutoff].exchange(0u, std::memory_order_acquire)) {
+   147	            cutoffHz_ = denormalize(kParams[kCutoff], pendingValue(kCutoff));
+   148	            applyCutoff();
+   149	        }
+   150	        if (pendingDirty_[kResonance].exchange(0u, std::memory_order_acquire)) {
+   151	            resonance_ = denormalize(kParams[kResonance], pendingValue(kResonance));
+   152	            applyResonance();
+   153	        }
+   154	        if (pendingDirty_[kMode].exchange(0u, std::memory_order_acquire)) {
+   155	            mode_ = toMode(denormalize(kParams[kMode], pendingValue(kMode)));
+   156	            applyMode();
+   157	        }
+   158	    }
+   159	
+   160	    // DaisySP's Svf requires cutoff strictly below sampleRate/3; clamp into a safe
+   161	    // band just under that bound (and never below the descriptor minimum).
+   162	    float clampedCutoff() const noexcept {
+   163	        const float maxFreq = sampleRate_ * 0.32f;
+   164	        float f = cutoffHz_;
+   165	        if (f > maxFreq)
+   166	            f = maxFreq;
+   167	        if (f < 20.0f)
+   168	            f = 20.0f;
+   169	        return f;
+   170	    }
+   171	
+   172	    void applyCutoff() noexcept {
+   173	        const float f = clampedCutoff();
+   174	        for (int ch = 0; ch < numChannels_; ++ch)
+   175	            filters_[static_cast<std::size_t>(ch)].setFreq(f);
+   176	    }
+   177	    void applyResonance() noexcept {
+   178	        for (int ch = 0; ch < numChannels_; ++ch)
+   179	            filters_[static_cast<std::size_t>(ch)].setRes(resonance_);
+   180	    }
+   181	    void applyMode() noexcept {
+   182	        for (int ch = 0; ch < numChannels_; ++ch)
+   183	            filters_[static_cast<std::size_t>(ch)].setMode(mode_);
+   184	    }
+   185	    void applyAll() noexcept {
+   186	        applyCutoff();
+   187	        applyResonance();
+   188	        applyMode();
+   189	    }
+   190	
+   191	    std::array<SvfPrimitive, kMaxChannels> filters_{};
+   192	    float sampleRate_ = 48000.0f;
+   193	    int numChannels_ = 0;
+   194	
+   195	    // Applied parameter state — mutated only in prepare/reset/applyPending (the
+   196	    // first two require a stopped stream; the third runs on the audio thread).
+   197	    float cutoffHz_ = kParams[kCutoff].defaultValue;
+   198	    float resonance_ = kParams[kResonance].defaultValue;
+   199	    SvfMode mode_ = SvfMode::lowpass;
+   200	
+   201	    // Cross-thread pending edits: any thread publishes, the audio thread consumes.
+   202	    // Stored as the float's bit pattern in a uint32 so the atomic is provably
+   203	    // lock-free on every target (a bare std::atomic<float> can degrade to a libcall
+   204	    // on some embedded runtimes).
+   205	    std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
+   206	    std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
+   207	    static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
+   208	                  "pending-parameter atomics must be lock-free for RT safety");
+   209	};
+   210	
+   211	} // namespace acfx
+
+exec
+/bin/zsh -lc 'rg -n "ParameterDescriptor|discreteCount|ParamKind::discrete|kMode|mode" core adapters -S' in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+adapters/workbench/parameter-view.cpp:5:ParameterView::ParameterView(span<const ParameterDescriptor> params, OnChange onChange)
+adapters/workbench/parameter-view.cpp:8:    for (const ParameterDescriptor& d : params) {
+adapters/workbench/parameter-view.cpp:16:        if (d.kind == ParamKind::discrete) {
+adapters/workbench/parameter-view.cpp:18:            for (int i = 0; i < d.discreteCount; ++i)
+adapters/workbench/parameter-view.cpp:23:            const std::uint8_t count = d.discreteCount;
+adapters/workbench/parameter-view.cpp:43:            const ParameterDescriptor desc = d;
+adapters/workbench/parameter-view.cpp:63:            const int count = row.descriptor.discreteCount < 2 ? 2 : row.descriptor.discreteCount;
+adapters/workbench/workbench-app.cpp:52:        // Stereo in/out: input present for live-input mode.
+adapters/workbench/workbench-app.cpp:167:    span<const ParameterDescriptor> params_;
+adapters/workbench/parameter-view.h:12:// Auto-renders one control per ParameterDescriptor (T023). There is no per-effect
+adapters/workbench/parameter-view.h:24:    ParameterView(span<const ParameterDescriptor> params, OnChange onChange);
+adapters/workbench/parameter-view.h:34:        ParameterDescriptor descriptor;
+core/dsp/param-id.h:6:// (contracts/parameter-model.md)
+adapters/teensy/teensy-main.cpp:69:constexpr int kModePin = A2;
+adapters/teensy/teensy-main.cpp:85:    // `mode` knob the descriptor quantizes 0..1 to a mode index CLAMPED to
+adapters/teensy/teensy-main.cpp:87:    // selects the last mode, never an out-of-range index.
+adapters/teensy/teensy-main.cpp:93:    const float mode = static_cast<float>(analogRead(kModePin)) / 1023.0f;
+adapters/teensy/teensy-main.cpp:98:    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, mode);
+core/dsp/effect.h:27:        { T::parameters() } -> std::convertible_to<span<const ParameterDescriptor>>;
+adapters/plugin/plugin-parameters.h:12:// There is no hand-written parameter list: each ParameterDescriptor becomes a
+adapters/plugin/plugin-parameters.h:23:    void build(juce::AudioProcessor& processor, span<const ParameterDescriptor> descriptors);
+adapters/plugin/plugin-parameters.h:35:                const int count = e.descriptor.discreteCount < 2 ? 2 : e.descriptor.discreteCount;
+adapters/plugin/plugin-parameters.h:44:        ParameterDescriptor descriptor;
+core/dsp/parameter.h:13:// (contracts/parameter-model.md)
+core/dsp/parameter.h:17:struct ParameterDescriptor {
+core/dsp/parameter.h:26:    std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
+core/dsp/parameter.h:34:constexpr bool isValidDescriptor(const ParameterDescriptor& d) noexcept {
+core/dsp/parameter.h:39:    if (d.kind == ParamKind::discrete && d.discreteCount < 2)
+core/dsp/parameter.h:54:inline float denormalize(const ParameterDescriptor& d, float norm) noexcept {
+core/dsp/parameter.h:57:    case ParamKind::discrete: {
+core/dsp/parameter.h:58:        // Quantize to a bucket index in [0, discreteCount); the index IS the
+core/dsp/parameter.h:60:        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+core/dsp/parameter.h:88:inline float normalize(const ParameterDescriptor& d, float plain) noexcept {
+core/dsp/parameter.h:90:    case ParamKind::discrete: {
+core/dsp/parameter.h:91:        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+adapters/plugin/plugin-parameters.cpp:24:juce::String modeName(int index) {
+adapters/plugin/plugin-parameters.cpp:39:                             span<const ParameterDescriptor> descriptors) {
+adapters/plugin/plugin-parameters.cpp:43:    for (const ParameterDescriptor& d : descriptors) {
+adapters/plugin/plugin-parameters.cpp:49:        if (d.kind == ParamKind::discrete) {
+adapters/plugin/plugin-parameters.cpp:51:            for (int i = 0; i < d.discreteCount; ++i)
+adapters/plugin/plugin-parameters.cpp:52:                choices.add(modeName(i));
+adapters/plugin/plugin-parameters.cpp:61:            const ParameterDescriptor desc = d;
+core/effects/svf/svf-effect.h:18:// path). One constexpr parameter table (cutoff/resonance/mode) drives every
+core/effects/svf/svf-effect.h:38:    enum Param : std::uint8_t { kCutoff = 0, kResonance = 1, kMode = 2 };
+core/effects/svf/svf-effect.h:41:    // linear 0..1; mode: discrete {lowpass, highpass, bandpass}.
+core/effects/svf/svf-effect.h:42:    static constexpr std::array<ParameterDescriptor, 3> kParams = {{
+core/effects/svf/svf-effect.h:47:        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 2.0f, 0.0f,
+core/effects/svf/svf-effect.h:48:         ParamSkew::linear, ParamKind::discrete, 3},
+core/effects/svf/svf-effect.h:62:            for (const ParameterDescriptor& d : kParams)
+core/effects/svf/svf-effect.h:70:    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+core/effects/svf/svf-effect.h:154:        if (pendingDirty_[kMode].exchange(0u, std::memory_order_acquire)) {
+core/effects/svf/svf-effect.h:155:            mode_ = toMode(denormalize(kParams[kMode], pendingValue(kMode)));
+core/effects/svf/svf-effect.h:183:            filters_[static_cast<std::size_t>(ch)].setMode(mode_);
+core/effects/svf/svf-effect.h:199:    SvfMode mode_ = SvfMode::lowpass;
+core/primitives/svf-primitive.h:7:// A thin, allocation-free, mode-selectable wrapper over DaisySP's proven Svf
+core/primitives/svf-primitive.h:10:// (Constitution IV). The wrapper owns mode selection + reset; the per-sample math
+core/primitives/svf-primitive.h:32:    void setMode(SvfMode mode) noexcept { mode_ = mode; }
+core/primitives/svf-primitive.h:33:    SvfMode mode() const noexcept { return mode_; }
+core/primitives/svf-primitive.h:38:    // Process one sample, returning the currently-selected mode's output.
+core/primitives/svf-primitive.h:42:        switch (mode_) {
+core/primitives/svf-primitive.h:56:    SvfMode mode_ = SvfMode::lowpass;
+adapters/daisy/daisy-main.cpp:23:// ADC channel assignment (Seed analog pins): cutoff, resonance, mode.
+adapters/daisy/daisy-main.cpp:42:    // `mode` knob the descriptor quantizes 0..1 to a mode index and CLAMPS it to
+adapters/daisy/daisy-main.cpp:44:    // selects the last mode, never an out-of-range index. Dead-banded so a steady
+adapters/daisy/daisy-main.cpp:48:    maybeSet(acfx::SvfEffect::kMode, kAdcMode);
+
+exec
+/bin/zsh -lc "nl -ba core/dsp/parameter.h | sed -n '1,220p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include "dsp/param-id.h"
+     4	
+     5	#include <algorithm>
+     6	#include <cassert>
+     7	#include <cmath>
+     8	#include <cstdint>
+     9	#include <string_view>
+    10	
+    11	// The single declared definition of one control, consumed by every adapter
+    12	// (FR-003), plus the pure, allocation-free normalized<->plain mapping.
+    13	// (contracts/parameter-model.md)
+    14	
+    15	namespace acfx {
+    16	
+    17	struct ParameterDescriptor {
+    18	    ParamId id;
+    19	    std::string_view name; // static storage (string literal)
+    20	    ParamUnit unit;
+    21	    float min;
+    22	    float max;
+    23	    float defaultValue; // plain units, within [min, max]
+    24	    ParamSkew skew;
+    25	    ParamKind kind;
+    26	    std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
+    27	};
+    28	
+    29	// Compile-time descriptor validity: max>min; a logarithmic param needs min>0
+    30	// (else denormalize yields NaN); a discrete param needs >=2 buckets. Effects
+    31	// static_assert this over their constexpr table so a malformed descriptor is a
+    32	// BUILD error, not a release-build NaN (the debug asserts below are defense in
+    33	// depth for builds that compile them in).
+    34	constexpr bool isValidDescriptor(const ParameterDescriptor& d) noexcept {
+    35	    if (!(d.max > d.min))
+    36	        return false;
+    37	    if (d.skew == ParamSkew::logarithmic && !(d.min > 0.0f))
+    38	        return false;
+    39	    if (d.kind == ParamKind::discrete && d.discreteCount < 2)
+    40	        return false;
+    41	    return true;
+    42	}
+    43	
+    44	namespace detail {
+    45	// Clamp to [0,1] AND neutralize non-finite input: NaN must map to 0, not pass
+    46	// through. Written so that NaN (for which every comparison is false) takes the
+    47	// final else branch: NaN >= 0 is false -> 0. +inf -> 1, -inf -> 0. A plain
+    48	// `x < 0 ? 0 : (x > 1 ? 1 : x)` would return NaN unchanged and poison the filter
+    49	// state irrecoverably (a guard that fails open).
+    50	constexpr float clamp01(float x) noexcept { return x >= 0.0f ? (x <= 1.0f ? x : 1.0f) : 0.0f; }
+    51	} // namespace detail
+    52	
+    53	// norm (0..1) -> plain units. Pure, allocation-free, audio-thread safe.
+    54	inline float denormalize(const ParameterDescriptor& d, float norm) noexcept {
+    55	    norm = detail::clamp01(norm);
+    56	    switch (d.kind) {
+    57	    case ParamKind::discrete: {
+    58	        // Quantize to a bucket index in [0, discreteCount); the index IS the
+    59	        // plain value (the effect maps index -> enum).
+    60	        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+    61	        int idx = static_cast<int>(norm * static_cast<float>(count));
+    62	        if (idx >= count)
+    63	            idx = count - 1;
+    64	        return static_cast<float>(idx);
+    65	    }
+    66	    case ParamKind::continuous:
+    67	    default:
+    68	        break;
+    69	    }
+    70	
+    71	    switch (d.skew) {
+    72	    case ParamSkew::logarithmic:
+    73	        // Requires 0 < min < max (else 0*pow(inf,n) or log(1)=0 yield NaN). The
+    74	        // invariant is enforced in debug builds; it compiles out in release, so
+    75	        // the audio path stays branch-bounded and allocation-free.
+    76	        assert(d.min > 0.0f && d.max > d.min &&
+    77	               "logarithmic parameter requires 0 < min < max");
+    78	        return d.min * std::pow(d.max / d.min, norm);
+    79	    case ParamSkew::linear:
+    80	    default:
+    81	        return d.min + norm * (d.max - d.min);
+    82	    }
+    83	}
+    84	
+    85	// plain units -> norm (0..1). Inverse of denormalize for continuous params; for
+    86	// discrete params, plain is the bucket index and the result lands mid-bucket so
+    87	// it round-trips back to the same index.
+    88	inline float normalize(const ParameterDescriptor& d, float plain) noexcept {
+    89	    switch (d.kind) {
+    90	    case ParamKind::discrete: {
+    91	        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+    92	        int idx = static_cast<int>(plain);
+    93	        idx = std::clamp(idx, 0, count - 1);
+    94	        return (static_cast<float>(idx) + 0.5f) / static_cast<float>(count);
+    95	    }
+    96	    case ParamKind::continuous:
+    97	    default:
+    98	        break;
+    99	    }
+   100	
+   101	    plain = std::clamp(plain, d.min, d.max);
+   102	    switch (d.skew) {
+   103	    case ParamSkew::logarithmic:
+   104	        assert(d.min > 0.0f && d.max > d.min &&
+   105	               "logarithmic parameter requires 0 < min < max");
+   106	        return std::log(plain / d.min) / std::log(d.max / d.min);
+   107	    case ParamSkew::linear:
+   108	    default:
+   109	        return (plain - d.min) / (d.max - d.min);
+   110	    }
+   111	}
+   112	
+   113	} // namespace acfx
+
+**Considering UI parameters**
+
+I’m thinking about the specs stating that there shouldn’t be a per-effect UI, and since the descriptor doesn’t include names, that’s okay. I see a potential issue with the setNormalized function for sliders not being able to clamp values properly. MIDI normalized values range from 0 to 1, and I know that setParameter can handle clamping. It may be an external issue, but it doesn’t seem like a major one.
+codex
+The adjacent contract confirms the source object intentionally throws when no source is selected and when selection is attempted after it is configured. I’m separating actual ship-risk from generic nits here so the output stays useful.
+**Inspecting CMake and Dependencies**
+
+I'm looking into the CMake integration for workbench includes and dependencies, like CLAP, which may be fetched with the desktop environment, but that might not be an issue. I wonder if dependencies.cmake downloads CLAP even if it’s just the workbench desktop—possibly extra, but not severe. I think there could be a potential compile issue regarding `juce::MessageManager::callAsync` and its captures with SafePointer, which is noncopyable. I'll check on that. Also, there's a note on using std::unique_ptr in parameter-view.h but not including the right headers. I’ll keep exploring these possible compilation fragility issues!
+**Understanding Live Input in AudioAppComponent**
+
+I'm considering how the `AudioAppComponent` handles live input in the `getNextAudioBlock` method. It seems the buffer contains input data, and the `AudioAppComponent` manages this by copying input to output. I notice a message from `WorkbenchAudioSource` about "device input already present." I’m curious if this applies to `AudioAppComponent`. 
+
+In JUCE, the internal callback for `AudioAppComponent` calls `audioSourcePlayer->audioDeviceIOCallbackWithContext`, which involves input channels. The `AudioSourceChannelInfo` buffer is for output, but I think `AudioSourcePlayer` will copy input into the buffer if that's the case. It seems that `AudioAppComponent` can indeed manage input, and I should clarify how to handle this with a cleared output buffer.
+codex
+One issue is looking substantive: the workbench live-input path assumes JUCE hands input audio through the `AudioSourceChannelInfo` buffer. I’m checking the vendored/fetched JUCE headers or cached sources if present to avoid relying on memory for that API behavior.
+exec
+/bin/zsh -lc 'rg -n "class AudioAppComponent|AudioSourcePlayer|getNextAudioBlock|audioDeviceIOCallback" build _deps cmake external adapters -S' in /Users/orion/work/acfx-work/platform-foundation
+ exited 2 in 0ms:
+rg: _deps: No such file or directory (os error 2)
+adapters/workbench/workbench-app.cpp:99:    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override {
+build/desktop/CMakeFiles/VerifyGlobs.cmake:410:  "juce_audio_devices/sources/juce_AudioSourcePlayer.cpp"
+build/desktop/CMakeFiles/VerifyGlobs.cmake:411:  "juce_audio_devices/sources/juce_AudioSourcePlayer.h"
+build/desktop/_deps/juce-build/tools/CMakeFiles/VerifyGlobs.cmake:410:  "juce_audio_devices/sources/juce_AudioSourcePlayer.cpp"
+build/desktop/_deps/juce-build/tools/CMakeFiles/VerifyGlobs.cmake:411:  "juce_audio_devices/sources/juce_AudioSourcePlayer.h"
+
+exec
+/bin/zsh -lc 'rg -n "AudioSourcePlayer" /Users/orion/work/acfx-work/platform-foundation -S' in /Users/orion/work/acfx-work/platform-foundation
+ exited 1 in 0ms:
+exec
+/bin/zsh -lc 'rg -n "void AudioSourcePlayer::audioDeviceIOCallbackWithContext|audioDeviceIOCallbackWithContext|setSource" build/desktop/_deps/juce-src/modules/juce_audio_devices/sources/juce_AudioSourcePlayer.cpp build/desktop/_deps/juce-src/modules/juce_audio_devices/sources/juce_AudioSourcePlayer.h' in /Users/orion/work/acfx-work/platform-foundation
+ exited 2 in 0ms:
+rg: build/desktop/_deps/juce-src/modules/juce_audio_devices/sources/juce_AudioSourcePlayer.cpp: No such file or directory (os error 2)
+rg: build/desktop/_deps/juce-src/modules/juce_audio_devices/sources/juce_AudioSourcePlayer.h: No such file or directory (os error 2)
+
+exec
+/bin/zsh -lc "nl -ba build/desktop/_deps/juce-src/modules/juce_audio_devices/sources/juce_AudioSourcePlayer.cpp | sed -n '50,180p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+nl: build/desktop/_deps/juce-src/modules/juce_audio_devices/sources/juce_AudioSourcePlayer.cpp: No such file or directory
+
+exec
+/bin/zsh -lc 'rg -n "class AudioAppComponent|setAudioChannels|shutdownAudio" build/desktop/_deps/juce-src/modules -S' in /Users/orion/work/acfx-work/platform-foundation
+ exited 2 in 0ms:
+rg: build/desktop/_deps/juce-src/modules: IO error for operation on build/desktop/_deps/juce-src/modules: No such file or directory (os error 2)
+
+exec
+/bin/zsh -lc "rg --files build | rg 'juce_AudioSourcePlayer\\.(cpp|h)"'$|juce_AudioAppComponent'"'" in /Users/orion/work/acfx-work/platform-foundation
+ exited 1 in 0ms:
+exec
+/bin/zsh -lc "find build -path '*juce_AudioSourcePlayer.cpp' -o -path '*juce_AudioAppComponent*' | head -20" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+codex
+The local build metadata references JUCE source names but the actual source tree is not present under those guessed paths, so I’m not going to over-anchor that API claim unless I can tie it directly to code in this repo. I’m moving on to defects that are fully evidenced by the diff and neighboring files.
+**Finalizing findings**
+
+I'm preparing to finalize my findings and might focus on one or two points. There’s a critical detail regarding `setAudioChannels(2,2)` in the constructor, where it calls `prepareToPlay` before the constructor completes, which could be risky. If fields are accessed before the constructor finishes, it could lead to issues. Also, I have a potential bug with CPM caching: `file(DOWNLOAD ... EXPECTED_HASH ...)` always attempts a download even if the existing file is correct. There's also something to consider about DaisySP dependencies during builds.
+**Examining parameter and channel processing**
+
+I'm looking into the `ParameterView` and its handling of callbacks, particularly when the count is zero, which seems theoretically impossible with a valid descriptor. But since `ParameterView` accepts any descriptor without validation, it creates a potential issue. 
+
+Moving onto MIDI binding, there's no validation for `int ccNumber`, even though the comment suggests a range of 0 to 127. This makes it unclear. Also, in `getNextAudioBlock`, only the first prepared channels are processed, which could lead to unprocessed channels being audible on multi-output devices—a possibility that might need addressing for consistent output.
+**Assessing audio and MIDI integration**
+
+I'm looking into how the workbench allows MIDI inputs after setAudioChannels. If the audio device opens during setAudioChannels, the MIDI callback may not function properly. I can point out the need for discrete defaults in future descriptors since the auto-render promise seems to create issues with value controls. It seems like the feature is a vertical slice, possibly affecting only one effect with a medium severity, although not much consequence exists under the current SVF. A proposed fix involves normalizing the default value.
+codex
+### Live input mode never copies device input into the processed buffer
+
+Finding-ID: AUDIT-BARRAGE-codex-01  
+Status:     open  
+Severity:   high  
+Surface:    adapters/workbench/workbench-app.cpp:116-123
+
+`getNextAudioBlock()` assumes the `AudioSourceChannelInfo` buffer already contains live input: it constructs a writable output-region wrapper, calls `source_.fillBlock(region)`, and the live-input source path is documented/implemented to pass the block through unchanged. With `juce::AudioAppComponent`, this callback receives an output buffer; input channels are not automatically copied into that buffer for an `AudioSource`-style callback. As written, live-input mode will process silence or whatever the output buffer was initialized with, so the “sketch-and-hear” live path can fail even though the app successfully opened input channels.
+
+Blast radius is high because a user running the workbench without `ACFX_WORKBENCH_FILE` is routed into live input at lines 82-83, but the audio callback never has access to `inputChannelData` to seed the buffer. A reasonable fix is to use an `AudioIODeviceCallback`/custom callback path that receives input pointers and explicitly copies them into the output region before processing, or otherwise use a JUCE abstraction that actually supplies live input samples to the workbench source.
+
+### Discrete controls ignore descriptor defaults
+
+Finding-ID: AUDIT-BARRAGE-codex-02  
+Status:     open  
+Severity:   medium  
+Surface:    adapters/workbench/parameter-view.cpp:16-20
+
+The auto-generated workbench UI initializes every discrete parameter combo to item index `0`, while continuous sliders initialize from `normalize(d, d.defaultValue)` at lines 39-41. That means the UI contract is not truly descriptor-driven for discrete parameters: any future descriptor with a nonzero discrete default will render the wrong state until an external update arrives, and the first user interaction can publish a value from the wrong apparent starting point.
+
+The current SVF mode default happens to be `0`, so this does not break today’s only discrete parameter. The blast radius is medium because `ParameterView` is presented as generic descriptor-driven infrastructure, and a downstream adopter adding another effect or changing the mode default would get a plausible but incorrect UI without touching this file. The fix should derive the selected combo index from the descriptor default, clamped to `[0, discreteCount - 1]`, matching the continuous branch’s use of descriptor metadata.
+tokens used
+81,128

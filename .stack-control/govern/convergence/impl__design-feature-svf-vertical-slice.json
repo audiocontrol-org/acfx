@@ -16,18 +16,18 @@
   "rounds": 1,
   "liftedFindings": [
     {
-      "id": "66d76089d898899c::AUDIT-BARRAGE-claude-01",
-      "title": "T038 still claims \"built all four targets\" — contradicts T035's admission that the MCU targets are not built",
+      "id": "4cfb00d5b3480886::AUDIT-BARRAGE-codex-01",
+      "title": "Live input mode never copies device input into the processed buffer",
       "severity": "high"
     },
     {
-      "id": "6a56babffbf5b038::AUDIT-BARRAGE-claude-01",
-      "title": "Daisy mode-knob normalization — lifted HIGH finding remains unaddressed in this chunk",
+      "id": "66d76089d898899c::AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-claude-05",
+      "title": "Checked-off tasks still leave required acceptance unchecked",
       "severity": "high"
     },
     {
-      "id": "a70ef633c8635ce4::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-claude-05",
-      "title": "Missing-synchronization defect: the `configured_` guard meant to prevent the audio-thread race is itself a non-atomic cross-thread bool",
+      "id": "e7b284327d06692a::AUDIT-BARRAGE-codex-01",
+      "title": "C++17 effect diagnostics use `std::declval` without including `<utility>`",
       "severity": "high"
     }
   ],

@@ -113,8 +113,11 @@ public:
         // Bound to the count the effect was prepared for (never exceed it).
         const int numChannels = juce::jmin(buffer.getNumChannels(), preparedChannels_);
 
-        // Pull the source audio into the destination region (live input is already
-        // present and passes through). fillBlock is noexcept and lock-free.
+        // Pull the source audio into the destination region. For live input the
+        // device samples are already in this buffer — JUCE's AudioSourcePlayer
+        // memcpy's inputChannelData into the output buffer before getNextAudioBlock
+        // (juce_AudioSourcePlayer.cpp) — so fillBlock passes them through and the
+        // SVF processes them in place. fillBlock is noexcept and lock-free.
         juce::AudioBuffer<float> region(buffer.getArrayOfWritePointers(),
                                         buffer.getNumChannels(), startSample, numSamples);
         source_.fillBlock(region);

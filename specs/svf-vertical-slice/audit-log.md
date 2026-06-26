@@ -614,3 +614,44 @@ The header makes a strong safety claim (audio-source.h:18-22): *"That preconditi
 The consequence is not merely formal UB on a bool. The misuse this guard exists to catch is "call `useFilePlayer` while the stream is running." In exactly that case, with no acquire/release on `configured_`, the message thread may fail to observe the `configured_ = true` written by the audio-setup thread, the guard passes, and `useFilePlayer` then does `fileBuffer_ = std::move(decoded)` (cpp:38) — reassigning a non-atomic `juce::AudioBuffer` that the audio thread is concurrently reading in `fillBlock` (cpp:78). That is a real data race on `fileBuffer_` (torn read of a half-moved buffer → garbage/crash), and the guard the comment relies on does not reliably fire to stop it.
 
 Fix: make `configured_` `std::atomic<bool>` with `store(release)`/`load(acquire)`, mirroring the treatment already applied to `hasFile_`/`live_`. That at least gives the guard the visibility guarantee its own comment promises (a fuller fix would also close the check-then-reassign TOCTOU window).
+
+## 2026-06-26 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260626-40 — Live input mode never copies device input into the processed buffer
+
+Finding-ID: AUDIT-20260626-40
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/workbench/workbench-app.cpp:116-123
+
+`getNextAudioBlock()` assumes the `AudioSourceChannelInfo` buffer already contains live input: it constructs a writable output-region wrapper, calls `source_.fillBlock(region)`, and the live-input source path is documented/implemented to pass the block through unchanged. With `juce::AudioAppComponent`, this callback receives an output buffer; input channels are not automatically copied into that buffer for an `AudioSource`-style callback. As written, live-input mode will process silence or whatever the output buffer was initialized with, so the “sketch-and-hear” live path can fail even though the app successfully opened input channels.
+
+Blast radius is high because a user running the workbench without `ACFX_WORKBENCH_FILE` is routed into live input at lines 82-83, but the audio callback never has access to `inputChannelData` to seed the buffer. A reasonable fix is to use an `AudioIODeviceCallback`/custom callback path that receives input pointers and explicitly copies them into the output region before processing, or otherwise use a JUCE abstraction that actually supplies live input samples to the workbench source.
+
+### AUDIT-20260626-41 — Checked-off tasks still leave required acceptance unchecked
+
+Finding-ID: AUDIT-20260626-41 (codex-01 + claude-05; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   codex=high, sonnet=low
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    specs/svf-vertical-slice/tasks.md:88,107,127,141,146-163
+
+The task list marks T027, T031, T035, and T038 as complete even though the same file says their interactive/hardware acceptance remains unchecked in “Manual acceptance.” This is not just wording drift: the original task text for T027/T031/T035 was the independent acceptance run, but the completed entries now substitute build-only or host-only verification and move the actual acceptance criteria to unchecked bullets at lines 155-163.
+
+The blast radius is high because a downstream unattended consumer reading `[X]` on the story acceptance tasks and Phase 6 invariant will conclude the feature is done, including DAW-host loading and MCU build/link/flash behavior. The artifact itself does not encode those as incomplete tasks in the main dependency/completion flow; it places them in a separate unchecked section after all story tasks are marked complete. A reasonable fix would keep the automated build checks as completed subtasks, but leave the acceptance tasks themselves unchecked until the Scenario B/C/D manual runs actually pass, or split each original task into explicit automated and operator-run task IDs so completion state cannot be misread.
+
+### AUDIT-20260626-42 — C++17 effect diagnostics use `std::declval` without including `<utility>`
+
+Finding-ID: AUDIT-20260626-42
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    core/dsp/effect.h:36-54
+
+The C++17 path includes only `<type_traits>` but uses `std::declval` in the `is_effect` trait. `std::declval` is declared by `<utility>`, so a conforming or lean embedded standard library can fail the Teensy/C++17 build at this header. That directly hits the feature’s portability goal because the Teensy path is the one forced through this branch.
+
+The blast radius is high: an adopter compiling the core on a C++17 embedded toolchain can hit a hard compile failure before any SVF code runs. The reasonable fix is to include `<utility>` in the C++17 branch, or unconditionally near the top of the header.
