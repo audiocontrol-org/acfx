@@ -1,16 +1,21 @@
 #pragma once
 
-#include <memory>
+#include <atomic>
 #include <stdexcept>
 
+#include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
-#include <juce_audio_utils/juce_audio_utils.h>
 
 // The workbench audio source (T025): a built-in looping file player OR live input
 // device, selectable at runtime (research.md decision 2). The player is the
 // deterministic default for reproducible A/B; live input is the real sketch use.
 // If neither is available the source raises a descriptive error — never silent
 // zeros or mock audio (Constitution V).
+//
+// RT-safety (Constitution VI): the file is decoded into an in-memory buffer at
+// setup (off the audio thread); fillBlock() reads from that buffer at an atomic
+// play position with no locks, no allocation, and no transport object whose
+// source pointer the audio thread could see freed mid-swap.
 
 namespace acfx::workbench {
 
@@ -24,8 +29,9 @@ class WorkbenchAudioSource {
 public:
     WorkbenchAudioSource();
 
-    // Loop the given audio file as the source. Throws AudioSourceError if the
-    // file cannot be opened/decoded.
+    // Decode the given file into memory and select it as the source. Throws
+    // AudioSourceError if the file cannot be opened/decoded. Call at setup (off
+    // the audio thread).
     void useFilePlayer(const juce::File& file);
 
     // Use the live device input. `availableInputChannels` is what the device
@@ -37,21 +43,18 @@ public:
 
     // Fill `block` with the next chunk of source audio. For live input, `block`
     // already holds the device input on entry and is passed through unchanged.
-    // Runs on the audio thread: never throws and never allocates — an
-    // unconfigured source yields silence rather than an exception (RT-safety,
-    // Constitution VI).
+    // Runs on the audio thread: never throws, never allocates, takes no locks.
     void fillBlock(juce::AudioBuffer<float>& block) noexcept;
 
-    bool isLiveInput() const noexcept { return live_; }
+    bool isLiveInput() const noexcept { return live_.load(std::memory_order_relaxed); }
 
 private:
     juce::AudioFormatManager formatManager_;
-    std::unique_ptr<juce::AudioFormatReaderSource> readerSource_;
-    juce::AudioTransportSource transport_;
-    bool live_ = false;
+    juce::AudioBuffer<float> fileBuffer_; // whole file decoded into memory at setup
+    std::atomic<int> playPos_{0};
+    std::atomic<bool> live_{false};
+    std::atomic<bool> hasFile_{false};
     bool configured_ = false;
-    double sampleRate_ = 0.0;
-    int blockSize_ = 0;
 };
 
 } // namespace acfx::workbench

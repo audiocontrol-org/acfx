@@ -48,6 +48,10 @@ public:
         setSize(520, 220);
         // Stereo in/out: input present for live-input mode.
         setAudioChannels(2, 2);
+        // Enable the available MIDI inputs — registering a callback alone does
+        // not enable any device, so without this the CC bindings stay inert.
+        for (const auto& input : juce::MidiInput::getAvailableDevices())
+            deviceManager.setMidiInputDeviceEnabled(input.identifier, true);
         deviceManager.addMidiInputDeviceCallback({}, this);
     }
 
@@ -68,7 +72,13 @@ public:
                 source_.useLiveInput(inputs);
             source_.prepare(sampleRate, blockSize);
         } catch (const AudioSourceError& e) {
-            lastSourceError_ = juce::String(e.what());
+            // Surface the failure to the operator instead of swallowing it — no
+            // silent fallback to silence (Constitution V).
+            const juce::String message(e.what());
+            juce::MessageManager::callAsync([message] {
+                juce::NativeMessageBox::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon, "Audio source unavailable", message);
+            });
         }
     }
 
@@ -81,15 +91,10 @@ public:
         const int numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
 
         // Pull the source audio into the destination region (live input is already
-        // present and passes through).
-        try {
-            juce::AudioBuffer<float> region(buffer.getArrayOfWritePointers(),
-                                            buffer.getNumChannels(), startSample, numSamples);
-            source_.fillBlock(region);
-        } catch (const AudioSourceError&) {
-            buffer.clear(startSample, numSamples);
-            return;
-        }
+        // present and passes through). fillBlock is noexcept and lock-free.
+        juce::AudioBuffer<float> region(buffer.getArrayOfWritePointers(),
+                                        buffer.getNumChannels(), startSample, numSamples);
+        source_.fillBlock(region);
 
         if (!processed_.load())
             return; // A/B: dry — leave the source audio untouched
@@ -135,7 +140,6 @@ private:
     MidiBinding midi_;
     WorkbenchAudioSource source_;
     juce::ToggleButton abToggle_;
-    juce::String lastSourceError_;
 
     std::atomic<bool> processed_{true};
 };

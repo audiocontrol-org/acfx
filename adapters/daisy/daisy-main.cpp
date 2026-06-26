@@ -4,6 +4,8 @@
 // (Constitution IV; SC-007). Only the audio-callback + control glue is
 // platform-specific; the effect is identical to the desktop targets.
 
+#include <cstdint>
+
 #include "daisy_seed.h"
 
 #include "dsp/audio-block.h"
@@ -21,12 +23,26 @@ acfx::SvfEffect svf;
 // ADC channel assignment (Seed analog pins): cutoff, resonance, mode.
 enum AdcChannel { kAdcCutoff = 0, kAdcResonance = 1, kAdcMode = 2, kAdcCount };
 
+// Last-published knob values; only re-publish past a dead-band so the effect
+// recomputes coefficients when a knob actually moves, not on every block.
+float lastKnob[kAdcCount] = {-1.0f, -1.0f, -1.0f};
+constexpr float kKnobDeadband = 0.002f;
+
+void maybeSet(acfx::SvfEffect::Param param, int adc) {
+    const float v = hw.adc.GetFloat(adc);
+    if (v < lastKnob[adc] - kKnobDeadband || v > lastKnob[adc] + kKnobDeadband) {
+        lastKnob[adc] = v;
+        svf.setParameter(acfx::ParamId{static_cast<std::uint8_t>(param)}, v);
+    }
+}
+
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size) {
     // Map the knobs to normalized parameter values (the effect denormalizes via
-    // its descriptor — identical mapping to every other adapter).
-    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kCutoff}, hw.adc.GetFloat(kAdcCutoff));
-    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kResonance}, hw.adc.GetFloat(kAdcResonance));
-    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, hw.adc.GetFloat(kAdcMode));
+    // its descriptor — identical mapping to every other adapter). Dead-banded so
+    // a steady knob does not trigger a coefficient recompute every block.
+    maybeSet(acfx::SvfEffect::kCutoff, kAdcCutoff);
+    maybeSet(acfx::SvfEffect::kResonance, kAdcResonance);
+    maybeSet(acfx::SvfEffect::kMode, kAdcMode);
 
     // libDaisy hands non-interleaved per-channel buffers. Copy in -> out, then
     // process out in place through the shared core.

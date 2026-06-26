@@ -19,6 +19,13 @@ struct ProcessorNode {
     virtual void processBlock(AudioBlock& io) = 0; // the one virtual call / block
     virtual void reset() = 0;
     virtual span<const ParameterDescriptor> parameters() const = 0;
+
+    // Thread contract: setParameter may be called from any thread (UI, MIDI, an
+    // MCU control loop) concurrently with processBlock. The wrapped Effect is
+    // responsible for the cross-thread handoff — SvfEffect, for example,
+    // publishes an atomic pending value that the audio thread consumes inside
+    // process(). Callers must not assume the change takes effect synchronously;
+    // it lands at the next processBlock.
     virtual void setParameter(ParamId id, float normalized) = 0;
 };
 

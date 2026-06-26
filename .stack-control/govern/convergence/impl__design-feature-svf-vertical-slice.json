@@ -5,58 +5,48 @@
   "governedShaBase": "ff3426a",
   "headSha": "HEAD",
   "chunkIds": [
+    "2ea2449abe83c448",
+    "561c01cdba330da9",
     "5d46bb000cdab808",
-    "952c352cc6eab725",
-    "b04c878073d5d626",
+    "6a56babffbf5b038",
     "b74f59c0c4fc198b",
-    "ba29de07a54f0920",
-    "e8e701847d91847a"
+    "d58ba5050d21850a"
   ],
   "rounds": 1,
   "liftedFindings": [
     {
-      "id": "b04c878073d5d626::AUDIT-BARRAGE-codex-01",
-      "title": "CPM bootstrap writes into a directory it never creates",
+      "id": "2ea2449abe83c448::AUDIT-BARRAGE-claude-01",
+      "title": "`setParameter` thread ownership undocumented despite commit bd79479 claiming to address it",
       "severity": "high"
     },
     {
-      "id": "b04c878073d5d626::AUDIT-BARRAGE-codex-02",
-      "title": "Queued MIDI UI callback can outlive the workbench component",
+      "id": "561c01cdba330da9::AUDIT-BARRAGE-codex-01",
+      "title": "MIDI inputs are registered but never enabled",
       "severity": "high"
     },
     {
-      "id": "b04c878073d5d626::AUDIT-BARRAGE-claude-01",
-      "title": "Logarithmic parameter math: missing precondition guard produces silent NaN in audio path",
+      "id": "561c01cdba330da9::AUDIT-BARRAGE-claude-01",
+      "title": "`prepareToPlay` catches `AudioSourceError` and stores it in a field that is never read",
       "severity": "high"
     },
     {
-      "id": "b74f59c0c4fc198b::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-codex-02",
-      "title": "T035 closed as [X] while its own body documents the MCU firmware link as blocked — the adjacent Phase 5 checkpoint still claims \"build + link on both MCUs\"",
-      "severity": "blocking"
-    },
-    {
-      "id": "b74f59c0c4fc198b::AUDIT-BARRAGE-codex-01",
-      "title": "Completion ledger marks acceptance tasks done while their own acceptance remains unverified",
+      "id": "561c01cdba330da9::AUDIT-BARRAGE-claude-02",
+      "title": "`getNextAudioBlock` silently falls back to cleared buffer on `AudioSourceError`",
       "severity": "high"
     },
     {
-      "id": "ba29de07a54f0920::AUDIT-BARRAGE-claude-03+AUDIT-BARRAGE-codex-02+AUDIT-BARRAGE-claude-02",
-      "title": "`WorkbenchAudioSource::fillBlock` contains a throwing path on the audio callback thread",
+      "id": "6a56babffbf5b038::AUDIT-BARRAGE-claude-01",
+      "title": "`setParameter` called unconditionally every audio block inside Daisy ISR — new surface of prior RT-safety finding",
       "severity": "high"
     },
     {
-      "id": "ba29de07a54f0920::AUDIT-BARRAGE-codex-01",
-      "title": "Workbench runtime source switching installs an unprepared file transport",
+      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-codex-02",
+      "title": "Runtime audio-source switch frees the reader before rebinding the transport — message-thread/audio-thread use-after-free",
       "severity": "high"
     },
     {
-      "id": "ba29de07a54f0920::AUDIT-BARRAGE-claude-01",
-      "title": "Concurrent parameter writes from `loop()` race against audio ISR in Teensy adapter",
-      "severity": "high"
-    },
-    {
-      "id": "e8e701847d91847a::AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-claude-02",
-      "title": "`SvfEffect::setParameter` mutates filter state with no audio-thread ownership boundary",
+      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01",
+      "title": "Race condition: `svf.setParameter()` in `loop()` is not guarded against audio ISR",
       "severity": "high"
     }
   ],
@@ -64,12 +54,44 @@
   "seamResult": {
     "boundaryPairs": [
       {
-        "a": "5d46bb000cdab808",
-        "b": "952c352cc6eab725"
+        "a": "2ea2449abe83c448",
+        "b": "561c01cdba330da9"
+      },
+      {
+        "a": "2ea2449abe83c448",
+        "b": "5d46bb000cdab808"
+      },
+      {
+        "a": "2ea2449abe83c448",
+        "b": "6a56babffbf5b038"
+      },
+      {
+        "a": "2ea2449abe83c448",
+        "b": "b74f59c0c4fc198b"
+      },
+      {
+        "a": "2ea2449abe83c448",
+        "b": "d58ba5050d21850a"
+      },
+      {
+        "a": "561c01cdba330da9",
+        "b": "5d46bb000cdab808"
+      },
+      {
+        "a": "561c01cdba330da9",
+        "b": "6a56babffbf5b038"
+      },
+      {
+        "a": "561c01cdba330da9",
+        "b": "b74f59c0c4fc198b"
+      },
+      {
+        "a": "561c01cdba330da9",
+        "b": "d58ba5050d21850a"
       },
       {
         "a": "5d46bb000cdab808",
-        "b": "b04c878073d5d626"
+        "b": "6a56babffbf5b038"
       },
       {
         "a": "5d46bb000cdab808",
@@ -77,58 +99,26 @@
       },
       {
         "a": "5d46bb000cdab808",
-        "b": "ba29de07a54f0920"
+        "b": "d58ba5050d21850a"
       },
       {
-        "a": "5d46bb000cdab808",
-        "b": "e8e701847d91847a"
-      },
-      {
-        "a": "952c352cc6eab725",
-        "b": "b04c878073d5d626"
-      },
-      {
-        "a": "952c352cc6eab725",
+        "a": "6a56babffbf5b038",
         "b": "b74f59c0c4fc198b"
       },
       {
-        "a": "952c352cc6eab725",
-        "b": "ba29de07a54f0920"
-      },
-      {
-        "a": "952c352cc6eab725",
-        "b": "e8e701847d91847a"
-      },
-      {
-        "a": "b04c878073d5d626",
-        "b": "b74f59c0c4fc198b"
-      },
-      {
-        "a": "b04c878073d5d626",
-        "b": "ba29de07a54f0920"
-      },
-      {
-        "a": "b04c878073d5d626",
-        "b": "e8e701847d91847a"
+        "a": "6a56babffbf5b038",
+        "b": "d58ba5050d21850a"
       },
       {
         "a": "b74f59c0c4fc198b",
-        "b": "ba29de07a54f0920"
-      },
-      {
-        "a": "b74f59c0c4fc198b",
-        "b": "e8e701847d91847a"
-      },
-      {
-        "a": "ba29de07a54f0920",
-        "b": "e8e701847d91847a"
+        "b": "d58ba5050d21850a"
       }
     ],
     "findings": [],
     "suppressedCompatible": 0
   },
   "splitClusterRefs": [
-    "9464593788d8bb87"
+    "3a670837f5ad29e0"
   ],
   "outcome": "override-eligible",
   "anchorRoot": "/Users/orion/work/acfx-work/platform-foundation"

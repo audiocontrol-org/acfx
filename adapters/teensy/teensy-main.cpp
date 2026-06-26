@@ -82,11 +82,17 @@ void setup() {
 void loop() {
     // Sample the knobs and map to normalized parameter values (the effect
     // denormalizes via its descriptor — identical mapping to every adapter).
-    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kCutoff},
-                     static_cast<float>(analogRead(kCutoffPin)) / 1023.0f);
-    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kResonance},
-                     static_cast<float>(analogRead(kResonancePin)) / 1023.0f);
-    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode},
-                     static_cast<float>(analogRead(kModePin)) / 1023.0f);
+    // Read off the audio ISR, then publish the three values as a group under
+    // AudioNoInterrupts so update() (the audio ISR) cannot observe a partial
+    // update between them.
+    const float cutoff = static_cast<float>(analogRead(kCutoffPin)) / 1023.0f;
+    const float resonance = static_cast<float>(analogRead(kResonancePin)) / 1023.0f;
+    const float mode = static_cast<float>(analogRead(kModePin)) / 1023.0f;
+
+    AudioNoInterrupts();
+    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kCutoff}, cutoff);
+    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kResonance}, resonance);
+    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, mode);
+    AudioInterrupts();
     delay(5);
 }

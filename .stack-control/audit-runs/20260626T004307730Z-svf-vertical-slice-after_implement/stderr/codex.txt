@@ -1,0 +1,1711 @@
+Reading prompt from stdin...
+OpenAI Codex v0.141.0
+--------
+workdir: /Users/orion/work/acfx-work/platform-foundation
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: detailed
+session id: 019f0161-64ad-7b42-8239-b4b526ed6532
+--------
+user
+# Audit-barrage — multi-model audit prompt template
+
+You are an **independent audit reviewer** firing as part of a multi-model audit barrage. Your siblings (other CLIs running this same prompt in parallel) emit their own findings independently; the operator triages all of your outputs side-by-side after every model has settled. Your job is to surface the kinds of defects listed under **What to look for** below, in the work product captured under **Under audit**.
+
+You are NOT collaborating with the other models. You write what you see. The cross-model genetic diversity comes from each of you reporting independently.
+
+## Feature under audit
+
+svf-vertical-slice
+
+## Feature scope (workplan / PRD summary)
+
+
+
+## Commit subjects in the audited range
+
+bd79479 Address govern findings: RT-safety, thread ownership, doc drift
+8e0e37b Replace vendored CPM.cmake with pinned auto-download bootstrap
+f88525b Close acceptance tasks with honest verified/manual split (T027/T031/T035)
+60b4523 Fix desktop build integration + JUCE-API bugs caught by real compilation
+ee53b33 Phase 6 (polish): CI, explicit portability gates, README
+ae69f91 Phase 5 (US3): Daisy + Teensy adapters; core proven ARM-portable
+e74b0db Phase 4 (US2): DAW plugin (VST3 / AU / CLAP)
+e27e832 Phase 3 (US1): desktop sketch-and-hear workbench (JUCE)
+0ebd7d3 Phase 2 (foundational): core spine + host-side tests, all green
+1b05595 Phase 1 (setup): monorepo skeleton + CMake build system
+
+
+## Recent audit-log excerpt (prior findings on this feature)
+
+Use this to avoid re-reporting findings that have already been triaged. If a finding was previously dispositioned (`closed`, `won't-fix`, `accepted-trade-off`), don't re-litigate the disposition; only surface a new instance if the underlying shape regressed.
+
+
+
+## Under audit
+
+The actual code under review. Read it carefully. The findings you emit must be anchored to specific files + line ranges in this diff (or call out a missing surface that should be in the diff but isn't).
+
+Governance pass over the just-implemented work for feature 'svf-vertical-slice', diffed against ff3426a. The differentiated back half audits a plan it did not author or execute.
+## Other chunks (file lists only — context for cross-file dependencies this chunk cannot see):
+- 2ea2449abe83c448: core/dsp/effect.h, core/dsp/param-id.h, core/dsp/parameter.h, core/dsp/process-context.h, core/dsp/span.h, core/effects/svf/svf-effect.h, core/primitives/svf-primitive.h, external/.gitkeep, host/processor-node/CMakeLists.txt, host/processor-node/processor-node.h, scripts/check-portability.sh
+- 561c01cdba330da9: adapters/workbench/parameter-view.cpp, adapters/workbench/parameter-view.h, adapters/workbench/workbench-app.cpp, cmake/CPM.cmake, cmake/dependencies.cmake, cmake/toolchains/daisy.cmake, cmake/toolchains/teensy.cmake, core/dsp/audio-block.h
+- 5d46bb000cdab808: tests/core/svf-test.cpp, tests/core/test-main.cpp, tests/support/allocation-sentinel.cpp, tests/support/allocation-sentinel.h, tests/support/svf-reference.h
+- b74f59c0c4fc198b: specs/svf-vertical-slice/tasks.md, tests/CMakeLists.txt, tests/core/no-allocation-test.cpp, tests/core/parameter-test.cpp
+- d58ba5050d21850a: adapters/plugin/plugin-parameters.cpp, adapters/plugin/plugin-parameters.h, adapters/plugin/plugin-processor.cpp, adapters/plugin/plugin-processor.h, adapters/teensy/CMakeLists.txt, adapters/teensy/teensy-main.cpp, adapters/workbench/CMakeLists.txt, adapters/workbench/au
+…[shared context truncated to fit the fleet envelope]
+
+## Chunk 6a56babffbf5b038
+Files in scope: .clang-format, .editorconfig, .github/workflows/ci.yml, .gitignore, .stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json, CMakeLists.txt, CMakePresets.json, README.md, adapters/daisy/CMakeLists.txt, adapters/daisy/daisy-main.cpp, adapters/plugin/CMakeLists.txt
+
+## Diffs
+
+### .clang-format
+diff --git a/.clang-format b/.clang-format
+new file mode 100644
+index 0000000..18b44bf
+--- /dev/null
++++ b/.clang-format
+@@ -0,0 +1,22 @@
++---
++# acfx C++ style — strict typing, readable modules (Constitution VII).
++Language: Cpp
++BasedOnStyle: LLVM
++Standard: c++20
++ColumnLimit: 100
++IndentWidth: 4
++TabWidth: 4
++UseTab: Never
++AccessModifierOffset: -4
++PointerAlignment: Left
++DerivePointerAlignment: false
++AllowShortFunctionsOnASingleLine: Inline
++AllowShortIfStatementsOnASingleLine: false
++AllowShortLoopsOnASingleLine: false
++BreakBeforeBraces: Attach
++SpaceAfterCStyleCast: true
++SortIncludes: CaseSensitive
++IncludeBlocks: Preserve
++NamespaceIndentation: None
++FixNamespaceComments: true
++...
+
+
+### .editorconfig
+diff --git a/.editorconfig b/.editorconfig
+new file mode 100644
+index 0000000..2687260
+--- /dev/null
++++ b/.editorconfig
+@@ -0,0 +1,25 @@
++root = true
++
++[*]
++charset = utf-8
++end_of_line = lf
++insert_final_newline = true
++trim_trailing_whitespace = true
++indent_style = space
++indent_size = 4
++
++[*.{c,cc,cpp,cxx,h,hh,hpp}]
++indent_size = 4
++max_line_length = 100
++
++[*.{cmake,txt}]
++indent_size = 2
++
++[CMakeLists.txt]
++indent_size = 2
++
++[*.{json,yml,yaml}]
++indent_size = 2
++
++[*.md]
++trim_trailing_whitespace = false
+
+
+### .github/workflows/ci.yml
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..ade25e7
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,47 @@
++name: ci
++
++# Explicit, visible quality gates (Constitution II: NO git hooks). CI builds and
++# tests the host core on every change (quickstart Scenario A) and build-checks the
++# desktop targets (Scenario B/C build). Hardware presets are build-checked only
++# where ARM toolchains are provisioned — a deferred follow noted in quickstart.md,
++# so the boundary is visible rather than silently dropped (FR-015).
++
++on:
++  push:
++    branches: [platform-foundation, main]
++  pull_request:
++
++jobs:
++  core-tests:
++    name: Core host tests (Scenario A)
++    runs-on: macos-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Configure (test preset)
++        run: cmake --preset test
++      - name: Build
++        run: cmake --build --preset test -j
++      - name: Test
++        run: ctest --preset test
++
++  portability-gate:
++    name: Portability gates
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Run explicit portability checks
++        run: ./scripts/check-portability.sh
++
++  desktop-build:
++    name: Desktop workbench + plugin build (Scenario B/C)
++    runs-on: macos-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Install JUCE Linux/macOS build prerequisites
++        run: echo "macOS runner ships the required frameworks"
++      - name: Configure (desktop preset)
++        run: cmake --preset desktop
++      - name: Build workbench
++        run: cmake --build --preset desktop --target acfx_workbench -j
++      - name: Build plugin (VST3 / AU / CLAP)
++        run: cmake --build --preset desktop --target acfx_plugin -j
+
+
+### .gitignore
+diff --git a/.gitignore b/.gitignore
+index 304c141..1acd783 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1 +1,25 @@
+ .stack-control/state/
++
++# Build output
++build/
++build-*/
++out/
++
++# CPM fetched dependencies + cache
++external/_deps/
++external/.cpm-cache/
++.cpmcache/
++
++# Compiled objects / artifacts
++*.o
++*.a
++*.so
++*.dll
++*.exe
++*.dylib
++
++# Editor / OS
++.DS_Store
++.idea/
++.vscode/
++*.swp
+
+
+### .stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json
+diff --git a/.stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json b/.stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json
+new file mode 100644
+index 0000000..5d799cb
+--- /dev/null
++++ b/.stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json
+@@ -0,0 +1,135 @@
++{
++  "version": 1,
++  "mode": "impl",
++  "item": "design:feature/svf-vertical-slice",
++  "governedShaBase": "ff3426a",
++  "headSha": "HEAD",
++  "chunkIds": [
++    "5d46bb000cdab808",
++    "952c352cc6eab725",
++    "b04c878073d5d626",
++    "b74f59c0c4fc198b",
++    "ba29de07a54f0920",
++    "e8e701847d91847a"
++  ],
++  "rounds": 1,
++  "liftedFindings": [
++    {
++      "id": "b04c878073d5d626::AUDIT-BARRAGE-codex-01",
++      "title": "CPM bootstrap writes into a directory it never creates",
++      "severity": "high"
++    },
++    {
++      "id": "b04c878073d5d626::AUDIT-BARRAGE-codex-02",
++      "title": "Queued MIDI UI callback can outlive the workbench component",
++      "severity": "high"
++    },
++    {
++      "id": "b04c878073d5d626::AUDIT-BARRAGE-claude-01",
++      "title": "Logarithmic parameter math: missing precondition guard produces silent NaN in audio path",
++      "severity": "high"
++    },
++    {
++      "id": "b74f59c0c4fc198b::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-codex-02",
++      "title": "T035 closed as [X] while its own body documents the MCU firmware link as blocked — the adjacent Phase 5 checkpoint still claims \"build + link on both MCUs\"",
++      "severity": "blocking"
++    },
++    {
++      "id": "b74f59c0c4fc198b::AUDIT-BARRAGE-codex-01",
++      "title": "Completion ledger marks acceptance tasks done while their own acceptance remains unverified",
++      "severity": "high"
++    },
++    {
++      "id": "ba29de07a54f0920::AUDIT-BARRAGE-claude-03+AUDIT-BARRAGE-codex-02+AUDIT-BARRAGE-claude-02",
++      "title": "`WorkbenchAudioSource::fillBlock` contains a throwing path on the audio callback thread",
++      "severity": "high"
++    },
++    {
++      "id": "ba29de07a54f0920::AUDIT-BARRAGE-codex-01",
++      "title": "Workbench runtime source switching installs an unprepared file transport",
++      "severity": "high"
++    },
++    {
++      "id": "ba29de07a54f0920::AUDIT-BARRAGE-claude-01",
++      "title": "Concurrent parameter writes from `loop()` race against audio ISR in Teensy adapter",
++      "severity": "high"
++    },
++    {
++      "id": "e8e701847d91847a::AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-claude-02",
++      "title": "`SvfEffect::setParameter` mutates filter state with no audio-thread ownership boundary",
++      "severity": "high"
++    }
++  ],
++  "closedInLoopFindings": [],
++  "seamResult": {
++    "boundaryPairs": [
++      {
++        "a": "5d46bb000cdab808",
++        "b": "952c352cc6eab725"
++      },
++      {
++        "a": "5d46bb000cdab808",
++        "b": "b04c878073d5d626"
++      },
++      {
++        "a": "5d46bb000cdab808",
++        "b": "b74f59c0c4fc198b"
++      },
++      {
++        "a": "5d46bb000cdab808",
++        "b": "ba29de07a54f0920"
++      },
++      {
++        "a": "5d46bb000cdab808",
++        "b": "e8e701847d91847a"
++      },
++      {
++        "a": "952c352cc6eab725",
++        "b": "b04c878073d5d626"
++      },
++      {
++        "a": "952c352cc6eab725",
++        "b": "b74f59c0c4fc198b"
++      },
++      {
++        "a": "952c352cc6eab725",
++        "b": "ba29de07a54f0920"
++      },
++      {
++        "a": "952c352cc6eab725",
++        "b": "e8e701847d91847a"
++      },
++      {
++        "a": "b04c878073d5d626",
++        "b": "b74f59c0c4fc198b"
++      },
++      {
++        "a": "b04c878073d5d626",
++        "b": "ba29de07a54f0920"
++      },
++      {
++        "a": "b04c878073d5d626",
++        "b": "e8e701847d91847a"
++      },
++      {
++        "a": "b74f59c0c4fc198b",
++        "b": "ba29de07a54f0920"
++      },
++      {
++        "a": "b74f59c0c4fc198b",
++        "b": "e8e701847d91847a"
++      },
++      {
++        "a": "ba29de07a54f0920",
++        "b": "e8e701847d91847a"
++      }
++    ],
++    "findings": [],
++    "suppressedCompatible": 0
++  },
++  "splitClusterRefs": [
++    "9464593788d8bb87"
++  ],
++  "outcome": "override-eligible",
++  "anchorRoot": "/Users/orion/work/acfx-work/platform-foundation"
++}
+
+
+### CMakeLists.txt
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000..6deb126
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,75 @@
++cmake_minimum_required(VERSION 3.21)
++
++# acfx — cross-platform audio DSP platform.
++# One platform-independent core, four thin target adapters. Dependencies point
++# only inward (adapters -> core; core -> nothing platform-specific).
++project(acfx VERSION 0.1.0 LANGUAGES C CXX)
++
++# ---------------------------------------------------------------------------
++# Build-surface options. Each preset (CMakePresets.json) flips exactly the set
++# of targets it needs; dependencies are fetched lazily to match (see
++# cmake/dependencies.cmake), so the `test` preset stays lightweight.
++# ---------------------------------------------------------------------------
++option(ACFX_BUILD_TESTS   "Build the host-side doctest suite for core/"      OFF)
++option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
++option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
++option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
++
++# Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
++if(NOT DEFINED CPM_SOURCE_CACHE)
++  set(CPM_SOURCE_CACHE "${CMAKE_SOURCE_DIR}/external/.cpm-cache")
++endif()
++
++# ---------------------------------------------------------------------------
++# C++ standard. The core compiles under both C++17 and C++20; the Effect/Generator
++# concept contract-checks are guarded by __cpp_concepts in the headers, so the
++# same source compiles either way. Desktop/test/Daisy build at C++20 (named
++# concept checks); Teensy may be pinned lower by its toolchain file.
++# ---------------------------------------------------------------------------
++if(NOT DEFINED CMAKE_CXX_STANDARD)
++  set(CMAKE_CXX_STANDARD 20)
++endif()
++set(CMAKE_CXX_STANDARD_REQUIRED ON)
++set(CMAKE_CXX_EXTENSIONS OFF)
++
++include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake)
++
++# ---------------------------------------------------------------------------
++# acfx_core — the platform-independent spine. Header-only (INTERFACE): the DSP
++# core, the Effect concept, the parameter model, and the SVF effect all live in
++# headers under core/. It links DaisySP because core/primitives wraps DaisySP's
++# Svf (a pure-DSP, platform-independent math library — Constitution IV permits
++# the inward wrap).
++# ---------------------------------------------------------------------------
++add_library(acfx_core INTERFACE)
++add_library(acfx::core ALIAS acfx_core)
++target_include_directories(acfx_core INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/core")
++target_compile_features(acfx_core INTERFACE cxx_std_17)
++if(TARGET DaisySP)
++  target_link_libraries(acfx_core INTERFACE DaisySP)
++endif()
++
++# ---------------------------------------------------------------------------
++# Subdirectories, gated by the build-surface options.
++# ---------------------------------------------------------------------------
++if(ACFX_BUILD_DESKTOP)
++  add_subdirectory(host/processor-node)
++  add_subdirectory(adapters/workbench)
++  add_subdirectory(adapters/plugin)
++endif()
++
++if(ACFX_BUILD_DAISY)
++  add_subdirectory(adapters/daisy)
++endif()
++
++if(ACFX_BUILD_TEENSY)
++  add_subdirectory(adapters/teensy)
++endif()
++
++if(ACFX_BUILD_TESTS)
++  enable_testing()
++  # host/processor-node is desktop-only host code, but it is pure C++ (no JUCE),
++  # so the test build includes it to exercise the EffectNode boundary too.
++  add_subdirectory(host/processor-node)
++  add_subdirectory(tests)
++endif()
+
+
+### CMakePresets.json
+diff --git a/CMakePresets.json b/CMakePresets.json
+new file mode 100644
+index 0000000..6cc56cb
+--- /dev/null
++++ b/CMakePresets.json
+@@ -0,0 +1,67 @@
++{
++  "version": 3,
++  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
++  "configurePresets": [
++    {
++      "name": "base",
++      "hidden": true,
++      "generator": "Unix Makefiles",
++      "binaryDir": "${sourceDir}/build/${presetName}",
++      "cacheVariables": {
++        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
++        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
++      }
++    },
++    {
++      "name": "test",
++      "inherits": "base",
++      "displayName": "Host tests (core correctness, no hardware)",
++      "cacheVariables": {
++        "ACFX_BUILD_TESTS": "ON",
++        "CMAKE_CXX_STANDARD": "20"
++      }
++    },
++    {
++      "name": "desktop",
++      "inherits": "base",
++      "displayName": "Desktop workbench + plugin (JUCE)",
++      "cacheVariables": {
++        "ACFX_BUILD_DESKTOP": "ON",
++        "CMAKE_CXX_STANDARD": "20"
++      }
++    },
++    {
++      "name": "daisy",
++      "inherits": "base",
++      "displayName": "Daisy firmware (arm-none-eabi-gcc)",
++      "toolchainFile": "${sourceDir}/cmake/toolchains/daisy.cmake",
++      "cacheVariables": {
++        "ACFX_BUILD_DAISY": "ON",
++        "CMAKE_CXX_STANDARD": "20"
++      }
++    },
++    {
++      "name": "teensy",
++      "inherits": "base",
++      "displayName": "Teensy firmware (Teensy ARM toolchain)",
++      "toolchainFile": "${sourceDir}/cmake/toolchains/teensy.cmake",
++      "cacheVariables": {
++        "ACFX_BUILD_TEENSY": "ON"
++      }
++    }
++  ],
++  "buildPresets": [
++    { "name": "test", "configurePreset": "test" },
++    { "name": "desktop", "configurePreset": "desktop" },
++    { "name": "daisy", "configurePreset": "daisy" },
++    { "name": "teensy", "configurePreset": "teensy" }
++  ],
++  "testPresets": [
++    {
++      "name": "test",
++      "configurePreset": "test",
++      "output": { "outputOnFailure": true },
++      "execution": { "noTestsAction": "error", "stopOnFailure": false }
++    }
++  ]
++}
+
+
+### README.md
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..76d746c
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,92 @@
++# acfx
++
++A cross-platform audio DSP platform: one platform-independent core, many thin
++target adapters. Effects are written once and run as a desktop standalone
++workbench, a DAW plugin (VST3 / AU / CLAP), and microcontroller firmware
++(Daisy, Teensy) — from the *same* source, with one parameter declaration driving
++every adapter.
++
++This repository's first vertical slice proves that spine end-to-end with a single
++effect: a State-Variable Filter (SVF). See
++[`specs/svf-vertical-slice/`](specs/svf-vertical-slice/) for the spec, plan, and
++the runnable validation guide ([`quickstart.md`](specs/svf-vertical-slice/quickstart.md)).
++
++## Layout
++
++```
++core/        platform-independent spine — NO JUCE/libDaisy/Teensy headers
++  dsp/         Effect concept, ProcessContext, AudioBlock, parameter model
++  primitives/  thin wrappers over DaisySP (the SVF wrapper)
++  effects/svf/ the SVF effect + its constexpr parameter table
++host/          desktop-only ProcessorNode boundary (<= 1 virtual call / block)
++adapters/      workbench (JUCE app), plugin (JUCE VST3/AU/CLAP), daisy, teensy
++tests/         host-side doctest suite (core correctness, no hardware)
++cmake/         CPM + pinned dependencies + ARM toolchain files
++```
++
++Dependencies point only inward (`adapters/* -> core/*`; `core/*` depends on
++nothing platform-specific). The same `core/effects/svf` source compiles into every
++target with no per-target `#ifdef` forks.
++
++## Build & run
++
++Builds use CMake presets. Each preset fetches only the dependencies it needs
++(CPM-pinned in [`cmake/dependencies.cmake`](cmake/dependencies.cmake)).
++
++### Host tests (no hardware) — quickstart Scenario A
++
++```bash
++cmake --preset test
++cmake --build --preset test
++ctest --preset test
++```
++
++Runs parameter scaling/skew checks, the per-mode SVF frequency-response check, the
++high-resonance stability guard, and the no-heap-allocation-in-`process()`
++invariant.
++
++### Desktop workbench (sketch-and-hear) — Scenario B
++
++```bash
++cmake --preset desktop
++cmake --build --preset desktop --target acfx_workbench
++```
++
++Launch the built app: auto-generated controls for cutoff / resonance / mode, a
++built-in player or live input, a bound MIDI CC, and a dry/processed A/B toggle.
++
++### Desktop plugin (VST3 / AU / CLAP) — Scenario C
++
++```bash
++cmake --preset desktop
++cmake --build --preset desktop --target acfx_plugin
++```
++
++### Hardware cross-compile — Scenario D
++
++```bash
++cmake --preset daisy  && cmake --build --preset daisy
++cmake --preset teensy && cmake --build --preset teensy
++```
++
++Requires an ARM embedded toolchain **with the C++ standard library** (ARM's
++gcc-arm-embedded or the vendor toolchain). Flashing and listening on a physical
++board is a separate checkpoint when hardware is in hand.
++
++## Quality gates
++
++Quality gates are **explicit, visible steps — never git hooks** (this repo uses
++zero hooks). Run them on purpose:
++
++```bash
++./scripts/check-portability.sh    # file-size budget, core platform-independence,
++                                  # no-JUCE-in-MCU, one-source-many-targets
++```
++
++CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the host tests,
++the portability gates, and the desktop build on every change.
++
++## Standards
++
++See [`CLAUDE.md`](CLAUDE.md) and the full project constitution at
++[`.specify/memory/constitution.md`](.specify/memory/constitution.md).
+
+
+### adapters/daisy/CMakeLists.txt
+diff --git a/adapters/daisy/CMakeLists.txt b/adapters/daisy/CMakeLists.txt
+new file mode 100644
+index 0000000..795dba5
+--- /dev/null
++++ b/adapters/daisy/CMakeLists.txt
+@@ -0,0 +1,30 @@
++# Daisy firmware target (T032). Compiles the SAME core/effects/svf into a Daisy
++# firmware via libDaisy — the only platform-specific code is daisy-main.cpp
++# (audio callback + ADC). No JUCE, no ProcessorNode (Constitution IV; SC-007).
++#
++# Requires the ARM embedded toolchain WITH the C++ standard library (ARM's
++# gcc-arm-embedded or the Daisy toolchain). A C-only arm-none-eabi (no libstdc++)
++# cannot build the C++ core — that is surfaced as a hard error, never a fallback.
++
++if(NOT DEFINED libDaisy_SOURCE_DIR)
++  message(FATAL_ERROR
++    "libDaisy not fetched. Configure with the `daisy` preset so cmake/dependencies.cmake "
++    "pins and downloads libDaisy.")
++endif()
++
++# libDaisy ships its own CMake that defines the `daisy` static library + the
++# STM32H750 build flags and linker script.
++add_subdirectory("${libDaisy_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/libDaisy" EXCLUDE_FROM_ALL)
++
++add_executable(acfx_daisy daisy-main.cpp)
++target_compile_features(acfx_daisy PRIVATE cxx_std_20)
++target_link_libraries(acfx_daisy PRIVATE acfx_core daisy)
++
++# Daisy bootloader linker script (STM32H750IB internal flash).
++set(_daisy_lds "${libDaisy_SOURCE_DIR}/core/STM32H750IB_flash.lds")
++target_link_options(acfx_daisy PRIVATE
++  -T "${_daisy_lds}"
++  -Wl,-Map=acfx_daisy.map,--cref
++  -Wl,--gc-sections
++)
++set_target_properties(acfx_daisy PROPERTIES SUFFIX ".elf")
+
+
+### adapters/daisy/daisy-main.cpp
+diff --git a/adapters/daisy/daisy-main.cpp b/adapters/daisy/daisy-main.cpp
+new file mode 100644
+index 0000000..431e3a8
+--- /dev/null
++++ b/adapters/daisy/daisy-main.cpp
+@@ -0,0 +1,65 @@
++// Daisy adapter (T032): the libDaisy audio callback drives the SAME
++// core/effects/svf source, and the Seed's ADC knobs map to setParameter. The MCU
++// build uses the concrete SvfEffect directly — no ProcessorNode, no JUCE
++// (Constitution IV; SC-007). Only the audio-callback + control glue is
++// platform-specific; the effect is identical to the desktop targets.
++
++#include "daisy_seed.h"
++
++#include "dsp/audio-block.h"
++#include "dsp/param-id.h"
++#include "dsp/process-context.h"
++#include "effects/svf/svf-effect.h"
++
++using namespace daisy;
++
++namespace {
++
++DaisySeed hw;
++acfx::SvfEffect svf;
++
++// ADC channel assignment (Seed analog pins): cutoff, resonance, mode.
++enum AdcChannel { kAdcCutoff = 0, kAdcResonance = 1, kAdcMode = 2, kAdcCount };
++
++void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size) {
++    // Map the knobs to normalized parameter values (the effect denormalizes via
++    // its descriptor — identical mapping to every other adapter).
++    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kCutoff}, hw.adc.GetFloat(kAdcCutoff));
++    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kResonance}, hw.adc.GetFloat(kAdcResonance));
++    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, hw.adc.GetFloat(kAdcMode));
++
++    // libDaisy hands non-interleaved per-channel buffers. Copy in -> out, then
++    // process out in place through the shared core.
++    float* channels[2] = {out[0], out[1]};
++    for (size_t i = 0; i < size; ++i) {
++        out[0][i] = in[0][i];
++        out[1][i] = in[1][i];
++    }
++    acfx::AudioBlock block(channels, 2, static_cast<int>(size));
++    svf.process(block);
++}
++
++} // namespace
++
++int main() {
++    hw.Configure();
++    hw.Init();
++    hw.SetAudioBlockSize(48);
++
++    // Configure the three ADC knobs.
++    AdcChannelConfig adcConfig[kAdcCount];
++    adcConfig[kAdcCutoff].InitSingle(seed::A0);
++    adcConfig[kAdcResonance].InitSingle(seed::A1);
++    adcConfig[kAdcMode].InitSingle(seed::A2);
++    hw.adc.Init(adcConfig, kAdcCount);
++    hw.adc.Start();
++
++    const acfx::ProcessContext ctx{static_cast<double>(hw.AudioSampleRate()),
++                                   static_cast<int>(hw.AudioBlockSize()), 2};
++    svf.prepare(ctx);
++
++    hw.StartAudio(AudioCallback);
++    for (;;) {
++        // Parameters are sampled in the audio callback; nothing to do here.
++    }
++}
+
+
+### adapters/plugin/CMakeLists.txt
+diff --git a/adapters/plugin/CMakeLists.txt b/adapters/plugin/CMakeLists.txt
+new file mode 100644
+index 0000000..1e9cebe
+--- /dev/null
++++ b/adapters/plugin/CMakeLists.txt
+@@ -0,0 +1,44 @@
++# The DAW plugin (T028): one JUCE plugin target exported as VST3 + AU natively and
++# CLAP via clap-juce-extensions. A thin adapter — links acfx_core + acfx_host (the
++# same boundary the workbench uses) and adds only JUCE plugin glue. Built under the
++# `desktop` preset.
++
++juce_add_plugin(acfx_plugin
++  PRODUCT_NAME "acfx SVF"
++  COMPANY_NAME "acfx"
++  PLUGIN_MANUFACTURER_CODE Acfx
++  PLUGIN_CODE Asvf
++  FORMATS VST3 AU
++  IS_SYNTH FALSE
++  NEEDS_MIDI_INPUT FALSE
++  NEEDS_MIDI_OUTPUT FALSE
++  COPY_PLUGIN_AFTER_BUILD FALSE
++)
++
++target_sources(acfx_plugin PRIVATE
++  plugin-processor.cpp
++  plugin-parameters.cpp
++)
++
++target_compile_features(acfx_plugin PRIVATE cxx_std_20)
++
++target_compile_definitions(acfx_plugin PUBLIC
++  JUCE_WEB_BROWSER=0
++  JUCE_USE_CURL=0
++  JUCE_VST3_CAN_REPLACE_VST2=0
++  JUCE_DISPLAY_SPLASH_SCREEN=0
++)
++
++target_link_libraries(acfx_plugin PRIVATE
++  acfx_core
++  acfx_host
++  juce::juce_audio_utils
++  juce::juce_recommended_config_flags
++  juce::juce_recommended_warning_flags
++)
++
++# Add the CLAP format to the same target (research.md decision 7).
++clap_juce_extensions_plugin(TARGET acfx_plugin
++  CLAP_ID "org.acfx.svf"
++  CLAP_FEATURES audio-effect filter
++)
+
+
+## What to look for
+
+- **Correctness bugs** — logic errors, off-by-one, null/undefined paths, race conditions, missing error handling, swallowed exceptions.
+- **Design issues** — coupling between layers that should be independent, leaking abstractions, primitives that should compose but don't, configuration that should be data ending up as code.
+- **Missed edge cases** — what happens with empty input? Maximum input? Concurrent calls? Partial failure? Network unavailability? Operator interrupt mid-operation? What is the behavior on a fresh install vs. an upgrade?
+- **Code-quality concerns** — files growing past a reasonable cap, names that don't reveal intent, dead code, duplicated logic, magic numbers without explanation, tests that don't test the contract they claim to test.
+- **Cross-cutting impact** — does this diff touch a surface that other surfaces depend on? Are those other surfaces updated? Are migrations needed? Are doctor rules / schemas / validators updated to match the new shape?
+- **Documentation drift** — does the README / SKILL.md / PRD describe the behavior the code actually implements? If the spec changed, did the implementation? If the implementation changed, did the spec?
+- **Operator-discipline traps** — placeholder comments, swallowed errors, hardcoded paths/values that should be configurable, fallbacks that hide failure modes, mock data outside test code. These are bug-factories per project guidelines.
+
+## Process drivers (029 US8 / FR-029)
+
+These codify the structural drivers of myopic convergence (TASK-60), so the loop converges in fewer rounds with less fix-induced surface growth. The first three (channel-enumeration, invariant-first boundary, round-0 self-red-team) are **fix-review** drivers — apply them when the work under audit is a fix for a prior finding. The last two (fleet-degradation pricing, severity-rubric anchoring) are **general** controls that apply to every round:
+
+- **Channel-enumeration.** When a fix ADDS to an allowlist/surface (a new flag, a new accepted value, a new parser branch, a new fold path), do not accept it on the one example it fixes — enumerate the channels it opens: the **value** channel (other inputs now accepted), the **state** channel (new reachable states), the **multiline / composition** channel (how it composes with adjacent surfaces). Flag any opened channel that lacks a fixture.
+- **Invariant-first boundary.** When a finding is dispositioned as a scope boundary, state the boundary as the **mechanism's invariant plus an in-scope exception**, NOT as the exclusion of the one counterexample. "We exclude X" is a smell; "the invariant is I, and X is the in-scope exception because…" is the disposition.
+- **Round-0 self-red-team.** When the work under audit is itself a FIX for a prior finding, audit the **fix diff as a fresh surface in its own right** — do not assume it is correct merely because it targets a known bug. Ask what new edge the fix opened and what it moved rather than removed; a fix that resolves one finding while opening an unaudited channel is itself a finding.
+- **Fleet-degradation pricing.** A convergence claim is only as strong as the fleet that produced it. When the fleet is **degraded** (a timed-out / killed / zero-byte lane — US2 observability), price the round's "0 HIGH" accordingly: it is computed over fewer models, so cross-model agreement is weaker. Do not treat a degraded-fleet quiet round as full convergence.
+- **Severity-rubric anchoring.** Rate every finding by the blast-radius rubric below (US3), not by how alarming it feels — a quietly-plausible wrong reading an unattended agent would build outranks an obvious contradiction a reader would resolve.
+
+## Output format
+
+For each finding you surface, emit ONE markdown block in this exact shape:
+
+```
+### <heading: one-line summary of the finding>
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-<NN>
+Status:     open
+Severity:   <blocking | high | medium | low | informational>
+Surface:    <repo-relative-path:line-range> OR <description of the surface if not anchored to a single file>
+
+<one-to-three paragraphs of body: what the finding is, why it matters, what evidence you relied on, what a reasonable fix would look like. Be specific. Cite line numbers from the diff. If the finding is structural / cross-file, name every file affected.>
+```
+
+Number the findings sequentially (`-01`, `-02`, ...).
+
+**Severity — rate each finding by downstream blast-radius:** the consequence if a downstream consumer acts on the audited surface *as written*. The consumer may be an adopter running the code, or — especially for a spec — an AI agent building **unattended** from it, with no human to catch a wrong reading. Rate by what would actually happen if this shipped as-is, **not by how alarming the finding feels**. State the blast-radius reasoning in the finding body for every finding, at every level.
+
+- `blocking` — acting on it as-written breaks the feature's stated goals in obvious ways; OR (for a spec) the more natural reading an agent reaches first is the wrong one, so it will likely be built wrong by default and nothing in the artifact corrects it.
+- `high` — a correctness/safety defect a consumer will hit; OR a spec contradiction/ambiguity where the readings are roughly equally plausible and the artifact doesn't disambiguate — an agent might build either, including the wrong one.
+- `medium` — a design issue that compounds over time; OR a spec inconsistency a reasonable consumer would resolve correctly anyway (readings barely diverge, or context makes the intended one obvious).
+- `low` — hygiene; cosmetic wording with no behavioral or implementation consequence.
+- `informational` — context worth seeing, not itself a defect.
+
+**Calibrate by consequence, not by alarm.** A genuine contradiction a reader would obviously resolve the right way is at most `medium`. A quietly-plausible wrong reading an agent would actually build is `high`/`blocking` even if it looks minor. A spec's internal consistency is load-bearing — it is the input to an unattended build.
+
+## If you find nothing — say so explicitly
+
+If you walk the diff carefully and find no findings worth surfacing, emit ONE block in this shape instead:
+
+```
+### No findings
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-CLEAN
+Status:     open
+Severity:   informational
+Surface:    (the entire diff)
+
+I walked the diff for the feature named above and found no findings worth surfacing. My specific reasoning: <three-to-five sentences explaining what you checked, why those checks came back clean, and what you would have flagged if it had been present.>
+```
+
+**Do not pad with weak findings.** A confident "I checked X, Y, Z and they are clean for these reasons" is more useful to the operator than three vague low-severity notes. The cross-model diversity gives the operator independent signal; an empty clean report from your CLI is itself a signal when paired with findings from your siblings.
+
+## Hard constraints
+
+- **No deferral phrases.** Don't write phrases like "fix later", "address in a follow-up", or other commitments to deferred work. The dispatch-wrapper rejects these as bug-factories. If you spot a deferral phrase IN the diff, surface it as a finding.
+- **Anchor findings to evidence.** A finding that says "this might be a problem" without naming the specific file + line is not actionable. Name the surface, quote the relevant code, explain what's wrong.
+- **One issue per finding block.** Don't bundle multiple concerns into one entry; the operator triages each block as a discrete signal.
+- **Provenance is your model name.** Replace `<your-model-name>` in the Finding-ID with the CLI you are (`claude`, `codex`, `gemini`, etc.). This is how the operator joins findings across models.
+
+**Assessing audit findings**
+
+I need to address the audit findings from different sources, which might involve inspecting a repository in a read-only manner. It seems that line numbers could be helpful, so I should perhaps use “nl” for that too. I might also need to check if previous findings included specific references. Examining the files for exact line numbers and dependencies sounds essential, and I probably should focus on identifying issues in the chunk. Using a parallel approach might work best here.
+codex
+I’ll review the in-scope files against the diff and cross-check the build wiring where the chunk depends on files outside it, so the findings are anchored to actual line numbers rather than just the pasted patch.
+exec
+/bin/zsh -lc "nl -ba CMakeLists.txt | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+exec
+/bin/zsh -lc "nl -ba .github/workflows/ci.yml | sed -n '1,90p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	name: ci
+     2	
+     3	# Explicit, visible quality gates (Constitution II: NO git hooks). CI builds and
+     4	# tests the host core on every change (quickstart Scenario A) and build-checks the
+     5	# desktop targets (Scenario B/C build). Hardware presets are build-checked only
+     6	# where ARM toolchains are provisioned — a deferred follow noted in quickstart.md,
+     7	# so the boundary is visible rather than silently dropped (FR-015).
+     8	
+     9	on:
+    10	  push:
+    11	    branches: [platform-foundation, main]
+    12	  pull_request:
+    13	
+    14	jobs:
+    15	  core-tests:
+    16	    name: Core host tests (Scenario A)
+    17	    runs-on: macos-latest
+    18	    steps:
+    19	      - uses: actions/checkout@v4
+    20	      - name: Configure (test preset)
+    21	        run: cmake --preset test
+    22	      - name: Build
+    23	        run: cmake --build --preset test -j
+    24	      - name: Test
+    25	        run: ctest --preset test
+    26	
+    27	  portability-gate:
+    28	    name: Portability gates
+    29	    runs-on: ubuntu-latest
+    30	    steps:
+    31	      - uses: actions/checkout@v4
+    32	      - name: Run explicit portability checks
+    33	        run: ./scripts/check-portability.sh
+    34	
+    35	  desktop-build:
+    36	    name: Desktop workbench + plugin build (Scenario B/C)
+    37	    runs-on: macos-latest
+    38	    steps:
+    39	      - uses: actions/checkout@v4
+    40	      - name: Install JUCE Linux/macOS build prerequisites
+    41	        run: echo "macOS runner ships the required frameworks"
+    42	      - name: Configure (desktop preset)
+    43	        run: cmake --preset desktop
+    44	      - name: Build workbench
+    45	        run: cmake --build --preset desktop --target acfx_workbench -j
+    46	      - name: Build plugin (VST3 / AU / CLAP)
+    47	        run: cmake --build --preset desktop --target acfx_plugin -j
+
+ succeeded in 0ms:
+     1	cmake_minimum_required(VERSION 3.21)
+     2	
+     3	# acfx — cross-platform audio DSP platform.
+     4	# One platform-independent core, four thin target adapters. Dependencies point
+     5	# only inward (adapters -> core; core -> nothing platform-specific).
+     6	project(acfx VERSION 0.1.0 LANGUAGES C CXX)
+     7	
+     8	# ---------------------------------------------------------------------------
+     9	# Build-surface options. Each preset (CMakePresets.json) flips exactly the set
+    10	# of targets it needs; dependencies are fetched lazily to match (see
+    11	# cmake/dependencies.cmake), so the `test` preset stays lightweight.
+    12	# ---------------------------------------------------------------------------
+    13	option(ACFX_BUILD_TESTS   "Build the host-side doctest suite for core/"      OFF)
+    14	option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
+    15	option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
+    16	option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
+    17	
+    18	# Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
+    19	if(NOT DEFINED CPM_SOURCE_CACHE)
+    20	  set(CPM_SOURCE_CACHE "${CMAKE_SOURCE_DIR}/external/.cpm-cache")
+    21	endif()
+    22	
+    23	# ---------------------------------------------------------------------------
+    24	# C++ standard. The core compiles under both C++17 and C++20; the Effect/Generator
+    25	# concept contract-checks are guarded by __cpp_concepts in the headers, so the
+    26	# same source compiles either way. Desktop/test/Daisy build at C++20 (named
+    27	# concept checks); Teensy may be pinned lower by its toolchain file.
+    28	# ---------------------------------------------------------------------------
+    29	if(NOT DEFINED CMAKE_CXX_STANDARD)
+    30	  set(CMAKE_CXX_STANDARD 20)
+    31	endif()
+    32	set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    33	set(CMAKE_CXX_EXTENSIONS OFF)
+    34	
+    35	include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake)
+    36	
+    37	# ---------------------------------------------------------------------------
+    38	# acfx_core — the platform-independent spine. Header-only (INTERFACE): the DSP
+    39	# core, the Effect concept, the parameter model, and the SVF effect all live in
+    40	# headers under core/. It links DaisySP because core/primitives wraps DaisySP's
+    41	# Svf (a pure-DSP, platform-independent math library — Constitution IV permits
+    42	# the inward wrap).
+    43	# ---------------------------------------------------------------------------
+    44	add_library(acfx_core INTERFACE)
+    45	add_library(acfx::core ALIAS acfx_core)
+    46	target_include_directories(acfx_core INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/core")
+    47	target_compile_features(acfx_core INTERFACE cxx_std_17)
+    48	if(TARGET DaisySP)
+    49	  target_link_libraries(acfx_core INTERFACE DaisySP)
+    50	endif()
+    51	
+    52	# ---------------------------------------------------------------------------
+    53	# Subdirectories, gated by the build-surface options.
+    54	# ---------------------------------------------------------------------------
+    55	if(ACFX_BUILD_DESKTOP)
+    56	  add_subdirectory(host/processor-node)
+    57	  add_subdirectory(adapters/workbench)
+    58	  add_subdirectory(adapters/plugin)
+    59	endif()
+    60	
+    61	if(ACFX_BUILD_DAISY)
+    62	  add_subdirectory(adapters/daisy)
+    63	endif()
+    64	
+    65	if(ACFX_BUILD_TEENSY)
+    66	  add_subdirectory(adapters/teensy)
+    67	endif()
+    68	
+    69	if(ACFX_BUILD_TESTS)
+    70	  enable_testing()
+    71	  # host/processor-node is desktop-only host code, but it is pure C++ (no JUCE),
+    72	  # so the test build includes it to exercise the EffectNode boundary too.
+    73	  add_subdirectory(host/processor-node)
+    74	  add_subdirectory(tests)
+    75	endif()
+
+exec
+/bin/zsh -lc "nl -ba CMakePresets.json | sed -n '1,110p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	{
+     2	  "version": 3,
+     3	  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+     4	  "configurePresets": [
+     5	    {
+     6	      "name": "base",
+     7	      "hidden": true,
+     8	      "generator": "Unix Makefiles",
+     9	      "binaryDir": "${sourceDir}/build/${presetName}",
+    10	      "cacheVariables": {
+    11	        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+    12	        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+    13	      }
+    14	    },
+    15	    {
+    16	      "name": "test",
+    17	      "inherits": "base",
+    18	      "displayName": "Host tests (core correctness, no hardware)",
+    19	      "cacheVariables": {
+    20	        "ACFX_BUILD_TESTS": "ON",
+    21	        "CMAKE_CXX_STANDARD": "20"
+    22	      }
+    23	    },
+    24	    {
+    25	      "name": "desktop",
+    26	      "inherits": "base",
+    27	      "displayName": "Desktop workbench + plugin (JUCE)",
+    28	      "cacheVariables": {
+    29	        "ACFX_BUILD_DESKTOP": "ON",
+    30	        "CMAKE_CXX_STANDARD": "20"
+    31	      }
+    32	    },
+    33	    {
+    34	      "name": "daisy",
+    35	      "inherits": "base",
+    36	      "displayName": "Daisy firmware (arm-none-eabi-gcc)",
+    37	      "toolchainFile": "${sourceDir}/cmake/toolchains/daisy.cmake",
+    38	      "cacheVariables": {
+    39	        "ACFX_BUILD_DAISY": "ON",
+    40	        "CMAKE_CXX_STANDARD": "20"
+    41	      }
+    42	    },
+    43	    {
+    44	      "name": "teensy",
+    45	      "inherits": "base",
+    46	      "displayName": "Teensy firmware (Teensy ARM toolchain)",
+    47	      "toolchainFile": "${sourceDir}/cmake/toolchains/teensy.cmake",
+    48	      "cacheVariables": {
+    49	        "ACFX_BUILD_TEENSY": "ON"
+    50	      }
+    51	    }
+    52	  ],
+    53	  "buildPresets": [
+    54	    { "name": "test", "configurePreset": "test" },
+    55	    { "name": "desktop", "configurePreset": "desktop" },
+    56	    { "name": "daisy", "configurePreset": "daisy" },
+    57	    { "name": "teensy", "configurePreset": "teensy" }
+    58	  ],
+    59	  "testPresets": [
+    60	    {
+    61	      "name": "test",
+    62	      "configurePreset": "test",
+    63	      "output": { "outputOnFailure": true },
+    64	      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    65	    }
+    66	  ]
+    67	}
+
+exec
+/bin/zsh -lc "nl -ba adapters/daisy/daisy-main.cpp | sed -n '1,100p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	// Daisy adapter (T032): the libDaisy audio callback drives the SAME
+     2	// core/effects/svf source, and the Seed's ADC knobs map to setParameter. The MCU
+     3	// build uses the concrete SvfEffect directly — no ProcessorNode, no JUCE
+     4	// (Constitution IV; SC-007). Only the audio-callback + control glue is
+     5	// platform-specific; the effect is identical to the desktop targets.
+     6	
+     7	#include "daisy_seed.h"
+     8	
+     9	#include "dsp/audio-block.h"
+    10	#include "dsp/param-id.h"
+    11	#include "dsp/process-context.h"
+    12	#include "effects/svf/svf-effect.h"
+    13	
+    14	using namespace daisy;
+    15	
+    16	namespace {
+    17	
+    18	DaisySeed hw;
+    19	acfx::SvfEffect svf;
+    20	
+    21	// ADC channel assignment (Seed analog pins): cutoff, resonance, mode.
+    22	enum AdcChannel { kAdcCutoff = 0, kAdcResonance = 1, kAdcMode = 2, kAdcCount };
+    23	
+    24	void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size) {
+    25	    // Map the knobs to normalized parameter values (the effect denormalizes via
+    26	    // its descriptor — identical mapping to every other adapter).
+    27	    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kCutoff}, hw.adc.GetFloat(kAdcCutoff));
+    28	    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kResonance}, hw.adc.GetFloat(kAdcResonance));
+    29	    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, hw.adc.GetFloat(kAdcMode));
+    30	
+    31	    // libDaisy hands non-interleaved per-channel buffers. Copy in -> out, then
+    32	    // process out in place through the shared core.
+    33	    float* channels[2] = {out[0], out[1]};
+    34	    for (size_t i = 0; i < size; ++i) {
+    35	        out[0][i] = in[0][i];
+    36	        out[1][i] = in[1][i];
+    37	    }
+    38	    acfx::AudioBlock block(channels, 2, static_cast<int>(size));
+    39	    svf.process(block);
+    40	}
+    41	
+    42	} // namespace
+    43	
+    44	int main() {
+    45	    hw.Configure();
+    46	    hw.Init();
+    47	    hw.SetAudioBlockSize(48);
+    48	
+    49	    // Configure the three ADC knobs.
+    50	    AdcChannelConfig adcConfig[kAdcCount];
+    51	    adcConfig[kAdcCutoff].InitSingle(seed::A0);
+    52	    adcConfig[kAdcResonance].InitSingle(seed::A1);
+    53	    adcConfig[kAdcMode].InitSingle(seed::A2);
+    54	    hw.adc.Init(adcConfig, kAdcCount);
+    55	    hw.adc.Start();
+    56	
+    57	    const acfx::ProcessContext ctx{static_cast<double>(hw.AudioSampleRate()),
+    58	                                   static_cast<int>(hw.AudioBlockSize()), 2};
+    59	    svf.prepare(ctx);
+    60	
+    61	    hw.StartAudio(AudioCallback);
+    62	    for (;;) {
+    63	        // Parameters are sampled in the audio callback; nothing to do here.
+    64	    }
+    65	}
+
+exec
+/bin/zsh -lc "nl -ba adapters/daisy/CMakeLists.txt | sed -n '1,80p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# Daisy firmware target (T032). Compiles the SAME core/effects/svf into a Daisy
+     2	# firmware via libDaisy — the only platform-specific code is daisy-main.cpp
+     3	# (audio callback + ADC). No JUCE, no ProcessorNode (Constitution IV; SC-007).
+     4	#
+     5	# Requires the ARM embedded toolchain WITH the C++ standard library (ARM's
+     6	# gcc-arm-embedded or the Daisy toolchain). A C-only arm-none-eabi (no libstdc++)
+     7	# cannot build the C++ core — that is surfaced as a hard error, never a fallback.
+     8	
+     9	if(NOT DEFINED libDaisy_SOURCE_DIR)
+    10	  message(FATAL_ERROR
+    11	    "libDaisy not fetched. Configure with the `daisy` preset so cmake/dependencies.cmake "
+    12	    "pins and downloads libDaisy.")
+    13	endif()
+    14	
+    15	# libDaisy ships its own CMake that defines the `daisy` static library + the
+    16	# STM32H750 build flags and linker script.
+    17	add_subdirectory("${libDaisy_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/libDaisy" EXCLUDE_FROM_ALL)
+    18	
+    19	add_executable(acfx_daisy daisy-main.cpp)
+    20	target_compile_features(acfx_daisy PRIVATE cxx_std_20)
+    21	target_link_libraries(acfx_daisy PRIVATE acfx_core daisy)
+    22	
+    23	# Daisy bootloader linker script (STM32H750IB internal flash).
+    24	set(_daisy_lds "${libDaisy_SOURCE_DIR}/core/STM32H750IB_flash.lds")
+    25	target_link_options(acfx_daisy PRIVATE
+    26	  -T "${_daisy_lds}"
+    27	  -Wl,-Map=acfx_daisy.map,--cref
+    28	  -Wl,--gc-sections
+    29	)
+    30	set_target_properties(acfx_daisy PROPERTIES SUFFIX ".elf")
+
+exec
+/bin/zsh -lc "nl -ba adapters/plugin/CMakeLists.txt | sed -n '1,80p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# The DAW plugin (T028): one JUCE plugin target exported as VST3 + AU natively and
+     2	# CLAP via clap-juce-extensions. A thin adapter — links acfx_core + acfx_host (the
+     3	# same boundary the workbench uses) and adds only JUCE plugin glue. Built under the
+     4	# `desktop` preset.
+     5	
+     6	juce_add_plugin(acfx_plugin
+     7	  PRODUCT_NAME "acfx SVF"
+     8	  COMPANY_NAME "acfx"
+     9	  PLUGIN_MANUFACTURER_CODE Acfx
+    10	  PLUGIN_CODE Asvf
+    11	  FORMATS VST3 AU
+    12	  IS_SYNTH FALSE
+    13	  NEEDS_MIDI_INPUT FALSE
+    14	  NEEDS_MIDI_OUTPUT FALSE
+    15	  COPY_PLUGIN_AFTER_BUILD FALSE
+    16	)
+    17	
+    18	target_sources(acfx_plugin PRIVATE
+    19	  plugin-processor.cpp
+    20	  plugin-parameters.cpp
+    21	)
+    22	
+    23	target_compile_features(acfx_plugin PRIVATE cxx_std_20)
+    24	
+    25	target_compile_definitions(acfx_plugin PUBLIC
+    26	  JUCE_WEB_BROWSER=0
+    27	  JUCE_USE_CURL=0
+    28	  JUCE_VST3_CAN_REPLACE_VST2=0
+    29	  JUCE_DISPLAY_SPLASH_SCREEN=0
+    30	)
+    31	
+    32	target_link_libraries(acfx_plugin PRIVATE
+    33	  acfx_core
+    34	  acfx_host
+    35	  juce::juce_audio_utils
+    36	  juce::juce_recommended_config_flags
+    37	  juce::juce_recommended_warning_flags
+    38	)
+    39	
+    40	# Add the CLAP format to the same target (research.md decision 7).
+    41	clap_juce_extensions_plugin(TARGET acfx_plugin
+    42	  CLAP_ID "org.acfx.svf"
+    43	  CLAP_FEATURES audio-effect filter
+    44	)
+
+**Investigating audit findings**
+
+I need to look into the audit findings. I'm considering whether the CI using macos-latest is forgoing the CPM cache. It seems that fetching dependencies might require a network connection, which could indicate that there are missing submodules in the CI setup. I should inspect the dependencies more closely to pinpoint what exactly is going wrong. Let's take some time to address these issues thoroughly!
+codex
+The first pass points at build-surface claims more than style files. I’m checking the dependency CMake and adapter targets now, because several assertions in this chunk only hold if the imported targets and format helpers are actually available under the presets.
+exec
+/bin/zsh -lc "nl -ba cmake/dependencies.cmake | sed -n '1,220p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# acfx external dependencies — CPM-pinned to explicit, known-good refs.
+     2	#
+     3	# Per research.md (Phase 0, decision 4): every dependency is fetched by CPM and
+     4	# pinned to an explicit ref. The pin is a real, reproducible tag/commit captured
+     5	# when the dependency is first fetched and verified to build — never a fabricated
+     6	# version number.
+     7	#
+     8	# Pins verified by an in-session fetch+build (the `test` preset path):
+     9	#   - DaisySP   599511b740f8f3a9b8db72a0642aa45b8a23c3a3   (core SVF primitive)
+    10	#   - doctest   v2.5.2                                      (host-side test runner)
+    11	#
+    12	# Pins captured from the upstream repos (real refs); first-fetch verification
+    13	# happens the first time each target's preset is configured on a machine with the
+    14	# matching toolchain (desktop / daisy / teensy):
+    15	#   - JUCE                    8.0.14    (workbench + plugin)
+    16	#   - clap-juce-extensions    16e9d4c   (CLAP export, plugin only)
+    17	#   - libDaisy                c02245d   (daisy adapter)
+    18	#   - Teensy cores            a664eff   (teensy adapter)
+    19	#   - Teensy Audio Library    3039be2   (teensy adapter)
+    20	#
+    21	# Dependencies are fetched lazily: a dependency is only declared when a target
+    22	# that needs it is enabled, so the `test` preset pulls only DaisySP + doctest.
+    23	
+    24	include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
+    25	
+    26	# --- Core: DaisySP (platform-independent pure-DSP math; wrapped by core/primitives)
+    27	# Needed by core/ on every target, so it is always declared. DaisySP ships its own
+    28	# CMakeLists that defines the `DaisySP` static-lib target with the correct (bare-
+    29	# name) include directories for its sources; we use it directly rather than
+    30	# re-globbing. It is portable C++ (no platform headers), so it builds host-side.
+    31	CPMAddPackage(
+    32	  NAME DaisySP
+    33	  GITHUB_REPOSITORY electro-smith/DaisySP
+    34	  GIT_TAG 599511b740f8f3a9b8db72a0642aa45b8a23c3a3
+    35	)
+    36	
+    37	if(TARGET DaisySP)
+    38	  set_target_properties(DaisySP PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    39	endif()
+    40	
+    41	# --- Host-side tests: doctest
+    42	if(ACFX_BUILD_TESTS)
+    43	  CPMAddPackage(
+    44	    NAME doctest
+    45	    GITHUB_REPOSITORY doctest/doctest
+    46	    GIT_TAG v2.5.2
+    47	  )
+    48	endif()
+    49	
+    50	# --- Desktop (workbench + plugin): JUCE 8, plus clap-juce-extensions for CLAP.
+    51	if(ACFX_BUILD_DESKTOP)
+    52	  CPMAddPackage(
+    53	    NAME JUCE
+    54	    GITHUB_REPOSITORY juce-framework/JUCE
+    55	    GIT_TAG 8.0.14
+    56	  )
+    57	  CPMAddPackage(
+    58	    NAME clap-juce-extensions
+    59	    GITHUB_REPOSITORY free-audio/clap-juce-extensions
+    60	    GIT_TAG 16e9d4ca7b1e86c76e04584b2c08e85a764bcda8
+    61	  )
+    62	endif()
+    63	
+    64	# --- Daisy: libDaisy (provides the STM32 HAL + audio callback glue).
+    65	if(ACFX_BUILD_DAISY)
+    66	  CPMAddPackage(
+    67	    NAME libDaisy
+    68	    GITHUB_REPOSITORY electro-smith/libDaisy
+    69	    GIT_TAG c02245d22b38acad3916d9c2f156bcba34fa15af
+    70	    DOWNLOAD_ONLY YES
+    71	  )
+    72	endif()
+    73	
+    74	# --- Teensy: Teensy cores + Audio Library.
+    75	if(ACFX_BUILD_TEENSY)
+    76	  CPMAddPackage(
+    77	    NAME teensy_cores
+    78	    GITHUB_REPOSITORY PaulStoffregen/cores
+    79	    GIT_TAG a664effb008d1ac8d8f00f3f19b47c0d1ea46e3b
+    80	    DOWNLOAD_ONLY YES
+    81	  )
+    82	  CPMAddPackage(
+    83	    NAME teensy_audio
+    84	    GITHUB_REPOSITORY PaulStoffregen/Audio
+    85	    GIT_TAG 3039be2773e86daf1f381a1e8bdc1e6a55ed11f1
+    86	    DOWNLOAD_ONLY YES
+    87	  )
+    88	endif()
+
+exec
+/bin/zsh -lc "nl -ba adapters/teensy/CMakeLists.txt | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# Teensy firmware target (T033). Compiles the SAME core/effects/svf into a Teensy
+     2	# 4.x firmware via the Teensy core + Audio Library — the only platform-specific
+     3	# code is teensy-main.cpp (AudioStream node + analog reads). No JUCE, no
+     4	# ProcessorNode (Constitution IV; SC-007).
+     5	#
+     6	# The C++ standard is the highest the installed Teensy toolchain supports (>=17,
+     7	# T034 / research.md decision 3); on C++17 the Effect concept degrades to a
+     8	# duck-typed template and the same SvfEffect compiles unchanged. Requires the
+     9	# Teensy ARM toolchain WITH the C++ standard library; a C-only arm-none-eabi is a
+    10	# hard error, never a fallback.
+    11	
+    12	if(NOT DEFINED teensy_cores_SOURCE_DIR OR NOT DEFINED teensy_audio_SOURCE_DIR)
+    13	  message(FATAL_ERROR
+    14	    "Teensy cores/Audio not fetched. Configure with the `teensy` preset so "
+    15	    "cmake/dependencies.cmake pins and downloads them.")
+    16	endif()
+    17	
+    18	set(_teensy4 "${teensy_cores_SOURCE_DIR}/teensy4")
+    19	
+    20	# Teensy core (Arduino runtime for IMXRT1062) + Audio Library, built as the
+    21	# platform substrate the adapter links against.
+    22	file(GLOB _teensy_core_sources CONFIGURE_DEPENDS "${_teensy4}/*.c" "${_teensy4}/*.cpp")
+    23	file(GLOB _teensy_audio_sources CONFIGURE_DEPENDS "${teensy_audio_SOURCE_DIR}/*.cpp")
+    24	
+    25	add_library(teensy_platform STATIC ${_teensy_core_sources} ${_teensy_audio_sources})
+    26	target_include_directories(teensy_platform PUBLIC "${_teensy4}" "${teensy_audio_SOURCE_DIR}")
+    27	target_compile_definitions(teensy_platform PUBLIC ARDUINO=10813 TEENSYDUINO=159 ARDUINO_TEENSY40)
+    28	
+    29	add_executable(acfx_teensy teensy-main.cpp)
+    30	target_link_libraries(acfx_teensy PRIVATE acfx_core teensy_platform)
+    31	
+    32	set(_teensy_lds "${_teensy4}/imxrt1062.ld")
+    33	target_link_options(acfx_teensy PRIVATE
+    34	  -T "${_teensy_lds}"
+    35	  -Wl,-Map=acfx_teensy.map,--cref
+    36	  -Wl,--gc-sections
+    37	)
+    38	set_target_properties(acfx_teensy PROPERTIES SUFFIX ".elf")
+
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/CMakeLists.txt | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# The JUCE standalone sketch-and-hear workbench (T021). A thin adapter over the
+     2	# shared core: it links acfx_core + acfx_host (the same host boundary the plugin
+     3	# uses) and adds only JUCE glue. Built under the `desktop` preset.
+     4	
+     5	juce_add_gui_app(acfx_workbench
+     6	  PRODUCT_NAME "acfx Workbench"
+     7	  COMPANY_NAME "acfx"
+     8	)
+     9	
+    10	target_sources(acfx_workbench PRIVATE
+    11	  workbench-app.cpp
+    12	  parameter-view.cpp
+    13	  audio-source.cpp
+    14	)
+    15	
+    16	target_compile_features(acfx_workbench PRIVATE cxx_std_20)
+    17	
+    18	target_compile_definitions(acfx_workbench PRIVATE
+    19	  JUCE_WEB_BROWSER=0
+    20	  JUCE_USE_CURL=0
+    21	  JUCE_DISPLAY_SPLASH_SCREEN=0
+    22	  JUCE_APPLICATION_NAME_STRING="acfx Workbench"
+    23	)
+    24	
+    25	target_link_libraries(acfx_workbench PRIVATE
+    26	  acfx_core
+    27	  acfx_host
+    28	  juce::juce_audio_utils      # pulls audio_basics/devices/formats/processors + gui
+    29	  juce::juce_recommended_config_flags
+    30	  juce::juce_recommended_warning_flags
+    31	)
+
+exec
+/bin/zsh -lc "nl -ba cmake/toolchains/daisy.cmake | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# Toolchain — Daisy (STM32H750, Cortex-M7) via arm-none-eabi-gcc.
+     2	#
+     3	# Daisy's SoC is an STM32H750IB (Cortex-M7 w/ double-precision FPU). These flags
+     4	# match the libDaisy/Daisy bootloader expectations. The core/ sources are
+     5	# platform-independent; this file only describes how the cross-compiler is
+     6	# invoked for the daisy adapter target.
+     7	
+     8	set(CMAKE_SYSTEM_NAME Generic)
+     9	set(CMAKE_SYSTEM_PROCESSOR arm)
+    10	
+    11	# A bare-metal cross toolchain cannot link a hosted test executable; build a
+    12	# static library for CMake's compiler probe instead.
+    13	set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    14	
+    15	find_program(ARM_CC  arm-none-eabi-gcc)
+    16	find_program(ARM_CXX arm-none-eabi-g++)
+    17	if(NOT ARM_CC OR NOT ARM_CXX)
+    18	  message(FATAL_ERROR
+    19	    "arm-none-eabi-gcc / arm-none-eabi-g++ not found on PATH. Install the ARM "
+    20	    "embedded toolchain to build the daisy preset (no host-side fallback).")
+    21	endif()
+    22	
+    23	set(CMAKE_C_COMPILER   "${ARM_CC}")
+    24	set(CMAKE_CXX_COMPILER "${ARM_CXX}")
+    25	set(CMAKE_ASM_COMPILER "${ARM_CC}")
+    26	
+    27	set(_daisy_cpu_flags "-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard")
+    28	set(CMAKE_C_FLAGS_INIT   "${_daisy_cpu_flags}")
+    29	set(CMAKE_CXX_FLAGS_INIT "${_daisy_cpu_flags} -fno-exceptions -fno-rtti")
+    30	set(CMAKE_EXE_LINKER_FLAGS_INIT "${_daisy_cpu_flags} --specs=nano.specs --specs=nosys.specs")
+    31	
+    32	set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+    33	set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+    34	set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+    35	set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+exec
+/bin/zsh -lc "nl -ba cmake/toolchains/teensy.cmake | sed -n '1,140p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# Toolchain — Teensy 4.x (IMXRT1062, Cortex-M7) via the ARM embedded toolchain.
+     2	#
+     3	# Teensy 4.x is a Cortex-M7 with a double-precision FPU. The C++ standard this
+     4	# target builds at is verified against the installed Teensy toolchain during
+     5	# implementation (research.md decision 3 / tasks.md T034); ACFX_TEENSY_CXX_STANDARD
+     6	# is set to the highest standard that toolchain supports (>= 17). The same
+     7	# core/effects/svf source compiles here; where C++20 concepts are unavailable the
+     8	# Effect contract degrades to a duck-typed template (guarded by __cpp_concepts).
+     9	
+    10	set(CMAKE_SYSTEM_NAME Generic)
+    11	set(CMAKE_SYSTEM_PROCESSOR arm)
+    12	set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    13	
+    14	find_program(ARM_CC  arm-none-eabi-gcc)
+    15	find_program(ARM_CXX arm-none-eabi-g++)
+    16	if(NOT ARM_CC OR NOT ARM_CXX)
+    17	  message(FATAL_ERROR
+    18	    "arm-none-eabi-gcc / arm-none-eabi-g++ not found on PATH. Install the Teensy "
+    19	    "ARM toolchain to build the teensy preset (no host-side fallback).")
+    20	endif()
+    21	
+    22	set(CMAKE_C_COMPILER   "${ARM_CC}")
+    23	set(CMAKE_CXX_COMPILER "${ARM_CXX}")
+    24	set(CMAKE_ASM_COMPILER "${ARM_CC}")
+    25	
+    26	# Verified during implementation (T034); default to C++17, the level the Teensy
+    27	# core is known to support. Raised here if the installed toolchain supports more.
+    28	if(NOT DEFINED ACFX_TEENSY_CXX_STANDARD)
+    29	  set(ACFX_TEENSY_CXX_STANDARD 17)
+    30	endif()
+    31	set(CMAKE_CXX_STANDARD ${ACFX_TEENSY_CXX_STANDARD})
+    32	
+    33	set(_teensy_cpu_flags "-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard -DF_CPU=600000000 -D__IMXRT1062__")
+    34	set(CMAKE_C_FLAGS_INIT   "${_teensy_cpu_flags}")
+    35	set(CMAKE_CXX_FLAGS_INIT "${_teensy_cpu_flags} -fno-exceptions -fno-rtti")
+    36	set(CMAKE_EXE_LINKER_FLAGS_INIT "${_teensy_cpu_flags} --specs=nano.specs --specs=nosys.specs")
+    37	
+    38	set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+    39	set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+    40	set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+    41	set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+exec
+/bin/zsh -lc 'rg -n "clap_juce_extensions|clap|JUCE|CPMAddPackage|DaisySP|libDaisy" -S .' in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+./CMakePresets.json:27:      "displayName": "Desktop workbench + plugin (JUCE)",
+./CLAUDE.md:38:  JUCE / libDaisy / Teensy; dependencies point only inward. No desktop-side
+./scripts/check-portability.sh:8:#   3. No JUCE / ProcessorNode in the MCU (daisy/teensy) dependency surface — SC-007
+./scripts/check-portability.sh:29:if grep -rEn 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' core/ ; then
+./scripts/check-portability.sh:36:note "== 3. No JUCE / ProcessorNode in MCU adapters (SC-007) =="
+./scripts/check-portability.sh:38:  note "  FAIL: MCU adapter references JUCE or the desktop ProcessorNode"
+./scripts/check-portability.sh:41:  note "  OK: daisy + teensy reference neither JUCE nor ProcessorNode"
+./scripts/check-portability.sh:45:if grep -rEn '#if(def)?.*(JUCE|DAISY|TEENSY|__arm__|DESKTOP)' core/effects/ ; then
+./cmake/toolchains/daisy.cmake:4:# match the libDaisy/Daisy bootloader expectations. The core/ sources are
+./README.md:17:core/        platform-independent spine — NO JUCE/libDaisy/Teensy headers
+./README.md:19:  primitives/  thin wrappers over DaisySP (the SVF wrapper)
+./README.md:22:adapters/      workbench (JUCE app), plugin (JUCE VST3/AU/CLAP), daisy, teensy
+./README.md:83:                                  # no-JUCE-in-MCU, one-source-many-targets
+./cmake/dependencies.cmake:9:#   - DaisySP   599511b740f8f3a9b8db72a0642aa45b8a23c3a3   (core SVF primitive)
+./cmake/dependencies.cmake:15:#   - JUCE                    8.0.14    (workbench + plugin)
+./cmake/dependencies.cmake:16:#   - clap-juce-extensions    16e9d4c   (CLAP export, plugin only)
+./cmake/dependencies.cmake:17:#   - libDaisy                c02245d   (daisy adapter)
+./cmake/dependencies.cmake:22:# that needs it is enabled, so the `test` preset pulls only DaisySP + doctest.
+./cmake/dependencies.cmake:26:# --- Core: DaisySP (platform-independent pure-DSP math; wrapped by core/primitives)
+./cmake/dependencies.cmake:27:# Needed by core/ on every target, so it is always declared. DaisySP ships its own
+./cmake/dependencies.cmake:28:# CMakeLists that defines the `DaisySP` static-lib target with the correct (bare-
+./cmake/dependencies.cmake:31:CPMAddPackage(
+./cmake/dependencies.cmake:32:  NAME DaisySP
+./cmake/dependencies.cmake:33:  GITHUB_REPOSITORY electro-smith/DaisySP
+./cmake/dependencies.cmake:37:if(TARGET DaisySP)
+./cmake/dependencies.cmake:38:  set_target_properties(DaisySP PROPERTIES POSITION_INDEPENDENT_CODE ON)
+./cmake/dependencies.cmake:43:  CPMAddPackage(
+./cmake/dependencies.cmake:50:# --- Desktop (workbench + plugin): JUCE 8, plus clap-juce-extensions for CLAP.
+./cmake/dependencies.cmake:52:  CPMAddPackage(
+./cmake/dependencies.cmake:53:    NAME JUCE
+./cmake/dependencies.cmake:54:    GITHUB_REPOSITORY juce-framework/JUCE
+./cmake/dependencies.cmake:57:  CPMAddPackage(
+./cmake/dependencies.cmake:58:    NAME clap-juce-extensions
+./cmake/dependencies.cmake:59:    GITHUB_REPOSITORY free-audio/clap-juce-extensions
+./cmake/dependencies.cmake:64:# --- Daisy: libDaisy (provides the STM32 HAL + audio callback glue).
+./cmake/dependencies.cmake:66:  CPMAddPackage(
+./cmake/dependencies.cmake:67:    NAME libDaisy
+./cmake/dependencies.cmake:68:    GITHUB_REPOSITORY electro-smith/libDaisy
+./cmake/dependencies.cmake:76:  CPMAddPackage(
+./cmake/dependencies.cmake:82:  CPMAddPackage(
+./adapters/workbench/CMakeLists.txt:1:# The JUCE standalone sketch-and-hear workbench (T021). A thin adapter over the
+./adapters/workbench/CMakeLists.txt:3:# uses) and adds only JUCE glue. Built under the `desktop` preset.
+./adapters/workbench/CMakeLists.txt:19:  JUCE_WEB_BROWSER=0
+./adapters/workbench/CMakeLists.txt:20:  JUCE_USE_CURL=0
+./adapters/workbench/CMakeLists.txt:21:  JUCE_DISPLAY_SPLASH_SCREEN=0
+./adapters/workbench/CMakeLists.txt:22:  JUCE_APPLICATION_NAME_STRING="acfx Workbench"
+./specs/svf-vertical-slice/audit-log.md:34:The blast radius is high because this is a concrete lifetime bug in an interactive adapter path, not just cosmetic UI drift. A reasonable fix is to use JUCE’s safe weak-reference pattern for components, or otherwise gate the async callback on component liveness before touching `paramView_`.
+./specs/svf-vertical-slice/audit-log.md:127:`SvfEffect::setParameter()` immediately calls `applyCutoff()`, `applyResonance()`, or `applyMode()`, and those methods write directly into each per-channel `SvfPrimitive` while `process()` reads and advances the same DaisySP state. The primitive setters at `core/primitives/svf-primitive.h:27-32` mutate the same `svf_`/`mode_` state that `process()` uses at `core/primitives/svf-primitive.h:40-50`, with no documented invariant that `setParameter()` must only run on the audio thread and no internal handoff/snapshot mechanism enforcing that boundary.
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:21:- **Daisy** (libDaisy / STM32)
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:62:│   ├── primitives/             #   thin wrappers over DaisySP (filter, osc, env, delay)
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:65:│   ├── workbench/              #   desktop sketch-and-hear app (JUCE standalone)
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:66:│   ├── plugin/                 #   JUCE plugin → VST3 / AU / CLAP
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:67:│   ├── daisy/                  #   libDaisy integration
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:70:├── external/                   # pinned deps fetched by CPM (DaisySP, JUCE, doctest)
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:74:**The load-bearing discipline:** `core/` compiles with no knowledge of JUCE,
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:75:libDaisy, or Teensy. Every target is a thin shell that includes `core/` and feeds
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:111:interface wraps any `Effect` so JUCE / standalone can hold it polymorphically
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:127:- **Workbench (desktop standalone)** — a JUCE standalone app: pulls audio from the
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:131:- **Plugin** — a JUCE `AudioProcessor` wrapping the *same* `ProcessorNode`. Host
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:133:  **VST3 + AU + CLAP** (CLAP via the `clap-juce-extensions` add-on, since JUCE 8
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:135:- **Daisy** — libDaisy audio callback calls `effect.process(block)`; the hardware
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:141:The plugin and workbench share nearly all their code (both JUCE, both
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:150:- **CPM.cmake** for pinned, reproducible dependencies (JUCE, DaisySP, the test
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:153:  targets build `core/` + their own adapter only; JUCE is never pulled into a
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:212:| Desktop + plugin framework | JUCE 8 | Fastest path to the workbench: standalone + VST3/AU/CLAP + auto-GUI + MIDI |
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:213:| CLAP | `clap-juce-extensions` add-on | Keep JUCE, still ship CLAP |
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:214:| DSP primitives | Reuse DaisySP (wrapped) | MCU-proven; don't reinvent the math |
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:231:- Pinned versions of JUCE, DaisySP, libDaisy, Teensy core, and doctest.
+./docs/superpowers/specs/2026-06-25-acfx-platform-design.md:232:- Whether the SVF wraps DaisySP's `Svf` or is a clean in-house implementation
+./adapters/workbench/workbench-app.cpp:143:class WorkbenchApplication final : public juce::JUCEApplication {
+./adapters/workbench/workbench-app.cpp:166:            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+./adapters/workbench/workbench-app.cpp:175:START_JUCE_APPLICATION(acfx::workbench::WorkbenchApplication)
+./CMakeLists.txt:14:option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
+./CMakeLists.txt:15:option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
+./CMakeLists.txt:40:# headers under core/. It links DaisySP because core/primitives wraps DaisySP's
+./CMakeLists.txt:48:if(TARGET DaisySP)
+./CMakeLists.txt:49:  target_link_libraries(acfx_core INTERFACE DaisySP)
+./CMakeLists.txt:71:  # host/processor-node is desktop-only host code, but it is pure C++ (no JUCE),
+./specs/svf-vertical-slice/spec.md:95:glue present; confirm no JUCE or desktop-only code is pulled into either MCU build.
+./specs/svf-vertical-slice/spec.md:101:3. **Given** either MCU build, **When** its dependency graph is inspected, **Then** it contains the core plus only that target's adapter — no JUCE, no desktop-only stubs.
+./adapters/teensy/teensy-main.cpp:3:// uses the concrete SvfEffect directly — no ProcessorNode, no JUCE (Constitution
+./adapters/teensy/CMakeLists.txt:3:# code is teensy-main.cpp (AudioStream node + analog reads). No JUCE, no
+./host/processor-node/CMakeLists.txt:2:# Header-only; pure C++ (no JUCE). Shared by the workbench + plugin adapters and
+./tests/core/parameter-test.cpp:8:// correct. DaisySP-independent — exercises the pure mapping only.
+./core/primitives/svf-primitive.h:5:#include "Filters/svf.h" // DaisySP — pinned via CPM (cmake/dependencies.cmake)
+./core/primitives/svf-primitive.h:7:// A thin, allocation-free, mode-selectable wrapper over DaisySP's proven Svf
+./core/primitives/svf-primitive.h:8:// (research.md decision 1). DaisySP is a platform-independent pure-DSP math
+./core/primitives/svf-primitive.h:11:// is DaisySP's.
+./core/primitives/svf-primitive.h:25:    // f in Hz. DaisySP requires 0 < f < sampleRate/3; the caller (SvfEffect)
+./core/primitives/svf-primitive.h:29:    // r in [0, 1] (DaisySP stability bound).
+./core/primitives/svf-primitive.h:35:    // Re-initialize to a cleared-but-prepared state (DaisySP's Init clears state).
+./specs/svf-vertical-slice/quickstart.md:13:- First configure fetches CPM-pinned deps (JUCE, DaisySP, libDaisy, doctest, …).
+./specs/svf-vertical-slice/quickstart.md:66:adapter only — **no JUCE**, no desktop-only stubs. (Flashing and listening on a
+./adapters/daisy/daisy-main.cpp:1:// Daisy adapter (T032): the libDaisy audio callback drives the SAME
+./adapters/daisy/daisy-main.cpp:3:// build uses the concrete SvfEffect directly — no ProcessorNode, no JUCE
+./adapters/daisy/daisy-main.cpp:31:    // libDaisy hands non-interleaved per-channel buffers. Copy in -> out, then
+./adapters/plugin/plugin-parameters.h:14:// JUCE parameter (continuous -> AudioParameterFloat in normalized 0..1 space with
+./adapters/plugin/plugin-parameters.h:25:    // Create one JUCE parameter per descriptor and add it to the processor.
+./adapters/daisy/CMakeLists.txt:2:# firmware via libDaisy — the only platform-specific code is daisy-main.cpp
+./adapters/daisy/CMakeLists.txt:3:# (audio callback + ADC). No JUCE, no ProcessorNode (Constitution IV; SC-007).
+./adapters/daisy/CMakeLists.txt:9:if(NOT DEFINED libDaisy_SOURCE_DIR)
+./adapters/daisy/CMakeLists.txt:11:    "libDaisy not fetched. Configure with the `daisy` preset so cmake/dependencies.cmake "
+./adapters/daisy/CMakeLists.txt:12:    "pins and downloads libDaisy.")
+./adapters/daisy/CMakeLists.txt:15:# libDaisy ships its own CMake that defines the `daisy` static library + the
+./adapters/daisy/CMakeLists.txt:17:add_subdirectory("${libDaisy_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/libDaisy" EXCLUDE_FROM_ALL)
+./adapters/daisy/CMakeLists.txt:24:set(_daisy_lds "${libDaisy_SOURCE_DIR}/core/STM32H750IB_flash.lds")
+./specs/svf-vertical-slice/tasks.md:41:- [X] T003 [P] Add `cmake/CPM.cmake` and `cmake/dependencies.cmake` declaring CPM-pinned deps (JUCE 8, clap-juce-extensions, DaisySP, libDaisy, Teensy core+Audio Library, doctest); capture each exact tag in the declaration when first fetched (research.md §4)
+./specs/svf-vertical-slice/tasks.md:52:The platform-independent spine every story reuses. No JUCE/libDaisy/Teensy headers
+./specs/svf-vertical-slice/tasks.md:63:- [X] T015 Implement the DaisySP `Svf` wrapper (allocation-free, mode-selectable) in `core/primitives/svf-primitive.h` (research.md §1) — depends on T003
+./specs/svf-vertical-slice/tasks.md:82:- [X] T021 [US1] Add the JUCE standalone workbench target in `adapters/workbench/CMakeLists.txt` (under the `desktop` preset)
+./specs/svf-vertical-slice/tasks.md:88:- [X] T027 [US1] Run quickstart Scenario B end-to-end and confirm all US1 acceptance scenarios — **build/automated portion verified**: the JUCE workbench compiles + links into a runnable `acfx Workbench.app` (arm64), controls auto-generate from `SvfEffect::parameters()`, and the core path is test-green. **Manual checkpoint (needs an audio device + ears):** live sweep, MIDI CC, and dry/processed A/B listening — to be confirmed by the operator on a machine with audio I/O.
+./specs/svf-vertical-slice/tasks.md:104:- [X] T028 [US2] Add the JUCE plugin target exporting VST3 + AU + CLAP (CLAP via clap-juce-extensions) in `adapters/plugin/CMakeLists.txt`
+./specs/svf-vertical-slice/tasks.md:119:mapping; no JUCE in the MCU builds.
+./specs/svf-vertical-slice/tasks.md:124:- [X] T032 [P] [US3] Implement the Daisy adapter (libDaisy audio callback → `effect.process`; ADC/encoder → `setParameter`) in `adapters/daisy/daisy-main.cpp`
+./specs/svf-vertical-slice/tasks.md:127:- [X] T035 [US3] Run quickstart Scenario D: build `daisy` + `teensy` presets, confirm linked artifacts and that neither dependency graph includes JUCE or desktop-only stubs (SC-007) — **verified portion**: the identical `core/effects/svf` cross-compiles for Cortex-M7 at both C++17 (concept degraded) and C++20 (named concept); `core/` and both MCU adapters reference no JUCE / ProcessorNode (portability gate green). **Blocked / on-board checkpoint:** full firmware ELF link — the installed `arm-none-eabi-gcc` is C-only (ships no libstdc++), so linking + flashing is the proper-toolchain/hardware checkpoint (quickstart already scopes flashing as separate).
+./specs/svf-vertical-slice/tasks.md:130:for Cortex-M7 at both C++17 (concept degraded) and C++20, with no JUCE in either MCU
+./specs/svf-vertical-slice/tasks.md:139:- [X] T037 [P] Add explicit script/CI checks for the file-size budget (~300–500 lines, Constitution VII) and "no JUCE in MCU dependency graph" (SC-007) — visible steps, not hooks
+./adapters/plugin/CMakeLists.txt:1:# The DAW plugin (T028): one JUCE plugin target exported as VST3 + AU natively and
+./adapters/plugin/CMakeLists.txt:2:# CLAP via clap-juce-extensions. A thin adapter — links acfx_core + acfx_host (the
+./adapters/plugin/CMakeLists.txt:3:# same boundary the workbench uses) and adds only JUCE plugin glue. Built under the
+./adapters/plugin/CMakeLists.txt:26:  JUCE_WEB_BROWSER=0
+./adapters/plugin/CMakeLists.txt:27:  JUCE_USE_CURL=0
+./adapters/plugin/CMakeLists.txt:28:  JUCE_VST3_CAN_REPLACE_VST2=0
+./adapters/plugin/CMakeLists.txt:29:  JUCE_DISPLAY_SPLASH_SCREEN=0
+./adapters/plugin/CMakeLists.txt:41:clap_juce_extensions_plugin(TARGET acfx_plugin
+./adapters/plugin/plugin-processor.cpp:53:// The plugin factory JUCE's wrappers call to instantiate the processor.
+./adapters/plugin/plugin-processor.cpp:54:juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
+./adapters/plugin/plugin-processor.h:13:// workbench uses — EffectNode<SvfEffect> — adding only JUCE plugin glue and the
+./adapters/plugin/plugin-processor.h:55:    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginProcessor)
+./specs/svf-vertical-slice/data-model.md:62:- **What**: the State-Variable Filter; satisfies `Effect`; wraps DaisySP `Svf`.
+./specs/svf-vertical-slice/data-model.md:66:- **State**: the wrapped DaisySP `Svf` instance + cached prepared sample rate.
+./specs/svf-vertical-slice/plan.md:25:desktop hosts. The SVF wraps DaisySP's proven `Svf` primitive. Build is CMake +
+./specs/svf-vertical-slice/plan.md:38:JUCE 8 (workbench standalone + plugin), `clap-juce-extensions` (CLAP export),
+./specs/svf-vertical-slice/plan.md:39:DaisySP (wrapped DSP primitives, incl. `Svf`), libDaisy (Daisy adapter), Teensy
+./specs/svf-vertical-slice/plan.md:49:workbench), desktop plugin (VST3 / AU / CLAP), Daisy (libDaisy / STM32, arm-none-
+./specs/svf-vertical-slice/plan.md:65:not pull in JUCE.
+./specs/svf-vertical-slice/plan.md:80:| IV. Platform-independent core, thin adapters | `core/` includes no JUCE/libDaisy/Teensy headers; deps point inward; no desktop-side hardware stubs | ✅ central design constraint |
+./specs/svf-vertical-slice/plan.md:81:| V. No fallbacks/mock outside tests | Missing audio source / unimplemented path raises a descriptive error; DaisySP is a real dependency, not a stub | ✅ |
+./specs/svf-vertical-slice/plan.md:111:(DaisySP is a pure-DSP, platform-independent math library, so `core/primitives`
+./specs/svf-vertical-slice/plan.md:115:core/                          # platform-independent — NO JUCE/libDaisy/Teensy headers
+./specs/svf-vertical-slice/plan.md:117:├── primitives/                #   thin wrappers over DaisySP (svf wrapper here)
+./specs/svf-vertical-slice/plan.md:122:├── workbench/                 #   JUCE standalone: audio in/player, auto-GUI, MIDI, A/B
+./specs/svf-vertical-slice/plan.md:123:├── plugin/                    #   JUCE AudioProcessor → VST3 / AU / CLAP
+./specs/svf-vertical-slice/plan.md:124:├── daisy/                     #   libDaisy audio callback + ADC/encoder → params
+./specs/svf-vertical-slice/plan.md:135:external/                      # CPM-fetched pinned deps (JUCE, DaisySP, libDaisy, doctest, …)
+./specs/svf-vertical-slice/plan.md:155:  (SVF wraps DaisySP; workbench audio = live + built-in player; Teensy C++17 with
+./specs/svf-vertical-slice/plan.md:157:  the ProcessorNode boundary, the no-allocation test technique, and CLAP-via-JUCE.
+./specs/svf-vertical-slice/research.md:7:## 1. SVF implementation: wrap DaisySP's `Svf`
+./specs/svf-vertical-slice/research.md:9:- **Decision**: For this milestone the SVF effect wraps DaisySP's proven `Svf`
+./specs/svf-vertical-slice/research.md:12:  (low/high/band) and delegates the per-sample math to DaisySP.
+./specs/svf-vertical-slice/research.md:14:  reuse DaisySP (wrapped)". Lowest DSP risk for the proving slice; DaisySP's `Svf`
+./specs/svf-vertical-slice/research.md:18:  ownership and to remove the DaisySP dependency from the inner loop. **Deferred**
+./specs/svf-vertical-slice/research.md:53:  explicit, known-good release **tag/commit** in the `CPM` declaration: JUCE 8,
+./specs/svf-vertical-slice/research.md:54:  `clap-juce-extensions`, DaisySP, libDaisy, Teensy core + Audio Library, doctest.
+./specs/svf-vertical-slice/research.md:91:## 7. CLAP export with JUCE 8
+./specs/svf-vertical-slice/research.md:93:- **Decision**: Export VST3 + AU natively via JUCE 8 and add CLAP through the
+./specs/svf-vertical-slice/research.md:94:  `clap-juce-extensions` add-on (pinned via CPM), per the design.
+./specs/svf-vertical-slice/research.md:95:- **Rationale**: JUCE 8 does not ship CLAP natively; the add-on is the established
+./specs/svf-vertical-slice/research.md:96:  path and keeps a single JUCE plugin target producing all three formats.
+./specs/svf-vertical-slice/research.md:98:  an explicit deliverable); a separate non-JUCE CLAP build (rejected — duplicates
+./core/effects/svf/svf-effect.h:18:// adapter (FR-003). Per-channel DaisySP Svf state, allocation-free process.
+./core/effects/svf/svf-effect.h:126:    // DaisySP's Svf requires cutoff strictly below sampleRate/3; clamp into a safe
+
+**Evaluating CMake and configurations**
+
+I'm considering using CMake for configuring writes. I see potential issues, like core has no platform-specific dependencies but links DaisySP under certain targets. The README highlights no libDaisy headers, yet DaisySP works. 
+
+I'll note the CI uses macOS, which prompts questions about codesigning. I wonder about the existence of the clap_juce_extensions_plugin helper too—does it need `add_subdirectory`? Plus, I'm not sure if the Daisy CMake supports `add_subdirectory` either. This is quite complicated!
+**Examining Daisy runtime and CMake**
+
+I’m evaluating the Daisy runtime—specifically, the audio callback that calls `setParameter` on the audio thread. Previous findings showed that `setParameter` mutates state when ownership boundaries are lifted. 
+
+However, calling `hw.adc.GetFloat` in the audio callback might not be real-time safe since it could return a cached value. Also, I’m concerned about the output initialization if the input has fewer than two channels, given Daisy’s stereo design. 
+
+And about CMake: even though it sets ASM compiler in the toolchain, the project isn’t enabling ASM. I need to confirm whether libDaisy requires assembly.
+**Considering CMake and CI**
+
+I’m thinking about CMake presets, particularly the base generator being Unix Makefiles. Using macOS-latest seems reasonable, but I’m not targeting Windows. 
+
+Also, the CI is only running core tests on macOS, which raises questions about portability on Ubuntu. That seems fine for now, but there's a deferral phrase in the CI comment's diff, specifically "deferred follow" on line 6. It indicates that if this phrase is spotted in the diff, it triggers specific hard constraints for findings. I'll have to keep that in mind.
+**Inspecting JSON structure**
+
+I need to take a closer look at the .stack-control JSON because the chunkIds list doesn't include the current one, 6a56. It seems there’s an audit on Chunk 6a, but the convergence file contains old chunkIds like 5d, 952, b04, b74, ba, and e8. This discrepancy is making me question the data's accuracy, and I really want to make sure everything is aligned correctly. Let's see what I find!
+**Deciding on citation strategy**
+
+I'm considering how to approach the concept of "deferred follow" in my writing. It seems I can quote just the line number but still need to cite evidence clearly. I wonder if including what seems like a weak finding is necessary, especially since there are hard constraints that suggest I should surface it if I spot it. It feels tricky to balance clarity with brevity!
+codex
+### Combined desktop+test configuration re-adds the same subdirectory
+
+Finding-ID: AUDIT-BARRAGE-codex-01
+Status:     open
+Severity:   medium
+Surface:    CMakeLists.txt:55-73
+
+`host/processor-node` is added in the `ACFX_BUILD_DESKTOP` branch at lines 55-58 and again in the `ACFX_BUILD_TESTS` branch at lines 69-74. The shipped presets avoid this only because they enable one surface at a time, but the options are public build flags and should compose. A user configuring `-DACFX_BUILD_DESKTOP=ON -DACFX_BUILD_TESTS=ON` will hit CMake’s duplicate `add_subdirectory`/binary-dir error before any target builds.
+
+The blast radius is medium: the default presets work, but a reasonable downstream consumer trying to run tests and desktop targets from one configure tree gets a hard configure failure. A reasonable fix is to gate `host/processor-node` through a single shared condition, or add it once before the desktop/test target branches when either option is enabled.
+
+### Governance convergence metadata does not include this audited chunk
+
+Finding-ID: AUDIT-BARRAGE-codex-02
+Status:     open
+Severity:   high
+Surface:    .stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json:7-14
+
+The convergence record lists chunk IDs `5d46...`, `952c...`, `b04c...`, `b74f...`, `ba29...`, and `e8e...`, but the current audited chunk is `6a56babffbf5b038`, containing CI, root CMake, presets, README, Daisy, and plugin CMake surfaces. Acting on this metadata as written makes the governance artifact claim convergence over a fleet of chunks that does not include the very chunk containing the top-level build and CI wiring.
+
+The blast radius is high because this file is a machine-readable governance artifact; an unattended consumer could treat the feature as converged while excluding the current build-surface chunk from the recorded chunk set. The fix is to regenerate or correct the convergence record so `chunkIds` matches the actual chunk partition for the audited range.
+
+### Versioned governance file captures a local absolute path
+
+Finding-ID: AUDIT-BARRAGE-codex-03
+Status:     open
+Severity:   medium
+Surface:    .stack-control/govern/convergence/impl__design-feature-svf-vertical-slice.json:134
+
+The committed convergence artifact records `"anchorRoot": "/Users/orion/work/acfx-work/platform-foundation"`. That path is specific to one workstation and will be wrong in any other clone, CI runner, or operator checkout.
+
+The blast radius is medium: it may not affect the audio feature directly, but it makes a versioned governance artifact non-portable and can mislead tools that consume the root path literally. Store repo-relative provenance, omit the local root from committed state, or generate it at runtime.
+
+### CI comment contains prohibited deferred-work wording
+
+Finding-ID: AUDIT-BARRAGE-codex-04
+Status:     open
+Severity:   low
+Surface:    .github/workflows/ci.yml:3-7
+
+The CI header includes wording at line 6 that explicitly parks ARM hardware build-check coverage outside the visible CI job set. The workflow itself only runs host tests, portability checks, and the desktop build; there is no ARM-toolchain job corresponding to the comment’s hardware-build claim.
+
+The blast radius is low as code execution is unaffected, but this is an operator-discipline trap in a quality-gate file: it normalizes a missing gate in prose instead of encoding the invariant or making the absence mechanically visible. A cleaner fix is to state the current CI invariant directly and avoid committed-to-later wording.
+tokens used
+35,561
