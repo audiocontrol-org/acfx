@@ -17,8 +17,10 @@
 // same host boundary the plugin uses — std::unique_ptr<ProcessorNode> =
 // EffectNode<SvfEffect> — routes audio from the selected source through it, draws
 // the auto-generated controls, binds MIDI CCs, and offers a dry/processed A/B
-// toggle. Parameter edits from the GUI/MIDI threads are handed to the audio
-// thread through a small lock-free queue so process() stays RT-safe.
+// toggle. Parameter edits from the GUI/MIDI threads go through
+// ProcessorNode::setParameter, the RT-safe cross-thread ingress: the effect
+// publishes each value as a lock-free atomic that process() consumes, so no
+// separate workbench-side queue is needed.
 
 namespace acfx::workbench {
 

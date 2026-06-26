@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "dsp/audio-block.h"
 #include "dsp/param-id.h"
@@ -17,12 +18,17 @@
 // path). One constexpr parameter table (cutoff/resonance/mode) drives every
 // adapter (FR-003). Per-channel DaisySP Svf state, allocation-free process.
 //
-// Thread-ownership boundary: setParameter() may be called from ANY thread (a UI
-// loop, a MIDI callback, an MCU main loop). It only publishes an atomic pending
-// normalized value; the audio thread consumes pending values at the top of
-// process(). So the actual filter coefficients are mutated on exactly one thread,
-// with no torn-coefficient data race against process() — an invariant the core
-// encodes itself rather than asking every adapter to honor.
+// Thread-ownership boundary:
+//   - setParameter() may be called from ANY thread (a UI loop, a MIDI callback,
+//     an MCU main loop). It only publishes a lock-free atomic pending value; the
+//     audio thread consumes pending values at the top of process(). So parameter
+//     edits never race process() — the core encodes that handoff itself.
+//   - prepare()/reset() DO mutate filter coefficients directly and are NOT
+//     synchronized against process(). They must be called only while the audio
+//     stream is stopped (before start, or during a device change with audio
+//     paused) — the standard prepare/process lifecycle already implies this, and
+//     that quiescence is the adapter's responsibility, not something the core can
+//     enforce.
 
 namespace acfx {
 
@@ -44,13 +50,14 @@ public:
 
     SvfEffect() noexcept {
         for (std::size_t i = 0; i < kNumParams; ++i) {
-            pendingNorm_[i].store(0.0f, std::memory_order_relaxed);
-            pendingDirty_[i].store(false, std::memory_order_relaxed);
+            pendingBits_[i].store(0u, std::memory_order_relaxed);
+            pendingDirty_[i].store(0u, std::memory_order_relaxed);
         }
     }
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
+    // Audio stream must be stopped — see the thread-ownership note above.
     void prepare(const ProcessContext& ctx) noexcept {
         sampleRate_ = static_cast<float>(ctx.sampleRate);
         numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
@@ -59,6 +66,7 @@ public:
         applyAll();
     }
 
+    // Audio stream must be stopped — see the thread-ownership note above.
     void reset() noexcept {
         for (int ch = 0; ch < numChannels_; ++ch)
             filters_[static_cast<std::size_t>(ch)].reset();
@@ -84,13 +92,26 @@ public:
         const std::uint8_t i = id.value;
         if (i >= kNumParams)
             return; // out-of-range id: a programming error; no silent state change
-        pendingNorm_[i].store(normalized, std::memory_order_relaxed);
-        pendingDirty_[i].store(true, std::memory_order_release);
+        pendingBits_[i].store(floatBits(normalized), std::memory_order_relaxed);
+        pendingDirty_[i].store(1u, std::memory_order_release);
     }
 
 private:
     static constexpr int kMaxChannels = 8;
     static constexpr std::size_t kNumParams = 3;
+
+    // float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy is a
+    // register move). Lets the cross-thread atomics be provably lock-free.
+    static std::uint32_t floatBits(float f) noexcept {
+        std::uint32_t u = 0;
+        std::memcpy(&u, &f, sizeof(u));
+        return u;
+    }
+    static float bitsFloat(std::uint32_t u) noexcept {
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    }
 
     static SvfMode toMode(float index) noexcept {
         switch (static_cast<int>(index)) {
@@ -104,21 +125,22 @@ private:
         }
     }
 
+    float pendingValue(Param p) const noexcept {
+        return bitsFloat(pendingBits_[p].load(std::memory_order_relaxed));
+    }
+
     // Apply any parameter values published since the last block (audio thread).
     void applyPending() noexcept {
-        if (pendingDirty_[kCutoff].exchange(false, std::memory_order_acquire)) {
-            cutoffHz_ = denormalize(kParams[kCutoff],
-                                    pendingNorm_[kCutoff].load(std::memory_order_relaxed));
+        if (pendingDirty_[kCutoff].exchange(0u, std::memory_order_acquire)) {
+            cutoffHz_ = denormalize(kParams[kCutoff], pendingValue(kCutoff));
             applyCutoff();
         }
-        if (pendingDirty_[kResonance].exchange(false, std::memory_order_acquire)) {
-            resonance_ = denormalize(kParams[kResonance],
-                                     pendingNorm_[kResonance].load(std::memory_order_relaxed));
+        if (pendingDirty_[kResonance].exchange(0u, std::memory_order_acquire)) {
+            resonance_ = denormalize(kParams[kResonance], pendingValue(kResonance));
             applyResonance();
         }
-        if (pendingDirty_[kMode].exchange(false, std::memory_order_acquire)) {
-            mode_ = toMode(denormalize(kParams[kMode],
-                                       pendingNorm_[kMode].load(std::memory_order_relaxed)));
+        if (pendingDirty_[kMode].exchange(0u, std::memory_order_acquire)) {
+            mode_ = toMode(denormalize(kParams[kMode], pendingValue(kMode)));
             applyMode();
         }
     }
@@ -158,15 +180,20 @@ private:
     float sampleRate_ = 48000.0f;
     int numChannels_ = 0;
 
-    // Applied parameter state — owned by the audio thread (read/written only in
-    // prepare/reset/applyPending).
+    // Applied parameter state — mutated only in prepare/reset/applyPending (the
+    // first two require a stopped stream; the third runs on the audio thread).
     float cutoffHz_ = kParams[kCutoff].defaultValue;
     float resonance_ = kParams[kResonance].defaultValue;
     SvfMode mode_ = SvfMode::lowpass;
 
     // Cross-thread pending edits: any thread publishes, the audio thread consumes.
-    std::array<std::atomic<float>, kNumParams> pendingNorm_;
-    std::array<std::atomic<bool>, kNumParams> pendingDirty_;
+    // Stored as the float's bit pattern in a uint32 so the atomic is provably
+    // lock-free on every target (a bare std::atomic<float> can degrade to a libcall
+    // on some embedded runtimes).
+    std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
+    std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
+    static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
+                  "pending-parameter atomics must be lock-free for RT safety");
 };
 
 } // namespace acfx

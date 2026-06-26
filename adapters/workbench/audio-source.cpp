@@ -7,6 +7,9 @@ namespace acfx::workbench {
 WorkbenchAudioSource::WorkbenchAudioSource() { formatManager_.registerBasicFormats(); }
 
 void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
+    if (configured_)
+        throw AudioSourceError("Audio source must be selected before the stream "
+                               "starts; stop audio to switch sources.");
     if (!file.existsAsFile())
         throw AudioSourceError("Audio file does not exist: " + file.getFullPathName());
 
@@ -31,6 +34,9 @@ void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
 }
 
 void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
+    if (configured_)
+        throw AudioSourceError("Audio source must be selected before the stream "
+                               "starts; stop audio to switch sources.");
     if (availableInputChannels <= 0)
         throw AudioSourceError("Live input selected but the audio device offers no "
                                "input channels.");

@@ -5,48 +5,33 @@
   "governedShaBase": "ff3426a",
   "headSha": "HEAD",
   "chunkIds": [
-    "2ea2449abe83c448",
+    "1d366441c57c4606",
+    "31c30149ec9faef5",
+    "51a61c640621e280",
     "561c01cdba330da9",
-    "5d46bb000cdab808",
     "6a56babffbf5b038",
-    "b74f59c0c4fc198b",
     "d58ba5050d21850a"
   ],
   "rounds": 1,
   "liftedFindings": [
     {
-      "id": "2ea2449abe83c448::AUDIT-BARRAGE-claude-01",
-      "title": "`setParameter` thread ownership undocumented despite commit bd79479 claiming to address it",
+      "id": "51a61c640621e280::AUDIT-BARRAGE-claude-01",
+      "title": "Thread-ownership comment over-claims: prepare()/reset() mutate coefficients off the audio thread with no synchronization",
+      "severity": "high"
+    },
+    {
+      "id": "51a61c640621e280::AUDIT-BARRAGE-codex-01",
+      "title": "Non-lock-free float atomics leak into the embedded audio/control path",
       "severity": "high"
     },
     {
       "id": "561c01cdba330da9::AUDIT-BARRAGE-codex-01",
-      "title": "MIDI inputs are registered but never enabled",
+      "title": "Workbench parameter edits bypass the claimed RT-safe handoff",
       "severity": "high"
     },
     {
-      "id": "561c01cdba330da9::AUDIT-BARRAGE-claude-01",
-      "title": "`prepareToPlay` catches `AudioSourceError` and stores it in a field that is never read",
-      "severity": "high"
-    },
-    {
-      "id": "561c01cdba330da9::AUDIT-BARRAGE-claude-02",
-      "title": "`getNextAudioBlock` silently falls back to cleared buffer on `AudioSourceError`",
-      "severity": "high"
-    },
-    {
-      "id": "6a56babffbf5b038::AUDIT-BARRAGE-claude-01",
-      "title": "`setParameter` called unconditionally every audio block inside Daisy ISR — new surface of prior RT-safety finding",
-      "severity": "high"
-    },
-    {
-      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-codex-02",
-      "title": "Runtime audio-source switch frees the reader before rebinding the transport — message-thread/audio-thread use-after-free",
-      "severity": "high"
-    },
-    {
-      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01",
-      "title": "Race condition: `svf.setParameter()` in `loop()` is not guarded against audio ISR",
+      "id": "d58ba5050d21850a::AUDIT-BARRAGE-claude-01+AUDIT-BARRAGE-codex-01+AUDIT-BARRAGE-codex-02+AUDIT-BARRAGE-claude-02+AUDIT-BARRAGE-claude-08",
+      "title": "Non-atomic `fileBuffer_` swap in `useFilePlayer()` races with the audio thread's `fillBlock()`",
       "severity": "high"
     }
   ],
@@ -54,63 +39,63 @@
   "seamResult": {
     "boundaryPairs": [
       {
-        "a": "2ea2449abe83c448",
+        "a": "1d366441c57c4606",
+        "b": "31c30149ec9faef5"
+      },
+      {
+        "a": "1d366441c57c4606",
+        "b": "51a61c640621e280"
+      },
+      {
+        "a": "1d366441c57c4606",
         "b": "561c01cdba330da9"
       },
       {
-        "a": "2ea2449abe83c448",
-        "b": "5d46bb000cdab808"
-      },
-      {
-        "a": "2ea2449abe83c448",
+        "a": "1d366441c57c4606",
         "b": "6a56babffbf5b038"
       },
       {
-        "a": "2ea2449abe83c448",
-        "b": "b74f59c0c4fc198b"
+        "a": "1d366441c57c4606",
+        "b": "d58ba5050d21850a"
       },
       {
-        "a": "2ea2449abe83c448",
+        "a": "31c30149ec9faef5",
+        "b": "51a61c640621e280"
+      },
+      {
+        "a": "31c30149ec9faef5",
+        "b": "561c01cdba330da9"
+      },
+      {
+        "a": "31c30149ec9faef5",
+        "b": "6a56babffbf5b038"
+      },
+      {
+        "a": "31c30149ec9faef5",
+        "b": "d58ba5050d21850a"
+      },
+      {
+        "a": "51a61c640621e280",
+        "b": "561c01cdba330da9"
+      },
+      {
+        "a": "51a61c640621e280",
+        "b": "6a56babffbf5b038"
+      },
+      {
+        "a": "51a61c640621e280",
         "b": "d58ba5050d21850a"
       },
       {
         "a": "561c01cdba330da9",
-        "b": "5d46bb000cdab808"
-      },
-      {
-        "a": "561c01cdba330da9",
         "b": "6a56babffbf5b038"
       },
       {
         "a": "561c01cdba330da9",
-        "b": "b74f59c0c4fc198b"
-      },
-      {
-        "a": "561c01cdba330da9",
-        "b": "d58ba5050d21850a"
-      },
-      {
-        "a": "5d46bb000cdab808",
-        "b": "6a56babffbf5b038"
-      },
-      {
-        "a": "5d46bb000cdab808",
-        "b": "b74f59c0c4fc198b"
-      },
-      {
-        "a": "5d46bb000cdab808",
         "b": "d58ba5050d21850a"
       },
       {
         "a": "6a56babffbf5b038",
-        "b": "b74f59c0c4fc198b"
-      },
-      {
-        "a": "6a56babffbf5b038",
-        "b": "d58ba5050d21850a"
-      },
-      {
-        "a": "b74f59c0c4fc198b",
         "b": "d58ba5050d21850a"
       }
     ],

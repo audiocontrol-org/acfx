@@ -267,3 +267,59 @@ AudioInterrupts();
 ```
 
 ---
+
+## 2026-06-26 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260626-17 — Thread-ownership comment over-claims: prepare()/reset() mutate coefficients off the audio thread with no synchronization
+
+Finding-ID: AUDIT-20260626-17
+Status:     open
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    core/effects/svf/svf-effect.h:16-22, 98-119, 152-156
+
+The class header comment claims (lines 16-22): *"the actual filter coefficients are mutated on exactly one thread, with no torn-coefficient data race against process() — an invariant the core encodes itself rather than asking every adapter to honor."* The member comment (lines 152-153) reinforces it: applied state is *"owned by the audio thread (read/written only in prepare/reset/applyPending)."*
+
+This is only true for the `setParameter` → `applyPending` path. The actual coefficient mutation happens in `applyCutoff/applyResonance/applyMode` (lines 110-119), and those are **also** called from `prepare()` (line 89, via `applyAll()`) and `reset()` (line 95). `prepare()` is documented in `process-context.h` as running *"before audio starts and on any device change"* — i.e. on the audio-device/message thread, **not** the audio thread. So on a device change while audio is live, `prepare()`/`reset()` mutate `svf_` internal state, `sampleRate_`, and `numChannels_` concurrently with `process()` — a genuine data race the comment claims the core has eliminated.
+
+Blast radius: the audit's unattended-agent framing makes this high. An adapter author who reads "the core encodes this invariant itself" reasonably concludes `reset()` is safe to wire to a UI "reset filter" button or a settings change while the stream runs. The setParameter path was hardened (round-2 govern findings), but the comment now overstates the guarantee to cover prepare/reset, which remain adapter-discipline-dependent. Fix: scope the claim explicitly to `setParameter`, and state the real invariant for prepare/reset ("must be called only when the audio stream is stopped — the adapter owns this") rather than asserting single-thread ownership the code doesn't enforce.
+
+### AUDIT-20260626-18 — Non-lock-free float atomics leak into the embedded audio/control path
+
+Finding-ID: AUDIT-20260626-18
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    core/effects/svf/svf-effect.h:83-89, core/effects/svf/svf-effect.h:107-123, core/effects/svf/svf-effect.h:167-169
+
+`SvfEffect` makes the cross-thread parameter handoff depend on `std::atomic<float>` for normalized values, and those atomics are used by both `setParameter()` and `process()` via `applyPending()`. The surrounding comments claim this is the core RT-safe boundary for UI/MIDI/MCU callbacks and the audio thread, but the code never proves that `std::atomic<float>` is lock-free on the target toolchains. On Cortex-M/embedded standard libraries this can degrade to compiler-runtime atomic calls or a locking/critical-section implementation, and in some configurations it can fail at link time if the atomic runtime is not present.
+
+The blast radius is high because this surface is the shared core path for Daisy/Teensy and desktop adapters: a downstream adopter can correctly call `setParameter()` from a control callback and still end up with a non-RT-safe or non-portable primitive inside the feature’s advertised RT-safe handoff. A reasonable fix would store the normalized value in a lock-free integer representation, for example fixed-point `std::atomic<std::uint32_t>` with explicit encode/decode, and add compile-time checks such as `static_assert(decltype(pendingNorm_)::value_type::is_always_lock_free)` or equivalent target-specific portability tests.
+
+### AUDIT-20260626-19 — Workbench parameter edits bypass the claimed RT-safe handoff
+
+Finding-ID: AUDIT-20260626-19
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    adapters/workbench/workbench-app.cpp:26-35
+
+The file-level contract says GUI/MIDI parameter edits are “handed to the audio thread through a small lock-free queue so process() stays RT-safe,” but the GUI callback wired into `ParameterView` calls `node_->setParameter(id, norm)` directly from the message thread. If `ProcessorNode::setParameter` is anything other than a trivial atomic store for every current and future effect, this creates a cross-thread mutation path racing the audio callback; even if today’s SVF happens to use atomic pending state, the adapter boundary is documenting and implementing different contracts.
+
+Blast radius is high because downstream adapter authors can copy this workbench pattern as the host boundary and assume the queue exists. A reasonable fix is to either implement the described queue for both GUI and MIDI paths, or update the boundary so `ProcessorNode::setParameter` is explicitly the only RT-safe cross-thread ingress and enforce that contract in the processor/effect interface.
+
+### AUDIT-20260626-20 — Non-atomic `fileBuffer_` swap in `useFilePlayer()` races with the audio thread's `fillBlock()`
+
+Finding-ID: AUDIT-20260626-20 (claude-01 + codex-01 + codex-02 + claude-02 + claude-08; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=high, codex=high, sonnet=high
+Decision:   agreement (gate-counted high)
+Surface:    adapters/workbench/audio-source.cpp:28-31 (the swap) vs. :63-75 (the reader)
+
+`useFilePlayer()` performs `fileBuffer_ = std::move(decoded);` (line 28) — a non-atomic move-assignment that destroys the previous `AudioBuffer<float>`'s heap storage — while the audio thread may be inside `fillBlock()` calling `fileBuffer_.getReadPointer(...)` and dereferencing `src[pos]` (lines 63-67). The `std::atomic` flags (`hasFile_`, `playPos_`) are published *after* the move (lines 29-31), so they order the *flag* but provide no protection for the buffer storage itself: an in-flight reader holding a `getReadPointer` into the old buffer gets a use-after-free the moment the move frees it. Notably the code does not even set `hasFile_=false` *before* the swap, which would at least let a fresh `fillBlock` bail out.
+
+The header (audio-source.h:11-18) makes an *absolute* RT-safety claim and specifically says it eliminated "no transport object whose source pointer the audio thread could see freed mid-swap." That fix removed the transport but moved the same race onto the buffer reassignment — the channel was relocated, not closed. For a "sketch-and-hear workbench," loading a new file *during live playback* is the obvious use case, and `useFilePlayer()` exposes no precondition guard or documented stop-the-audio contract. Blast radius: an adopter wiring a "load file" button to this method while audio runs gets intermittent UAF crashes that won't reproduce deterministically. A correct fix double-buffers (hold both old and new, swap an `atomic<int>` active-index) or requires the caller to quiesce the audio graph first and states that as an enforced precondition, not a comment.

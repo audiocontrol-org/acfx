@@ -12,10 +12,13 @@
 // If neither is available the source raises a descriptive error — never silent
 // zeros or mock audio (Constitution V).
 //
-// RT-safety (Constitution VI): the file is decoded into an in-memory buffer at
-// setup (off the audio thread); fillBlock() reads from that buffer at an atomic
-// play position with no locks, no allocation, and no transport object whose
-// source pointer the audio thread could see freed mid-swap.
+// RT-safety (Constitution VI): the file is decoded into an in-memory buffer
+// before the stream starts (off the audio thread); fillBlock() then reads that
+// buffer at an atomic play position with no locks and no allocation. Source
+// selection (useFilePlayer / useLiveInput) is a setup-time operation: it must
+// happen before prepare(), and switching sources requires stopping the stream
+// first. That precondition is ENFORCED — a selection call while already
+// configured throws — so the audio thread never reads a buffer being reassigned.
 
 namespace acfx::workbench {
 
