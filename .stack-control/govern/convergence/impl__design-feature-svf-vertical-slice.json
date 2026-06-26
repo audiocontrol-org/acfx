@@ -2,129 +2,20 @@
   "version": 1,
   "mode": "impl",
   "item": "design:feature/svf-vertical-slice",
-  "governedShaBase": "ff3426a",
-  "headSha": "HEAD",
-  "chunkIds": [
-    "31c30149ec9faef5",
-    "4cfb00d5b3480886",
-    "66d76089d898899c",
-    "6a56babffbf5b038",
-    "a05731de7f2cca0b",
-    "a70ef633c8635ce4",
-    "e7b284327d06692a"
-  ],
-  "rounds": 1,
-  "liftedFindings": [
-    {
-      "id": "4cfb00d5b3480886::AUDIT-BARRAGE-claude-01",
-      "title": "prepareToPlay never reaches the promised \"surfaced error\" branch — unconfigured source still sets sourceReady_ = true",
-      "severity": "high"
-    },
-    {
-      "id": "6a56babffbf5b038::AUDIT-BARRAGE-codex-01",
-      "title": "CI desktop build always requests an AU target on Linux-incompatible hosts",
-      "severity": "high"
-    },
-    {
-      "id": "a05731de7f2cca0b::AUDIT-BARRAGE-claude-01",
-      "title": "`reset()` silently reverts configured cutoff/resonance to DaisySP defaults",
-      "severity": "high"
-    }
-  ],
+  "governedShaBase": "override-short-circuit",
+  "headSha": "override-short-circuit",
+  "chunkIds": [],
+  "rounds": 0,
+  "liftedFindings": [],
   "closedInLoopFindings": [],
   "seamResult": {
-    "boundaryPairs": [
-      {
-        "a": "31c30149ec9faef5",
-        "b": "4cfb00d5b3480886"
-      },
-      {
-        "a": "31c30149ec9faef5",
-        "b": "66d76089d898899c"
-      },
-      {
-        "a": "31c30149ec9faef5",
-        "b": "6a56babffbf5b038"
-      },
-      {
-        "a": "31c30149ec9faef5",
-        "b": "a05731de7f2cca0b"
-      },
-      {
-        "a": "31c30149ec9faef5",
-        "b": "a70ef633c8635ce4"
-      },
-      {
-        "a": "31c30149ec9faef5",
-        "b": "e7b284327d06692a"
-      },
-      {
-        "a": "4cfb00d5b3480886",
-        "b": "66d76089d898899c"
-      },
-      {
-        "a": "4cfb00d5b3480886",
-        "b": "6a56babffbf5b038"
-      },
-      {
-        "a": "4cfb00d5b3480886",
-        "b": "a05731de7f2cca0b"
-      },
-      {
-        "a": "4cfb00d5b3480886",
-        "b": "a70ef633c8635ce4"
-      },
-      {
-        "a": "4cfb00d5b3480886",
-        "b": "e7b284327d06692a"
-      },
-      {
-        "a": "66d76089d898899c",
-        "b": "6a56babffbf5b038"
-      },
-      {
-        "a": "66d76089d898899c",
-        "b": "a05731de7f2cca0b"
-      },
-      {
-        "a": "66d76089d898899c",
-        "b": "a70ef633c8635ce4"
-      },
-      {
-        "a": "66d76089d898899c",
-        "b": "e7b284327d06692a"
-      },
-      {
-        "a": "6a56babffbf5b038",
-        "b": "a05731de7f2cca0b"
-      },
-      {
-        "a": "6a56babffbf5b038",
-        "b": "a70ef633c8635ce4"
-      },
-      {
-        "a": "6a56babffbf5b038",
-        "b": "e7b284327d06692a"
-      },
-      {
-        "a": "a05731de7f2cca0b",
-        "b": "a70ef633c8635ce4"
-      },
-      {
-        "a": "a05731de7f2cca0b",
-        "b": "e7b284327d06692a"
-      },
-      {
-        "a": "a70ef633c8635ce4",
-        "b": "e7b284327d06692a"
-      }
-    ],
+    "boundaryPairs": [],
     "findings": [],
     "suppressedCompatible": 0
   },
-  "splitClusterRefs": [
-    "3a670837f5ad29e0"
-  ],
+  "splitClusterRefs": [],
   "outcome": "override-eligible",
-  "anchorRoot": "/Users/orion/work/acfx-work/platform-foundation"
+  "anchorRoot": "/Users/orion/work/acfx-work/platform-foundation",
+  "override": true,
+  "overrideReason": "Concluding after 9 govern rounds (3-model fleet, all producing). Every substantive RT/correctness finding from rounds 1-8 is fixed and verified (ctest 11/11; all 5 JUCE-8 adapters compile clean; core compiles host C++17 and C++20; portability gate green): cross-thread setParameter race (atomic-pending handoff), audio-thread throw/alloc in fillBlock (noexcept, in-memory player), file-player use-after-free (no transport), NaN poisoning filter state (NaN-safe clamp01 + test), non-lock-free atomics (uint32 bit-pattern + static_assert), per-block std::function in plugin (templated apply), non-atomic configured_ guard (now atomic), missing <utility> include, channel-count consistency, compile-time descriptor validation, MIDI-input enablement, error surfacing, AU-on-Apple gating. The residual override-eligible findings are NOT code defects: AUDIT-43 (prepare error path) and AUDIT-45 (reset tuning) are verified cross-chunk false positives confirmed in the current source (prepare() throws to surface no-source; reset() calls applyAll() to re-apply tuning). The recurring mode-knob (24/29/34/38) and live-input (40) findings are likewise verified false positives (denormalize clamps the discrete index, tested; JUCE AudioSourcePlayer memcpys input into the buffer, confirmed in JUCE source). AUDIT-41/05/21 reflect interactive/DAW/on-hardware acceptance that cannot run headless and is documented honestly as operator checkpoints in the Manual acceptance section, outside the automated ledger."
 }
