@@ -2,27 +2,79 @@
 
 ---
 
-## 2026-06-27: <!-- session title -->
+## 2026-06-27: Drive workbench-audio-config implement → govern → ship → close; fix macOS live input
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take the runnable `workbench-audio-config` spec all the way through the
+stack-control front door — analyze → execute (implement + govern) → ship → close — and
+make the workbench actually usable for live input during manual acceptance.
 
 **Accomplished:**
-- <!-- compose -->
+- **Analyze + execute via the front door.** `/stack-control:extend` ran `/speckit-analyze`
+  (0 critical/high, 3 mediums); `/stack-control:execute` drove native `/speckit-implement`
+  over all 19 tasks (US1–US4): `AudioSettingsWindow` over JUCE's device selector, the
+  Live/File source bar with async chooser, persistence via `ApplicationProperties`, explicit
+  MIDI selection, and the JUCE-free `SourceConfig` serde seam (written test-first). The
+  audio-stopped reconfigure invariant (prepareToPlay = single reconfigure point) holds.
+  **17/17 host tests green**; workbench compile-verified against real JUCE. Committed + pushed
+  at every task boundary.
+- **Whole-feature governance** (cross-model: claude + codex + sonnet). 3 rounds (4→2→3
+  findings). Fixed every real code defect: saved-device-preference clobber on fallback,
+  unsurfaced missing-input-device, ignored decode-failure, file-chooser/decoder format drift,
+  and missing-saved-file → muted (now surfaced live fallback). Dispositioned the residual
+  (manual-acceptance representation + a govern-chunking artifact) in the audit-log. Converged
+  by **documented `--override`** → `terminal-outcome=graduated`.
+- **Shipped.** `/stack-control:ship`: PR #1 `platform-foundation → main`, CI green
+  (portability + host tests + desktop/plugin build), merged, `status: shipped` recorded by the
+  welded `graduate`.
+- **Fixed macOS live input** (found in manual acceptance): root-caused to a missing
+  `NSMicrophoneUsageDescription` (TCC silently zeroed input); enabled JUCE
+  `MICROPHONE_PERMISSION_ENABLED`. Added a `LevelMeter` (RT-safe atomics + timer) and a
+  `FileLogger` config/peak log (`~/Library/Logs/acfx/acfx-workbench.log`) for observability —
+  the workbench had none. Operator verified input → filter → output works.
+- **Closed.** `/stack-control:close`: recorded the `validated` marker, advanced the roadmap
+  node to the terminal `closed` phase. Full lifecycle complete.
 
 **Didn't Work:**
-- <!-- compose -->
+- **Live input was silent on first launch** and the workbench had **no meters or logging**, so
+  there was no way to tell whether audio was arriving — flew blind until the mic-permission
+  root cause + observability landed.
+- **Govern audited its own output.** Committing govern artifacts (`audit-runs/`,
+  `govern/convergence/`) into the tree meant the next barrage (with `--diff-base` spanning
+  them) flagged govern's own convergence record as showing unresolved highs (AUDIT-05) — a
+  recursion that can't converge until the artifacts leave the diff.
+- **Manual-acceptance `[X]` gate-gaming recurred every govern round** (AUDIT-03 → -07): the
+  `tasks-complete` gate only accepts `[X]`, but the barrage (correctly) flags marking unrun
+  interactive scenarios as done. No code fix resolves it — structural.
+- **CMake in-place reconfigure** after a `CMakeLists` change repeatedly failed with
+  `Unknown CMake command CPMAddPackage`; needed `rm -rf build/<preset>` + a clean configure.
 
 **Course Corrections:**
-- <!-- compose -->
+- Operator authorized marking the interactive Scenarios B–F `[X]` (with a prominent banner)
+  so the `tasks-complete` gate could audit the committed code — manual acceptance stays
+  operator-owned before graduation.
+- At ship, operator accepted the post-govern mic-fix commit (`3b9281b`) **as-is / ungoverned**
+  (RT-safe by construction, builds + tests green, live-verified) — documented exception.
 
 **Insights:**
-- <!-- compose -->
+- A macOS standalone app that opens audio input **must** declare `NSMicrophoneUsageDescription`
+  or TCC silently denies/zeros the input (output needs no permission — hence "output works,
+  input doesn't"). Now baked into the workbench `CMakeLists.txt`.
+- Governance must **exclude its own `.stack-control/` artifacts** from the audited diff, else
+  the barrage recursively finds its own convergence record.
+- The lifecycle needs an **operator-owned-pending** task state distinct from done, so
+  manual-acceptance tasks don't have to be forced to `[X]`.
 
-**Quantitative (auto-derived from git; verify before publishing):**
-- Commits: 1
-  - roadmap: close design:feature/workbench-audio-config (validated -> closed)
-- Files changed: 1
+**Quantitative (corrected — session boundary b561b3e..HEAD; the auto-derived merge-base
+boundary undercounted to 1 after the mid-session merge to main):**
+- Commits: 16 (T001–T019 across US1–US4, 3 govern-fix commits, mic-fix + observability,
+  graduate, close, session-end)
+- Files changed: ~21 (+1071 / −53) across `adapters/workbench/`, `tests/`, `specs/`,
+  `README.md`, `.github/`, `.gitignore`
+- New workbench units: `audio-settings`, `source-bar`, `workbench-settings` (serde),
+  `workbench-persistence`, `level-meter`
 - Backlog touched: (none)
+- Lifecycle: `workbench-audio-config` specifying → implementing → governing → merging →
+  validating → **closed**
 
 ## 2026-06-26: Govern the SVF slice to graduation; build + verify the workbench; author the next feature through the front door
 
