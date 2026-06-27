@@ -6,6 +6,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "audio-settings.h"
 #include "audio-source.h"
 #include "dsp/audio-block.h"
 #include "dsp/process-context.h"
@@ -49,6 +50,12 @@ public:
         abToggle_.onClick = [this] { processed_.store(abToggle_.getToggleState()); };
         addAndMakeVisible(abToggle_);
 
+        // Audio Settings lives in its own window so the main window stays the
+        // sketch-and-hear surface (FR-010). The button opens it on demand.
+        audioSettingsButton_.setButtonText("Audio Settings...");
+        audioSettingsButton_.onClick = [this] { showAudioSettings(); };
+        addAndMakeVisible(audioSettingsButton_);
+
         // First-run source default: ACFX_WORKBENCH_FILE selects the built-in file
         // player as a CONVENIENCE only — the UI source bar (T010) is the real control,
         // and the env var is no longer required to reach the player (FR-004). Without
@@ -59,7 +66,7 @@ public:
             sourceFile_ = juce::File(juce::String::fromUTF8(path));
         }
 
-        setSize(520, 220);
+        setSize(520, 260);
         // Stereo in/out: input present for live-input mode.
         setAudioChannels(2, 2);
         // Enable the available MIDI inputs — registering a callback alone does
@@ -152,6 +159,7 @@ public:
 
     void resized() override {
         auto area = getLocalBounds();
+        audioSettingsButton_.setBounds(area.removeFromTop(32).reduced(8, 4));
         abToggle_.setBounds(area.removeFromBottom(32).reduced(8, 4));
         paramView_.setBounds(area);
     }
@@ -176,6 +184,16 @@ private:
     // window (FR-008) — no mid-callback source change. Message-thread only.
     void restartAudio() { deviceManager.restartLastAudioDevice(); }
 
+    // Open (creating on first use) the Audio Settings window. The selector's own edits
+    // drive the device restart cycle, so a device change reconfigures the source via
+    // prepareToPlay with the callback stopped — no extra wiring needed here.
+    void showAudioSettings() {
+        if (audioSettings_ == nullptr)
+            audioSettings_ = std::make_unique<AudioSettingsWindow>(deviceManager);
+        audioSettings_->setVisible(true);
+        audioSettings_->toFront(true);
+    }
+
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg) override {
         midi_.handle(msg, [this](ParamId id, float norm) {
             node_->setParameter(id, norm); // core is thread-safe (atomic pending)
@@ -195,6 +213,8 @@ private:
     MidiBinding midi_;
     WorkbenchAudioSource source_;
     juce::ToggleButton abToggle_;
+    juce::TextButton audioSettingsButton_;
+    std::unique_ptr<AudioSettingsWindow> audioSettings_;
 
     // Current source selection, owned on the message thread and read by prepareToPlay
     // (the single reconfigure point). The source bar (T010) mutates these and then
