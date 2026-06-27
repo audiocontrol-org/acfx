@@ -15,6 +15,7 @@
 #include "parameter-view.h"
 #include "processor-node/processor-node.h"
 #include "source-bar.h"
+#include "workbench-persistence.h"
 #include "workbench-settings.h"
 
 // The desktop sketch-and-hear workbench (T022, T026). Holds the effect behind the
@@ -33,7 +34,8 @@ constexpr int kMaxChannels = 8;
 } // namespace
 
 class WorkbenchComponent final : public juce::AudioAppComponent,
-                                 private juce::MidiInputCallback {
+                                 private juce::MidiInputCallback,
+                                 private juce::ChangeListener {
 public:
     WorkbenchComponent()
         : node_(std::make_unique<EffectNode<SvfEffect>>()),
@@ -65,11 +67,13 @@ public:
                 return;
             mode_ = SourceMode::live;
             restartAudio();
+            saveSettings();
         };
         sourceBar_.onChooseFile = [this](const juce::File& file) {
             mode_ = SourceMode::file;
             sourceFile_ = file;
             restartAudio();
+            saveSettings();
         };
         sourceBar_.onChooseCancelled = [this] {
             // Cancelling must never leave a broken no-source state: only fall back to
@@ -77,31 +81,56 @@ public:
             if (mode_ == SourceMode::file && !sourceFile_.existsAsFile()) {
                 mode_ = SourceMode::live;
                 restartAudio();
+                saveSettings();
             }
         };
         addAndMakeVisible(sourceBar_);
 
-        // First-run source default: ACFX_WORKBENCH_FILE selects the built-in file
-        // player as a CONVENIENCE only — the UI source bar (T010) is the real control,
-        // and the env var is no longer required to reach the player (FR-004). Without
-        // it the workbench defaults to live input. This only seeds the initial
-        // message-thread state; prepareToPlay reconfigures from that state thereafter.
-        if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
+        // Restore persisted selections (FR-006). Saved settings take precedence over
+        // the ACFX_WORKBENCH_FILE first-run convenience (FR-004): the env var only
+        // seeds the source when there is nothing saved yet. This sets the initial
+        // message-thread state; prepareToPlay reconfigures from it thereafter.
+        const LoadedSettings loaded = persistence_.load();
+        if (loaded.source.mode == SourceMode::file && !loaded.source.filePath.empty()) {
+            mode_ = SourceMode::file;
+            sourceFile_ = juce::File(juce::String::fromUTF8(
+                loaded.source.filePath.c_str(),
+                static_cast<int>(loaded.source.filePath.length())));
+        } else if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
             mode_ = SourceMode::file;
             sourceFile_ = juce::File(juce::String::fromUTF8(path));
         }
 
+        // Remember the saved output-device name (if any) so a device that has since
+        // vanished can be surfaced after the manager falls back (FR-009 edge case).
+        juce::String savedOutputDevice;
+        if (loaded.deviceState != nullptr)
+            savedOutputDevice = loaded.deviceState->getStringAttribute("audioOutputDeviceName");
+
         setSize(520, 300);
-        // Stereo in/out: input present for live-input mode.
-        setAudioChannels(2, 2);
+        // Restore devices/rate/buffer (and enabled MIDI inputs) from the saved state; a
+        // null state initialises defaults and a saved-but-missing device falls back to
+        // an available one (selectDefaultDeviceOnFailure). This drives prepareToPlay,
+        // which reads the source state set above.
+        setAudioChannels(2, 2, loaded.deviceState.get());
+
         // Enable the available MIDI inputs — registering a callback alone does
         // not enable any device, so without this the CC bindings stay inert.
+        // (T015/US4 replaces this auto-enable-all with explicit selection.)
         for (const auto& input : juce::MidiInput::getAvailableDevices())
             deviceManager.setMidiInputDeviceEnabled(input.identifier, true);
         deviceManager.addMidiInputDeviceCallback({}, this);
+
+        // Persist on every later device-configuration change (added last so the restore
+        // and auto-enable above do not trigger redundant construction-time saves).
+        deviceManager.addChangeListener(this);
+
+        surfaceStartupIssues(loaded.corrupt, savedOutputDevice);
     }
 
     ~WorkbenchComponent() override {
+        deviceManager.removeChangeListener(this);
+        saveSettings(); // persist the final selection on quit (FR-006)
         deviceManager.removeMidiInputDeviceCallback({}, this);
         shutdownAudio();
     }
@@ -220,6 +249,46 @@ private:
         audioSettings_->toFront(true);
     }
 
+    // The current source selection as the persistable SourceConfig (the JUCE ->
+    // std::string boundary; serde itself is JUCE-free).
+    SourceConfig currentSourceConfig() const {
+        if (mode_ == SourceMode::file)
+            return SourceConfig{SourceMode::file, sourceFile_.getFullPathName().toStdString()};
+        return SourceConfig{SourceMode::live, ""};
+    }
+
+    void saveSettings() { persistence_.save(deviceManager, currentSourceConfig()); }
+
+    // Device-manager changes (device/rate/buffer/MIDI edits via the selector) persist
+    // the new configuration (FR-006).
+    void changeListenerCallback(juce::ChangeBroadcaster*) override { saveSettings(); }
+
+    // Surface (never swallow) startup problems: unreadable saved settings, or a saved
+    // device that is gone and was fallen back from (FR-009). Defaults are already in
+    // effect by the time this runs; this only informs the person.
+    void surfaceStartupIssues(bool corrupt, const juce::String& savedOutputDevice) {
+        juce::StringArray messages;
+        if (corrupt)
+            messages.add("Your saved workbench settings were unreadable; starting with "
+                         "defaults.");
+
+        juce::String activeDevice;
+        if (auto* device = deviceManager.getCurrentAudioDevice())
+            activeDevice = device->getName();
+        if (savedOutputDevice.isNotEmpty() && activeDevice.isNotEmpty()
+            && savedOutputDevice != activeDevice)
+            messages.add("Saved audio device \"" + savedOutputDevice + "\" was "
+                         "unavailable; using \"" + activeDevice + "\" instead.");
+
+        if (messages.isEmpty())
+            return;
+        const juce::String text = messages.joinIntoString("\n");
+        juce::MessageManager::callAsync([text] {
+            juce::NativeMessageBox::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon, "Workbench settings", text);
+        });
+    }
+
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg) override {
         midi_.handle(msg, [this](ParamId id, float norm) {
             node_->setParameter(id, norm); // core is thread-safe (atomic pending)
@@ -242,6 +311,7 @@ private:
     juce::TextButton audioSettingsButton_;
     SourceBar sourceBar_;
     std::unique_ptr<AudioSettingsWindow> audioSettings_;
+    WorkbenchPersistence persistence_;
 
     // Current source selection, owned on the message thread and read by prepareToPlay
     // (the single reconfigure point). The source bar (T010) mutates these and then
