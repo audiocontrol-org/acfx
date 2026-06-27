@@ -94,14 +94,27 @@ public:
         // seeds the source when there is nothing saved yet. This sets the initial
         // message-thread state; prepareToPlay reconfigures from it thereafter.
         const LoadedSettings loaded = persistence_.load();
+        juce::File requestedFile;
         if (loaded.source.mode == SourceMode::file && !loaded.source.filePath.empty()) {
-            mode_ = SourceMode::file;
-            sourceFile_ = juce::File(juce::String::fromUTF8(
+            requestedFile = juce::File(juce::String::fromUTF8(
                 loaded.source.filePath.c_str(),
                 static_cast<int>(loaded.source.filePath.length())));
         } else if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
-            mode_ = SourceMode::file;
-            sourceFile_ = juce::File(juce::String::fromUTF8(path));
+            requestedFile = juce::File(juce::String::fromUTF8(path));
+        }
+        if (requestedFile != juce::File{}) {
+            // Validate BEFORE selecting file mode: a saved/seeded file that has since
+            // been moved or deleted must not launch into a muted file source. Fall back
+            // to live (a usable state) and surface the missing file — not silent silence
+            // (FR-009 / SC-006; AUDIT-20260627-09). This surfaced fallback is the
+            // spec-mandated safe state, distinct from a silent Constitution-V fallback.
+            if (requestedFile.existsAsFile()) {
+                mode_ = SourceMode::file;
+                sourceFile_ = requestedFile;
+            } else {
+                mode_ = SourceMode::live;
+                missingSavedFile_ = requestedFile.getFullPathName();
+            }
         }
 
         // Remember the saved output AND input device names (if any) so either one that
@@ -327,6 +340,9 @@ private:
         if (corrupt)
             messages.add("Your saved workbench settings were unreadable; starting with "
                          "defaults.");
+        if (missingSavedFile_.isNotEmpty())
+            messages.add("Saved audio file \"" + missingSavedFile_ + "\" was not found; "
+                         "using live input.");
 
         juce::String activeOutput, activeInput;
         if (auto state = deviceManager.createStateXml()) {
@@ -381,6 +397,10 @@ private:
     juce::String preferredOutputDevice_;
     juce::String preferredInputDevice_;
     std::unique_ptr<juce::XmlElement> preferredDeviceState_;
+
+    // A saved/seeded file source whose file was missing at launch — surfaced once at
+    // startup; the source falls back to live (AUDIT-20260627-09).
+    juce::String missingSavedFile_;
 
     // Current source selection, owned on the message thread and read by prepareToPlay
     // (the single reconfigure point). The source bar (T010) mutates these and then
