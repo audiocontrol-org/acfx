@@ -1,0 +1,765 @@
+Reading prompt from stdin...
+OpenAI Codex v0.141.0
+--------
+workdir: /Users/orion/work/acfx-work/platform-foundation
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: detailed
+session id: 019f069b-ce14-7102-b026-c48f0d29b3a8
+--------
+user
+# Audit-barrage — multi-model audit prompt template
+
+You are an **independent audit reviewer** firing as part of a multi-model audit barrage. Your siblings (other CLIs running this same prompt in parallel) emit their own findings independently; the operator triages all of your outputs side-by-side after every model has settled. Your job is to surface the kinds of defects listed under **What to look for** below, in the work product captured under **Under audit**.
+
+You are NOT collaborating with the other models. You write what you see. The cross-model genetic diversity comes from each of you reporting independently.
+
+## Feature under audit
+
+workbench-audio-config
+
+## Feature scope (workplan / PRD summary)
+
+
+
+## Commit subjects in the audited range
+
+92a865c workbench-audio-config: mark interactive scenarios as operator-owned acceptance
+ca36c69 workbench-audio-config T017-T019: polish (CI visibility, README, verify)
+c5c028b workbench-audio-config T015: explicit MIDI input selection (US4)
+08460f6 workbench-audio-config T012/T013: persist + restore selections (US3)
+d3b2acc workbench-audio-config T009/T010: in-UI source selection (US2)
+aa8877d workbench-audio-config T006/T007: in-UI audio device selection (US1)
+fc36b9b workbench-audio-config T004/T005: audio-stopped reconfigure lifecycle
+7103f38 workbench-audio-config T002/T003: SourceConfig serde + unit test
+37cf2f6 workbench-audio-config T001: register new units + stubs in CMake
+
+
+## Recent audit-log excerpt (prior findings on this feature)
+
+Use this to avoid re-reporting findings that have already been triaged. If a finding was previously dispositioned (`closed`, `won't-fix`, `accepted-trade-off`), don't re-litigate the disposition; only surface a new instance if the underlying shape regressed.
+
+
+
+## Under audit
+
+The actual code under review. Read it carefully. The findings you emit must be anchored to specific files + line ranges in this diff (or call out a missing surface that should be in the diff but isn't).
+
+Governance pass over the just-implemented work for feature 'workbench-audio-config', diffed against b561b3e. The differentiated back half audits a plan it did not author or execute.
+## Other chunks (file lists only — context for cross-file dependencies this chunk cannot see):
+- 5420a3615ad2e99c: adapters/workbench/workbench-app.cpp, adapters/workbench/workbench-persistence.cpp, adapters/workbench/workbench-persistence.h, adapters/workbench/workbench-settings.cpp, adapters/workbench/workbench-settings.h
+- b803fcb7f17ed923: .github/workflows/ci.yml
+- d0c555613386cd51: README.md, ROADMAP.md, adapters/workbench/CMakeLists.txt, adapters/workbench/audio-settings.cpp, adapters/workbench/audio-settings.h, adapters/workbench/audio-source.cpp, adapters/workbench/audio-source.h, adapters/workbench/source-bar.cpp, adapters/workbench/source-bar.h
+
+## Chunk cc36a7e4cc6d3feb
+Files in scope: specs/workbench-audio-config/tasks.md, tests/CMakeLists.txt, tests/core/workbench-settings-test.cpp
+
+## Diffs
+
+### specs/workbench-audio-config/tasks.md
+diff --git a/specs/workbench-audio-config/tasks.md b/specs/workbench-audio-config/tasks.md
+index b95d9d9..ffbfdc9 100644
+--- a/specs/workbench-audio-config/tasks.md
++++ b/specs/workbench-audio-config/tasks.md
+@@ -36,7 +36,7 @@ No change to `core/`, `host/`, the plugin, or the MCU adapters. Descriptive name
+ 
+ ## Phase 1: Setup
+ 
+-- [ ] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` (JUCE-free serde), and `workbench-persistence.cpp` (JUCE) to `adapters/workbench/CMakeLists.txt`; add `tests/core/workbench-settings-test.cpp` AND `adapters/workbench/workbench-settings.cpp` to the `acfx_core_tests` target in `tests/CMakeLists.txt` (the serde TU is JUCE-free so it links there). Create empty stubs so both the `desktop` and `test` presets still configure + build
++- [X] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` (JUCE-free serde), and `workbench-persistence.cpp` (JUCE) to `adapters/workbench/CMakeLists.txt`; add `tests/core/workbench-settings-test.cpp` AND `adapters/workbench/workbench-settings.cpp` to the `acfx_core_tests` target in `tests/CMakeLists.txt` (the serde TU is JUCE-free so it links there). Create empty stubs so both the `desktop` and `test` presets still configure + build
+ 
+ **Checkpoint**: `cmake --build --preset desktop --target acfx_workbench` and `ctest --preset test` still green with the stubs in place.
+ 
+@@ -47,10 +47,10 @@ No change to `core/`, `host/`, the plugin, or the MCU adapters. Descriptive name
+ The audio-stopped reconfigure lifecycle and the persistable source config every story
+ reuses. No change to the audio callback or the lock-free parameter handoff.
+ 
+-- [ ] T002 Implement `SourceMode` + `SourceConfig` (`std::string filePath`) + pure JUCE-free `serialize`/`parse` (`std::string`; never throws; safe default on garbage) in `adapters/workbench/workbench-settings.h` (+ `.cpp`) per `contracts/source-config.md` — JUCE-free so it links into the JUCE-free `acfx_core_tests`; the workbench converts to/from `juce::String` at the boundary
+-- [ ] T003 Write the `SourceConfig` serialize/parse unit test (round-trip for both modes incl. paths with spaces/unicode; safe-default on `""`/garbage/unknown-mode) in `tests/core/workbench-settings-test.cpp` — fails until T002
+-- [ ] T004 Rework the workbench source lifecycle in `adapters/workbench/workbench-app.cpp`: hold message-thread `SourceMode`/`sourceFile_` state; make `prepareToPlay()` the single reconfigure point (release → configure live/file from state → prepare); add `restartAudio()` using `deviceManager.restartLastAudioDevice()` (research.md §1) so source changes apply with the callback stopped
+-- [ ] T005 Relax `adapters/workbench/audio-source.h`/`.cpp`: replace the "throw if already configured" guard with the release-before-reconfigure lifecycle invariant; keep `fillBlock` `noexcept` + the in-memory player byte-for-byte (RT-safety preserved, Constitution VI)
++- [X] T002 Implement `SourceMode` + `SourceConfig` (`std::string filePath`) + pure JUCE-free `serialize`/`parse` (`std::string`; never throws; safe default on garbage) in `adapters/workbench/workbench-settings.h` (+ `.cpp`) per `contracts/source-config.md` — JUCE-free so it links into the JUCE-free `acfx_core_tests`; the workbench converts to/from `juce::String` at the boundary
++- [X] T003 Write the `SourceConfig` serialize/parse unit test (round-trip for both modes incl. paths with spaces/unicode; safe-default on `""`/garbage/unknown-mode) in `tests/core/workbench-settings-test.cpp` — fails until T002
++- [X] T004 Rework the workbench source lifecycle in `adapters/workbench/workbench-app.cpp`: hold message-thread `SourceMode`/`sourceFile_` state; make `prepareToPlay()` the single reconfigure point (release → configure live/file from state → prepare); add `restartAudio()` using `deviceManager.restartLastAudioDevice()` (research.md §1) so source changes apply with the callback stopped
++- [X] T005 Relax `adapters/workbench/audio-source.h`/`.cpp`: replace the "throw if already configured" guard with the release-before-reconfigure lifecycle invariant; keep `fillBlock` `noexcept` + the in-memory player byte-for-byte (RT-safety preserved, Constitution VI)
+ 
+ **Checkpoint**: `ctest --preset test` green incl. the new serde test; the workbench builds; device-restart reconfigure path compiles against real JUCE.
+ 
+@@ -64,9 +64,9 @@ effect live.
+ **Independent test**: quickstart Scenario B — open Audio Settings, change output then
+ input device, confirm audio routes accordingly with no restart/crash.
+ 
+-- [ ] T006 [US1] Implement `AudioSettingsWindow` hosting `juce::AudioDeviceSelectorComponent(deviceManager, 0, 2, 0, 2, /*midiIn*/ true, /*midiOut*/ false, /*stereoPairs*/ true, /*hideAdvanced*/ false)` (close box hides) in `adapters/workbench/audio-settings.h`/`.cpp` (research.md §2)
+-- [ ] T007 [US1] Add an "Audio Settings…" button to the main window in `adapters/workbench/workbench-app.cpp` that shows the window; confirm a device change drives the lifecycle (T004) so the source reconfigures with the callback stopped
+-- [ ] T008 [US1] Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
++- [X] T006 [US1] Implement `AudioSettingsWindow` hosting `juce::AudioDeviceSelectorComponent(deviceManager, 0, 2, 0, 2, /*midiIn*/ true, /*midiOut*/ false, /*stereoPairs*/ true, /*hideAdvanced*/ false)` (close box hides) in `adapters/workbench/audio-settings.h`/`.cpp` (research.md §2)
++- [X] T007 [US1] Add an "Audio Settings…" button to the main window in `adapters/workbench/workbench-app.cpp` that shows the window; confirm a device change drives the lifecycle (T004) so the source reconfigures with the callback stopped
++- [X] T008 [US1] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
+ 
+ **Checkpoint**: US1 usable — you can route the workbench to chosen in/out devices.
+ 
+@@ -79,9 +79,9 @@ input device, confirm audio routes accordingly with no restart/crash.
+ **Independent test**: quickstart Scenario C — switch to File, pick a file, hear it
+ looped; switch back to Live; cancel-with-no-file stays valid.
+ 
+-- [ ] T009 [P] [US2] Implement the source bar (Live/File choice + "Load file…" via `juce::FileChooser::launchAsync`) emitting source-change callbacks (no audio logic) in `adapters/workbench/source-bar.h`/`.cpp` (research.md §4)
+-- [ ] T010 [US2] Wire the source bar into `adapters/workbench/workbench-app.cpp`: on change, update `SourceMode`/`sourceFile_` then `restartAudio()`; *File* with no chosen file reverts to *Live* (no broken no-source state; FR-009)
+-- [ ] T011 [US2] Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
++- [X] T009 [P] [US2] Implement the source bar (Live/File choice + "Load file…" via `juce::FileChooser::launchAsync`) emitting source-change callbacks (no audio logic) in `adapters/workbench/source-bar.h`/`.cpp` (research.md §4)
++- [X] T010 [US2] Wire the source bar into `adapters/workbench/workbench-app.cpp`: on change, update `SourceMode`/`sourceFile_` then `restartAudio()`; *File* with no chosen file reverts to *Live* (no broken no-source state; FR-009)
++- [X] T011 [US2] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
+ 
+ **Checkpoint**: US2 usable — the built-in player is reachable from the UI, no env var.
+ 
+@@ -94,9 +94,9 @@ looped; switch back to Live; cancel-with-no-file stays valid.
+ **Independent test**: quickstart Scenario D — select non-defaults, quit, relaunch,
+ confirm restored.
+ 
+-- [ ] T012 [US3] Implement persistence in `adapters/workbench/workbench-persistence.h`/`.cpp` (JUCE; separate TU from the JUCE-free serde): save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
+-- [ ] T013 [US3] Wire load-on-launch + save-on-change/quit into `adapters/workbench/workbench-app.cpp`; corrupt/missing settings → safe defaults + surfaced message; a saved device/file that is gone at launch → fall back + surface (FR-009, edge cases)
+-- [ ] T014 [US3] Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
++- [X] T012 [US3] Implement persistence in `adapters/workbench/workbench-persistence.h`/`.cpp` (JUCE; separate TU from the JUCE-free serde): save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
++- [X] T013 [US3] Wire load-on-launch + save-on-change/quit into `adapters/workbench/workbench-app.cpp`; corrupt/missing settings → safe defaults + surfaced message; a saved device/file that is gone at launch → fall back + surface (FR-009, edge cases)
++- [X] T014 [US3] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
+ 
+ **Checkpoint**: US3 usable — the workbench remembers its configuration.
+ 
+@@ -109,8 +109,8 @@ confirm restored.
+ **Independent test**: quickstart Scenario E — enable one of two controllers; only it
+ drives CCs.
+ 
+-- [ ] T015 [US4] Replace the auto-enable-all MIDI code in `adapters/workbench/workbench-app.cpp` with the `AudioDeviceSelectorComponent` MIDI-inputs section (from T006) + a first-run default (enable all once); confirm only enabled inputs drive CC 74/71
+-- [ ] T016 [US4] Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
++- [X] T015 [US4] Replace the auto-enable-all MIDI code in `adapters/workbench/workbench-app.cpp` with the `AudioDeviceSelectorComponent` MIDI-inputs section (from T006) + a first-run default (enable all once); confirm only enabled inputs drive CC 74/71
++- [X] T016 [US4] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
+ 
+ **Checkpoint**: US4 done — MIDI inputs are user-selectable.
+ 
+@@ -118,9 +118,9 @@ drives CCs.
+ 
+ ## Phase 7: Polish & cross-cutting concerns
+ 
+-- [ ] T017 [P] Finalize `adapters/workbench/CMakeLists.txt` (all new sources) and extend the CI workflow / `scripts/check-portability.sh` to build the new workbench sources and run the new `workbench-settings-test`
+-- [ ] T018 [P] Confirm each new unit is within the file-size budget (~300–500 lines, Constitution VII); split if any (esp. `workbench-app.cpp`) is over
+-- [ ] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
++- [X] T017 [P] Finalize `adapters/workbench/CMakeLists.txt` (all new sources) and extend the CI workflow / `scripts/check-portability.sh` to build the new workbench sources and run the new `workbench-settings-test`
++- [X] T018 [P] Confirm each new unit is within the file-size budget (~300–500 lines, Constitution VII); split if any (esp. `workbench-app.cpp`) is over
++- [X] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` — **Scenario A passing (17/17 host tests) and README updated; Scenario F is interactive manual acceptance (operator-owned, deferred to graduation)** (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
+ 
+ ---
+ 
+
+
+### tests/CMakeLists.txt
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 6e12236..27252da 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -8,11 +8,18 @@ add_executable(acfx_core_tests
+   core/parameter-test.cpp
+   core/svf-test.cpp
+   core/no-allocation-test.cpp
++  core/workbench-settings-test.cpp
++  # The SourceConfig serde seam is JUCE-free (std::string only), so its TU links
++  # into this JUCE-free test target directly (contracts/source-config.md).
++  "${CMAKE_SOURCE_DIR}/adapters/workbench/workbench-settings.cpp"
+   support/allocation-sentinel.cpp
+ )
+ 
+ # tests/ as an include root so test files write #include "support/...".
+ target_include_directories(acfx_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
++# adapters/workbench on the include path so the serde test (and its TU) resolve
++# #include "workbench-settings.h".
++target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
+ target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host doctest::doctest)
+ target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
+ 
+
+
+### tests/core/workbench-settings-test.cpp
+diff --git a/tests/core/workbench-settings-test.cpp b/tests/core/workbench-settings-test.cpp
+new file mode 100644
+index 0000000..3a38077
+--- /dev/null
++++ b/tests/core/workbench-settings-test.cpp
+@@ -0,0 +1,57 @@
++#include <doctest/doctest.h>
++
++#include <string>
++
++#include "workbench-settings.h"
++
++// T003 — the SourceConfig serialize/parse contract (contracts/source-config.md). This
++// is the one pure, JUCE-free, device-free seam of the workbench-audio-config feature,
++// so it is the one piece worth a host-side unit test. Drives the T002 implementation.
++
++using namespace acfx::workbench;
++
++TEST_CASE("SourceConfig round-trips live mode") {
++    const SourceConfig cfg{SourceMode::live, ""};
++    CHECK(parse(serialize(cfg)) == cfg);
++}
++
++TEST_CASE("SourceConfig round-trips file mode with a plain path") {
++    const SourceConfig cfg{SourceMode::file, "/tmp/loop.wav"};
++    const SourceConfig out = parse(serialize(cfg));
++    CHECK(out.mode == SourceMode::file);
++    CHECK(out.filePath == "/tmp/loop.wav");
++    CHECK(out == cfg);
++}
++
++TEST_CASE("SourceConfig round-trips file paths with spaces and unicode") {
++    for (const std::string& path : {std::string("/Users/me/My Loops/take 1.wav"),
++                                    std::string("/musique/échantillon/clip ☂.aiff"),
++                                    std::string("/data/混音/loop.flac")}) {
++        const SourceConfig cfg{SourceMode::file, path};
++        const SourceConfig out = parse(serialize(cfg));
++        CHECK(out.mode == SourceMode::file);
++        CHECK(out.filePath == path);
++    }
++}
++
++TEST_CASE("parse returns the safe default on empty / garbage / unknown-mode input") {
++    const SourceConfig def{SourceMode::live, ""};
++    CHECK(parse("") == def);
++    CHECK(parse("nonsense") == def);
++    CHECK(parse("mode=banana") == def);
++    CHECK(parse("\n\n") == def);
++}
++
++TEST_CASE("parse never returns half-populated file mode (file token, empty path -> live)") {
++    // A 'file' selection with no path is not a valid file source: it must default to
++    // live rather than enter a broken empty-path file state.
++    const SourceConfig out = parse(serialize(SourceConfig{SourceMode::file, ""}));
++    CHECK(out.mode == SourceMode::live);
++    CHECK(out.filePath.empty());
++}
++
++TEST_CASE("serialize emits the file path verbatim") {
++    const std::string path = "/a/b c/d.wav";
++    const std::string text = serialize(SourceConfig{SourceMode::file, path});
++    CHECK(text.find(path) != std::string::npos);
++}
+
+
+## What to look for
+
+- **Correctness bugs** — logic errors, off-by-one, null/undefined paths, race conditions, missing error handling, swallowed exceptions.
+- **Design issues** — coupling between layers that should be independent, leaking abstractions, primitives that should compose but don't, configuration that should be data ending up as code.
+- **Missed edge cases** — what happens with empty input? Maximum input? Concurrent calls? Partial failure? Network unavailability? Operator interrupt mid-operation? What is the behavior on a fresh install vs. an upgrade?
+- **Code-quality concerns** — files growing past a reasonable cap, names that don't reveal intent, dead code, duplicated logic, magic numbers without explanation, tests that don't test the contract they claim to test.
+- **Cross-cutting impact** — does this diff touch a surface that other surfaces depend on? Are those other surfaces updated? Are migrations needed? Are doctor rules / schemas / validators updated to match the new shape?
+- **Documentation drift** — does the README / SKILL.md / PRD describe the behavior the code actually implements? If the spec changed, did the implementation? If the implementation changed, did the spec?
+- **Operator-discipline traps** — placeholder comments, swallowed errors, hardcoded paths/values that should be configurable, fallbacks that hide failure modes, mock data outside test code. These are bug-factories per project guidelines.
+
+## Process drivers (029 US8 / FR-029)
+
+These codify the structural drivers of myopic convergence (TASK-60), so the loop converges in fewer rounds with less fix-induced surface growth. The first three (channel-enumeration, invariant-first boundary, round-0 self-red-team) are **fix-review** drivers — apply them when the work under audit is a fix for a prior finding. The last two (fleet-degradation pricing, severity-rubric anchoring) are **general** controls that apply to every round:
+
+- **Channel-enumeration.** When a fix ADDS to an allowlist/surface (a new flag, a new accepted value, a new parser branch, a new fold path), do not accept it on the one example it fixes — enumerate the channels it opens: the **value** channel (other inputs now accepted), the **state** channel (new reachable states), the **multiline / composition** channel (how it composes with adjacent surfaces). Flag any opened channel that lacks a fixture.
+- **Invariant-first boundary.** When a finding is dispositioned as a scope boundary, state the boundary as the **mechanism's invariant plus an in-scope exception**, NOT as the exclusion of the one counterexample. "We exclude X" is a smell; "the invariant is I, and X is the in-scope exception because…" is the disposition.
+- **Round-0 self-red-team.** When the work under audit is itself a FIX for a prior finding, audit the **fix diff as a fresh surface in its own right** — do not assume it is correct merely because it targets a known bug. Ask what new edge the fix opened and what it moved rather than removed; a fix that resolves one finding while opening an unaudited channel is itself a finding.
+- **Fleet-degradation pricing.** A convergence claim is only as strong as the fleet that produced it. When the fleet is **degraded** (a timed-out / killed / zero-byte lane — US2 observability), price the round's "0 HIGH" accordingly: it is computed over fewer models, so cross-model agreement is weaker. Do not treat a degraded-fleet quiet round as full convergence.
+- **Severity-rubric anchoring.** Rate every finding by the blast-radius rubric below (US3), not by how alarming it feels — a quietly-plausible wrong reading an unattended agent would build outranks an obvious contradiction a reader would resolve.
+
+## Output format
+
+For each finding you surface, emit ONE markdown block in this exact shape:
+
+```
+### <heading: one-line summary of the finding>
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-<NN>
+Status:     open
+Severity:   <blocking | high | medium | low | informational>
+Surface:    <repo-relative-path:line-range> OR <description of the surface if not anchored to a single file>
+
+<one-to-three paragraphs of body: what the finding is, why it matters, what evidence you relied on, what a reasonable fix would look like. Be specific. Cite line numbers from the diff. If the finding is structural / cross-file, name every file affected.>
+```
+
+Number the findings sequentially (`-01`, `-02`, ...).
+
+**Severity — rate each finding by downstream blast-radius:** the consequence if a downstream consumer acts on the audited surface *as written*. The consumer may be an adopter running the code, or — especially for a spec — an AI agent building **unattended** from it, with no human to catch a wrong reading. Rate by what would actually happen if this shipped as-is, **not by how alarming the finding feels**. State the blast-radius reasoning in the finding body for every finding, at every level.
+
+- `blocking` — acting on it as-written breaks the feature's stated goals in obvious ways; OR (for a spec) the more natural reading an agent reaches first is the wrong one, so it will likely be built wrong by default and nothing in the artifact corrects it.
+- `high` — a correctness/safety defect a consumer will hit; OR a spec contradiction/ambiguity where the readings are roughly equally plausible and the artifact doesn't disambiguate — an agent might build either, including the wrong one.
+- `medium` — a design issue that compounds over time; OR a spec inconsistency a reasonable consumer would resolve correctly anyway (readings barely diverge, or context makes the intended one obvious).
+- `low` — hygiene; cosmetic wording with no behavioral or implementation consequence.
+- `informational` — context worth seeing, not itself a defect.
+
+**Calibrate by consequence, not by alarm.** A genuine contradiction a reader would obviously resolve the right way is at most `medium`. A quietly-plausible wrong reading an agent would actually build is `high`/`blocking` even if it looks minor. A spec's internal consistency is load-bearing — it is the input to an unattended build.
+
+## If you find nothing — say so explicitly
+
+If you walk the diff carefully and find no findings worth surfacing, emit ONE block in this shape instead:
+
+```
+### No findings
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-CLEAN
+Status:     open
+Severity:   informational
+Surface:    (the entire diff)
+
+I walked the diff for the feature named above and found no findings worth surfacing. My specific reasoning: <three-to-five sentences explaining what you checked, why those checks came back clean, and what you would have flagged if it had been present.>
+```
+
+**Do not pad with weak findings.** A confident "I checked X, Y, Z and they are clean for these reasons" is more useful to the operator than three vague low-severity notes. The cross-model diversity gives the operator independent signal; an empty clean report from your CLI is itself a signal when paired with findings from your siblings.
+
+## Hard constraints
+
+- **No deferral phrases.** Don't write phrases like "fix later", "address in a follow-up", or other commitments to deferred work. The dispatch-wrapper rejects these as bug-factories. If you spot a deferral phrase IN the diff, surface it as a finding.
+- **Anchor findings to evidence.** A finding that says "this might be a problem" without naming the specific file + line is not actionable. Name the surface, quote the relevant code, explain what's wrong.
+- **One issue per finding block.** Don't bundle multiple concerns into one entry; the operator triages each block as a discrete signal.
+- **Provenance is your model name.** Replace `<your-model-name>` in the Finding-ID with the CLI you are (`claude`, `codex`, `gemini`, etc.). This is how the operator joins findings across models.
+
+**Auditing findings and diff**
+
+I need to focus on answering audit findings based on the diff. The user only provided the diff, but I think I might need to inspect some files in the repository. I could read relevant files and maybe pull in other chunks as necessary. It's a read-only process, so I must output the exact blocks from my findings. I'll consider using a commentary update since the task is about auditing and not writing code.
+codex
+I’ll audit the scoped diff against the repository state so the findings are anchored to real line numbers and not just the pasted patch.
+exec
+/bin/zsh -lc "nl -ba tests/CMakeLists.txt | sed -n '1,80p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# Host-side doctest suite for the platform-independent core (Constitution VIII,
+     2	# FR-013). Builds one binary from all tests/core/* sources + the allocation
+     3	# sentinel, links the core spine + the host boundary, and registers with ctest so
+     4	# `ctest --preset test` runs everything.
+     5	
+     6	add_executable(acfx_core_tests
+     7	  core/test-main.cpp
+     8	  core/parameter-test.cpp
+     9	  core/svf-test.cpp
+    10	  core/no-allocation-test.cpp
+    11	  core/workbench-settings-test.cpp
+    12	  # The SourceConfig serde seam is JUCE-free (std::string only), so its TU links
+    13	  # into this JUCE-free test target directly (contracts/source-config.md).
+    14	  "${CMAKE_SOURCE_DIR}/adapters/workbench/workbench-settings.cpp"
+    15	  support/allocation-sentinel.cpp
+    16	)
+    17	
+    18	# tests/ as an include root so test files write #include "support/...".
+    19	target_include_directories(acfx_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    20	# adapters/workbench on the include path so the serde test (and its TU) resolve
+    21	# #include "workbench-settings.h".
+    22	target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
+    23	target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host doctest::doctest)
+    24	target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
+    25	
+    26	# Per-test-case ctest registration when doctest ships its CMake helper; otherwise
+    27	# register the whole binary as a single test (still satisfies the test preset).
+    28	set(_doctest_module "${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
+    29	if(EXISTS "${_doctest_module}")
+    30	  include("${_doctest_module}")
+    31	  doctest_discover_tests(acfx_core_tests)
+    32	else()
+    33	  add_test(NAME acfx_core_tests COMMAND acfx_core_tests)
+    34	endif()
+
+exec
+/bin/zsh -lc "nl -ba specs/workbench-audio-config/tasks.md | sed -n '1,150p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	---
+     2	
+     3	description: "Task list — workbench audio device + source + MIDI selection"
+     4	---
+     5	
+     6	> ‼ **acfx COMMANDMENTS — non-negotiable** ‼
+     7	> **1. COMMIT AND PUSH EARLY AND OFTEN** — version control is a distributed, journaled
+     8	> filesystem that safeguards your work, **NOT a sacred rite reserved for the blessed.**
+     9	> Small atomic commits, pushed promptly; never hoard unpushed work.
+    10	> **2. NO GIT HOOKS, EVER** — this repo uses zero git hooks; none exist, none get added.
+    11	> **3. DESCRIPTIVE NAMES, NEVER NUMERIC PREFIXES** — names carry information; fake sequence
+    12	> numbers (`001-`) imply false order and false precision (datestamps excepted).
+    13	> (acfx Constitution, Principles I–III — `.specify/memory/constitution.md`.)
+    14	
+    15	# Tasks: Workbench audio device + source + MIDI selection (in-UI)
+    16	
+    17	**Input**: Design documents from `specs/workbench-audio-config/`
+    18	
+    19	**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/, quickstart.md
+    20	
+    21	**Tests**: One pure seam is unit-tested (the `SourceConfig` serialize/parse, per
+    22	contracts/source-config.md) — written before its implementation. The rest is
+    23	interactive JUCE UI verified by manual acceptance (quickstart Scenarios B–F).
+    24	
+    25	## Format: `[ID] [P?] [Story] Description with file path`
+    26	
+    27	- **[P]**: parallelizable (different files, no dependency on an incomplete task)
+    28	- **[Story]**: US1 / US2 / US3 / US4 (user-story phases only)
+    29	
+    30	## Path Conventions
+    31	
+    32	All work is confined to `adapters/workbench/` (+ one test file under `tests/core/`).
+    33	No change to `core/`, `host/`, the plugin, or the MCU adapters. Descriptive names only.
+    34	
+    35	---
+    36	
+    37	## Phase 1: Setup
+    38	
+    39	- [X] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` (JUCE-free serde), and `workbench-persistence.cpp` (JUCE) to `adapters/workbench/CMakeLists.txt`; add `tests/core/workbench-settings-test.cpp` AND `adapters/workbench/workbench-settings.cpp` to the `acfx_core_tests` target in `tests/CMakeLists.txt` (the serde TU is JUCE-free so it links there). Create empty stubs so both the `desktop` and `test` presets still configure + build
+    40	
+    41	**Checkpoint**: `cmake --build --preset desktop --target acfx_workbench` and `ctest --preset test` still green with the stubs in place.
+    42	
+    43	---
+    44	
+    45	## Phase 2: Foundational — shared lifecycle + config (BLOCKS all user stories)
+    46	
+    47	The audio-stopped reconfigure lifecycle and the persistable source config every story
+    48	reuses. No change to the audio callback or the lock-free parameter handoff.
+    49	
+    50	- [X] T002 Implement `SourceMode` + `SourceConfig` (`std::string filePath`) + pure JUCE-free `serialize`/`parse` (`std::string`; never throws; safe default on garbage) in `adapters/workbench/workbench-settings.h` (+ `.cpp`) per `contracts/source-config.md` — JUCE-free so it links into the JUCE-free `acfx_core_tests`; the workbench converts to/from `juce::String` at the boundary
+    51	- [X] T003 Write the `SourceConfig` serialize/parse unit test (round-trip for both modes incl. paths with spaces/unicode; safe-default on `""`/garbage/unknown-mode) in `tests/core/workbench-settings-test.cpp` — fails until T002
+    52	- [X] T004 Rework the workbench source lifecycle in `adapters/workbench/workbench-app.cpp`: hold message-thread `SourceMode`/`sourceFile_` state; make `prepareToPlay()` the single reconfigure point (release → configure live/file from state → prepare); add `restartAudio()` using `deviceManager.restartLastAudioDevice()` (research.md §1) so source changes apply with the callback stopped
+    53	- [X] T005 Relax `adapters/workbench/audio-source.h`/`.cpp`: replace the "throw if already configured" guard with the release-before-reconfigure lifecycle invariant; keep `fillBlock` `noexcept` + the in-memory player byte-for-byte (RT-safety preserved, Constitution VI)
+    54	
+    55	**Checkpoint**: `ctest --preset test` green incl. the new serde test; the workbench builds; device-restart reconfigure path compiles against real JUCE.
+    56	
+    57	---
+    58	
+    59	## Phase 3: User Story 1 — Choose input/output devices (Priority: P1) 🎯 MVP
+    60	
+    61	**Goal**: Select audio input/output device (+ rate/buffer) from the UI; changes take
+    62	effect live.
+    63	
+    64	**Independent test**: quickstart Scenario B — open Audio Settings, change output then
+    65	input device, confirm audio routes accordingly with no restart/crash.
+    66	
+    67	- [X] T006 [US1] Implement `AudioSettingsWindow` hosting `juce::AudioDeviceSelectorComponent(deviceManager, 0, 2, 0, 2, /*midiIn*/ true, /*midiOut*/ false, /*stereoPairs*/ true, /*hideAdvanced*/ false)` (close box hides) in `adapters/workbench/audio-settings.h`/`.cpp` (research.md §2)
+    68	- [X] T007 [US1] Add an "Audio Settings…" button to the main window in `adapters/workbench/workbench-app.cpp` that shows the window; confirm a device change drives the lifecycle (T004) so the source reconfigures with the callback stopped
+    69	- [X] T008 [US1] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
+    70	
+    71	**Checkpoint**: US1 usable — you can route the workbench to chosen in/out devices.
+    72	
+    73	---
+    74	
+    75	## Phase 4: User Story 2 — Choose the source from the UI (Priority: P2)
+    76	
+    77	**Goal**: Live/File source choice + a file picker, no env var.
+    78	
+    79	**Independent test**: quickstart Scenario C — switch to File, pick a file, hear it
+    80	looped; switch back to Live; cancel-with-no-file stays valid.
+    81	
+    82	- [X] T009 [P] [US2] Implement the source bar (Live/File choice + "Load file…" via `juce::FileChooser::launchAsync`) emitting source-change callbacks (no audio logic) in `adapters/workbench/source-bar.h`/`.cpp` (research.md §4)
+    83	- [X] T010 [US2] Wire the source bar into `adapters/workbench/workbench-app.cpp`: on change, update `SourceMode`/`sourceFile_` then `restartAudio()`; *File* with no chosen file reverts to *Live* (no broken no-source state; FR-009)
+    84	- [X] T011 [US2] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
+    85	
+    86	**Checkpoint**: US2 usable — the built-in player is reachable from the UI, no env var.
+    87	
+    88	---
+    89	
+    90	## Phase 5: User Story 3 — Remember selections across launches (Priority: P2)
+    91	
+    92	**Goal**: Persist + restore devices/rate/buffer/source/MIDI.
+    93	
+    94	**Independent test**: quickstart Scenario D — select non-defaults, quit, relaunch,
+    95	confirm restored.
+    96	
+    97	- [X] T012 [US3] Implement persistence in `adapters/workbench/workbench-persistence.h`/`.cpp` (JUCE; separate TU from the JUCE-free serde): save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
+    98	- [X] T013 [US3] Wire load-on-launch + save-on-change/quit into `adapters/workbench/workbench-app.cpp`; corrupt/missing settings → safe defaults + surfaced message; a saved device/file that is gone at launch → fall back + surface (FR-009, edge cases)
+    99	- [X] T014 [US3] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
+   100	
+   101	**Checkpoint**: US3 usable — the workbench remembers its configuration.
+   102	
+   103	---
+   104	
+   105	## Phase 6: User Story 4 — Choose MIDI input devices (Priority: P3)
+   106	
+   107	**Goal**: Explicit MIDI input selection instead of auto-enable-all.
+   108	
+   109	**Independent test**: quickstart Scenario E — enable one of two controllers; only it
+   110	drives CCs.
+   111	
+   112	- [X] T015 [US4] Replace the auto-enable-all MIDI code in `adapters/workbench/workbench-app.cpp` with the `AudioDeviceSelectorComponent` MIDI-inputs section (from T006) + a first-run default (enable all once); confirm only enabled inputs drive CC 74/71
+   113	- [X] T016 [US4] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
+   114	
+   115	**Checkpoint**: US4 done — MIDI inputs are user-selectable.
+   116	
+   117	---
+   118	
+   119	## Phase 7: Polish & cross-cutting concerns
+   120	
+   121	- [X] T017 [P] Finalize `adapters/workbench/CMakeLists.txt` (all new sources) and extend the CI workflow / `scripts/check-portability.sh` to build the new workbench sources and run the new `workbench-settings-test`
+   122	- [X] T018 [P] Confirm each new unit is within the file-size budget (~300–500 lines, Constitution VII); split if any (esp. `workbench-app.cpp`) is over
+   123	- [X] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` — **Scenario A passing (17/17 host tests) and README updated; Scenario F is interactive manual acceptance (operator-owned, deferred to graduation)** (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
+   124	
+   125	---
+   126	
+   127	## Dependencies & completion order
+   128	
+   129	- **Setup (Phase 1)** → **Foundational (Phase 2)** before any user story.
+   130	- Within Foundational: T002 → T003; T004 + T005 are the shared lifecycle (US1 device
+   131	  changes and US2 source changes both depend on them).
+   132	- **US1 (P1)** needs T004 (device changes drive the reconfigure). **US2 (P2)** needs
+   133	  T002 + T004 + T005. **US3 (P2)** needs T002 (serde) + US1's settings window for the
+   134	  device XML. **US4 (P3)** needs T006 (the settings window carries the MIDI section).
+   135	- Recommended order: **US1 → US2 → US3 → US4** (priority order).
+   136	- **Polish (Phase 7)** after the stories it validates.
+   137	
+   138	## Parallel opportunities
+   139	
+   140	- T009 (source-bar) is independent of T006 (audio-settings) — different files.
+   141	- T017, T018 in parallel in Polish.
+   142	
+   143	## MVP scope
+   144	
+   145	**User Story 1** (Phases 1+2+3) is the MVP: in-UI input/output device selection, with
+   146	the shared audio-stopped reconfigure lifecycle behind it. US2–US4 extend the same
+   147	lifecycle to source selection, persistence, and MIDI.
+   148	
+   149	## Task count
+   150	
+
+exec
+/bin/zsh -lc "nl -ba tests/core/workbench-settings-test.cpp | sed -n '1,100p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include <doctest/doctest.h>
+     2	
+     3	#include <string>
+     4	
+     5	#include "workbench-settings.h"
+     6	
+     7	// T003 — the SourceConfig serialize/parse contract (contracts/source-config.md). This
+     8	// is the one pure, JUCE-free, device-free seam of the workbench-audio-config feature,
+     9	// so it is the one piece worth a host-side unit test. Drives the T002 implementation.
+    10	
+    11	using namespace acfx::workbench;
+    12	
+    13	TEST_CASE("SourceConfig round-trips live mode") {
+    14	    const SourceConfig cfg{SourceMode::live, ""};
+    15	    CHECK(parse(serialize(cfg)) == cfg);
+    16	}
+    17	
+    18	TEST_CASE("SourceConfig round-trips file mode with a plain path") {
+    19	    const SourceConfig cfg{SourceMode::file, "/tmp/loop.wav"};
+    20	    const SourceConfig out = parse(serialize(cfg));
+    21	    CHECK(out.mode == SourceMode::file);
+    22	    CHECK(out.filePath == "/tmp/loop.wav");
+    23	    CHECK(out == cfg);
+    24	}
+    25	
+    26	TEST_CASE("SourceConfig round-trips file paths with spaces and unicode") {
+    27	    for (const std::string& path : {std::string("/Users/me/My Loops/take 1.wav"),
+    28	                                    std::string("/musique/échantillon/clip ☂.aiff"),
+    29	                                    std::string("/data/混音/loop.flac")}) {
+    30	        const SourceConfig cfg{SourceMode::file, path};
+    31	        const SourceConfig out = parse(serialize(cfg));
+    32	        CHECK(out.mode == SourceMode::file);
+    33	        CHECK(out.filePath == path);
+    34	    }
+    35	}
+    36	
+    37	TEST_CASE("parse returns the safe default on empty / garbage / unknown-mode input") {
+    38	    const SourceConfig def{SourceMode::live, ""};
+    39	    CHECK(parse("") == def);
+    40	    CHECK(parse("nonsense") == def);
+    41	    CHECK(parse("mode=banana") == def);
+    42	    CHECK(parse("\n\n") == def);
+    43	}
+    44	
+    45	TEST_CASE("parse never returns half-populated file mode (file token, empty path -> live)") {
+    46	    // A 'file' selection with no path is not a valid file source: it must default to
+    47	    // live rather than enter a broken empty-path file state.
+    48	    const SourceConfig out = parse(serialize(SourceConfig{SourceMode::file, ""}));
+    49	    CHECK(out.mode == SourceMode::live);
+    50	    CHECK(out.filePath.empty());
+    51	}
+    52	
+    53	TEST_CASE("serialize emits the file path verbatim") {
+    54	    const std::string path = "/a/b c/d.wav";
+    55	    const std::string text = serialize(SourceConfig{SourceMode::file, path});
+    56	    CHECK(text.find(path) != std::string::npos);
+    57	}
+
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/workbench-settings.cpp | sed -n '1,180p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include "workbench-settings.h"
+     2	
+     3	#include <cstddef>
+     4	
+     5	// SourceConfig serialize/parse (contracts/source-config.md). Pure std::string value
+     6	// transforms — no JUCE, no device, no audio thread. The format is a single mode token,
+     7	// and for file mode a newline followed by the path VERBATIM. Taking everything after
+     8	// the first newline as the path means the path may itself contain any character
+     9	// (spaces, unicode, even embedded newlines on filesystems that allow them) and still
+    10	// round-trips exactly.
+    11	
+    12	namespace acfx::workbench {
+    13	
+    14	namespace {
+    15	constexpr const char* kLiveToken = "live";
+    16	constexpr const char* kFileToken = "file";
+    17	} // namespace
+    18	
+    19	std::string serialize(const SourceConfig& cfg) {
+    20	    // A file source needs a path to be valid; a file config with an empty path is not
+    21	    // a usable file source, so it serializes as live (symmetric with parse, which
+    22	    // refuses to reconstruct an empty-path file mode).
+    23	    if (cfg.mode == SourceMode::file && !cfg.filePath.empty())
+    24	        return std::string(kFileToken) + '\n' + cfg.filePath;
+    25	    return kLiveToken;
+    26	}
+    27	
+    28	SourceConfig parse(const std::string& text) {
+    29	    const std::size_t newline = text.find('\n');
+    30	    const std::string modeToken =
+    31	        newline == std::string::npos ? text : text.substr(0, newline);
+    32	    const std::string pathPart =
+    33	        newline == std::string::npos ? std::string{} : text.substr(newline + 1);
+    34	
+    35	    // Only reconstruct a file source when the token is exactly "file" AND a non-empty
+    36	    // path is present. Everything else — empty, garbage, unknown mode, or a file token
+    37	    // with no path — is the safe default (live, empty path); never throws.
+    38	    if (modeToken == kFileToken && !pathPart.empty())
+    39	        return SourceConfig{SourceMode::file, pathPart};
+    40	    return SourceConfig{SourceMode::live, ""};
+    41	}
+    42	
+    43	} // namespace acfx::workbench
+
+**Evaluating audit findings**
+
+I need to conduct an audit and I've noticed that the tasks.md file has the phrase "deferred to graduation," which conflicts with the constraint against deferral phrases. I should identify specific lines where this occurs, particularly lines 69, 84, 99, 113, and 123, as well as whether the manual acceptance of the operator is intentional. 
+
+I should clarify if the same repeated phrase counts as a single finding or multiple ones. Also, I need to assess any potential issues with the tests, especially concerning the input handling and coverage of parsing requirements.
+**Inspecting test configurations**
+
+I think the contract requires that parsing must have a safe default for garbage unknown, which isn’t a major issue. I’ve noticed there’s another concern: the tests are adding workbench-settings.cpp from the adapter into core tests with CMAKE_SOURCE_DIR. If the project is included as a subproject, then isn't that wrong? Shouldn't it be PROJECT_SOURCE_DIR? I should check existing uses to confirm. I’ll inspect the root and look at line 14 in the diff, but it might be fine since the test target could already be using CMAKE_SOURCE_DIR.
+codex
+The scoped implementation code and tests are small. The main thing that stands out is process/documentation drift in the task artifact itself; I’m checking whether there is also a concrete test/build defect before finalizing.
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/workbench-settings.h | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include <string>
+     4	
+     5	// The workbench's persistable source selection — the one pure, JUCE-free,
+     6	// device-free seam of the audio-config feature (contracts/source-config.md).
+     7	// SourceConfig uses std::string (not juce::String) on purpose: this header and its
+     8	// serialize/parse pair compile into the JUCE-free host test target (acfx_core_tests),
+     9	// so the seam is unit-tested with no JUCE/app/device context. The workbench converts
+    10	// std::string <-> juce::String at the UI/file boundary.
+    11	
+    12	namespace acfx::workbench {
+    13	
+    14	enum class SourceMode { live, file };
+    15	
+    16	struct SourceConfig {
+    17	    SourceMode mode = SourceMode::live;
+    18	    std::string filePath; // empty unless mode == file
+    19	};
+    20	
+    21	inline bool operator==(const SourceConfig& a, const SourceConfig& b) {
+    22	    return a.mode == b.mode && a.filePath == b.filePath;
+    23	}
+    24	inline bool operator!=(const SourceConfig& a, const SourceConfig& b) { return !(a == b); }
+    25	
+    26	// Pure value transforms (message thread; never the audio callback). serialize emits a
+    27	// stable settings string; parse never throws and returns the safe default
+    28	// SourceConfig{ live, "" } on empty/garbage/unknown-mode input, and only returns file
+    29	// mode when a non-empty path is present (contracts/source-config.md).
+    30	std::string serialize(const SourceConfig& cfg);
+    31	SourceConfig parse(const std::string& text);
+    32	
+    33	} // namespace acfx::workbench
+
+exec
+/bin/zsh -lc 'rg "CMAKE_SOURCE_DIR|workbench-settings-test|deferred to graduation|operator-owned" -n .' in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+./CMakeLists.txt:20:  set(CPM_SOURCE_CACHE "${CMAKE_SOURCE_DIR}/external/.cpm-cache")
+./tests/CMakeLists.txt:11:  core/workbench-settings-test.cpp
+./tests/CMakeLists.txt:14:  "${CMAKE_SOURCE_DIR}/adapters/workbench/workbench-settings.cpp"
+./tests/CMakeLists.txt:22:target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
+./specs/workbench-audio-config/tasks.md:39:- [X] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` (JUCE-free serde), and `workbench-persistence.cpp` (JUCE) to `adapters/workbench/CMakeLists.txt`; add `tests/core/workbench-settings-test.cpp` AND `adapters/workbench/workbench-settings.cpp` to the `acfx_core_tests` target in `tests/CMakeLists.txt` (the serde TU is JUCE-free so it links there). Create empty stubs so both the `desktop` and `test` presets still configure + build
+./specs/workbench-audio-config/tasks.md:51:- [X] T003 Write the `SourceConfig` serialize/parse unit test (round-trip for both modes incl. paths with spaces/unicode; safe-default on `""`/garbage/unknown-mode) in `tests/core/workbench-settings-test.cpp` — fails until T002
+./specs/workbench-audio-config/tasks.md:69:- [X] T008 [US1] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
+./specs/workbench-audio-config/tasks.md:84:- [X] T011 [US2] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
+./specs/workbench-audio-config/tasks.md:99:- [X] T014 [US3] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
+./specs/workbench-audio-config/tasks.md:113:- [X] T016 [US4] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
+./specs/workbench-audio-config/tasks.md:121:- [X] T017 [P] Finalize `adapters/workbench/CMakeLists.txt` (all new sources) and extend the CI workflow / `scripts/check-portability.sh` to build the new workbench sources and run the new `workbench-settings-test`
+./specs/workbench-audio-config/tasks.md:123:- [X] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` — **Scenario A passing (17/17 host tests) and README updated; Scenario F is interactive manual acceptance (operator-owned, deferred to graduation)** (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
+./specs/workbench-audio-config/contracts/source-config.md:52:- The unit test (`tests/core/workbench-settings-test.cpp`) asserts the round-trip and
+./specs/workbench-audio-config/plan.md:128:tests/core/                   # NEW: workbench-settings-test.cpp (SourceConfig serde round-trip)
+
+exec
+/bin/zsh -lc "nl -ba specs/workbench-audio-config/contracts/source-config.md | sed -n '1,160p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# Contract — `SourceConfig` serialize/parse (workbench-settings)
+     2	
+     3	The one pure, device-free seam of this feature — the part with deterministic
+     4	behaviour worth a host-side unit test. Everything else (device dropdowns, the
+     5	restart cycle, the file chooser, MIDI selection) is interactive JUCE UI verified by
+     6	manual acceptance + compile-verification.
+     7	
+     8	## Types
+     9	
+    10	```cpp
+    11	enum class SourceMode { live, file };
+    12	
+    13	struct SourceConfig {
+    14	    SourceMode mode = SourceMode::live;
+    15	    std::string filePath; // empty unless mode == file
+    16	};
+    17	```
+    18	
+    19	> **JUCE-free by design.** `SourceConfig` and its serde use `std::string`, not
+    20	> `juce::String`, so this seam compiles and is unit-tested in the JUCE-free host test
+    21	> target (`acfx_core_tests` links `acfx_core`/`acfx_host`/doctest only — no JUCE). The
+    22	> workbench converts `std::string ↔ juce::String` at the UI/file boundary
+    23	> (`juce::String::toStdString()` / `juce::String(std::string)`).
+    24	
+    25	## Functions (pure — no device, no audio thread, no UI, no JUCE)
+    26	
+    27	```cpp
+    28	std::string serialize(const SourceConfig& cfg);    // -> a stable settings string
+    29	SourceConfig parse(const std::string& text);       // <- never throws
+    30	```
+    31	
+    32	## Behavioral guarantees (normative)
+    33	
+    34	- **Round-trip**: `parse(serialize(cfg)) == cfg` for every valid `cfg` (both modes,
+    35	  arbitrary file paths including spaces/unicode).
+    36	- **Safe default on garbage**: `parse("")`, `parse("nonsense")`, or a string with an
+    37	  unknown mode token returns the default `SourceConfig{ live, "" }` — it never throws
+    38	  and never returns a half-populated `file` mode with an empty path. (Defaulting an
+    39	  absent/corrupt *setting* is config parsing, distinct from the Constitution-V ban on
+    40	  silent *audio* fallbacks: a missing setting has a legitimate default; a missing
+    41	  audio source is surfaced at the audio layer.)
+    42	- **`file` validity**: `serialize` of `file` mode includes the path verbatim;
+    43	  `parse` returns `file` mode only when a non-empty path is present, else `live`.
+    44	- **Allocation/threading**: pure value transform on the message thread; never called
+    45	  from the audio callback.
+    46	
+    47	## Consumers
+    48	
+    49	- The persistence unit (`workbench-persistence`, JUCE) writes `serialize(cfg)` into
+    50	  the settings file and reads it back with `parse` — these pure functions live in the
+    51	  JUCE-free `workbench-settings` unit.
+    52	- The unit test (`tests/core/workbench-settings-test.cpp`) asserts the round-trip and
+    53	  the safe-default-on-garbage guarantees.
+    54	
+    55	## Why this is the only contract
+    56	
+    57	The feature exposes no API to other systems; it is a desktop-app adapter. The
+    58	device/MIDI/persistence surfaces are driven by JUCE's own components and the
+    59	`AudioDeviceManager` XML, which are not ours to re-specify. `SourceConfig` serde is
+    60	the single piece of bespoke, testable logic — so it is the single contract.
+
+codex
+### Completed checklist masks unexecuted manual acceptance
+
+Finding-ID: AUDIT-BARRAGE-codex-01  
+Status:     open  
+Severity:   high  
+Surface:    specs/workbench-audio-config/tasks.md:69, specs/workbench-audio-config/tasks.md:84, specs/workbench-audio-config/tasks.md:99, specs/workbench-audio-config/tasks.md:113, specs/workbench-audio-config/tasks.md:123
+
+The task list marks US1/US2/US3/US4 and Scenario F acceptance items as `[X]` while the line text says those interactive checks are operator-owned and not actually completed in this implementation pass. This is especially load-bearing because `contracts/source-config.md` says most of the feature is validated through manual JUCE acceptance rather than unit tests, so marking these tasks complete changes the apparent verification state of the feature.
+
+Blast radius is high: a downstream operator or unattended agent reading this artifact as written will reasonably conclude all acceptance criteria passed, including device routing, source switching, persistence restore, MIDI filtering, and rapid switch RT-safety. The reasonable fix is to keep the mechanical implementation tasks checked, but represent unexecuted manual acceptance as incomplete or as a separate clearly non-complete operator acceptance record, without marking the acceptance tasks done.
+tokens used
+17,270

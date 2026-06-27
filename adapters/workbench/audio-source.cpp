@@ -33,8 +33,13 @@ void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
 
     // Decode the whole file into memory on this (setup) thread. The audio thread
     // only ever reads fileBuffer_ thereafter — no reader, no transport, no lock.
+    // A failed/partial decode (corrupt or truncated file) must surface, not install a
+    // half-decoded buffer as a valid source (Constitution V; no silent placeholder
+    // audio). Throw BEFORE mutating hasFile_/live_ so the prior source is preserved.
     juce::AudioBuffer<float> decoded(numChannels, numSamples);
-    reader->read(&decoded, 0, numSamples, 0, true, true);
+    if (!reader->read(&decoded, 0, numSamples, 0, true, true))
+        throw AudioSourceError("Failed to decode audio file (corrupt or truncated): " +
+                               file.getFullPathName());
 
     fileBuffer_ = std::move(decoded);
     playPos_.store(0, std::memory_order_relaxed);

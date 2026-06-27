@@ -41,7 +41,15 @@ public:
     // every change and on quit.
     void save(const juce::AudioDeviceManager& deviceManager, const SourceConfig& source);
 
+    // Persist a SPECIFIC device-state XML + source selection, rather than the live
+    // device state. Used to preserve a saved device preference while that preferred
+    // device is temporarily unavailable, so a fallback session does not clobber it
+    // (AUDIT-20260627-01). Pass nullptr to clear the device-state block.
+    void savePreserving(const juce::XmlElement* deviceState, const SourceConfig& source);
+
 private:
+    void writeSettings(const juce::XmlElement* deviceState, const SourceConfig& source);
+
     juce::ApplicationProperties applicationProperties_;
 
     JUCE_DECLARE_NON_COPYABLE(WorkbenchPersistence)

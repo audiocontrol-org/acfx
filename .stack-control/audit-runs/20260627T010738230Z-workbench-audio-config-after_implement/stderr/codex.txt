@@ -1,0 +1,721 @@
+Reading prompt from stdin...
+OpenAI Codex v0.141.0
+--------
+workdir: /Users/orion/work/acfx-work/platform-foundation
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: detailed
+session id: 019f069e-3194-75e1-9efe-c43ce7687123
+--------
+user
+# Audit-barrage — multi-model audit prompt template
+
+You are an **independent audit reviewer** firing as part of a multi-model audit barrage. Your siblings (other CLIs running this same prompt in parallel) emit their own findings independently; the operator triages all of your outputs side-by-side after every model has settled. Your job is to surface the kinds of defects listed under **What to look for** below, in the work product captured under **Under audit**.
+
+You are NOT collaborating with the other models. You write what you see. The cross-model genetic diversity comes from each of you reporting independently.
+
+## Feature under audit
+
+workbench-audio-config
+
+## Feature scope (workplan / PRD summary)
+
+
+
+## Commit subjects in the audited range
+
+92a865c workbench-audio-config: mark interactive scenarios as operator-owned acceptance
+ca36c69 workbench-audio-config T017-T019: polish (CI visibility, README, verify)
+c5c028b workbench-audio-config T015: explicit MIDI input selection (US4)
+08460f6 workbench-audio-config T012/T013: persist + restore selections (US3)
+d3b2acc workbench-audio-config T009/T010: in-UI source selection (US2)
+aa8877d workbench-audio-config T006/T007: in-UI audio device selection (US1)
+fc36b9b workbench-audio-config T004/T005: audio-stopped reconfigure lifecycle
+7103f38 workbench-audio-config T002/T003: SourceConfig serde + unit test
+37cf2f6 workbench-audio-config T001: register new units + stubs in CMake
+
+
+## Recent audit-log excerpt (prior findings on this feature)
+
+Use this to avoid re-reporting findings that have already been triaged. If a finding was previously dispositioned (`closed`, `won't-fix`, `accepted-trade-off`), don't re-litigate the disposition; only surface a new instance if the underlying shape regressed.
+
+
+
+## Under audit
+
+The actual code under review. Read it carefully. The findings you emit must be anchored to specific files + line ranges in this diff (or call out a missing surface that should be in the diff but isn't).
+
+Governance pass over the just-implemented work for feature 'workbench-audio-config', diffed against b561b3e. The differentiated back half audits a plan it did not author or execute.
+## Other chunks (file lists only — context for cross-file dependencies this chunk cannot see):
+- 5420a3615ad2e99c: adapters/workbench/workbench-app.cpp, adapters/workbench/workbench-persistence.cpp, adapters/workbench/workbench-persistence.h, adapters/workbench/workbench-settings.cpp, adapters/workbench/workbench-settings.h
+- b803fcb7f17ed923: .github/workflows/ci.yml
+- cc36a7e4cc6d3feb: specs/workbench-audio-config/tasks.md, tests/CMakeLists.txt, tests/core/workbench-settings-test.cpp
+
+## Chunk d0c555613386cd51
+Files in scope: README.md, ROADMAP.md, adapters/workbench/CMakeLists.txt, adapters/workbench/audio-settings.cpp, adapters/workbench/audio-settings.h, adapters/workbench/audio-source.cpp, adapters/workbench/audio-source.h, adapters/workbench/source-bar.cpp, adapters/workbench/source-bar.h
+
+## Diffs
+
+### README.md
+diff --git a/README.md b/README.md
+index 021dcd3..ab48f5f 100644
+--- a/README.md
++++ b/README.md
+@@ -53,7 +53,19 @@ cmake --build --preset desktop --target acfx_workbench
+ ```
+ 
+ Launch the built app: auto-generated controls for cutoff / resonance / mode, a
+-built-in player or live input, a bound MIDI CC, and a dry/processed A/B toggle.
++dry/processed A/B toggle, and in-UI audio configuration:
++
++- **Audio Settings…** opens a window (JUCE's device selector) to choose the audio
++  **input/output device**, sample rate, buffer size, and which **MIDI inputs** drive
++  the parameter CCs.
++- The **source bar** switches between **Live** input and a **file** you pick with
++  **Load file…** (looped through the filter) — no environment variable required.
++- All of these selections — device, rate/buffer, source (including the chosen file),
++  and MIDI inputs — are **remembered across launches**. Device/source changes apply
++  with the audio engine stopped, so switching never glitches or stalls the stream.
++- Failures (a device that won't open, an unreadable/missing file, unreadable saved
++  settings) are surfaced and leave the workbench in a safe, usable state — never
++  silent silence or placeholder audio.
+ 
+ ### Desktop plugin (VST3 / AU / CLAP) — Scenario C
+ 
+@@ -63,8 +75,10 @@ cmake --preset desktop
+ cmake --build --preset desktop --target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP
+ ```
+ 
+-To play the built-in player for reproducible A/B, point the workbench at a file
+-with `ACFX_WORKBENCH_FILE=/path/to/audio.wav`; otherwise it uses the live input.
++The workbench's built-in player is reached from the UI (the **Load file…** button);
++`ACFX_WORKBENCH_FILE=/path/to/audio.wav` remains only as a **first-run convenience**
++that seeds the source when nothing has been saved yet — a saved selection always takes
++precedence.
+ 
+ ### Hardware cross-compile — Scenario D
+ 
+
+
+### ROADMAP.md
+diff --git a/ROADMAP.md b/ROADMAP.md
+index f6e98ba..36db2c2 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -27,4 +27,5 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
+ 
+ ## design:feature/workbench-audio-config
+ - status: planned
++- analyze-clean: yes
+ - spec: specs/workbench-audio-config
+\ No newline at end of file
+
+
+### adapters/workbench/CMakeLists.txt
+diff --git a/adapters/workbench/CMakeLists.txt b/adapters/workbench/CMakeLists.txt
+index 58dfe55..f0b4d49 100644
+--- a/adapters/workbench/CMakeLists.txt
++++ b/adapters/workbench/CMakeLists.txt
+@@ -11,6 +11,10 @@ target_sources(acfx_workbench PRIVATE
+   workbench-app.cpp
+   parameter-view.cpp
+   audio-source.cpp
++  audio-settings.cpp
++  source-bar.cpp
++  workbench-settings.cpp
++  workbench-persistence.cpp
+ )
+ 
+ target_compile_features(acfx_workbench PRIVATE cxx_std_20)
+
+
+### adapters/workbench/audio-settings.cpp
+diff --git a/adapters/workbench/audio-settings.cpp b/adapters/workbench/audio-settings.cpp
+new file mode 100644
+index 0000000..80eae1c
+--- /dev/null
++++ b/adapters/workbench/audio-settings.cpp
+@@ -0,0 +1,28 @@
++#include "audio-settings.h"
++
++// T006 (US1) — host the standard JUCE device selector in its own window.
++
++namespace acfx::workbench {
++
++AudioSettingsWindow::AudioSettingsWindow(juce::AudioDeviceManager& deviceManager)
++    : juce::DocumentWindow("Audio Settings", juce::Colours::darkgrey,
++                           juce::DocumentWindow::closeButton) {
++    setUsingNativeTitleBar(true);
++
++    // (deviceManager, minIn=0, maxIn=2, minOut=0, maxOut=2, showMidiInputs=true,
++    // showMidiOutputs=false, showChannelsAsStereoPairs=true, hideAdvanced=false) — one
++    // component covers device + rate/buffer + MIDI-input selection (FR-001/002/005),
++    // and its own UI surfaces device-open failures (FR-009), keeping the previous
++    // working device when a new one fails to open.
++    auto* selector = new juce::AudioDeviceSelectorComponent(
++        deviceManager, 0, 2, 0, 2, true, false, true, false);
++    selector->setSize(500, 480);
++    setContentOwned(selector, true); // window takes ownership and sizes to the content
++
++    setResizable(true, false);
++    centreWithSize(getWidth(), getHeight());
++}
++
++void AudioSettingsWindow::closeButtonPressed() { setVisible(false); }
++
++} // namespace acfx::workbench
+
+
+### adapters/workbench/audio-settings.h
+diff --git a/adapters/workbench/audio-settings.h b/adapters/workbench/audio-settings.h
+new file mode 100644
+index 0000000..9fc165b
+--- /dev/null
++++ b/adapters/workbench/audio-settings.h
+@@ -0,0 +1,28 @@
++#pragma once
++
++#include <juce_audio_utils/juce_audio_utils.h>
++#include <juce_gui_basics/juce_gui_basics.h>
++
++// A separate Audio Settings window hosting JUCE's standard
++// AudioDeviceSelectorComponent — input/output device, sample rate, buffer size, and
++// MIDI input selection in one tested component (research.md decision 2). It drives the
++// shared AudioDeviceManager directly; its edits fire the same audio stop/start cycle
++// the source lifecycle reconfigures through, so device changes are RT-safe by
++// construction (FR-008). Closing the window hides it (the manager state persists), so
++// it lives off the main window without cluttering the sketch-and-hear controls (FR-010).
++
++namespace acfx::workbench {
++
++class AudioSettingsWindow final : public juce::DocumentWindow {
++public:
++    explicit AudioSettingsWindow(juce::AudioDeviceManager& deviceManager);
++
++    // Hide rather than destroy on close — the workbench owns this window's lifetime
++    // and reopens it instantly with the device-manager state intact.
++    void closeButtonPressed() override;
++
++private:
++    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioSettingsWindow)
++};
++
++} // namespace acfx::workbench
+
+
+### adapters/workbench/audio-source.cpp
+diff --git a/adapters/workbench/audio-source.cpp b/adapters/workbench/audio-source.cpp
+index f5d6aea..3ee7ad6 100644
+--- a/adapters/workbench/audio-source.cpp
++++ b/adapters/workbench/audio-source.cpp
+@@ -9,8 +9,8 @@ WorkbenchAudioSource::WorkbenchAudioSource() { formatManager_.registerBasicForma
+ 
+ void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
+     if (configured_.load(std::memory_order_acquire))
+-        throw AudioSourceError("Audio source must be selected before the stream "
+-                               "starts; stop audio to switch sources.");
++        throw AudioSourceError("Cannot reselect the audio source while the stream is "
++                               "running; release (stop audio) before reconfiguring.");
+     if (!file.existsAsFile())
+         throw AudioSourceError("Audio file does not exist: " + file.getFullPathName());
+ 
+@@ -44,8 +44,8 @@ void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
+ 
+ void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
+     if (configured_.load(std::memory_order_acquire))
+-        throw AudioSourceError("Audio source must be selected before the stream "
+-                               "starts; stop audio to switch sources.");
++        throw AudioSourceError("Cannot reselect the audio source while the stream is "
++                               "running; release (stop audio) before reconfiguring.");
+     if (availableInputChannels <= 0)
+         throw AudioSourceError("Live input selected but the audio device offers no "
+                                "input channels.");
+
+
+### adapters/workbench/audio-source.h
+diff --git a/adapters/workbench/audio-source.h b/adapters/workbench/audio-source.h
+index aaa78ea..5d3e20a 100644
+--- a/adapters/workbench/audio-source.h
++++ b/adapters/workbench/audio-source.h
+@@ -15,10 +15,13 @@
+ // RT-safety (Constitution VI): the file is decoded into an in-memory buffer
+ // before the stream starts (off the audio thread); fillBlock() then reads that
+ // buffer at an atomic play position with no locks and no allocation. Source
+-// selection (useFilePlayer / useLiveInput) is a setup-time operation: it must
+-// happen before prepare(), and switching sources requires stopping the stream
+-// first. That precondition is ENFORCED — a selection call while already
+-// configured throws — so the audio thread never reads a buffer being reassigned.
++// selection (useFilePlayer / useLiveInput) is a RECONFIGURE operation, legitimately
++// repeated whenever the workbench switches device or source — but ONLY while the
++// audio callback is stopped. The lifecycle invariant is "release before reconfigure":
++// the workbench calls release() (the audio-stopped window JUCE's restart cycle
++// provides) before reselecting, then prepare(). That invariant is ENFORCED — a
++// selection call while still configured (stream running) throws — so the audio thread
++// never reads fileBuffer_/live_/hasFile_ while they are being reassigned.
+ 
+ namespace acfx::workbench {
+ 
+@@ -33,12 +36,15 @@ public:
+     WorkbenchAudioSource();
+ 
+     // Decode the given file into memory and select it as the source. Throws
+-    // AudioSourceError if the file cannot be opened/decoded. Call at setup (off
+-    // the audio thread).
++    // AudioSourceError if the file cannot be opened/decoded, or if the source is
++    // still configured (the stream must be released/stopped before reselecting — the
++    // release-before-reconfigure invariant). Call on the message thread, off the
++    // audio thread.
+     void useFilePlayer(const juce::File& file);
+ 
+     // Use the live device input. `availableInputChannels` is what the device
+-    // offers; throws AudioSourceError if there are none.
++    // offers; throws AudioSourceError if there are none, or if the source is still
++    // configured (release before reselecting).
+     void useLiveInput(int availableInputChannels);
+ 
+     void prepare(double sampleRate, int blockSize);
+
+
+### adapters/workbench/source-bar.cpp
+diff --git a/adapters/workbench/source-bar.cpp b/adapters/workbench/source-bar.cpp
+new file mode 100644
+index 0000000..4c897c0
+--- /dev/null
++++ b/adapters/workbench/source-bar.cpp
+@@ -0,0 +1,45 @@
++#include "source-bar.h"
++
++// T009 (US2) — Live/File source selection UI. Callbacks only; the workbench applies
++// the actual source change through the audio-stopped restart.
++
++namespace acfx::workbench {
++
++SourceBar::SourceBar() {
++    liveButton_.onClick = [this] {
++        if (onSelectLive)
++            onSelectLive();
++    };
++    fileButton_.onClick = [this] { openChooser(); };
++    addAndMakeVisible(liveButton_);
++    addAndMakeVisible(fileButton_);
++}
++
++void SourceBar::openChooser() {
++    // Async chooser: keeps the message thread responsive and never touches the audio
++    // thread. The FileChooser must outlive the launch, so it is owned by the bar.
++    chooser_ = std::make_unique<juce::FileChooser>(
++        "Choose an audio file to loop", juce::File{}, "*.wav;*.aiff;*.aif;*.flac;*.mp3");
++    const auto flags =
++        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
++    chooser_->launchAsync(flags, [this](const juce::FileChooser& fc) {
++        const juce::File result = fc.getResult();
++        if (result == juce::File{}) {
++            // Cancelled with no selection — let the workbench keep a valid source
++            // (revert to Live if none) rather than enter a broken no-source state.
++            if (onChooseCancelled)
++                onChooseCancelled();
++            return;
++        }
++        if (onChooseFile)
++            onChooseFile(result);
++    });
++}
++
++void SourceBar::resized() {
++    auto area = getLocalBounds().reduced(4);
++    liveButton_.setBounds(area.removeFromLeft(area.getWidth() / 2).reduced(4, 0));
++    fileButton_.setBounds(area.reduced(4, 0));
++}
++
++} // namespace acfx::workbench
+
+
+### adapters/workbench/source-bar.h
+diff --git a/adapters/workbench/source-bar.h b/adapters/workbench/source-bar.h
+new file mode 100644
+index 0000000..3bb8fd6
+--- /dev/null
++++ b/adapters/workbench/source-bar.h
+@@ -0,0 +1,40 @@
++#pragma once
++
++#include <functional>
++#include <memory>
++
++#include <juce_gui_basics/juce_gui_basics.h>
++
++// The main-window source bar: a "Live" button plus a "Load file..." button
++// (research.md decision 4). It owns NO audio logic — it emits callbacks only, so the
++// workbench decides how to apply a source change (always via the audio-stopped
++// restart). The file chooser is async (juce::FileChooser::launchAsync) so it never
++// blocks the message thread; on a valid pick it reports the file, and on cancel it
++// reports the cancellation so the workbench can keep a valid source (FR-003/004/009).
++
++namespace acfx::workbench {
++
++class SourceBar final : public juce::Component {
++public:
++    SourceBar();
++
++    // The user chose live input.
++    std::function<void()> onSelectLive;
++    // The user picked a valid file in the chooser.
++    std::function<void(const juce::File&)> onChooseFile;
++    // The user opened the chooser but cancelled without choosing a file.
++    std::function<void()> onChooseCancelled;
++
++    void resized() override;
++
++private:
++    void openChooser();
++
++    juce::TextButton liveButton_{"Live"};
++    juce::TextButton fileButton_{"Load file..."};
++    std::unique_ptr<juce::FileChooser> chooser_;
++
++    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SourceBar)
++};
++
++} // namespace acfx::workbench
+
+
+## What to look for
+
+- **Correctness bugs** — logic errors, off-by-one, null/undefined paths, race conditions, missing error handling, swallowed exceptions.
+- **Design issues** — coupling between layers that should be independent, leaking abstractions, primitives that should compose but don't, configuration that should be data ending up as code.
+- **Missed edge cases** — what happens with empty input? Maximum input? Concurrent calls? Partial failure? Network unavailability? Operator interrupt mid-operation? What is the behavior on a fresh install vs. an upgrade?
+- **Code-quality concerns** — files growing past a reasonable cap, names that don't reveal intent, dead code, duplicated logic, magic numbers without explanation, tests that don't test the contract they claim to test.
+- **Cross-cutting impact** — does this diff touch a surface that other surfaces depend on? Are those other surfaces updated? Are migrations needed? Are doctor rules / schemas / validators updated to match the new shape?
+- **Documentation drift** — does the README / SKILL.md / PRD describe the behavior the code actually implements? If the spec changed, did the implementation? If the implementation changed, did the spec?
+- **Operator-discipline traps** — placeholder comments, swallowed errors, hardcoded paths/values that should be configurable, fallbacks that hide failure modes, mock data outside test code. These are bug-factories per project guidelines.
+
+## Process drivers (029 US8 / FR-029)
+
+These codify the structural drivers of myopic convergence (TASK-60), so the loop converges in fewer rounds with less fix-induced surface growth. The first three (channel-enumeration, invariant-first boundary, round-0 self-red-team) are **fix-review** drivers — apply them when the work under audit is a fix for a prior finding. The last two (fleet-degradation pricing, severity-rubric anchoring) are **general** controls that apply to every round:
+
+- **Channel-enumeration.** When a fix ADDS to an allowlist/surface (a new flag, a new accepted value, a new parser branch, a new fold path), do not accept it on the one example it fixes — enumerate the channels it opens: the **value** channel (other inputs now accepted), the **state** channel (new reachable states), the **multiline / composition** channel (how it composes with adjacent surfaces). Flag any opened channel that lacks a fixture.
+- **Invariant-first boundary.** When a finding is dispositioned as a scope boundary, state the boundary as the **mechanism's invariant plus an in-scope exception**, NOT as the exclusion of the one counterexample. "We exclude X" is a smell; "the invariant is I, and X is the in-scope exception because…" is the disposition.
+- **Round-0 self-red-team.** When the work under audit is itself a FIX for a prior finding, audit the **fix diff as a fresh surface in its own right** — do not assume it is correct merely because it targets a known bug. Ask what new edge the fix opened and what it moved rather than removed; a fix that resolves one finding while opening an unaudited channel is itself a finding.
+- **Fleet-degradation pricing.** A convergence claim is only as strong as the fleet that produced it. When the fleet is **degraded** (a timed-out / killed / zero-byte lane — US2 observability), price the round's "0 HIGH" accordingly: it is computed over fewer models, so cross-model agreement is weaker. Do not treat a degraded-fleet quiet round as full convergence.
+- **Severity-rubric anchoring.** Rate every finding by the blast-radius rubric below (US3), not by how alarming it feels — a quietly-plausible wrong reading an unattended agent would build outranks an obvious contradiction a reader would resolve.
+
+## Output format
+
+For each finding you surface, emit ONE markdown block in this exact shape:
+
+```
+### <heading: one-line summary of the finding>
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-<NN>
+Status:     open
+Severity:   <blocking | high | medium | low | informational>
+Surface:    <repo-relative-path:line-range> OR <description of the surface if not anchored to a single file>
+
+<one-to-three paragraphs of body: what the finding is, why it matters, what evidence you relied on, what a reasonable fix would look like. Be specific. Cite line numbers from the diff. If the finding is structural / cross-file, name every file affected.>
+```
+
+Number the findings sequentially (`-01`, `-02`, ...).
+
+**Severity — rate each finding by downstream blast-radius:** the consequence if a downstream consumer acts on the audited surface *as written*. The consumer may be an adopter running the code, or — especially for a spec — an AI agent building **unattended** from it, with no human to catch a wrong reading. Rate by what would actually happen if this shipped as-is, **not by how alarming the finding feels**. State the blast-radius reasoning in the finding body for every finding, at every level.
+
+- `blocking` — acting on it as-written breaks the feature's stated goals in obvious ways; OR (for a spec) the more natural reading an agent reaches first is the wrong one, so it will likely be built wrong by default and nothing in the artifact corrects it.
+- `high` — a correctness/safety defect a consumer will hit; OR a spec contradiction/ambiguity where the readings are roughly equally plausible and the artifact doesn't disambiguate — an agent might build either, including the wrong one.
+- `medium` — a design issue that compounds over time; OR a spec inconsistency a reasonable consumer would resolve correctly anyway (readings barely diverge, or context makes the intended one obvious).
+- `low` — hygiene; cosmetic wording with no behavioral or implementation consequence.
+- `informational` — context worth seeing, not itself a defect.
+
+**Calibrate by consequence, not by alarm.** A genuine contradiction a reader would obviously resolve the right way is at most `medium`. A quietly-plausible wrong reading an agent would actually build is `high`/`blocking` even if it looks minor. A spec's internal consistency is load-bearing — it is the input to an unattended build.
+
+## If you find nothing — say so explicitly
+
+If you walk the diff carefully and find no findings worth surfacing, emit ONE block in this shape instead:
+
+```
+### No findings
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-CLEAN
+Status:     open
+Severity:   informational
+Surface:    (the entire diff)
+
+I walked the diff for the feature named above and found no findings worth surfacing. My specific reasoning: <three-to-five sentences explaining what you checked, why those checks came back clean, and what you would have flagged if it had been present.>
+```
+
+**Do not pad with weak findings.** A confident "I checked X, Y, Z and they are clean for these reasons" is more useful to the operator than three vague low-severity notes. The cross-model diversity gives the operator independent signal; an empty clean report from your CLI is itself a signal when paired with findings from your siblings.
+
+## Hard constraints
+
+- **No deferral phrases.** Don't write phrases like "fix later", "address in a follow-up", or other commitments to deferred work. The dispatch-wrapper rejects these as bug-factories. If you spot a deferral phrase IN the diff, surface it as a finding.
+- **Anchor findings to evidence.** A finding that says "this might be a problem" without naming the specific file + line is not actionable. Name the surface, quote the relevant code, explain what's wrong.
+- **One issue per finding block.** Don't bundle multiple concerns into one entry; the operator triages each block as a discrete signal.
+- **Provenance is your model name.** Replace `<your-model-name>` in the Finding-ID with the CLI you are (`claude`, `codex`, `gemini`, etc.). This is how the operator joins findings across models.
+
+**Evaluating audit findings**
+
+I need to address the audit findings based on the differences I found. It might be helpful to inspect the repository. I've got the differences, but it seems I should also be able to read files for line numbers. I plan to use a read-only approach for this. I think I'll utilize exec with regex to find line numbers effectively in the code. This should help me get a clearer view of the issues at hand!
+codex
+I’ll audit this chunk as an independent review, anchored to the diff and current file line numbers where useful. Since this is a review task, I’m going to focus on concrete shipped behavior and avoid speculative nits.
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/source-bar.cpp | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/audio-settings.cpp | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include "source-bar.h"
+     2	
+     3	// T009 (US2) — Live/File source selection UI. Callbacks only; the workbench applies
+     4	// the actual source change through the audio-stopped restart.
+     5	
+     6	namespace acfx::workbench {
+     7	
+     8	SourceBar::SourceBar() {
+     9	    liveButton_.onClick = [this] {
+    10	        if (onSelectLive)
+    11	            onSelectLive();
+    12	    };
+    13	    fileButton_.onClick = [this] { openChooser(); };
+    14	    addAndMakeVisible(liveButton_);
+    15	    addAndMakeVisible(fileButton_);
+    16	}
+    17	
+    18	void SourceBar::openChooser() {
+    19	    // Async chooser: keeps the message thread responsive and never touches the audio
+    20	    // thread. The FileChooser must outlive the launch, so it is owned by the bar.
+    21	    chooser_ = std::make_unique<juce::FileChooser>(
+    22	        "Choose an audio file to loop", juce::File{}, "*.wav;*.aiff;*.aif;*.flac;*.mp3");
+    23	    const auto flags =
+    24	        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+    25	    chooser_->launchAsync(flags, [this](const juce::FileChooser& fc) {
+    26	        const juce::File result = fc.getResult();
+    27	        if (result == juce::File{}) {
+    28	            // Cancelled with no selection — let the workbench keep a valid source
+    29	            // (revert to Live if none) rather than enter a broken no-source state.
+    30	            if (onChooseCancelled)
+    31	                onChooseCancelled();
+    32	            return;
+    33	        }
+    34	        if (onChooseFile)
+    35	            onChooseFile(result);
+    36	    });
+    37	}
+    38	
+    39	void SourceBar::resized() {
+    40	    auto area = getLocalBounds().reduced(4);
+    41	    liveButton_.setBounds(area.removeFromLeft(area.getWidth() / 2).reduced(4, 0));
+    42	    fileButton_.setBounds(area.reduced(4, 0));
+    43	}
+    44	
+    45	} // namespace acfx::workbench
+
+ succeeded in 0ms:
+     1	#include "audio-settings.h"
+     2	
+     3	// T006 (US1) — host the standard JUCE device selector in its own window.
+     4	
+     5	namespace acfx::workbench {
+     6	
+     7	AudioSettingsWindow::AudioSettingsWindow(juce::AudioDeviceManager& deviceManager)
+     8	    : juce::DocumentWindow("Audio Settings", juce::Colours::darkgrey,
+     9	                           juce::DocumentWindow::closeButton) {
+    10	    setUsingNativeTitleBar(true);
+    11	
+    12	    // (deviceManager, minIn=0, maxIn=2, minOut=0, maxOut=2, showMidiInputs=true,
+    13	    // showMidiOutputs=false, showChannelsAsStereoPairs=true, hideAdvanced=false) — one
+    14	    // component covers device + rate/buffer + MIDI-input selection (FR-001/002/005),
+    15	    // and its own UI surfaces device-open failures (FR-009), keeping the previous
+    16	    // working device when a new one fails to open.
+    17	    auto* selector = new juce::AudioDeviceSelectorComponent(
+    18	        deviceManager, 0, 2, 0, 2, true, false, true, false);
+    19	    selector->setSize(500, 480);
+    20	    setContentOwned(selector, true); // window takes ownership and sizes to the content
+    21	
+    22	    setResizable(true, false);
+    23	    centreWithSize(getWidth(), getHeight());
+    24	}
+    25	
+    26	void AudioSettingsWindow::closeButtonPressed() { setVisible(false); }
+    27	
+    28	} // namespace acfx::workbench
+
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/audio-source.cpp | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include "audio-source.h"
+     2	
+     3	#include <cstdint>
+     4	#include <memory>
+     5	
+     6	namespace acfx::workbench {
+     7	
+     8	WorkbenchAudioSource::WorkbenchAudioSource() { formatManager_.registerBasicFormats(); }
+     9	
+    10	void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
+    11	    if (configured_.load(std::memory_order_acquire))
+    12	        throw AudioSourceError("Cannot reselect the audio source while the stream is "
+    13	                               "running; release (stop audio) before reconfiguring.");
+    14	    if (!file.existsAsFile())
+    15	        throw AudioSourceError("Audio file does not exist: " + file.getFullPathName());
+    16	
+    17	    std::unique_ptr<juce::AudioFormatReader> reader(formatManager_.createReaderFor(file));
+    18	    if (reader == nullptr)
+    19	        throw AudioSourceError("No decoder for audio file: " + file.getFullPathName());
+    20	
+    21	    const int numChannels = static_cast<int>(reader->numChannels);
+    22	    // Validate length BEFORE narrowing to int (lengthInSamples is 64-bit). Bound
+    23	    // the in-memory buffer to a sane size (~93 min at 48 kHz) so a huge/corrupt
+    24	    // header can't overflow the int or exhaust memory.
+    25	    const std::int64_t lengthSamples = reader->lengthInSamples;
+    26	    constexpr std::int64_t kMaxSamples = std::int64_t{1} << 28;
+    27	    if (numChannels <= 0 || lengthSamples <= 0)
+    28	        throw AudioSourceError("Audio file is empty: " + file.getFullPathName());
+    29	    if (lengthSamples > kMaxSamples)
+    30	        throw AudioSourceError("Audio file is too long to load into memory: " +
+    31	                               file.getFullPathName());
+    32	    const int numSamples = static_cast<int>(lengthSamples);
+    33	
+    34	    // Decode the whole file into memory on this (setup) thread. The audio thread
+    35	    // only ever reads fileBuffer_ thereafter — no reader, no transport, no lock.
+    36	    juce::AudioBuffer<float> decoded(numChannels, numSamples);
+    37	    reader->read(&decoded, 0, numSamples, 0, true, true);
+    38	
+    39	    fileBuffer_ = std::move(decoded);
+    40	    playPos_.store(0, std::memory_order_relaxed);
+    41	    hasFile_.store(true, std::memory_order_release);
+    42	    live_.store(false, std::memory_order_release);
+    43	}
+    44	
+    45	void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
+    46	    if (configured_.load(std::memory_order_acquire))
+    47	        throw AudioSourceError("Cannot reselect the audio source while the stream is "
+    48	                               "running; release (stop audio) before reconfiguring.");
+    49	    if (availableInputChannels <= 0)
+    50	        throw AudioSourceError("Live input selected but the audio device offers no "
+    51	                               "input channels.");
+    52	    hasFile_.store(false, std::memory_order_release); // symmetric with useFilePlayer
+    53	    live_.store(true, std::memory_order_release);
+    54	}
+    55	
+    56	void WorkbenchAudioSource::prepare(double, int) {
+    57	    if (!live_.load(std::memory_order_acquire) && !hasFile_.load(std::memory_order_acquire))
+    58	        throw AudioSourceError("No audio source configured: select the built-in "
+    59	                               "player (with a file) or a live input device.");
+    60	    configured_.store(true, std::memory_order_release);
+    61	}
+    62	
+    63	void WorkbenchAudioSource::release() { configured_.store(false, std::memory_order_release); }
+    64	
+    65	void WorkbenchAudioSource::fillBlock(juce::AudioBuffer<float>& block) noexcept {
+    66	    if (live_.load(std::memory_order_relaxed))
+    67	        return; // device input is already present in `block`
+    68	
+    69	    const int fileLen = fileBuffer_.getNumSamples();
+    70	    if (!hasFile_.load(std::memory_order_relaxed) || fileLen <= 0) {
+    71	        block.clear();
+    72	        return;
+    73	    }
+    74	
+    75	    const int fileChannels = fileBuffer_.getNumChannels();
+    76	    const int numSamples = block.getNumSamples();
+    77	    const int startPos = playPos_.load(std::memory_order_relaxed);
+    78	
+    79	    for (int ch = 0; ch < block.getNumChannels(); ++ch) {
+    80	        const float* src = fileBuffer_.getReadPointer(ch < fileChannels ? ch : fileChannels - 1);
+    81	        float* dst = block.getWritePointer(ch);
+    82	        int pos = startPos;
+    83	        for (int i = 0; i < numSamples; ++i) {
+    84	            dst[i] = src[pos];
+    85	            if (++pos >= fileLen)
+    86	                pos = 0;
+    87	        }
+    88	    }
+    89	
+    90	    playPos_.store((startPos + numSamples) % fileLen, std::memory_order_relaxed);
+    91	}
+    92	
+    93	} // namespace acfx::workbench
+
+exec
+/bin/zsh -lc "nl -ba README.md | sed -n '45,90p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+    45	high-resonance stability guard, and the no-heap-allocation-in-`process()`
+    46	invariant.
+    47	
+    48	### Desktop workbench (sketch-and-hear) — Scenario B
+    49	
+    50	```bash
+    51	cmake --preset desktop
+    52	cmake --build --preset desktop --target acfx_workbench
+    53	```
+    54	
+    55	Launch the built app: auto-generated controls for cutoff / resonance / mode, a
+    56	dry/processed A/B toggle, and in-UI audio configuration:
+    57	
+    58	- **Audio Settings…** opens a window (JUCE's device selector) to choose the audio
+    59	  **input/output device**, sample rate, buffer size, and which **MIDI inputs** drive
+    60	  the parameter CCs.
+    61	- The **source bar** switches between **Live** input and a **file** you pick with
+    62	  **Load file…** (looped through the filter) — no environment variable required.
+    63	- All of these selections — device, rate/buffer, source (including the chosen file),
+    64	  and MIDI inputs — are **remembered across launches**. Device/source changes apply
+    65	  with the audio engine stopped, so switching never glitches or stalls the stream.
+    66	- Failures (a device that won't open, an unreadable/missing file, unreadable saved
+    67	  settings) are surfaced and leave the workbench in a safe, usable state — never
+    68	  silent silence or placeholder audio.
+    69	
+    70	### Desktop plugin (VST3 / AU / CLAP) — Scenario C
+    71	
+    72	```bash
+    73	cmake --preset desktop
+    74	# Build the format wrappers (the acfx_plugin aggregate is shared code only):
+    75	cmake --build --preset desktop --target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP
+    76	```
+    77	
+    78	The workbench's built-in player is reached from the UI (the **Load file…** button);
+    79	`ACFX_WORKBENCH_FILE=/path/to/audio.wav` remains only as a **first-run convenience**
+    80	that seeds the source when nothing has been saved yet — a saved selection always takes
+    81	precedence.
+    82	
+    83	### Hardware cross-compile — Scenario D
+    84	
+    85	Requires an ARM embedded toolchain **with the C++ standard library** (the stock
+    86	`arm-none-eabi-gcc` may be C-only and cannot build the C++ core):
+    87	
+    88	```bash
+    89	cmake --preset daisy  && cmake --build --preset daisy
+    90	cmake --preset teensy && cmake --build --preset teensy
+
+**Analyzing workbench-app issues**
+
+I’m considering inspecting the workbench-app since the user mentioned they can only see the file list in other chunks. It seems crucial to check the integration regarding the source-bar’s lifecycle, especially if components might be destroyed while the chooser is open. There may be an issue with JUCE if the callback is invoked after the SourceBar is destroyed, and I need to clarify whether the FileChooser's destruction cancels the callback. I think opening multiple choosers could lead to problems based on the documentation. It feels like I’ve stumbled upon an important finding here!
+**Examining file chooser issues**
+
+The user can double-click, which might cause crashes or dialog cancellations, indicating a potential correctness issue. I think there could be a crash happening in the UI. A reasonable fix might be to disable the file button while the chooser is active or to reset it in the callback if it's non-null. Additionally, I’m wondering if the AudioSettingsWindow should limit channels to 2. The workbench probably needs a stereo setup, but there’s no issue with devices having more channels. It seems the AudioSource's file player handling could also be a problem since it might not handle read failures properly, leading to unwanted silence.
+**Identifying file issues**
+
+I'm concerned that a corrupt or truncated audio file could be accepted silently. I need to look at line 37 because it seems like a strong finding. I'm not sure if the JUCE AudioBuffer initialization clears data by default, so I’ll need to check that. If the constructor doesn't clear the data, bad audio could be accepted, which is problematic. A reasonable fix would be to check for a boolean failure and throw an error. This feels like a high-severity issue if it leads to corrupt files being processed.
+codex
+### Ignored decode failure can accept an unreadable file as a valid source
+
+Finding-ID: AUDIT-BARRAGE-codex-01  
+Status:     open  
+Severity:   high  
+Surface:    adapters/workbench/audio-source.cpp:34-42
+
+`useFilePlayer()` validates that a reader exists and that the reported length is positive, but it ignores the return value from `reader->read(&decoded, ...)` at line 37. If decoding fails or only partially succeeds for a corrupt/truncated file, the function still installs `fileBuffer_`, sets `hasFile_ = true`, and switches out of live mode. That directly contradicts the README promise that unreadable files are surfaced and do not produce “silent silence or placeholder audio.”
+
+Blast radius is high because this is a shipped correctness path a user can hit by choosing a damaged but recognized audio file: the UI will believe the source switch succeeded, persistence may remember that file, and playback can become silent or invalid without an error. A reasonable fix is to check `read()`’s boolean result, clear/avoid installing the decoded buffer on failure, and throw `AudioSourceError` with the file path before changing source state.
+
+### Reopening the async chooser can destroy the previous chooser while it is still active
+
+Finding-ID: AUDIT-BARRAGE-codex-02  
+Status:     open  
+Severity:   medium  
+Surface:    adapters/workbench/source-bar.cpp:18-25
+
+`SourceBar::openChooser()` assigns a new `juce::FileChooser` into `chooser_` every time the button is clicked, then launches it asynchronously. The comment correctly says the chooser “must outlive the launch,” but a second click before the first chooser completes overwrites the `unique_ptr` at line 21 and destroys the first chooser while its async dialog is still outstanding. That opens a reachable UI state through ordinary double-click/repeated-click behavior.
+
+Blast radius is medium: it is localized to the source picker UI, but it can cause cancellation, undefined callback behavior, or a crash depending on JUCE/platform behavior. A reasonable fix is to guard `openChooser()` when `chooser_` is already non-null, disable the file button while the chooser is active, and reset `chooser_` only inside the async completion path after callbacks have run.
+tokens used
+17,211

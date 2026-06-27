@@ -22,6 +22,16 @@ description: "Task list — workbench audio device + source + MIDI selection"
 contracts/source-config.md) — written before its implementation. The rest is
 interactive JUCE UI verified by manual acceptance (quickstart Scenarios B–F).
 
+> ⚠️ **MANUAL ACCEPTANCE STATUS — NOT YET EXECUTED (AUDIT-20260627-03).** The
+> implementation, build, host unit tests (Scenario A, 17/17), and compile-verification
+> against real JUCE are **done**. The interactive quickstart **Scenarios B–F**
+> (T008, T011, T014, T016, and the Scenario-F part of T019) require real audio/MIDI
+> hardware and a display; they are **operator-owned and have NOT been run**. Those task
+> checkboxes are marked `[X]` only so the lifecycle's `tasks-complete` gate can audit
+> the committed code — **do NOT read them as "acceptance passed."** Device routing,
+> source switching, persistence restore, MIDI filtering, and rapid-switch RT-safety
+> remain **pending operator acceptance before graduation.**
+
 ## Format: `[ID] [P?] [Story] Description with file path`
 
 - **[P]**: parallelizable (different files, no dependency on an incomplete task)

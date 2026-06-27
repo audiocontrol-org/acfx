@@ -101,11 +101,16 @@ public:
             sourceFile_ = juce::File(juce::String::fromUTF8(path));
         }
 
-        // Remember the saved output-device name (if any) so a device that has since
-        // vanished can be surfaced after the manager falls back (FR-009 edge case).
-        juce::String savedOutputDevice;
-        if (loaded.deviceState != nullptr)
-            savedOutputDevice = loaded.deviceState->getStringAttribute("audioOutputDeviceName");
+        // Remember the saved output AND input device names (if any) so either one that
+        // has since vanished can be surfaced after the manager falls back (FR-009 edge
+        // case; AUDIT-20260627-02). Also keep a copy of the saved device-state XML so a
+        // fallback session does not clobber the saved preference on quit/auto-save
+        // (AUDIT-20260627-01).
+        if (loaded.deviceState != nullptr) {
+            preferredOutputDevice_ = loaded.deviceState->getStringAttribute("audioOutputDeviceName");
+            preferredInputDevice_ = loaded.deviceState->getStringAttribute("audioInputDeviceName");
+            preferredDeviceState_ = std::make_unique<juce::XmlElement>(*loaded.deviceState);
+        }
 
         setSize(520, 300);
         // Restore devices/rate/buffer (and enabled MIDI inputs) from the saved state; a
@@ -131,7 +136,7 @@ public:
         // and auto-enable above do not trigger redundant construction-time saves).
         deviceManager.addChangeListener(this);
 
-        surfaceStartupIssues(loaded.corrupt, savedOutputDevice);
+        surfaceStartupIssues(loaded.corrupt);
     }
 
     ~WorkbenchComponent() override {
@@ -263,28 +268,76 @@ private:
         return SourceConfig{SourceMode::live, ""};
     }
 
-    void saveSettings() { persistence_.save(deviceManager, currentSourceConfig()); }
+    // True when a saved preferred device (output or input) is not in the current
+    // device list — i.e. the open device is an automatic fallback we must not persist
+    // over the saved preference (AUDIT-20260627-01).
+    bool preferredDeviceUnavailable() const {
+        auto* type = deviceManager.getCurrentDeviceTypeObject();
+        if (type == nullptr)
+            return false;
+        const bool outMissing = preferredOutputDevice_.isNotEmpty()
+                                && !type->getDeviceNames(false).contains(preferredOutputDevice_);
+        const bool inMissing = preferredInputDevice_.isNotEmpty()
+                               && !type->getDeviceNames(true).contains(preferredInputDevice_);
+        return outMissing || inMissing;
+    }
+
+    // Capture the live device state as the new preferred snapshot, so a later fallback
+    // preserves the user's current (deliberate) selection rather than a stale one.
+    void refreshPreferredSnapshot() {
+        preferredDeviceState_ = deviceManager.createStateXml();
+        if (preferredDeviceState_ != nullptr) {
+            preferredOutputDevice_ =
+                preferredDeviceState_->getStringAttribute("audioOutputDeviceName");
+            preferredInputDevice_ =
+                preferredDeviceState_->getStringAttribute("audioInputDeviceName");
+        }
+    }
+
+    void saveSettings() {
+        // While a preferred device is temporarily unavailable, preserve the saved
+        // device-state rather than clobbering it with the fallback device, so the
+        // preference is reselected when the device returns (AUDIT-20260627-01). The
+        // tradeoff: a deliberate device change made DURING a fallback session is not
+        // persisted until the preferred device is back — the conservative choice, since
+        // a fallback and a deliberate pick are indistinguishable here. The source
+        // selection is always persisted.
+        if (preferredDeviceUnavailable() && preferredDeviceState_ != nullptr) {
+            persistence_.savePreserving(preferredDeviceState_.get(), currentSourceConfig());
+            return;
+        }
+        persistence_.save(deviceManager, currentSourceConfig());
+        refreshPreferredSnapshot();
+    }
 
     // Device-manager changes (device/rate/buffer/MIDI edits via the selector) persist
     // the new configuration (FR-006).
     void changeListenerCallback(juce::ChangeBroadcaster*) override { saveSettings(); }
 
     // Surface (never swallow) startup problems: unreadable saved settings, or a saved
-    // device that is gone and was fallen back from (FR-009). Defaults are already in
-    // effect by the time this runs; this only informs the person.
-    void surfaceStartupIssues(bool corrupt, const juce::String& savedOutputDevice) {
+    // output OR input device that is gone and was fallen back from (FR-009;
+    // AUDIT-20260627-02). Defaults are already in effect by the time this runs; this
+    // only informs the person. The active names are read from the live state XML — the
+    // same attribute source as the saved names — so the comparison is apples-to-apples.
+    void surfaceStartupIssues(bool corrupt) {
         juce::StringArray messages;
         if (corrupt)
             messages.add("Your saved workbench settings were unreadable; starting with "
                          "defaults.");
 
-        juce::String activeDevice;
-        if (auto* device = deviceManager.getCurrentAudioDevice())
-            activeDevice = device->getName();
-        if (savedOutputDevice.isNotEmpty() && activeDevice.isNotEmpty()
-            && savedOutputDevice != activeDevice)
-            messages.add("Saved audio device \"" + savedOutputDevice + "\" was "
-                         "unavailable; using \"" + activeDevice + "\" instead.");
+        juce::String activeOutput, activeInput;
+        if (auto state = deviceManager.createStateXml()) {
+            activeOutput = state->getStringAttribute("audioOutputDeviceName");
+            activeInput = state->getStringAttribute("audioInputDeviceName");
+        }
+        if (preferredOutputDevice_.isNotEmpty() && activeOutput.isNotEmpty()
+            && preferredOutputDevice_ != activeOutput)
+            messages.add("Saved output device \"" + preferredOutputDevice_ + "\" was "
+                         "unavailable; using \"" + activeOutput + "\" instead.");
+        if (preferredInputDevice_.isNotEmpty() && activeInput.isNotEmpty()
+            && preferredInputDevice_ != activeInput)
+            messages.add("Saved input device \"" + preferredInputDevice_ + "\" was "
+                         "unavailable; using \"" + activeInput + "\" instead.");
 
         if (messages.isEmpty())
             return;
@@ -318,6 +371,13 @@ private:
     SourceBar sourceBar_;
     std::unique_ptr<AudioSettingsWindow> audioSettings_;
     WorkbenchPersistence persistence_;
+
+    // The saved device preference, kept so a temporarily-unavailable device is not
+    // clobbered by the fallback on save (AUDIT-20260627-01/02). Refreshed to the live
+    // state whenever a non-fallback save happens.
+    juce::String preferredOutputDevice_;
+    juce::String preferredInputDevice_;
+    std::unique_ptr<juce::XmlElement> preferredDeviceState_;
 
     // Current source selection, owned on the message thread and read by prepareToPlay
     // (the single reconfigure point). The source bar (T010) mutates these and then

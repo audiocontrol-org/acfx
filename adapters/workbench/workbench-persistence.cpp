@@ -46,10 +46,21 @@ LoadedSettings WorkbenchPersistence::load() {
 
 void WorkbenchPersistence::save(const juce::AudioDeviceManager& deviceManager,
                                 const SourceConfig& source) {
+    const auto xml = deviceManager.createStateXml();
+    writeSettings(xml.get(), source);
+}
+
+void WorkbenchPersistence::savePreserving(const juce::XmlElement* deviceState,
+                                          const SourceConfig& source) {
+    writeSettings(deviceState, source);
+}
+
+void WorkbenchPersistence::writeSettings(const juce::XmlElement* deviceState,
+                                         const SourceConfig& source) {
     auto* props = applicationProperties_.getUserSettings();
 
-    if (auto xml = deviceManager.createStateXml())
-        props->setValue(kDeviceStateKey, xml.get());
+    if (deviceState != nullptr)
+        props->setValue(kDeviceStateKey, deviceState);
     else
         props->removeValue(kDeviceStateKey);
 
