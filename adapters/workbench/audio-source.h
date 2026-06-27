@@ -15,10 +15,13 @@
 // RT-safety (Constitution VI): the file is decoded into an in-memory buffer
 // before the stream starts (off the audio thread); fillBlock() then reads that
 // buffer at an atomic play position with no locks and no allocation. Source
-// selection (useFilePlayer / useLiveInput) is a setup-time operation: it must
-// happen before prepare(), and switching sources requires stopping the stream
-// first. That precondition is ENFORCED — a selection call while already
-// configured throws — so the audio thread never reads a buffer being reassigned.
+// selection (useFilePlayer / useLiveInput) is a RECONFIGURE operation, legitimately
+// repeated whenever the workbench switches device or source — but ONLY while the
+// audio callback is stopped. The lifecycle invariant is "release before reconfigure":
+// the workbench calls release() (the audio-stopped window JUCE's restart cycle
+// provides) before reselecting, then prepare(). That invariant is ENFORCED — a
+// selection call while still configured (stream running) throws — so the audio thread
+// never reads fileBuffer_/live_/hasFile_ while they are being reassigned.
 
 namespace acfx::workbench {
 
@@ -33,12 +36,15 @@ public:
     WorkbenchAudioSource();
 
     // Decode the given file into memory and select it as the source. Throws
-    // AudioSourceError if the file cannot be opened/decoded. Call at setup (off
-    // the audio thread).
+    // AudioSourceError if the file cannot be opened/decoded, or if the source is
+    // still configured (the stream must be released/stopped before reselecting — the
+    // release-before-reconfigure invariant). Call on the message thread, off the
+    // audio thread.
     void useFilePlayer(const juce::File& file);
 
     // Use the live device input. `availableInputChannels` is what the device
-    // offers; throws AudioSourceError if there are none.
+    // offers; throws AudioSourceError if there are none, or if the source is still
+    // configured (release before reselecting).
     void useLiveInput(int availableInputChannels);
 
     void prepare(double sampleRate, int blockSize);

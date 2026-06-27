@@ -9,8 +9,8 @@ WorkbenchAudioSource::WorkbenchAudioSource() { formatManager_.registerBasicForma
 
 void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
     if (configured_.load(std::memory_order_acquire))
-        throw AudioSourceError("Audio source must be selected before the stream "
-                               "starts; stop audio to switch sources.");
+        throw AudioSourceError("Cannot reselect the audio source while the stream is "
+                               "running; release (stop audio) before reconfiguring.");
     if (!file.existsAsFile())
         throw AudioSourceError("Audio file does not exist: " + file.getFullPathName());
 
@@ -44,8 +44,8 @@ void WorkbenchAudioSource::useFilePlayer(const juce::File& file) {
 
 void WorkbenchAudioSource::useLiveInput(int availableInputChannels) {
     if (configured_.load(std::memory_order_acquire))
-        throw AudioSourceError("Audio source must be selected before the stream "
-                               "starts; stop audio to switch sources.");
+        throw AudioSourceError("Cannot reselect the audio source while the stream is "
+                               "running; release (stop audio) before reconfiguring.");
     if (availableInputChannels <= 0)
         throw AudioSourceError("Live input selected but the audio device offers no "
                                "input channels.");

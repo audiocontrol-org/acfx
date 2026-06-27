@@ -13,6 +13,7 @@
 #include "midi-binding.h"
 #include "parameter-view.h"
 #include "processor-node/processor-node.h"
+#include "workbench-settings.h"
 
 // The desktop sketch-and-hear workbench (T022, T026). Holds the effect behind the
 // same host boundary the plugin uses — std::unique_ptr<ProcessorNode> =
@@ -48,6 +49,16 @@ public:
         abToggle_.onClick = [this] { processed_.store(abToggle_.getToggleState()); };
         addAndMakeVisible(abToggle_);
 
+        // First-run source default: ACFX_WORKBENCH_FILE selects the built-in file
+        // player as a CONVENIENCE only — the UI source bar (T010) is the real control,
+        // and the env var is no longer required to reach the player (FR-004). Without
+        // it the workbench defaults to live input. This only seeds the initial
+        // message-thread state; prepareToPlay reconfigures from that state thereafter.
+        if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
+            mode_ = SourceMode::file;
+            sourceFile_ = juce::File(juce::String::fromUTF8(path));
+        }
+
         setSize(520, 220);
         // Stereo in/out: input present for live-input mode.
         setAudioChannels(2, 2);
@@ -72,16 +83,21 @@ public:
         const ProcessContext ctx{sampleRate, blockSize, preparedChannels_};
         node_->prepare(ctx);
 
-        // Source selection (no silent fallback): the built-in file player when
-        // ACFX_WORKBENCH_FILE points at an audio file (the deterministic default
-        // for reproducible A/B), else the live device input, else a surfaced error.
+        // The SINGLE source reconfigure point (FR-008): release any prior selection,
+        // (re)configure from the current message-thread state, then prepare. JUCE
+        // brackets prepareToPlay between audioDeviceStopped/audioDeviceAboutToStart, so
+        // the audio callback is guaranteed STOPPED here — the source buffers are never
+        // reassigned under a live callback. Every device/source change routes through a
+        // device restart (restartAudio / the device selector), which re-enters here.
+        source_.release();
         const int inputs = numInputChannels();
         try {
-            if (const char* path = std::getenv("ACFX_WORKBENCH_FILE")) {
-                source_.useFilePlayer(juce::File(juce::String::fromUTF8(path)));
-            } else if (inputs > 0) {
+            // No silent fallback (Constitution V): configure exactly the selected
+            // source; a failure (no input, unreadable file) is surfaced below.
+            if (mode_ == SourceMode::file)
+                source_.useFilePlayer(sourceFile_);
+            else
                 source_.useLiveInput(inputs);
-            }
             source_.prepare(sampleRate, blockSize);
             sourceReady_ = true;
         } catch (const AudioSourceError& e) {
@@ -153,6 +169,13 @@ private:
         return 0;
     }
 
+    // Apply a source change with the audio callback STOPPED. restartLastAudioDevice()
+    // drives audioDeviceStopped -> releaseResources -> audioDeviceAboutToStart ->
+    // prepareToPlay, and prepareToPlay reconfigures the source from the updated
+    // message-thread state. The swap therefore happens entirely inside that stopped
+    // window (FR-008) — no mid-callback source change. Message-thread only.
+    void restartAudio() { deviceManager.restartLastAudioDevice(); }
+
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& msg) override {
         midi_.handle(msg, [this](ParamId id, float norm) {
             node_->setParameter(id, norm); // core is thread-safe (atomic pending)
@@ -172,6 +195,12 @@ private:
     MidiBinding midi_;
     WorkbenchAudioSource source_;
     juce::ToggleButton abToggle_;
+
+    // Current source selection, owned on the message thread and read by prepareToPlay
+    // (the single reconfigure point). The source bar (T010) mutates these and then
+    // calls restartAudio() to apply the change with the callback stopped.
+    SourceMode mode_ = SourceMode::live;
+    juce::File sourceFile_;
 
     int preparedChannels_ = 2;
     bool sourceReady_ = false;
