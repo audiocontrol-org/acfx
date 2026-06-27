@@ -11,6 +11,7 @@
 #include "dsp/audio-block.h"
 #include "dsp/process-context.h"
 #include "effects/svf/svf-effect.h"
+#include "level-meter.h"
 #include "midi-binding.h"
 #include "parameter-view.h"
 #include "processor-node/processor-node.h"
@@ -89,6 +90,15 @@ public:
         };
         addAndMakeVisible(sourceBar_);
 
+        // Input/output level meter: shows on screen whether audio is arriving, and logs
+        // the peaks ~once per second so the same answer is visible in the tailable log.
+        meter_.onLog = [this](float inputPeak, float outputPeak) {
+            juce::Logger::writeToLog(
+                "level  in=" + juce::Decibels::toString(juce::Decibels::gainToDecibels(inputPeak))
+                + "  out=" + juce::Decibels::toString(juce::Decibels::gainToDecibels(outputPeak)));
+        };
+        addAndMakeVisible(meter_);
+
         // Restore persisted selections (FR-006). Saved settings take precedence over
         // the ACFX_WORKBENCH_FILE first-run convenience (FR-004): the env var only
         // seeds the source when there is nothing saved yet. This sets the initial
@@ -128,7 +138,7 @@ public:
             preferredDeviceState_ = std::make_unique<juce::XmlElement>(*loaded.deviceState);
         }
 
-        setSize(520, 300);
+        setSize(520, 344);
         // Restore devices/rate/buffer (and enabled MIDI inputs) from the saved state; a
         // null state initialises defaults and a saved-but-missing device falls back to
         // an available one (selectDefaultDeviceOnFailure). This drives prepareToPlay,
@@ -198,6 +208,20 @@ public:
                     juce::MessageBoxIconType::WarningIcon, "Audio source unavailable", message);
             });
         }
+
+        // Log the resolved audio configuration (no audio data — just the state). This is
+        // the first place to look when diagnosing "no input": in=0 means the device has
+        // no input channels (or the OS denied microphone access).
+        juce::String deviceName("(none)");
+        if (auto* dev = deviceManager.getCurrentAudioDevice())
+            deviceName = dev->getName();
+        juce::Logger::writeToLog(
+            "prepareToPlay  device=\"" + deviceName + "\"  sr=" + juce::String(sampleRate, 0)
+            + "  block=" + juce::String(blockSize) + "  in=" + juce::String(inputs)
+            + "  out=" + juce::String(preparedChannels_) + "  source="
+            + (mode_ == SourceMode::file ? "file:" + sourceFile_.getFullPathName()
+                                         : juce::String("live"))
+            + "  sourceReady=" + (sourceReady_ ? "yes" : "no"));
     }
 
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override {
@@ -211,6 +235,7 @@ public:
         // unprepared source. The failure was already surfaced in prepareToPlay.
         if (!sourceReady_) {
             buffer.clear(startSample, numSamples);
+            meter_.pushPeaks(0.0f, 0.0f);
             return;
         }
 
@@ -226,14 +251,23 @@ public:
                                         buffer.getNumChannels(), startSample, numSamples);
         source_.fillBlock(region);
 
-        if (!processed_.load())
-            return; // A/B: dry — leave the source audio untouched
+        // Input level = the source audio BEFORE the filter (read-only scan; no alloc or
+        // lock, RT-safe). Stored to the meter via lock-free atomics so the message
+        // thread can show + log it — this is how "is audio arriving?" becomes visible.
+        const float inputPeak = region.getMagnitude(0, numSamples);
+
+        if (!processed_.load()) {
+            meter_.pushPeaks(inputPeak, inputPeak); // A/B: dry — output equals input
+            return;
+        }
 
         std::array<float*, kMaxChannels> chans{};
         for (int ch = 0; ch < numChannels; ++ch)
-            chans[ch] = buffer.getWritePointer(ch, startSample);
+            chans[static_cast<std::size_t>(ch)] = buffer.getWritePointer(ch, startSample);
         AudioBlock block(chans.data(), numChannels, numSamples);
         node_->processBlock(block);
+
+        meter_.pushPeaks(inputPeak, region.getMagnitude(0, numSamples));
     }
 
     void releaseResources() override { source_.release(); }
@@ -243,6 +277,7 @@ public:
         audioSettingsButton_.setBounds(area.removeFromTop(32).reduced(8, 4));
         sourceBar_.setBounds(area.removeFromTop(36).reduced(4, 2));
         abToggle_.setBounds(area.removeFromBottom(32).reduced(8, 4));
+        meter_.setBounds(area.removeFromBottom(44).reduced(8, 4));
         paramView_.setBounds(area);
     }
 
@@ -388,6 +423,7 @@ private:
     juce::ToggleButton abToggle_;
     juce::TextButton audioSettingsButton_;
     SourceBar sourceBar_;
+    LevelMeter meter_;
     std::unique_ptr<AudioSettingsWindow> audioSettings_;
     WorkbenchPersistence persistence_;
 
@@ -419,9 +455,19 @@ public:
     const juce::String getApplicationVersion() override { return "0.1.0"; }
 
     void initialise(const juce::String&) override {
+        // A tailable log of the audio configuration + periodic peak levels (no audio
+        // data). createDefaultAppLogger writes to ~/Library/Logs/acfx/acfx-workbench.log
+        // on macOS. Created before the window so startup/config logging is captured.
+        logger_.reset(juce::FileLogger::createDefaultAppLogger(
+            "acfx", "acfx-workbench.log", "acfx Workbench session start"));
+        juce::Logger::setCurrentLogger(logger_.get());
         mainWindow_ = std::make_unique<MainWindow>(getApplicationName());
     }
-    void shutdown() override { mainWindow_ = nullptr; }
+    void shutdown() override {
+        mainWindow_ = nullptr;
+        juce::Logger::setCurrentLogger(nullptr); // unset before the logger is destroyed
+        logger_ = nullptr;
+    }
 
 private:
     class MainWindow final : public juce::DocumentWindow {
@@ -440,6 +486,7 @@ private:
         }
     };
 
+    std::unique_ptr<juce::FileLogger> logger_;
     std::unique_ptr<MainWindow> mainWindow_;
 };
 

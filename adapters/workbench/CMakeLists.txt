@@ -5,6 +5,12 @@
 juce_add_gui_app(acfx_workbench
   PRODUCT_NAME "acfx Workbench"
   COMPANY_NAME "acfx"
+  # Live input is a core workbench use (filter the live device input). On macOS an app
+  # that opens an audio input MUST declare NSMicrophoneUsageDescription or the OS
+  # silently denies/zeros the input (TCC). Enabling this adds that Info.plist key so
+  # macOS prompts for — and can grant — audio-input access.
+  MICROPHONE_PERMISSION_ENABLED TRUE
+  MICROPHONE_PERMISSION_TEXT "acfx Workbench needs audio-input access to filter your live input device."
 )
 
 target_sources(acfx_workbench PRIVATE
@@ -15,6 +21,7 @@ target_sources(acfx_workbench PRIVATE
   source-bar.cpp
   workbench-settings.cpp
   workbench-persistence.cpp
+  level-meter.cpp
 )
 
 target_compile_features(acfx_workbench PRIVATE cxx_std_20)
