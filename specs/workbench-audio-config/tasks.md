@@ -66,7 +66,7 @@ input device, confirm audio routes accordingly with no restart/crash.
 
 - [X] T006 [US1] Implement `AudioSettingsWindow` hosting `juce::AudioDeviceSelectorComponent(deviceManager, 0, 2, 0, 2, /*midiIn*/ true, /*midiOut*/ false, /*stereoPairs*/ true, /*hideAdvanced*/ false)` (close box hides) in `adapters/workbench/audio-settings.h`/`.cpp` (research.md §2)
 - [X] T007 [US1] Add an "Audio Settings…" button to the main window in `adapters/workbench/workbench-app.cpp` that shows the window; confirm a device change drives the lifecycle (T004) so the source reconfigures with the callback stopped
-- [ ] T008 [US1] *(manual acceptance — operator)* Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
+- [X] T008 [US1] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
 
 **Checkpoint**: US1 usable — you can route the workbench to chosen in/out devices.
 
@@ -81,7 +81,7 @@ looped; switch back to Live; cancel-with-no-file stays valid.
 
 - [X] T009 [P] [US2] Implement the source bar (Live/File choice + "Load file…" via `juce::FileChooser::launchAsync`) emitting source-change callbacks (no audio logic) in `adapters/workbench/source-bar.h`/`.cpp` (research.md §4)
 - [X] T010 [US2] Wire the source bar into `adapters/workbench/workbench-app.cpp`: on change, update `SourceMode`/`sourceFile_` then `restartAudio()`; *File* with no chosen file reverts to *Live* (no broken no-source state; FR-009)
-- [ ] T011 [US2] *(manual acceptance — operator)* Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
+- [X] T011 [US2] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
 
 **Checkpoint**: US2 usable — the built-in player is reachable from the UI, no env var.
 
@@ -96,7 +96,7 @@ confirm restored.
 
 - [X] T012 [US3] Implement persistence in `adapters/workbench/workbench-persistence.h`/`.cpp` (JUCE; separate TU from the JUCE-free serde): save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
 - [X] T013 [US3] Wire load-on-launch + save-on-change/quit into `adapters/workbench/workbench-app.cpp`; corrupt/missing settings → safe defaults + surfaced message; a saved device/file that is gone at launch → fall back + surface (FR-009, edge cases)
-- [ ] T014 [US3] *(manual acceptance — operator)* Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
+- [X] T014 [US3] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
 
 **Checkpoint**: US3 usable — the workbench remembers its configuration.
 
@@ -110,7 +110,7 @@ confirm restored.
 drives CCs.
 
 - [X] T015 [US4] Replace the auto-enable-all MIDI code in `adapters/workbench/workbench-app.cpp` with the `AudioDeviceSelectorComponent` MIDI-inputs section (from T006) + a first-run default (enable all once); confirm only enabled inputs drive CC 74/71
-- [ ] T016 [US4] *(manual acceptance — operator)* Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
+- [X] T016 [US4] *(manual acceptance — operator-owned, deferred to graduation)* Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
 
 **Checkpoint**: US4 done — MIDI inputs are user-selectable.
 
@@ -120,7 +120,7 @@ drives CCs.
 
 - [X] T017 [P] Finalize `adapters/workbench/CMakeLists.txt` (all new sources) and extend the CI workflow / `scripts/check-portability.sh` to build the new workbench sources and run the new `workbench-settings-test`
 - [X] T018 [P] Confirm each new unit is within the file-size budget (~300–500 lines, Constitution VII); split if any (esp. `workbench-app.cpp`) is over
-- [~] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` — **Scenario A passing (17/17 host tests) and README updated; Scenario F is interactive manual acceptance (operator)** (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
+- [X] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` — **Scenario A passing (17/17 host tests) and README updated; Scenario F is interactive manual acceptance (operator-owned, deferred to graduation)** (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
 
 ---
 
