@@ -1,0 +1,33 @@
+.stack-control/state/
+
+# Governance run artifacts — transient/regenerable barrage outputs and convergence
+# records. They are rewritten on every `stackctl govern` run and read from disk by the
+# graduate gate, so they do not belong in the tracked diff (committing them recursively
+# feeds govern's own output back into the next audited diff — AUDIT-20260627-05). The
+# durable findings ledger (audit-log.md) stays tracked.
+.stack-control/audit-runs/
+.stack-control/govern/convergence/
+
+# Build output
+build/
+build-*/
+out/
+
+# CPM fetched dependencies + cache
+external/_deps/
+external/.cpm-cache/
+.cpmcache/
+
+# Compiled objects / artifacts
+*.o
+*.a
+*.so
+*.dll
+*.exe
+*.dylib
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

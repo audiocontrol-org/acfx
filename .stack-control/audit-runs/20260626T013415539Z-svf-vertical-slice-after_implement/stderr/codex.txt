@@ -1,0 +1,1240 @@
+Reading prompt from stdin...
+OpenAI Codex v0.141.0
+--------
+workdir: /Users/orion/work/acfx-work/platform-foundation
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: detailed
+session id: 019f0190-34db-7711-af3a-8e3dd2a55493
+--------
+user
+# Audit-barrage — multi-model audit prompt template
+
+You are an **independent audit reviewer** firing as part of a multi-model audit barrage. Your siblings (other CLIs running this same prompt in parallel) emit their own findings independently; the operator triages all of your outputs side-by-side after every model has settled. Your job is to surface the kinds of defects listed under **What to look for** below, in the work product captured under **Under audit**.
+
+You are NOT collaborating with the other models. You write what you see. The cross-model genetic diversity comes from each of you reporting independently.
+
+## Feature under audit
+
+svf-vertical-slice
+
+## Feature scope (workplan / PRD summary)
+
+
+
+## Commit subjects in the audited range
+
+2406235 Address round-3 govern findings: precise contracts, lock-free atomics, enforced precondition
+2fef393 Address round-2 govern findings: RT-safety, error surfacing, adapter races
+bd79479 Address govern findings: RT-safety, thread ownership, doc drift
+8e0e37b Replace vendored CPM.cmake with pinned auto-download bootstrap
+f88525b Close acceptance tasks with honest verified/manual split (T027/T031/T035)
+60b4523 Fix desktop build integration + JUCE-API bugs caught by real compilation
+ee53b33 Phase 6 (polish): CI, explicit portability gates, README
+ae69f91 Phase 5 (US3): Daisy + Teensy adapters; core proven ARM-portable
+e74b0db Phase 4 (US2): DAW plugin (VST3 / AU / CLAP)
+e27e832 Phase 3 (US1): desktop sketch-and-hear workbench (JUCE)
+0ebd7d3 Phase 2 (foundational): core spine + host-side tests, all green
+1b05595 Phase 1 (setup): monorepo skeleton + CMake build system
+
+
+## Recent audit-log excerpt (prior findings on this feature)
+
+Use this to avoid re-reporting findings that have already been triaged. If a finding was previously dispositioned (`closed`, `won't-fix`, `accepted-trade-off`), don't re-litigate the disposition; only surface a new instance if the underlying shape regressed.
+
+
+
+## Under audit
+
+The actual code under review. Read it carefully. The findings you emit must be anchored to specific files + line ranges in this diff (or call out a missing surface that should be in the diff but isn't).
+
+Governance pass over the just-implemented work for feature 'svf-vertical-slice', diffed against ff3426a. The differentiated back half audits a plan it did not author or execute.
+## Other chunks (file lists onl
+…[shared context truncated to fit the fleet envelope]
+
+## Chunk 51a61c640621e280
+Files in scope: core/dsp/effect.h, core/dsp/param-id.h, core/dsp/parameter.h, core/dsp/process-context.h, core/dsp/span.h, core/effects/svf/svf-effect.h, core/primitives/svf-primitive.h, external/.gitkeep, host/processor-node/CMakeLists.txt, host/processor-node/processor-node.h
+
+## Diffs
+
+### core/dsp/effect.h
+diff --git a/core/dsp/effect.h b/core/dsp/effect.h
+new file mode 100644
+index 0000000..38367b9
+--- /dev/null
++++ b/core/dsp/effect.h
+@@ -0,0 +1,65 @@
++#pragma once
++
++#include "dsp/audio-block.h"
++#include "dsp/param-id.h"
++#include "dsp/parameter.h"
++#include "dsp/process-context.h"
++#include "dsp/span.h"
++
++// The compile-time contract every effect satisfies — no base class, no vtable in
++// the audio path (FR-001, contracts/effect-concept.md). On a C++20 toolchain this
++// is a named concept; on C++17 (Teensy) the same member signatures are enforced
++// by plain template instantiation (duck typing), with a best-effort static trait
++// preserved for diagnostics. The effect code is identical either way.
++
++#if defined(__cpp_concepts) && __cpp_concepts >= 201907L
++
++#include <concepts>
++
++namespace acfx {
++
++template <typename T>
++concept Effect =
++    requires(T fx, const ProcessContext& ctx, AudioBlock& io, ParamId id, float norm) {
++        { fx.prepare(ctx) } -> std::same_as<void>;        // set sr, maxBlock, channels
++        { fx.process(io) } -> std::same_as<void>;         // in-place; NO heap alloc
++        { fx.reset() } -> std::same_as<void>;             // clear internal state
++        { T::parameters() } -> std::convertible_to<span<const ParameterDescriptor>>;
++        { fx.setParameter(id, norm) } -> std::same_as<void>; // normalized 0..1 in
++    };
++
++} // namespace acfx
++
++// Use as: template <ACFX_EFFECT_CONCEPT T> ... — a constrained template here.
++#define ACFX_EFFECT_CONCEPT ::acfx::Effect
++
++#else // C++17 degradation: no concepts available.
++
++#include <type_traits>
++
++namespace acfx {
++
++// Best-effort detection trait (diagnostic only; never gates the build on this
++// target). Template instantiation still enforces the real member signatures.
++template <typename, typename = void>
++struct is_effect : std::false_type {};
++
++template <typename T>
++struct is_effect<
++    T, std::void_t<decltype(std::declval<T&>().prepare(std::declval<const ProcessContext&>())),
++                   decltype(std::declval<T&>().process(std::declval<AudioBlock&>())),
++                   decltype(std::declval<T&>().reset()),
++                   decltype(T::parameters()),
++                   decltype(std::declval<T&>().setParameter(std::declval<ParamId>(),
++                                                            std::declval<float>()))>>
++    : std::true_type {};
++
++template <typename T>
++inline constexpr bool is_effect_v = is_effect<T>::value;
++
++} // namespace acfx
++
++// Unconstrained on C++17 — duck typing enforces the same shape.
++#define ACFX_EFFECT_CONCEPT typename
++
++#endif
+
+
+### core/dsp/param-id.h
+diff --git a/core/dsp/param-id.h b/core/dsp/param-id.h
+new file mode 100644
+index 0000000..9ae8c1b
+--- /dev/null
++++ b/core/dsp/param-id.h
+@@ -0,0 +1,28 @@
++#pragma once
++
++#include <cstdint>
++
++// Strongly-typed parameter identity + the descriptor enums. No platform headers.
++// (contracts/parameter-model.md)
++
++namespace acfx {
++
++// A strongly-typed parameter identifier — not a bare int. Small, stable, dense
++// per effect; indexes into the effect's constexpr descriptor table.
++struct ParamId {
++    std::uint8_t value;
++};
++
++constexpr bool operator==(ParamId a, ParamId b) noexcept { return a.value == b.value; }
++constexpr bool operator!=(ParamId a, ParamId b) noexcept { return a.value != b.value; }
++
++// Display/semantic unit of a parameter (for labels + host metadata).
++enum class ParamUnit : std::uint8_t { none, hz, decibels, percent, ratio };
++
++// How a normalized 0..1 value maps to plain units.
++enum class ParamSkew : std::uint8_t { linear, logarithmic };
++
++// Whether a parameter is a continuous range or a discrete enumeration.
++enum class ParamKind : std::uint8_t { continuous, discrete };
++
++} // namespace acfx
+
+
+### core/dsp/parameter.h
+diff --git a/core/dsp/parameter.h b/core/dsp/parameter.h
+new file mode 100644
+index 0000000..e0caa15
+--- /dev/null
++++ b/core/dsp/parameter.h
+@@ -0,0 +1,93 @@
++#pragma once
++
++#include "dsp/param-id.h"
++
++#include <algorithm>
++#include <cassert>
++#include <cmath>
++#include <cstdint>
++#include <string_view>
++
++// The single declared definition of one control, consumed by every adapter
++// (FR-003), plus the pure, allocation-free normalized<->plain mapping.
++// (contracts/parameter-model.md)
++
++namespace acfx {
++
++struct ParameterDescriptor {
++    ParamId id;
++    std::string_view name; // static storage (string literal)
++    ParamUnit unit;
++    float min;
++    float max;
++    float defaultValue; // plain units, within [min, max]
++    ParamSkew skew;
++    ParamKind kind;
++    std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
++};
++
++namespace detail {
++constexpr float clamp01(float x) noexcept { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
++} // namespace detail
++
++// norm (0..1) -> plain units. Pure, allocation-free, audio-thread safe.
++inline float denormalize(const ParameterDescriptor& d, float norm) noexcept {
++    norm = detail::clamp01(norm);
++    switch (d.kind) {
++    case ParamKind::discrete: {
++        // Quantize to a bucket index in [0, discreteCount); the index IS the
++        // plain value (the effect maps index -> enum).
++        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
++        int idx = static_cast<int>(norm * static_cast<float>(count));
++        if (idx >= count)
++            idx = count - 1;
++        return static_cast<float>(idx);
++    }
++    case ParamKind::continuous:
++    default:
++        break;
++    }
++
++    switch (d.skew) {
++    case ParamSkew::logarithmic:
++        // Requires 0 < min < max (else 0*pow(inf,n) or log(1)=0 yield NaN). The
++        // invariant is enforced in debug builds; it compiles out in release, so
++        // the audio path stays branch-bounded and allocation-free.
++        assert(d.min > 0.0f && d.max > d.min &&
++               "logarithmic parameter requires 0 < min < max");
++        return d.min * std::pow(d.max / d.min, norm);
++    case ParamSkew::linear:
++    default:
++        return d.min + norm * (d.max - d.min);
++    }
++}
++
++// plain units -> norm (0..1). Inverse of denormalize for continuous params; for
++// discrete params, plain is the bucket index and the result lands mid-bucket so
++// it round-trips back to the same index.
++inline float normalize(const ParameterDescriptor& d, float plain) noexcept {
++    switch (d.kind) {
++    case ParamKind::discrete: {
++        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
++        int idx = static_cast<int>(plain);
++        idx = std::clamp(idx, 0, count - 1);
++        return (static_cast<float>(idx) + 0.5f) / static_cast<float>(count);
++    }
++    case ParamKind::continuous:
++    default:
++        break;
++    }
++
++    plain = std::clamp(plain, d.min, d.max);
++    switch (d.skew) {
++    case ParamSkew::logarithmic:
++        assert(d.min > 0.0f && d.max > d.min &&
++               "logarithmic parameter requires 0 < min < max");
++        return std::log(plain / d.min) / std::log(d.max / d.min);
++    case ParamSkew::linear:
++    default:
++        return (plain - d.min) / (d.max - d.min);
++    }
++}
++
++} // namespace acfx
+
+
+### core/dsp/process-context.h
+diff --git a/core/dsp/process-context.h b/core/dsp/process-context.h
+new file mode 100644
+index 0000000..76436d8
+--- /dev/null
++++ b/core/dsp/process-context.h
+@@ -0,0 +1,15 @@
++#pragma once
++
++// The prepared run conditions handed to Effect::prepare. Provided by the adapter
++// before audio starts and on any device change. maxBlockSize/numChannels bound
++// every subsequent process() call (no reallocation mid-stream). No platform headers.
++
++namespace acfx {
++
++struct ProcessContext {
++    double sampleRate;  // e.g. 48000.0
++    int maxBlockSize;   // upper bound on AudioBlock::numSamples
++    int numChannels;    // upper bound on AudioBlock::numChannels
++};
++
++} // namespace acfx
+
+
+### core/dsp/span.h
+diff --git a/core/dsp/span.h b/core/dsp/span.h
+new file mode 100644
+index 0000000..daabf95
+--- /dev/null
++++ b/core/dsp/span.h
+@@ -0,0 +1,52 @@
++#pragma once
++
++// A non-owning view over a contiguous sequence. On C++20 toolchains (desktop,
++// tests, Daisy) this is exactly std::span; on a C++17 toolchain (Teensy) it is a
++// minimal allocation-free polyfill with the same shape. One vocabulary type lets
++// the same core/ source compile under both standards (research.md decision 3).
++//
++// This is a standard-library shim, NOT a runtime fallback (Constitution V is
++// about mock data/behavior, not vocabulary types for an older standard).
++
++#include <cstddef>
++
++#if defined(__cpp_lib_span) && __cpp_lib_span >= 202002L
++#include <span>
++namespace acfx {
++template <typename T>
++using span = std::span<T>;
++} // namespace acfx
++#else
++#include <utility> // std::declval (used in the converting ctor below)
++namespace acfx {
++
++// Minimal dynamic-extent non-owning view (the subset core/ uses).
++template <typename T>
++class span {
++public:
++    constexpr span() noexcept : data_(nullptr), size_(0) {}
++    constexpr span(T* data, std::size_t size) noexcept : data_(data), size_(size) {}
++
++    template <std::size_t N>
++    constexpr span(T (&arr)[N]) noexcept : data_(arr), size_(N) {}
++
++    // Bind to a std::array (const or non-const) without dragging in <array>:
++    // any contiguous container exposing data()/size() converts via this ctor.
++    template <typename Container,
++              typename = decltype(static_cast<T*>(std::declval<Container&>().data()))>
++    constexpr span(Container& c) noexcept : data_(c.data()), size_(c.size()) {}
++
++    constexpr T* data() const noexcept { return data_; }
++    constexpr std::size_t size() const noexcept { return size_; }
++    constexpr bool empty() const noexcept { return size_ == 0; }
++    constexpr T& operator[](std::size_t i) const noexcept { return data_[i]; }
++    constexpr T* begin() const noexcept { return data_; }
++    constexpr T* end() const noexcept { return data_ + size_; }
++
++private:
++    T* data_;
++    std::size_t size_;
++};
++
++} // namespace acfx
++#endif
+
+
+### core/effects/svf/svf-effect.h
+diff --git a/core/effects/svf/svf-effect.h b/core/effects/svf/svf-effect.h
+new file mode 100644
+index 0000000..b7d01de
+--- /dev/null
++++ b/core/effects/svf/svf-effect.h
+@@ -0,0 +1,199 @@
++#pragma once
++
++#include <array>
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++
++#include "dsp/audio-block.h"
++#include "dsp/param-id.h"
++#include "dsp/parameter.h"
++#include "dsp/process-context.h"
++#include "dsp/span.h"
++#include "primitives/svf-primitive.h"
++
++// The State-Variable Filter effect — the one effect proving the cross-platform
++// spine. Satisfies the Effect contract (no base class, no vtable in the hot
++// path). One constexpr parameter table (cutoff/resonance/mode) drives every
++// adapter (FR-003). Per-channel DaisySP Svf state, allocation-free process.
++//
++// Thread-ownership boundary:
++//   - setParameter() may be called from ANY thread (a UI loop, a MIDI callback,
++//     an MCU main loop). It only publishes a lock-free atomic pending value; the
++//     audio thread consumes pending values at the top of process(). So parameter
++//     edits never race process() — the core encodes that handoff itself.
++//   - prepare()/reset() DO mutate filter coefficients directly and are NOT
++//     synchronized against process(). They must be called only while the audio
++//     stream is stopped (before start, or during a device change with audio
++//     paused) — the standard prepare/process lifecycle already implies this, and
++//     that quiescence is the adapter's responsibility, not something the core can
++//     enforce.
++
++namespace acfx {
++
++class SvfEffect {
++public:
++    // Stable parameter ids — the dense index into kParams.
++    enum Param : std::uint8_t { kCutoff = 0, kResonance = 1, kMode = 2 };
++
++    // The single source of parameter truth (SC-006). cutoff: log Hz; resonance:
++    // linear 0..1; mode: discrete {lowpass, highpass, bandpass}.
++    static constexpr std::array<ParameterDescriptor, 3> kParams = {{
++        {ParamId{kCutoff}, "cutoff", ParamUnit::hz, 20.0f, 20000.0f, 1000.0f,
++         ParamSkew::logarithmic, ParamKind::continuous, 0},
++        {ParamId{kResonance}, "resonance", ParamUnit::none, 0.0f, 1.0f, 0.0f,
++         ParamSkew::linear, ParamKind::continuous, 0},
++        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 2.0f, 0.0f,
++         ParamSkew::linear, ParamKind::discrete, 3},
++    }};
++
++    SvfEffect() noexcept {
++        for (std::size_t i = 0; i < kNumParams; ++i) {
++            pendingBits_[i].store(0u, std::memory_order_relaxed);
++            pendingDirty_[i].store(0u, std::memory_order_relaxed);
++        }
++    }
++
++    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
++
++    // Audio stream must be stopped — see the thread-ownership note above.
++    void prepare(const ProcessContext& ctx) noexcept {
++        sampleRate_ = static_cast<float>(ctx.sampleRate);
++        numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
++        for (int ch = 0; ch < numChannels_; ++ch)
++            filters_[static_cast<std::size_t>(ch)].init(sampleRate_);
++        applyAll();
++    }
++
++    // Audio stream must be stopped — see the thread-ownership note above.
++    void reset() noexcept {
++        for (int ch = 0; ch < numChannels_; ++ch)
++            filters_[static_cast<std::size_t>(ch)].reset();
++        applyAll();
++    }
++
++    void process(AudioBlock& io) noexcept {
++        applyPending(); // consume cross-thread parameter edits on the audio thread
++        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
++        const int samples = io.numSamples();
++        for (int ch = 0; ch < channels; ++ch) {
++            float* x = io.channel(ch);
++            SvfPrimitive& f = filters_[static_cast<std::size_t>(ch)];
++            for (int n = 0; n < samples; ++n)
++                x[n] = f.process(x[n]);
++        }
++    }
++
++    // Publish a normalized 0..1 value for a parameter. Callable from any thread;
++    // the audio thread applies it at the next process() (no immediate filter
++    // mutation here — that keeps coefficient updates single-threaded).
++    void setParameter(ParamId id, float normalized) noexcept {
++        const std::uint8_t i = id.value;
++        if (i >= kNumParams)
++            return; // out-of-range id: a programming error; no silent state change
++        pendingBits_[i].store(floatBits(normalized), std::memory_order_relaxed);
++        pendingDirty_[i].store(1u, std::memory_order_release);
++    }
++
++private:
++    static constexpr int kMaxChannels = 8;
++    static constexpr std::size_t kNumParams = 3;
++
++    // float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy is a
++    // register move). Lets the cross-thread atomics be provably lock-free.
++    static std::uint32_t floatBits(float f) noexcept {
++        std::uint32_t u = 0;
++        std::memcpy(&u, &f, sizeof(u));
++        return u;
++    }
++    static float bitsFloat(std::uint32_t u) noexcept {
++        float f = 0.0f;
++        std::memcpy(&f, &u, sizeof(f));
++        return f;
++    }
++
++    static SvfMode toMode(float index) noexcept {
++        switch (static_cast<int>(index)) {
++        case 1:
++            return SvfMode::highpass;
++        case 2:
++            return SvfMode::bandpass;
++        case 0:
++        default:
++            return SvfMode::lowpass;
++        }
++    }
++
++    float pendingValue(Param p) const noexcept {
++        return bitsFloat(pendingBits_[p].load(std::memory_order_relaxed));
++    }
++
++    // Apply any parameter values published since the last block (audio thread).
++    void applyPending() noexcept {
++        if (pendingDirty_[kCutoff].exchange(0u, std::memory_order_acquire)) {
++            cutoffHz_ = denormalize(kParams[kCutoff], pendingValue(kCutoff));
++            applyCutoff();
++        }
++        if (pendingDirty_[kResonance].exchange(0u, std::memory_order_acquire)) {
++            resonance_ = denormalize(kParams[kResonance], pendingValue(kResonance));
++            applyResonance();
++        }
++        if (pendingDirty_[kMode].exchange(0u, std::memory_order_acquire)) {
++            mode_ = toMode(denormalize(kParams[kMode], pendingValue(kMode)));
++            applyMode();
++        }
++    }
++
++    // DaisySP's Svf requires cutoff strictly below sampleRate/3; clamp into a safe
++    // band just under that bound (and never below the descriptor minimum).
++    float clampedCutoff() const noexcept {
++        const float maxFreq = sampleRate_ * 0.32f;
++        float f = cutoffHz_;
++        if (f > maxFreq)
++            f = maxFreq;
++        if (f < 20.0f)
++            f = 20.0f;
++        return f;
++    }
++
++    void applyCutoff() noexcept {
++        const float f = clampedCutoff();
++        for (int ch = 0; ch < numChannels_; ++ch)
++            filters_[static_cast<std::size_t>(ch)].setFreq(f);
++    }
++    void applyResonance() noexcept {
++        for (int ch = 0; ch < numChannels_; ++ch)
++            filters_[static_cast<std::size_t>(ch)].setRes(resonance_);
++    }
++    void applyMode() noexcept {
++        for (int ch = 0; ch < numChannels_; ++ch)
++            filters_[static_cast<std::size_t>(ch)].setMode(mode_);
++    }
++    void applyAll() noexcept {
++        applyCutoff();
++        applyResonance();
++        applyMode();
++    }
++
++    std::array<SvfPrimitive, kMaxChannels> filters_{};
++    float sampleRate_ = 48000.0f;
++    int numChannels_ = 0;
++
++    // Applied parameter state — mutated only in prepare/reset/applyPending (the
++    // first two require a stopped stream; the third runs on the audio thread).
++    float cutoffHz_ = kParams[kCutoff].defaultValue;
++    float resonance_ = kParams[kResonance].defaultValue;
++    SvfMode mode_ = SvfMode::lowpass;
++
++    // Cross-thread pending edits: any thread publishes, the audio thread consumes.
++    // Stored as the float's bit pattern in a uint32 so the atomic is provably
++    // lock-free on every target (a bare std::atomic<float> can degrade to a libcall
++    // on some embedded runtimes).
++    std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
++    std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
++    static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
++                  "pending-parameter atomics must be lock-free for RT safety");
++};
++
++} // namespace acfx
+
+
+### core/primitives/svf-primitive.h
+diff --git a/core/primitives/svf-primitive.h b/core/primitives/svf-primitive.h
+new file mode 100644
+index 0000000..0dc7a34
+--- /dev/null
++++ b/core/primitives/svf-primitive.h
+@@ -0,0 +1,59 @@
++#pragma once
++
++#include <cstdint>
++
++#include "Filters/svf.h" // DaisySP — pinned via CPM (cmake/dependencies.cmake)
++
++// A thin, allocation-free, mode-selectable wrapper over DaisySP's proven Svf
++// (research.md decision 1). DaisySP is a platform-independent pure-DSP math
++// library, so wrapping it here keeps core/ free of any platform headers
++// (Constitution IV). The wrapper owns mode selection + reset; the per-sample math
++// is DaisySP's.
++
++namespace acfx {
++
++enum class SvfMode : std::uint8_t { lowpass, highpass, bandpass };
++
++class SvfPrimitive {
++public:
++    // Prepare the filter for a sample rate. Clears internal state.
++    void init(float sampleRate) noexcept {
++        sampleRate_ = sampleRate;
++        svf_.Init(sampleRate);
++    }
++
++    // f in Hz. DaisySP requires 0 < f < sampleRate/3; the caller (SvfEffect)
++    // clamps cutoff into that range before calling.
++    void setFreq(float hz) noexcept { svf_.SetFreq(hz); }
++
++    // r in [0, 1] (DaisySP stability bound).
++    void setRes(float r) noexcept { svf_.SetRes(r); }
++
++    void setMode(SvfMode mode) noexcept { mode_ = mode; }
++    SvfMode mode() const noexcept { return mode_; }
++
++    // Re-initialize to a cleared-but-prepared state (DaisySP's Init clears state).
++    void reset() noexcept { svf_.Init(sampleRate_); }
++
++    // Process one sample, returning the currently-selected mode's output.
++    // Allocation-free, bounded work (Constitution VI).
++    float process(float in) noexcept {
++        svf_.Process(in);
++        switch (mode_) {
++        case SvfMode::highpass:
++            return svf_.High();
++        case SvfMode::bandpass:
++            return svf_.Band();
++        case SvfMode::lowpass:
++        default:
++            return svf_.Low();
++        }
++    }
++
++private:
++    daisysp::Svf svf_{};
++    float sampleRate_ = 48000.0f;
++    SvfMode mode_ = SvfMode::lowpass;
++};
++
++} // namespace acfx
+
+
+### external/.gitkeep
+diff --git a/external/.gitkeep b/external/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+
+
+### host/processor-node/CMakeLists.txt
+diff --git a/host/processor-node/CMakeLists.txt b/host/processor-node/CMakeLists.txt
+new file mode 100644
+index 0000000..ab6f302
+--- /dev/null
++++ b/host/processor-node/CMakeLists.txt
+@@ -0,0 +1,11 @@
++# acfx_host — the desktop-only host boundary (ProcessorNode + EffectNode<T>).
++# Header-only; pure C++ (no JUCE). Shared by the workbench + plugin adapters and
++# exercised by the host-side tests. NEVER linked into the Daisy/Teensy builds.
++
++add_library(acfx_host INTERFACE)
++add_library(acfx::host ALIAS acfx_host)
++
++# Expose host/ as an include root so consumers write
++# #include "processor-node/processor-node.h".
++target_include_directories(acfx_host INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/..")
++target_link_libraries(acfx_host INTERFACE acfx_core)
+
+
+### host/processor-node/processor-node.h
+diff --git a/host/processor-node/processor-node.h b/host/processor-node/processor-node.h
+new file mode 100644
+index 0000000..28978c3
+--- /dev/null
++++ b/host/processor-node/processor-node.h
+@@ -0,0 +1,50 @@
++#pragma once
++
++#include "dsp/audio-block.h"
++#include "dsp/effect.h"
++#include "dsp/param-id.h"
++#include "dsp/parameter.h"
++#include "dsp/process-context.h"
++#include "dsp/span.h"
++
++// The desktop-only host boundary: the single place a virtual call touches the
++// audio path — at most once per block (FR-004 / Constitution VI). NEVER compiled
++// into the Daisy/Teensy builds. (contracts/processor-node.md)
++
++namespace acfx {
++
++struct ProcessorNode {
++    virtual ~ProcessorNode() = default;
++    virtual void prepare(const ProcessContext& ctx) = 0;
++    virtual void processBlock(AudioBlock& io) = 0; // the one virtual call / block
++    virtual void reset() = 0;
++    virtual span<const ParameterDescriptor> parameters() const = 0;
++
++    // Thread contract: setParameter may be called from any thread (UI, MIDI, an
++    // MCU control loop) concurrently with processBlock. The wrapped Effect is
++    // responsible for the cross-thread handoff — SvfEffect, for example,
++    // publishes an atomic pending value that the audio thread consumes inside
++    // process(). Callers must not assume the change takes effect synchronously;
++    // it lands at the next processBlock.
++    virtual void setParameter(ParamId id, float normalized) = 0;
++};
++
++// Stores a concrete Effect by value and forwards each virtual call to the inlined
++// concrete method — zero hot-path overhead beyond the single block dispatch.
++template <ACFX_EFFECT_CONCEPT T>
++class EffectNode final : public ProcessorNode {
++public:
++    void prepare(const ProcessContext& ctx) override { fx_.prepare(ctx); }
++    void processBlock(AudioBlock& io) override { fx_.process(io); } // inlined concrete call
++    void reset() override { fx_.reset(); }
++    span<const ParameterDescriptor> parameters() const override { return T::parameters(); }
++    void setParameter(ParamId id, float n) override { fx_.setParameter(id, n); }
++
++    T& effect() noexcept { return fx_; }
++    const T& effect() const noexcept { return fx_; }
++
++private:
++    T fx_; // stored by value — no indirection beyond the single virtual dispatch
++};
++
++} // namespace acfx
+
+
+## What to look for
+
+- **Correctness bugs** — logic errors, off-by-one, null/undefined paths, race conditions, missing error handling, swallowed exceptions.
+- **Design issues** — coupling between layers that should be independent, leaking abstractions, primitives that should compose but don't, configuration that should be data ending up as code.
+- **Missed edge cases** — what happens with empty input? Maximum input? Concurrent calls? Partial failure? Network unavailability? Operator interrupt mid-operation? What is the behavior on a fresh install vs. an upgrade?
+- **Code-quality concerns** — files growing past a reasonable cap, names that don't reveal intent, dead code, duplicated logic, magic numbers without explanation, tests that don't test the contract they claim to test.
+- **Cross-cutting impact** — does this diff touch a surface that other surfaces depend on? Are those other surfaces updated? Are migrations needed? Are doctor rules / schemas / validators updated to match the new shape?
+- **Documentation drift** — does the README / SKILL.md / PRD describe the behavior the code actually implements? If the spec changed, did the implementation? If the implementation changed, did the spec?
+- **Operator-discipline traps** — placeholder comments, swallowed errors, hardcoded paths/values that should be configurable, fallbacks that hide failure modes, mock data outside test code. These are bug-factories per project guidelines.
+
+## Process drivers (029 US8 / FR-029)
+
+These codify the structural drivers of myopic convergence (TASK-60), so the loop converges in fewer rounds with less fix-induced surface growth. The first three (channel-enumeration, invariant-first boundary, round-0 self-red-team) are **fix-review** drivers — apply them when the work under audit is a fix for a prior finding. The last two (fleet-degradation pricing, severity-rubric anchoring) are **general** controls that apply to every round:
+
+- **Channel-enumeration.** When a fix ADDS to an allowlist/surface (a new flag, a new accepted value, a new parser branch, a new fold path), do not accept it on the one example it fixes — enumerate the channels it opens: the **value** channel (other inputs now accepted), the **state** channel (new reachable states), the **multiline / composition** channel (how it composes with adjacent surfaces). Flag any opened channel that lacks a fixture.
+- **Invariant-first boundary.** When a finding is dispositioned as a scope boundary, state the boundary as the **mechanism's invariant plus an in-scope exception**, NOT as the exclusion of the one counterexample. "We exclude X" is a smell; "the invariant is I, and X is the in-scope exception because…" is the disposition.
+- **Round-0 self-red-team.** When the work under audit is itself a FIX for a prior finding, audit the **fix diff as a fresh surface in its own right** — do not assume it is correct merely because it targets a known bug. Ask what new edge the fix opened and what it moved rather than removed; a fix that resolves one finding while opening an unaudited channel is itself a finding.
+- **Fleet-degradation pricing.** A convergence claim is only as strong as the fleet that produced it. When the fleet is **degraded** (a timed-out / killed / zero-byte lane — US2 observability), price the round's "0 HIGH" accordingly: it is computed over fewer models, so cross-model agreement is weaker. Do not treat a degraded-fleet quiet round as full convergence.
+- **Severity-rubric anchoring.** Rate every finding by the blast-radius rubric below (US3), not by how alarming it feels — a quietly-plausible wrong reading an unattended agent would build outranks an obvious contradiction a reader would resolve.
+
+## Output format
+
+For each finding you surface, emit ONE markdown block in this exact shape:
+
+```
+### <heading: one-line summary of the finding>
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-<NN>
+Status:     open
+Severity:   <blocking | high | medium | low | informational>
+Surface:    <repo-relative-path:line-range> OR <description of the surface if not anchored to a single file>
+
+<one-to-three paragraphs of body: what the finding is, why it matters, what evidence you relied on, what a reasonable fix would look like. Be specific. Cite line numbers from the diff. If the finding is structural / cross-file, name every file affected.>
+```
+
+Number the findings sequentially (`-01`, `-02`, ...).
+
+**Severity — rate each finding by downstream blast-radius:** the consequence if a downstream consumer acts on the audited surface *as written*. The consumer may be an adopter running the code, or — especially for a spec — an AI agent building **unattended** from it, with no human to catch a wrong reading. Rate by what would actually happen if this shipped as-is, **not by how alarming the finding feels**. State the blast-radius reasoning in the finding body for every finding, at every level.
+
+- `blocking` — acting on it as-written breaks the feature's stated goals in obvious ways; OR (for a spec) the more natural reading an agent reaches first is the wrong one, so it will likely be built wrong by default and nothing in the artifact corrects it.
+- `high` — a correctness/safety defect a consumer will hit; OR a spec contradiction/ambiguity where the readings are roughly equally plausible and the artifact doesn't disambiguate — an agent might build either, including the wrong one.
+- `medium` — a design issue that compounds over time; OR a spec inconsistency a reasonable consumer would resolve correctly anyway (readings barely diverge, or context makes the intended one obvious).
+- `low` — hygiene; cosmetic wording with no behavioral or implementation consequence.
+- `informational` — context worth seeing, not itself a defect.
+
+**Calibrate by consequence, not by alarm.** A genuine contradiction a reader would obviously resolve the right way is at most `medium`. A quietly-plausible wrong reading an agent would actually build is `high`/`blocking` even if it looks minor. A spec's internal consistency is load-bearing — it is the input to an unattended build.
+
+## If you find nothing — say so explicitly
+
+If you walk the diff carefully and find no findings worth surfacing, emit ONE block in this shape instead:
+
+```
+### No findings
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-CLEAN
+Status:     open
+Severity:   informational
+Surface:    (the entire diff)
+
+I walked the diff for the feature named above and found no findings worth surfacing. My specific reasoning: <three-to-five sentences explaining what you checked, why those checks came back clean, and what you would have flagged if it had been present.>
+```
+
+**Do not pad with weak findings.** A confident "I checked X, Y, Z and they are clean for these reasons" is more useful to the operator than three vague low-severity notes. The cross-model diversity gives the operator independent signal; an empty clean report from your CLI is itself a signal when paired with findings from your siblings.
+
+## Hard constraints
+
+- **No deferral phrases.** Don't write phrases like "fix later", "address in a follow-up", or other commitments to deferred work. The dispatch-wrapper rejects these as bug-factories. If you spot a deferral phrase IN the diff, surface it as a finding.
+- **Anchor findings to evidence.** A finding that says "this might be a problem" without naming the specific file + line is not actionable. Name the surface, quote the relevant code, explain what's wrong.
+- **One issue per finding block.** Don't bundle multiple concerns into one entry; the operator triages each block as a discrete signal.
+- **Provenance is your model name.** Replace `<your-model-name>` in the Finding-ID with the CLI you are (`claude`, `codex`, `gemini`, etc.). This is how the operator joins findings across models.
+
+**Inspecting audit findings**
+
+I need to address the audit findings, which means looking into the files carefully. The user provided a diff that should be sufficient, but I'm wondering if I need to check the exact line numbers to be sure. I think using a read-only method to analyze the files could be a good approach, so I’ll proceed with that in my next steps. It helps to ensure thoroughness!
+codex
+I’ll audit the provided slice directly and spot-check the corresponding files for stable line anchors before emitting findings.
+exec
+/bin/zsh -lc "nl -ba core/dsp/parameter.h | sed -n '1,130p'" in /Users/orion/work/acfx-work/platform-foundation
+exec
+/bin/zsh -lc "nl -ba core/effects/svf/svf-effect.h | sed -n '1,230p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include "dsp/param-id.h"
+     4	
+     5	#include <algorithm>
+     6	#include <cassert>
+     7	#include <cmath>
+     8	#include <cstdint>
+     9	#include <string_view>
+    10	
+    11	// The single declared definition of one control, consumed by every adapter
+    12	// (FR-003), plus the pure, allocation-free normalized<->plain mapping.
+    13	// (contracts/parameter-model.md)
+    14	
+    15	namespace acfx {
+    16	
+    17	struct ParameterDescriptor {
+    18	    ParamId id;
+    19	    std::string_view name; // static storage (string literal)
+    20	    ParamUnit unit;
+    21	    float min;
+    22	    float max;
+    23	    float defaultValue; // plain units, within [min, max]
+    24	    ParamSkew skew;
+    25	    ParamKind kind;
+    26	    std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
+    27	};
+    28	
+    29	namespace detail {
+    30	constexpr float clamp01(float x) noexcept { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+    31	} // namespace detail
+    32	
+    33	// norm (0..1) -> plain units. Pure, allocation-free, audio-thread safe.
+    34	inline float denormalize(const ParameterDescriptor& d, float norm) noexcept {
+    35	    norm = detail::clamp01(norm);
+    36	    switch (d.kind) {
+    37	    case ParamKind::discrete: {
+    38	        // Quantize to a bucket index in [0, discreteCount); the index IS the
+    39	        // plain value (the effect maps index -> enum).
+    40	        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+    41	        int idx = static_cast<int>(norm * static_cast<float>(count));
+    42	        if (idx >= count)
+    43	            idx = count - 1;
+    44	        return static_cast<float>(idx);
+    45	    }
+    46	    case ParamKind::continuous:
+    47	    default:
+    48	        break;
+    49	    }
+    50	
+    51	    switch (d.skew) {
+    52	    case ParamSkew::logarithmic:
+    53	        // Requires 0 < min < max (else 0*pow(inf,n) or log(1)=0 yield NaN). The
+    54	        // invariant is enforced in debug builds; it compiles out in release, so
+    55	        // the audio path stays branch-bounded and allocation-free.
+    56	        assert(d.min > 0.0f && d.max > d.min &&
+    57	               "logarithmic parameter requires 0 < min < max");
+    58	        return d.min * std::pow(d.max / d.min, norm);
+    59	    case ParamSkew::linear:
+    60	    default:
+    61	        return d.min + norm * (d.max - d.min);
+    62	    }
+    63	}
+    64	
+    65	// plain units -> norm (0..1). Inverse of denormalize for continuous params; for
+    66	// discrete params, plain is the bucket index and the result lands mid-bucket so
+    67	// it round-trips back to the same index.
+    68	inline float normalize(const ParameterDescriptor& d, float plain) noexcept {
+    69	    switch (d.kind) {
+    70	    case ParamKind::discrete: {
+    71	        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+    72	        int idx = static_cast<int>(plain);
+    73	        idx = std::clamp(idx, 0, count - 1);
+    74	        return (static_cast<float>(idx) + 0.5f) / static_cast<float>(count);
+    75	    }
+    76	    case ParamKind::continuous:
+    77	    default:
+    78	        break;
+    79	    }
+    80	
+    81	    plain = std::clamp(plain, d.min, d.max);
+    82	    switch (d.skew) {
+    83	    case ParamSkew::logarithmic:
+    84	        assert(d.min > 0.0f && d.max > d.min &&
+    85	               "logarithmic parameter requires 0 < min < max");
+    86	        return std::log(plain / d.min) / std::log(d.max / d.min);
+    87	    case ParamSkew::linear:
+    88	    default:
+    89	        return (plain - d.min) / (d.max - d.min);
+    90	    }
+    91	}
+    92	
+    93	} // namespace acfx
+
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include <array>
+     4	#include <atomic>
+     5	#include <cstddef>
+     6	#include <cstdint>
+     7	#include <cstring>
+     8	
+     9	#include "dsp/audio-block.h"
+    10	#include "dsp/param-id.h"
+    11	#include "dsp/parameter.h"
+    12	#include "dsp/process-context.h"
+    13	#include "dsp/span.h"
+    14	#include "primitives/svf-primitive.h"
+    15	
+    16	// The State-Variable Filter effect — the one effect proving the cross-platform
+    17	// spine. Satisfies the Effect contract (no base class, no vtable in the hot
+    18	// path). One constexpr parameter table (cutoff/resonance/mode) drives every
+    19	// adapter (FR-003). Per-channel DaisySP Svf state, allocation-free process.
+    20	//
+    21	// Thread-ownership boundary:
+    22	//   - setParameter() may be called from ANY thread (a UI loop, a MIDI callback,
+    23	//     an MCU main loop). It only publishes a lock-free atomic pending value; the
+    24	//     audio thread consumes pending values at the top of process(). So parameter
+    25	//     edits never race process() — the core encodes that handoff itself.
+    26	//   - prepare()/reset() DO mutate filter coefficients directly and are NOT
+    27	//     synchronized against process(). They must be called only while the audio
+    28	//     stream is stopped (before start, or during a device change with audio
+    29	//     paused) — the standard prepare/process lifecycle already implies this, and
+    30	//     that quiescence is the adapter's responsibility, not something the core can
+    31	//     enforce.
+    32	
+    33	namespace acfx {
+    34	
+    35	class SvfEffect {
+    36	public:
+    37	    // Stable parameter ids — the dense index into kParams.
+    38	    enum Param : std::uint8_t { kCutoff = 0, kResonance = 1, kMode = 2 };
+    39	
+    40	    // The single source of parameter truth (SC-006). cutoff: log Hz; resonance:
+    41	    // linear 0..1; mode: discrete {lowpass, highpass, bandpass}.
+    42	    static constexpr std::array<ParameterDescriptor, 3> kParams = {{
+    43	        {ParamId{kCutoff}, "cutoff", ParamUnit::hz, 20.0f, 20000.0f, 1000.0f,
+    44	         ParamSkew::logarithmic, ParamKind::continuous, 0},
+    45	        {ParamId{kResonance}, "resonance", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+    46	         ParamSkew::linear, ParamKind::continuous, 0},
+    47	        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 2.0f, 0.0f,
+    48	         ParamSkew::linear, ParamKind::discrete, 3},
+    49	    }};
+    50	
+    51	    SvfEffect() noexcept {
+    52	        for (std::size_t i = 0; i < kNumParams; ++i) {
+    53	            pendingBits_[i].store(0u, std::memory_order_relaxed);
+    54	            pendingDirty_[i].store(0u, std::memory_order_relaxed);
+    55	        }
+    56	    }
+    57	
+    58	    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+    59	
+    60	    // Audio stream must be stopped — see the thread-ownership note above.
+    61	    void prepare(const ProcessContext& ctx) noexcept {
+    62	        sampleRate_ = static_cast<float>(ctx.sampleRate);
+    63	        numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
+    64	        for (int ch = 0; ch < numChannels_; ++ch)
+    65	            filters_[static_cast<std::size_t>(ch)].init(sampleRate_);
+    66	        applyAll();
+    67	    }
+    68	
+    69	    // Audio stream must be stopped — see the thread-ownership note above.
+    70	    void reset() noexcept {
+    71	        for (int ch = 0; ch < numChannels_; ++ch)
+    72	            filters_[static_cast<std::size_t>(ch)].reset();
+    73	        applyAll();
+    74	    }
+    75	
+    76	    void process(AudioBlock& io) noexcept {
+    77	        applyPending(); // consume cross-thread parameter edits on the audio thread
+    78	        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
+    79	        const int samples = io.numSamples();
+    80	        for (int ch = 0; ch < channels; ++ch) {
+    81	            float* x = io.channel(ch);
+    82	            SvfPrimitive& f = filters_[static_cast<std::size_t>(ch)];
+    83	            for (int n = 0; n < samples; ++n)
+    84	                x[n] = f.process(x[n]);
+    85	        }
+    86	    }
+    87	
+    88	    // Publish a normalized 0..1 value for a parameter. Callable from any thread;
+    89	    // the audio thread applies it at the next process() (no immediate filter
+    90	    // mutation here — that keeps coefficient updates single-threaded).
+    91	    void setParameter(ParamId id, float normalized) noexcept {
+    92	        const std::uint8_t i = id.value;
+    93	        if (i >= kNumParams)
+    94	            return; // out-of-range id: a programming error; no silent state change
+    95	        pendingBits_[i].store(floatBits(normalized), std::memory_order_relaxed);
+    96	        pendingDirty_[i].store(1u, std::memory_order_release);
+    97	    }
+    98	
+    99	private:
+   100	    static constexpr int kMaxChannels = 8;
+   101	    static constexpr std::size_t kNumParams = 3;
+   102	
+   103	    // float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy is a
+   104	    // register move). Lets the cross-thread atomics be provably lock-free.
+   105	    static std::uint32_t floatBits(float f) noexcept {
+   106	        std::uint32_t u = 0;
+   107	        std::memcpy(&u, &f, sizeof(u));
+   108	        return u;
+   109	    }
+   110	    static float bitsFloat(std::uint32_t u) noexcept {
+   111	        float f = 0.0f;
+   112	        std::memcpy(&f, &u, sizeof(f));
+   113	        return f;
+   114	    }
+   115	
+   116	    static SvfMode toMode(float index) noexcept {
+   117	        switch (static_cast<int>(index)) {
+   118	        case 1:
+   119	            return SvfMode::highpass;
+   120	        case 2:
+   121	            return SvfMode::bandpass;
+   122	        case 0:
+   123	        default:
+   124	            return SvfMode::lowpass;
+   125	        }
+   126	    }
+   127	
+   128	    float pendingValue(Param p) const noexcept {
+   129	        return bitsFloat(pendingBits_[p].load(std::memory_order_relaxed));
+   130	    }
+   131	
+   132	    // Apply any parameter values published since the last block (audio thread).
+   133	    void applyPending() noexcept {
+   134	        if (pendingDirty_[kCutoff].exchange(0u, std::memory_order_acquire)) {
+   135	            cutoffHz_ = denormalize(kParams[kCutoff], pendingValue(kCutoff));
+   136	            applyCutoff();
+   137	        }
+   138	        if (pendingDirty_[kResonance].exchange(0u, std::memory_order_acquire)) {
+   139	            resonance_ = denormalize(kParams[kResonance], pendingValue(kResonance));
+   140	            applyResonance();
+   141	        }
+   142	        if (pendingDirty_[kMode].exchange(0u, std::memory_order_acquire)) {
+   143	            mode_ = toMode(denormalize(kParams[kMode], pendingValue(kMode)));
+   144	            applyMode();
+   145	        }
+   146	    }
+   147	
+   148	    // DaisySP's Svf requires cutoff strictly below sampleRate/3; clamp into a safe
+   149	    // band just under that bound (and never below the descriptor minimum).
+   150	    float clampedCutoff() const noexcept {
+   151	        const float maxFreq = sampleRate_ * 0.32f;
+   152	        float f = cutoffHz_;
+   153	        if (f > maxFreq)
+   154	            f = maxFreq;
+   155	        if (f < 20.0f)
+   156	            f = 20.0f;
+   157	        return f;
+   158	    }
+   159	
+   160	    void applyCutoff() noexcept {
+   161	        const float f = clampedCutoff();
+   162	        for (int ch = 0; ch < numChannels_; ++ch)
+   163	            filters_[static_cast<std::size_t>(ch)].setFreq(f);
+   164	    }
+   165	    void applyResonance() noexcept {
+   166	        for (int ch = 0; ch < numChannels_; ++ch)
+   167	            filters_[static_cast<std::size_t>(ch)].setRes(resonance_);
+   168	    }
+   169	    void applyMode() noexcept {
+   170	        for (int ch = 0; ch < numChannels_; ++ch)
+   171	            filters_[static_cast<std::size_t>(ch)].setMode(mode_);
+   172	    }
+   173	    void applyAll() noexcept {
+   174	        applyCutoff();
+   175	        applyResonance();
+   176	        applyMode();
+   177	    }
+   178	
+   179	    std::array<SvfPrimitive, kMaxChannels> filters_{};
+   180	    float sampleRate_ = 48000.0f;
+   181	    int numChannels_ = 0;
+   182	
+   183	    // Applied parameter state — mutated only in prepare/reset/applyPending (the
+   184	    // first two require a stopped stream; the third runs on the audio thread).
+   185	    float cutoffHz_ = kParams[kCutoff].defaultValue;
+   186	    float resonance_ = kParams[kResonance].defaultValue;
+   187	    SvfMode mode_ = SvfMode::lowpass;
+   188	
+   189	    // Cross-thread pending edits: any thread publishes, the audio thread consumes.
+   190	    // Stored as the float's bit pattern in a uint32 so the atomic is provably
+   191	    // lock-free on every target (a bare std::atomic<float> can degrade to a libcall
+   192	    // on some embedded runtimes).
+   193	    std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
+   194	    std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
+   195	    static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
+   196	                  "pending-parameter atomics must be lock-free for RT safety");
+   197	};
+   198	
+   199	} // namespace acfx
+
+exec
+/bin/zsh -lc "nl -ba core/dsp/effect.h | sed -n '1,90p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include "dsp/audio-block.h"
+     4	#include "dsp/param-id.h"
+     5	#include "dsp/parameter.h"
+     6	#include "dsp/process-context.h"
+     7	#include "dsp/span.h"
+     8	
+     9	// The compile-time contract every effect satisfies — no base class, no vtable in
+    10	// the audio path (FR-001, contracts/effect-concept.md). On a C++20 toolchain this
+    11	// is a named concept; on C++17 (Teensy) the same member signatures are enforced
+    12	// by plain template instantiation (duck typing), with a best-effort static trait
+    13	// preserved for diagnostics. The effect code is identical either way.
+    14	
+    15	#if defined(__cpp_concepts) && __cpp_concepts >= 201907L
+    16	
+    17	#include <concepts>
+    18	
+    19	namespace acfx {
+    20	
+    21	template <typename T>
+    22	concept Effect =
+    23	    requires(T fx, const ProcessContext& ctx, AudioBlock& io, ParamId id, float norm) {
+    24	        { fx.prepare(ctx) } -> std::same_as<void>;        // set sr, maxBlock, channels
+    25	        { fx.process(io) } -> std::same_as<void>;         // in-place; NO heap alloc
+    26	        { fx.reset() } -> std::same_as<void>;             // clear internal state
+    27	        { T::parameters() } -> std::convertible_to<span<const ParameterDescriptor>>;
+    28	        { fx.setParameter(id, norm) } -> std::same_as<void>; // normalized 0..1 in
+    29	    };
+    30	
+    31	} // namespace acfx
+    32	
+    33	// Use as: template <ACFX_EFFECT_CONCEPT T> ... — a constrained template here.
+    34	#define ACFX_EFFECT_CONCEPT ::acfx::Effect
+    35	
+    36	#else // C++17 degradation: no concepts available.
+    37	
+    38	#include <type_traits>
+    39	
+    40	namespace acfx {
+    41	
+    42	// Best-effort detection trait (diagnostic only; never gates the build on this
+    43	// target). Template instantiation still enforces the real member signatures.
+    44	template <typename, typename = void>
+    45	struct is_effect : std::false_type {};
+    46	
+    47	template <typename T>
+    48	struct is_effect<
+    49	    T, std::void_t<decltype(std::declval<T&>().prepare(std::declval<const ProcessContext&>())),
+    50	                   decltype(std::declval<T&>().process(std::declval<AudioBlock&>())),
+    51	                   decltype(std::declval<T&>().reset()),
+    52	                   decltype(T::parameters()),
+    53	                   decltype(std::declval<T&>().setParameter(std::declval<ParamId>(),
+    54	                                                            std::declval<float>()))>>
+    55	    : std::true_type {};
+    56	
+    57	template <typename T>
+    58	inline constexpr bool is_effect_v = is_effect<T>::value;
+    59	
+    60	} // namespace acfx
+    61	
+    62	// Unconstrained on C++17 — duck typing enforces the same shape.
+    63	#define ACFX_EFFECT_CONCEPT typename
+    64	
+    65	#endif
+
+exec
+/bin/zsh -lc "nl -ba core/dsp/span.h | sed -n '1,90p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	// A non-owning view over a contiguous sequence. On C++20 toolchains (desktop,
+     4	// tests, Daisy) this is exactly std::span; on a C++17 toolchain (Teensy) it is a
+     5	// minimal allocation-free polyfill with the same shape. One vocabulary type lets
+     6	// the same core/ source compile under both standards (research.md decision 3).
+     7	//
+     8	// This is a standard-library shim, NOT a runtime fallback (Constitution V is
+     9	// about mock data/behavior, not vocabulary types for an older standard).
+    10	
+    11	#include <cstddef>
+    12	
+    13	#if defined(__cpp_lib_span) && __cpp_lib_span >= 202002L
+    14	#include <span>
+    15	namespace acfx {
+    16	template <typename T>
+    17	using span = std::span<T>;
+    18	} // namespace acfx
+    19	#else
+    20	#include <utility> // std::declval (used in the converting ctor below)
+    21	namespace acfx {
+    22	
+    23	// Minimal dynamic-extent non-owning view (the subset core/ uses).
+    24	template <typename T>
+    25	class span {
+    26	public:
+    27	    constexpr span() noexcept : data_(nullptr), size_(0) {}
+    28	    constexpr span(T* data, std::size_t size) noexcept : data_(data), size_(size) {}
+    29	
+    30	    template <std::size_t N>
+    31	    constexpr span(T (&arr)[N]) noexcept : data_(arr), size_(N) {}
+    32	
+    33	    // Bind to a std::array (const or non-const) without dragging in <array>:
+    34	    // any contiguous container exposing data()/size() converts via this ctor.
+    35	    template <typename Container,
+    36	              typename = decltype(static_cast<T*>(std::declval<Container&>().data()))>
+    37	    constexpr span(Container& c) noexcept : data_(c.data()), size_(c.size()) {}
+    38	
+    39	    constexpr T* data() const noexcept { return data_; }
+    40	    constexpr std::size_t size() const noexcept { return size_; }
+    41	    constexpr bool empty() const noexcept { return size_ == 0; }
+    42	    constexpr T& operator[](std::size_t i) const noexcept { return data_[i]; }
+    43	    constexpr T* begin() const noexcept { return data_; }
+    44	    constexpr T* end() const noexcept { return data_ + size_; }
+    45	
+    46	private:
+    47	    T* data_;
+    48	    std::size_t size_;
+    49	};
+    50	
+    51	} // namespace acfx
+    52	#endif
+
+codex
+I’ve found one concrete runtime edge around the SVF prepare/clamp contract and am checking whether there are additional independent defects worth reporting rather than padding the output.
+**Evaluating adapter issues**
+
+I think if the adapter passes more than 8 channels, I might need to clamp it, but if it processes 0, then how do I handle that? It seems like an invalid sample rate can lead to undefined behavior in DaisySP. There could be a medium error, or maybe it's a bug with the host. Perhaps it’s better to set it to high? There are definitely concerns about correctness and safety that the consumer might encounter. I need to consider whether it’s a design issue.
+codex
+### `SvfEffect::prepare` accepts invalid run conditions that can violate the SVF primitive contract
+
+Finding-ID: AUDIT-BARRAGE-codex-01
+Status:     open
+Severity:   medium
+Surface:    core/effects/svf/svf-effect.h:61-66, core/effects/svf/svf-effect.h:148-157
+
+`prepare()` copies `ctx.sampleRate` and clamps only the upper channel count, but it does not enforce the lower-bound invariants needed by the primitive: positive sample rate and non-negative channel count. `clampedCutoff()` then computes `maxFreq = sampleRate_ * 0.32f`, applies that as an upper clamp, and finally forces the result back up to `20.0f`. For `sampleRate_ <= 62.5`, zero, negative, or NaN-ish bad input, the returned cutoff can no longer satisfy the documented DaisySP requirement of `0 < f < sampleRate/3`, yet `applyCutoff()` still sends it into `SvfPrimitive::setFreq()`.
+
+The blast radius is medium because this is a boundary-contract defect: normal desktop/audio-device paths probably pass valid sample rates, but `ProcessContext` is a plain public struct with no constructor or validator, and downstream adapters/tests can reasonably treat `prepare()` as the enforcement point. A reasonable fix would make the run-condition invariant explicit in code: reject or sanitize invalid `sampleRate`/`numChannels` before initializing filters, and ensure `clampedCutoff()` never returns a value outside the primitive’s stated frequency domain.
+tokens used
+38,767

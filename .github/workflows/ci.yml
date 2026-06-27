@@ -1,0 +1,54 @@
+name: ci
+
+# Explicit, visible quality gates (Constitution II: NO git hooks). CI builds and
+# tests the host core on every change (quickstart Scenario A) and build-checks the
+# desktop targets (Scenario B/C build). Hardware presets are build-checked only
+# where ARM toolchains are provisioned — a deferred follow noted in quickstart.md,
+# so the boundary is visible rather than silently dropped (FR-015).
+
+on:
+  push:
+    branches: [platform-foundation, main]
+  pull_request:
+
+jobs:
+  core-tests:
+    name: Core host tests (Scenario A)
+    runs-on: macos-latest
+    # Runs the full host suite, including the JUCE-free SourceConfig serde test
+    # (workbench-audio-config) that links into acfx_core_tests.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (test preset)
+        run: cmake --preset test
+      - name: Build
+        run: cmake --build --preset test -j
+      - name: Test
+        run: ctest --preset test
+
+  portability-gate:
+    name: Portability gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run explicit portability checks
+        run: ./scripts/check-portability.sh
+
+  desktop-build:
+    name: Desktop workbench + plugin build (Scenario B/C)
+    runs-on: macos-latest
+    # Compile-verifies the workbench against real JUCE, including the new audio-config
+    # units (audio-settings, source-bar, workbench-persistence) — the device/source/MIDI
+    # selection + persistence surfaces that are otherwise interactive manual acceptance.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install JUCE Linux/macOS build prerequisites
+        run: echo "macOS runner ships the required frameworks"
+      - name: Configure (desktop preset)
+        run: cmake --preset desktop
+      - name: Build workbench
+        run: cmake --build --preset desktop --target acfx_workbench -j
+      - name: Build plugin formats (VST3 / AU / CLAP)
+        # The aggregate acfx_plugin target builds only the shared code; the format
+        # wrappers are separate targets that produce the actual bundles.
+        run: cmake --build --preset desktop --target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP -j

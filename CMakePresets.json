@@ -1,0 +1,67 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "test",
+      "inherits": "base",
+      "displayName": "Host tests (core correctness, no hardware)",
+      "cacheVariables": {
+        "ACFX_BUILD_TESTS": "ON",
+        "CMAKE_CXX_STANDARD": "20"
+      }
+    },
+    {
+      "name": "desktop",
+      "inherits": "base",
+      "displayName": "Desktop workbench + plugin (JUCE)",
+      "cacheVariables": {
+        "ACFX_BUILD_DESKTOP": "ON",
+        "CMAKE_CXX_STANDARD": "20"
+      }
+    },
+    {
+      "name": "daisy",
+      "inherits": "base",
+      "displayName": "Daisy firmware (arm-none-eabi-gcc)",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/daisy.cmake",
+      "cacheVariables": {
+        "ACFX_BUILD_DAISY": "ON",
+        "CMAKE_CXX_STANDARD": "20"
+      }
+    },
+    {
+      "name": "teensy",
+      "inherits": "base",
+      "displayName": "Teensy firmware (Teensy ARM toolchain)",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/teensy.cmake",
+      "cacheVariables": {
+        "ACFX_BUILD_TEENSY": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "test", "configurePreset": "test" },
+    { "name": "desktop", "configurePreset": "desktop" },
+    { "name": "daisy", "configurePreset": "daisy" },
+    { "name": "teensy", "configurePreset": "teensy" }
+  ],
+  "testPresets": [
+    {
+      "name": "test",
+      "configurePreset": "test",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    }
+  ]
+}

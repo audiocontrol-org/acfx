@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "mode": "impl",
+  "item": "design:feature/svf-vertical-slice",
+  "governedShaBase": "override-short-circuit",
+  "headSha": "override-short-circuit",
+  "chunkIds": [],
+  "rounds": 0,
+  "liftedFindings": [],
+  "closedInLoopFindings": [],
+  "seamResult": {
+    "boundaryPairs": [],
+    "findings": [],
+    "suppressedCompatible": 0
+  },
+  "splitClusterRefs": [],
+  "outcome": "override-eligible",
+  "anchorRoot": "/Users/orion/work/acfx-work/platform-foundation",
+  "override": true,
+  "overrideReason": "Concluding after 9 govern rounds (3-model fleet, all producing). Every substantive RT/correctness finding from rounds 1-8 is fixed and verified (ctest 11/11; all 5 JUCE-8 adapters compile clean; core compiles host C++17 and C++20; portability gate green): cross-thread setParameter race (atomic-pending handoff), audio-thread throw/alloc in fillBlock (noexcept, in-memory player), file-player use-after-free (no transport), NaN poisoning filter state (NaN-safe clamp01 + test), non-lock-free atomics (uint32 bit-pattern + static_assert), per-block std::function in plugin (templated apply), non-atomic configured_ guard (now atomic), missing <utility> include, channel-count consistency, compile-time descriptor validation, MIDI-input enablement, error surfacing, AU-on-Apple gating. The residual override-eligible findings are NOT code defects: AUDIT-43 (prepare error path) and AUDIT-45 (reset tuning) are verified cross-chunk false positives confirmed in the current source (prepare() throws to surface no-source; reset() calls applyAll() to re-apply tuning). The recurring mode-knob (24/29/34/38) and live-input (40) findings are likewise verified false positives (denormalize clamps the discrete index, tested; JUCE AudioSourcePlayer memcpys input into the buffer, confirmed in JUCE source). AUDIT-41/05/21 reflect interactive/DAW/on-hardware acceptance that cannot run headless and is documented honestly as operator checkpoints in the Manual acceptance section, outside the automated ledger."
+}

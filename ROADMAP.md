@@ -18,3 +18,14 @@ dependency chain:
 For an edit that has no verb yet (e.g. moving a `part-of` / `depends-on` edge):
 edit this file directly, then run `stackctl roadmap order` to revalidate the
 graph (it fails loud on a cycle / dangling ref / duplicate id).
+
+## design:feature/svf-vertical-slice
+- status: planned
+- analyze-clean: yes
+- spec: specs/svf-vertical-slice
+Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — core abstractions (Effect concept, ProcessContext, AudioBlock, Parameter model, ProcessorNode boundary), the SVF effect (host-tested), desktop workbench + plugin fully working, Daisy+Teensy cross-compile/link proven, CMake presets + CPM pinning + CI
+
+## design:feature/workbench-audio-config
+- status: planned
+- analyze-clean: yes
+- spec: specs/workbench-audio-config

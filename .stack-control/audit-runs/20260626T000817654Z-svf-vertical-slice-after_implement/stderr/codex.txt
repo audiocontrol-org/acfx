@@ -1,0 +1,1884 @@
+Reading prompt from stdin...
+OpenAI Codex v0.141.0
+--------
+workdir: /Users/orion/work/acfx-work/platform-foundation
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: detailed
+session id: 019f0141-8053-7043-9c13-e3b3b33d2f2c
+--------
+user
+# Audit-barrage — multi-model audit prompt template
+
+You are an **independent audit reviewer** firing as part of a multi-model audit barrage. Your siblings (other CLIs running this same prompt in parallel) emit their own findings independently; the operator triages all of your outputs side-by-side after every model has settled. Your job is to surface the kinds of defects listed under **What to look for** below, in the work product captured under **Under audit**.
+
+You are NOT collaborating with the other models. You write what you see. The cross-model genetic diversity comes from each of you reporting independently.
+
+## Feature under audit
+
+svf-vertical-slice
+
+## Feature scope (workplan / PRD summary)
+
+
+
+## Commit subjects in the audited range
+
+8e0e37b Replace vendored CPM.cmake with pinned auto-download bootstrap
+f88525b Close acceptance tasks with honest verified/manual split (T027/T031/T035)
+60b4523 Fix desktop build integration + JUCE-API bugs caught by real compilation
+ee53b33 Phase 6 (polish): CI, explicit portability gates, README
+ae69f91 Phase 5 (US3): Daisy + Teensy adapters; core proven ARM-portable
+e74b0db Phase 4 (US2): DAW plugin (VST3 / AU / CLAP)
+e27e832 Phase 3 (US1): desktop sketch-and-hear workbench (JUCE)
+0ebd7d3 Phase 2 (foundational): core spine + host-side tests, all green
+1b05595 Phase 1 (setup): monorepo skeleton + CMake build system
+
+
+## Recent audit-log excerpt (prior findings on this feature)
+
+Use this to avoid re-reporting findings that have already been triaged. If a finding was previously dispositioned (`closed`, `won't-fix`, `accepted-trade-off`), don't re-litigate the disposition; only surface a new instance if the underlying shape regressed.
+
+
+
+## Under audit
+
+The actual code under review. Read it carefully. The findings you emit must be anchored to specific files + line ranges in this diff (or call out a missing surface that should be in the diff but isn't).
+
+Governance pass over the just-implemented work for feature 'svf-vertical-slice', diffed against ff3426a. The differentiated back half audits a plan it did not author or execute.
+## Other chunks (file lists only — context for cross-file dependencies this chunk cannot see):
+- 5d46bb000cdab808: tests/core/svf-test.cpp, tests/core/test-main.cpp, tests/support/allocation-sentinel.cpp, tests/support/allocation-sentinel.h, tests/support/svf-reference.h
+- b04c878073d5d626: adapters/workbench/workbench-app.cpp, cmake/CPM.cmake, cmake/dependencies.cmake, cmake/toolchains/daisy.cmake, cmake/toolchains/teensy.cmake, core/dsp/audio-block.h, core/dsp/effect.h, core/dsp/param-id.h, core/dsp/paramete
+…[shared context truncated to fit the fleet envelope]
+
+## Chunk 952c352cc6eab725
+Files in scope: .clang-format, .editorconfig, .github/workflows/ci.yml, .gitignore, CMakeLists.txt, CMakePresets.json, README.md, adapters/daisy/CMakeLists.txt, adapters/daisy/daisy-main.cpp, adapters/plugin/CMakeLists.txt, adapters/plugin/plugin-parameters.cpp, adapters/plugin/plugin-parameters.h
+
+## Diffs
+
+### .clang-format
+diff --git a/.clang-format b/.clang-format
+new file mode 100644
+index 0000000..18b44bf
+--- /dev/null
++++ b/.clang-format
+@@ -0,0 +1,22 @@
++---
++# acfx C++ style — strict typing, readable modules (Constitution VII).
++Language: Cpp
++BasedOnStyle: LLVM
++Standard: c++20
++ColumnLimit: 100
++IndentWidth: 4
++TabWidth: 4
++UseTab: Never
++AccessModifierOffset: -4
++PointerAlignment: Left
++DerivePointerAlignment: false
++AllowShortFunctionsOnASingleLine: Inline
++AllowShortIfStatementsOnASingleLine: false
++AllowShortLoopsOnASingleLine: false
++BreakBeforeBraces: Attach
++SpaceAfterCStyleCast: true
++SortIncludes: CaseSensitive
++IncludeBlocks: Preserve
++NamespaceIndentation: None
++FixNamespaceComments: true
++...
+
+
+### .editorconfig
+diff --git a/.editorconfig b/.editorconfig
+new file mode 100644
+index 0000000..2687260
+--- /dev/null
++++ b/.editorconfig
+@@ -0,0 +1,25 @@
++root = true
++
++[*]
++charset = utf-8
++end_of_line = lf
++insert_final_newline = true
++trim_trailing_whitespace = true
++indent_style = space
++indent_size = 4
++
++[*.{c,cc,cpp,cxx,h,hh,hpp}]
++indent_size = 4
++max_line_length = 100
++
++[*.{cmake,txt}]
++indent_size = 2
++
++[CMakeLists.txt]
++indent_size = 2
++
++[*.{json,yml,yaml}]
++indent_size = 2
++
++[*.md]
++trim_trailing_whitespace = false
+
+
+### .github/workflows/ci.yml
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..ade25e7
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,47 @@
++name: ci
++
++# Explicit, visible quality gates (Constitution II: NO git hooks). CI builds and
++# tests the host core on every change (quickstart Scenario A) and build-checks the
++# desktop targets (Scenario B/C build). Hardware presets are build-checked only
++# where ARM toolchains are provisioned — a deferred follow noted in quickstart.md,
++# so the boundary is visible rather than silently dropped (FR-015).
++
++on:
++  push:
++    branches: [platform-foundation, main]
++  pull_request:
++
++jobs:
++  core-tests:
++    name: Core host tests (Scenario A)
++    runs-on: macos-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Configure (test preset)
++        run: cmake --preset test
++      - name: Build
++        run: cmake --build --preset test -j
++      - name: Test
++        run: ctest --preset test
++
++  portability-gate:
++    name: Portability gates
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Run explicit portability checks
++        run: ./scripts/check-portability.sh
++
++  desktop-build:
++    name: Desktop workbench + plugin build (Scenario B/C)
++    runs-on: macos-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Install JUCE Linux/macOS build prerequisites
++        run: echo "macOS runner ships the required frameworks"
++      - name: Configure (desktop preset)
++        run: cmake --preset desktop
++      - name: Build workbench
++        run: cmake --build --preset desktop --target acfx_workbench -j
++      - name: Build plugin (VST3 / AU / CLAP)
++        run: cmake --build --preset desktop --target acfx_plugin -j
+
+
+### .gitignore
+diff --git a/.gitignore b/.gitignore
+index 304c141..1acd783 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1 +1,25 @@
+ .stack-control/state/
++
++# Build output
++build/
++build-*/
++out/
++
++# CPM fetched dependencies + cache
++external/_deps/
++external/.cpm-cache/
++.cpmcache/
++
++# Compiled objects / artifacts
++*.o
++*.a
++*.so
++*.dll
++*.exe
++*.dylib
++
++# Editor / OS
++.DS_Store
++.idea/
++.vscode/
++*.swp
+
+
+### CMakeLists.txt
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000..6deb126
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,75 @@
++cmake_minimum_required(VERSION 3.21)
++
++# acfx — cross-platform audio DSP platform.
++# One platform-independent core, four thin target adapters. Dependencies point
++# only inward (adapters -> core; core -> nothing platform-specific).
++project(acfx VERSION 0.1.0 LANGUAGES C CXX)
++
++# ---------------------------------------------------------------------------
++# Build-surface options. Each preset (CMakePresets.json) flips exactly the set
++# of targets it needs; dependencies are fetched lazily to match (see
++# cmake/dependencies.cmake), so the `test` preset stays lightweight.
++# ---------------------------------------------------------------------------
++option(ACFX_BUILD_TESTS   "Build the host-side doctest suite for core/"      OFF)
++option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
++option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
++option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
++
++# Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
++if(NOT DEFINED CPM_SOURCE_CACHE)
++  set(CPM_SOURCE_CACHE "${CMAKE_SOURCE_DIR}/external/.cpm-cache")
++endif()
++
++# ---------------------------------------------------------------------------
++# C++ standard. The core compiles under both C++17 and C++20; the Effect/Generator
++# concept contract-checks are guarded by __cpp_concepts in the headers, so the
++# same source compiles either way. Desktop/test/Daisy build at C++20 (named
++# concept checks); Teensy may be pinned lower by its toolchain file.
++# ---------------------------------------------------------------------------
++if(NOT DEFINED CMAKE_CXX_STANDARD)
++  set(CMAKE_CXX_STANDARD 20)
++endif()
++set(CMAKE_CXX_STANDARD_REQUIRED ON)
++set(CMAKE_CXX_EXTENSIONS OFF)
++
++include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake)
++
++# ---------------------------------------------------------------------------
++# acfx_core — the platform-independent spine. Header-only (INTERFACE): the DSP
++# core, the Effect concept, the parameter model, and the SVF effect all live in
++# headers under core/. It links DaisySP because core/primitives wraps DaisySP's
++# Svf (a pure-DSP, platform-independent math library — Constitution IV permits
++# the inward wrap).
++# ---------------------------------------------------------------------------
++add_library(acfx_core INTERFACE)
++add_library(acfx::core ALIAS acfx_core)
++target_include_directories(acfx_core INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/core")
++target_compile_features(acfx_core INTERFACE cxx_std_17)
++if(TARGET DaisySP)
++  target_link_libraries(acfx_core INTERFACE DaisySP)
++endif()
++
++# ---------------------------------------------------------------------------
++# Subdirectories, gated by the build-surface options.
++# ---------------------------------------------------------------------------
++if(ACFX_BUILD_DESKTOP)
++  add_subdirectory(host/processor-node)
++  add_subdirectory(adapters/workbench)
++  add_subdirectory(adapters/plugin)
++endif()
++
++if(ACFX_BUILD_DAISY)
++  add_subdirectory(adapters/daisy)
++endif()
++
++if(ACFX_BUILD_TEENSY)
++  add_subdirectory(adapters/teensy)
++endif()
++
++if(ACFX_BUILD_TESTS)
++  enable_testing()
++  # host/processor-node is desktop-only host code, but it is pure C++ (no JUCE),
++  # so the test build includes it to exercise the EffectNode boundary too.
++  add_subdirectory(host/processor-node)
++  add_subdirectory(tests)
++endif()
+
+
+### CMakePresets.json
+diff --git a/CMakePresets.json b/CMakePresets.json
+new file mode 100644
+index 0000000..6cc56cb
+--- /dev/null
++++ b/CMakePresets.json
+@@ -0,0 +1,67 @@
++{
++  "version": 3,
++  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
++  "configurePresets": [
++    {
++      "name": "base",
++      "hidden": true,
++      "generator": "Unix Makefiles",
++      "binaryDir": "${sourceDir}/build/${presetName}",
++      "cacheVariables": {
++        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
++        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
++      }
++    },
++    {
++      "name": "test",
++      "inherits": "base",
++      "displayName": "Host tests (core correctness, no hardware)",
++      "cacheVariables": {
++        "ACFX_BUILD_TESTS": "ON",
++        "CMAKE_CXX_STANDARD": "20"
++      }
++    },
++    {
++      "name": "desktop",
++      "inherits": "base",
++      "displayName": "Desktop workbench + plugin (JUCE)",
++      "cacheVariables": {
++        "ACFX_BUILD_DESKTOP": "ON",
++        "CMAKE_CXX_STANDARD": "20"
++      }
++    },
++    {
++      "name": "daisy",
++      "inherits": "base",
++      "displayName": "Daisy firmware (arm-none-eabi-gcc)",
++      "toolchainFile": "${sourceDir}/cmake/toolchains/daisy.cmake",
++      "cacheVariables": {
++        "ACFX_BUILD_DAISY": "ON",
++        "CMAKE_CXX_STANDARD": "20"
++      }
++    },
++    {
++      "name": "teensy",
++      "inherits": "base",
++      "displayName": "Teensy firmware (Teensy ARM toolchain)",
++      "toolchainFile": "${sourceDir}/cmake/toolchains/teensy.cmake",
++      "cacheVariables": {
++        "ACFX_BUILD_TEENSY": "ON"
++      }
++    }
++  ],
++  "buildPresets": [
++    { "name": "test", "configurePreset": "test" },
++    { "name": "desktop", "configurePreset": "desktop" },
++    { "name": "daisy", "configurePreset": "daisy" },
++    { "name": "teensy", "configurePreset": "teensy" }
++  ],
++  "testPresets": [
++    {
++      "name": "test",
++      "configurePreset": "test",
++      "output": { "outputOnFailure": true },
++      "execution": { "noTestsAction": "error", "stopOnFailure": false }
++    }
++  ]
++}
+
+
+### README.md
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..76d746c
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,92 @@
++# acfx
++
++A cross-platform audio DSP platform: one platform-independent core, many thin
++target adapters. Effects are written once and run as a desktop standalone
++workbench, a DAW plugin (VST3 / AU / CLAP), and microcontroller firmware
++(Daisy, Teensy) — from the *same* source, with one parameter declaration driving
++every adapter.
++
++This repository's first vertical slice proves that spine end-to-end with a single
++effect: a State-Variable Filter (SVF). See
++[`specs/svf-vertical-slice/`](specs/svf-vertical-slice/) for the spec, plan, and
++the runnable validation guide ([`quickstart.md`](specs/svf-vertical-slice/quickstart.md)).
++
++## Layout
++
++```
++core/        platform-independent spine — NO JUCE/libDaisy/Teensy headers
++  dsp/         Effect concept, ProcessContext, AudioBlock, parameter model
++  primitives/  thin wrappers over DaisySP (the SVF wrapper)
++  effects/svf/ the SVF effect + its constexpr parameter table
++host/          desktop-only ProcessorNode boundary (<= 1 virtual call / block)
++adapters/      workbench (JUCE app), plugin (JUCE VST3/AU/CLAP), daisy, teensy
++tests/         host-side doctest suite (core correctness, no hardware)
++cmake/         CPM + pinned dependencies + ARM toolchain files
++```
++
++Dependencies point only inward (`adapters/* -> core/*`; `core/*` depends on
++nothing platform-specific). The same `core/effects/svf` source compiles into every
++target with no per-target `#ifdef` forks.
++
++## Build & run
++
++Builds use CMake presets. Each preset fetches only the dependencies it needs
++(CPM-pinned in [`cmake/dependencies.cmake`](cmake/dependencies.cmake)).
++
++### Host tests (no hardware) — quickstart Scenario A
++
++```bash
++cmake --preset test
++cmake --build --preset test
++ctest --preset test
++```
++
++Runs parameter scaling/skew checks, the per-mode SVF frequency-response check, the
++high-resonance stability guard, and the no-heap-allocation-in-`process()`
++invariant.
++
++### Desktop workbench (sketch-and-hear) — Scenario B
++
++```bash
++cmake --preset desktop
++cmake --build --preset desktop --target acfx_workbench
++```
++
++Launch the built app: auto-generated controls for cutoff / resonance / mode, a
++built-in player or live input, a bound MIDI CC, and a dry/processed A/B toggle.
++
++### Desktop plugin (VST3 / AU / CLAP) — Scenario C
++
++```bash
++cmake --preset desktop
++cmake --build --preset desktop --target acfx_plugin
++```
++
++### Hardware cross-compile — Scenario D
++
++```bash
++cmake --preset daisy  && cmake --build --preset daisy
++cmake --preset teensy && cmake --build --preset teensy
++```
++
++Requires an ARM embedded toolchain **with the C++ standard library** (ARM's
++gcc-arm-embedded or the vendor toolchain). Flashing and listening on a physical
++board is a separate checkpoint when hardware is in hand.
++
++## Quality gates
++
++Quality gates are **explicit, visible steps — never git hooks** (this repo uses
++zero hooks). Run them on purpose:
++
++```bash
++./scripts/check-portability.sh    # file-size budget, core platform-independence,
++                                  # no-JUCE-in-MCU, one-source-many-targets
++```
++
++CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the host tests,
++the portability gates, and the desktop build on every change.
++
++## Standards
++
++See [`CLAUDE.md`](CLAUDE.md) and the full project constitution at
++[`.specify/memory/constitution.md`](.specify/memory/constitution.md).
+
+
+### adapters/daisy/CMakeLists.txt
+diff --git a/adapters/daisy/CMakeLists.txt b/adapters/daisy/CMakeLists.txt
+new file mode 100644
+index 0000000..795dba5
+--- /dev/null
++++ b/adapters/daisy/CMakeLists.txt
+@@ -0,0 +1,30 @@
++# Daisy firmware target (T032). Compiles the SAME core/effects/svf into a Daisy
++# firmware via libDaisy — the only platform-specific code is daisy-main.cpp
++# (audio callback + ADC). No JUCE, no ProcessorNode (Constitution IV; SC-007).
++#
++# Requires the ARM embedded toolchain WITH the C++ standard library (ARM's
++# gcc-arm-embedded or the Daisy toolchain). A C-only arm-none-eabi (no libstdc++)
++# cannot build the C++ core — that is surfaced as a hard error, never a fallback.
++
++if(NOT DEFINED libDaisy_SOURCE_DIR)
++  message(FATAL_ERROR
++    "libDaisy not fetched. Configure with the `daisy` preset so cmake/dependencies.cmake "
++    "pins and downloads libDaisy.")
++endif()
++
++# libDaisy ships its own CMake that defines the `daisy` static library + the
++# STM32H750 build flags and linker script.
++add_subdirectory("${libDaisy_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/libDaisy" EXCLUDE_FROM_ALL)
++
++add_executable(acfx_daisy daisy-main.cpp)
++target_compile_features(acfx_daisy PRIVATE cxx_std_20)
++target_link_libraries(acfx_daisy PRIVATE acfx_core daisy)
++
++# Daisy bootloader linker script (STM32H750IB internal flash).
++set(_daisy_lds "${libDaisy_SOURCE_DIR}/core/STM32H750IB_flash.lds")
++target_link_options(acfx_daisy PRIVATE
++  -T "${_daisy_lds}"
++  -Wl,-Map=acfx_daisy.map,--cref
++  -Wl,--gc-sections
++)
++set_target_properties(acfx_daisy PROPERTIES SUFFIX ".elf")
+
+
+### adapters/daisy/daisy-main.cpp
+diff --git a/adapters/daisy/daisy-main.cpp b/adapters/daisy/daisy-main.cpp
+new file mode 100644
+index 0000000..431e3a8
+--- /dev/null
++++ b/adapters/daisy/daisy-main.cpp
+@@ -0,0 +1,65 @@
++// Daisy adapter (T032): the libDaisy audio callback drives the SAME
++// core/effects/svf source, and the Seed's ADC knobs map to setParameter. The MCU
++// build uses the concrete SvfEffect directly — no ProcessorNode, no JUCE
++// (Constitution IV; SC-007). Only the audio-callback + control glue is
++// platform-specific; the effect is identical to the desktop targets.
++
++#include "daisy_seed.h"
++
++#include "dsp/audio-block.h"
++#include "dsp/param-id.h"
++#include "dsp/process-context.h"
++#include "effects/svf/svf-effect.h"
++
++using namespace daisy;
++
++namespace {
++
++DaisySeed hw;
++acfx::SvfEffect svf;
++
++// ADC channel assignment (Seed analog pins): cutoff, resonance, mode.
++enum AdcChannel { kAdcCutoff = 0, kAdcResonance = 1, kAdcMode = 2, kAdcCount };
++
++void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size) {
++    // Map the knobs to normalized parameter values (the effect denormalizes via
++    // its descriptor — identical mapping to every other adapter).
++    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kCutoff}, hw.adc.GetFloat(kAdcCutoff));
++    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kResonance}, hw.adc.GetFloat(kAdcResonance));
++    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, hw.adc.GetFloat(kAdcMode));
++
++    // libDaisy hands non-interleaved per-channel buffers. Copy in -> out, then
++    // process out in place through the shared core.
++    float* channels[2] = {out[0], out[1]};
++    for (size_t i = 0; i < size; ++i) {
++        out[0][i] = in[0][i];
++        out[1][i] = in[1][i];
++    }
++    acfx::AudioBlock block(channels, 2, static_cast<int>(size));
++    svf.process(block);
++}
++
++} // namespace
++
++int main() {
++    hw.Configure();
++    hw.Init();
++    hw.SetAudioBlockSize(48);
++
++    // Configure the three ADC knobs.
++    AdcChannelConfig adcConfig[kAdcCount];
++    adcConfig[kAdcCutoff].InitSingle(seed::A0);
++    adcConfig[kAdcResonance].InitSingle(seed::A1);
++    adcConfig[kAdcMode].InitSingle(seed::A2);
++    hw.adc.Init(adcConfig, kAdcCount);
++    hw.adc.Start();
++
++    const acfx::ProcessContext ctx{static_cast<double>(hw.AudioSampleRate()),
++                                   static_cast<int>(hw.AudioBlockSize()), 2};
++    svf.prepare(ctx);
++
++    hw.StartAudio(AudioCallback);
++    for (;;) {
++        // Parameters are sampled in the audio callback; nothing to do here.
++    }
++}
+
+
+### adapters/plugin/CMakeLists.txt
+diff --git a/adapters/plugin/CMakeLists.txt b/adapters/plugin/CMakeLists.txt
+new file mode 100644
+index 0000000..1e9cebe
+--- /dev/null
++++ b/adapters/plugin/CMakeLists.txt
+@@ -0,0 +1,44 @@
++# The DAW plugin (T028): one JUCE plugin target exported as VST3 + AU natively and
++# CLAP via clap-juce-extensions. A thin adapter — links acfx_core + acfx_host (the
++# same boundary the workbench uses) and adds only JUCE plugin glue. Built under the
++# `desktop` preset.
++
++juce_add_plugin(acfx_plugin
++  PRODUCT_NAME "acfx SVF"
++  COMPANY_NAME "acfx"
++  PLUGIN_MANUFACTURER_CODE Acfx
++  PLUGIN_CODE Asvf
++  FORMATS VST3 AU
++  IS_SYNTH FALSE
++  NEEDS_MIDI_INPUT FALSE
++  NEEDS_MIDI_OUTPUT FALSE
++  COPY_PLUGIN_AFTER_BUILD FALSE
++)
++
++target_sources(acfx_plugin PRIVATE
++  plugin-processor.cpp
++  plugin-parameters.cpp
++)
++
++target_compile_features(acfx_plugin PRIVATE cxx_std_20)
++
++target_compile_definitions(acfx_plugin PUBLIC
++  JUCE_WEB_BROWSER=0
++  JUCE_USE_CURL=0
++  JUCE_VST3_CAN_REPLACE_VST2=0
++  JUCE_DISPLAY_SPLASH_SCREEN=0
++)
++
++target_link_libraries(acfx_plugin PRIVATE
++  acfx_core
++  acfx_host
++  juce::juce_audio_utils
++  juce::juce_recommended_config_flags
++  juce::juce_recommended_warning_flags
++)
++
++# Add the CLAP format to the same target (research.md decision 7).
++clap_juce_extensions_plugin(TARGET acfx_plugin
++  CLAP_ID "org.acfx.svf"
++  CLAP_FEATURES audio-effect filter
++)
+
+
+### adapters/plugin/plugin-parameters.cpp
+diff --git a/adapters/plugin/plugin-parameters.cpp b/adapters/plugin/plugin-parameters.cpp
+new file mode 100644
+index 0000000..71e83c2
+--- /dev/null
++++ b/adapters/plugin/plugin-parameters.cpp
+@@ -0,0 +1,96 @@
++#include "plugin-parameters.h"
++
++#include <string>
++
++namespace acfx::plugin {
++
++namespace {
++
++juce::String unitSuffix(ParamUnit unit) {
++    switch (unit) {
++    case ParamUnit::hz:
++        return " Hz";
++    case ParamUnit::decibels:
++        return " dB";
++    case ParamUnit::percent:
++        return " %";
++    case ParamUnit::ratio:
++    case ParamUnit::none:
++    default:
++        return {};
++    }
++}
++
++juce::String modeName(int index) {
++    switch (index) {
++    case 1:
++        return "highpass";
++    case 2:
++        return "bandpass";
++    case 0:
++    default:
++        return "lowpass";
++    }
++}
++
++} // namespace
++
++void PluginParameters::build(juce::AudioProcessor& processor,
++                             span<const ParameterDescriptor> descriptors) {
++    entries_.clear();
++    entries_.reserve(descriptors.size());
++
++    for (const ParameterDescriptor& d : descriptors) {
++        Entry entry;
++        entry.descriptor = d;
++        const juce::String name(std::string(d.name));
++        const juce::ParameterID paramId(name, 1);
++
++        if (d.kind == ParamKind::discrete) {
++            juce::StringArray choices;
++            for (int i = 0; i < d.discreteCount; ++i)
++                choices.add(modeName(i));
++            const int defaultIndex = static_cast<int>(d.defaultValue);
++            auto param = std::make_unique<juce::AudioParameterChoice>(paramId, name, choices,
++                                                                      defaultIndex);
++            entry.choiceParam = param.get();
++            processor.addParameter(param.release());
++        } else {
++            // Normalized 0..1 automation; the descriptor owns the skew, so the
++            // displayed plain value uses denormalize() — matching the workbench.
++            const ParameterDescriptor desc = d;
++            const float defaultNorm = normalize(d, d.defaultValue);
++            auto attributes =
++                juce::AudioParameterFloatAttributes()
++                    .withLabel(unitSuffix(d.unit))
++                    .withStringFromValueFunction([desc](float norm, int) {
++                        const float plain = denormalize(desc, norm);
++                        return juce::String(plain, 2);
++                    });
++            auto param = std::make_unique<juce::AudioParameterFloat>(
++                paramId, name, juce::NormalisableRange<float>(0.0f, 1.0f), defaultNorm,
++                attributes);
++            entry.floatParam = param.get();
++            processor.addParameter(param.release());
++        }
++
++        entries_.push_back(entry);
++    }
++}
++
++void PluginParameters::apply(const ApplyFn& fn) const {
++    if (!fn)
++        return;
++    for (const Entry& e : entries_) {
++        if (e.floatParam != nullptr) {
++            fn(e.descriptor.id, e.floatParam->get());
++        } else if (e.choiceParam != nullptr) {
++            const int index = e.choiceParam->getIndex();
++            const int count = e.descriptor.discreteCount < 2 ? 2 : e.descriptor.discreteCount;
++            const float norm = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
++            fn(e.descriptor.id, norm);
++        }
++    }
++}
++
++} // namespace acfx::plugin
+
+
+### adapters/plugin/plugin-parameters.h
+diff --git a/adapters/plugin/plugin-parameters.h b/adapters/plugin/plugin-parameters.h
+new file mode 100644
+index 0000000..619a7f9
+--- /dev/null
++++ b/adapters/plugin/plugin-parameters.h
+@@ -0,0 +1,40 @@
++#pragma once
++
++#include <functional>
++#include <vector>
++
++#include <juce_audio_processors/juce_audio_processors.h>
++
++#include "dsp/param-id.h"
++#include "dsp/parameter.h"
++#include "dsp/span.h"
++
++// Host-automation parameters generated from the effect's descriptor table (T030).
++// There is no hand-written parameter list: each ParameterDescriptor becomes a
++// JUCE parameter (continuous -> AudioParameterFloat in normalized 0..1 space with
++// a plain-unit display; discrete -> AudioParameterChoice). The normalized value
++// handed to setParameter is the same one the workbench produces, so the mapping
++// is identical across adapters (SC-006).
++
++namespace acfx::plugin {
++
++class PluginParameters {
++public:
++    using ApplyFn = std::function<void(ParamId, float)>;
++
++    // Create one JUCE parameter per descriptor and add it to the processor.
++    void build(juce::AudioProcessor& processor, span<const ParameterDescriptor> descriptors);
++
++    // Push each parameter's current normalized value to the effect via `fn`.
++    void apply(const ApplyFn& fn) const;
++
++private:
++    struct Entry {
++        ParameterDescriptor descriptor;
++        juce::AudioParameterFloat* floatParam = nullptr;
++        juce::AudioParameterChoice* choiceParam = nullptr;
++    };
++    std::vector<Entry> entries_;
++};
++
++} // namespace acfx::plugin
+
+
+## What to look for
+
+- **Correctness bugs** — logic errors, off-by-one, null/undefined paths, race conditions, missing error handling, swallowed exceptions.
+- **Design issues** — coupling between layers that should be independent, leaking abstractions, primitives that should compose but don't, configuration that should be data ending up as code.
+- **Missed edge cases** — what happens with empty input? Maximum input? Concurrent calls? Partial failure? Network unavailability? Operator interrupt mid-operation? What is the behavior on a fresh install vs. an upgrade?
+- **Code-quality concerns** — files growing past a reasonable cap, names that don't reveal intent, dead code, duplicated logic, magic numbers without explanation, tests that don't test the contract they claim to test.
+- **Cross-cutting impact** — does this diff touch a surface that other surfaces depend on? Are those other surfaces updated? Are migrations needed? Are doctor rules / schemas / validators updated to match the new shape?
+- **Documentation drift** — does the README / SKILL.md / PRD describe the behavior the code actually implements? If the spec changed, did the implementation? If the implementation changed, did the spec?
+- **Operator-discipline traps** — placeholder comments, swallowed errors, hardcoded paths/values that should be configurable, fallbacks that hide failure modes, mock data outside test code. These are bug-factories per project guidelines.
+
+## Process drivers (029 US8 / FR-029)
+
+These codify the structural drivers of myopic convergence (TASK-60), so the loop converges in fewer rounds with less fix-induced surface growth. The first three (channel-enumeration, invariant-first boundary, round-0 self-red-team) are **fix-review** drivers — apply them when the work under audit is a fix for a prior finding. The last two (fleet-degradation pricing, severity-rubric anchoring) are **general** controls that apply to every round:
+
+- **Channel-enumeration.** When a fix ADDS to an allowlist/surface (a new flag, a new accepted value, a new parser branch, a new fold path), do not accept it on the one example it fixes — enumerate the channels it opens: the **value** channel (other inputs now accepted), the **state** channel (new reachable states), the **multiline / composition** channel (how it composes with adjacent surfaces). Flag any opened channel that lacks a fixture.
+- **Invariant-first boundary.** When a finding is dispositioned as a scope boundary, state the boundary as the **mechanism's invariant plus an in-scope exception**, NOT as the exclusion of the one counterexample. "We exclude X" is a smell; "the invariant is I, and X is the in-scope exception because…" is the disposition.
+- **Round-0 self-red-team.** When the work under audit is itself a FIX for a prior finding, audit the **fix diff as a fresh surface in its own right** — do not assume it is correct merely because it targets a known bug. Ask what new edge the fix opened and what it moved rather than removed; a fix that resolves one finding while opening an unaudited channel is itself a finding.
+- **Fleet-degradation pricing.** A convergence claim is only as strong as the fleet that produced it. When the fleet is **degraded** (a timed-out / killed / zero-byte lane — US2 observability), price the round's "0 HIGH" accordingly: it is computed over fewer models, so cross-model agreement is weaker. Do not treat a degraded-fleet quiet round as full convergence.
+- **Severity-rubric anchoring.** Rate every finding by the blast-radius rubric below (US3), not by how alarming it feels — a quietly-plausible wrong reading an unattended agent would build outranks an obvious contradiction a reader would resolve.
+
+## Output format
+
+For each finding you surface, emit ONE markdown block in this exact shape:
+
+```
+### <heading: one-line summary of the finding>
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-<NN>
+Status:     open
+Severity:   <blocking | high | medium | low | informational>
+Surface:    <repo-relative-path:line-range> OR <description of the surface if not anchored to a single file>
+
+<one-to-three paragraphs of body: what the finding is, why it matters, what evidence you relied on, what a reasonable fix would look like. Be specific. Cite line numbers from the diff. If the finding is structural / cross-file, name every file affected.>
+```
+
+Number the findings sequentially (`-01`, `-02`, ...).
+
+**Severity — rate each finding by downstream blast-radius:** the consequence if a downstream consumer acts on the audited surface *as written*. The consumer may be an adopter running the code, or — especially for a spec — an AI agent building **unattended** from it, with no human to catch a wrong reading. Rate by what would actually happen if this shipped as-is, **not by how alarming the finding feels**. State the blast-radius reasoning in the finding body for every finding, at every level.
+
+- `blocking` — acting on it as-written breaks the feature's stated goals in obvious ways; OR (for a spec) the more natural reading an agent reaches first is the wrong one, so it will likely be built wrong by default and nothing in the artifact corrects it.
+- `high` — a correctness/safety defect a consumer will hit; OR a spec contradiction/ambiguity where the readings are roughly equally plausible and the artifact doesn't disambiguate — an agent might build either, including the wrong one.
+- `medium` — a design issue that compounds over time; OR a spec inconsistency a reasonable consumer would resolve correctly anyway (readings barely diverge, or context makes the intended one obvious).
+- `low` — hygiene; cosmetic wording with no behavioral or implementation consequence.
+- `informational` — context worth seeing, not itself a defect.
+
+**Calibrate by consequence, not by alarm.** A genuine contradiction a reader would obviously resolve the right way is at most `medium`. A quietly-plausible wrong reading an agent would actually build is `high`/`blocking` even if it looks minor. A spec's internal consistency is load-bearing — it is the input to an unattended build.
+
+## If you find nothing — say so explicitly
+
+If you walk the diff carefully and find no findings worth surfacing, emit ONE block in this shape instead:
+
+```
+### No findings
+
+Finding-ID: AUDIT-BARRAGE-<your-model-name>-CLEAN
+Status:     open
+Severity:   informational
+Surface:    (the entire diff)
+
+I walked the diff for the feature named above and found no findings worth surfacing. My specific reasoning: <three-to-five sentences explaining what you checked, why those checks came back clean, and what you would have flagged if it had been present.>
+```
+
+**Do not pad with weak findings.** A confident "I checked X, Y, Z and they are clean for these reasons" is more useful to the operator than three vague low-severity notes. The cross-model diversity gives the operator independent signal; an empty clean report from your CLI is itself a signal when paired with findings from your siblings.
+
+## Hard constraints
+
+- **No deferral phrases.** Don't write phrases like "fix later", "address in a follow-up", or other commitments to deferred work. The dispatch-wrapper rejects these as bug-factories. If you spot a deferral phrase IN the diff, surface it as a finding.
+- **Anchor findings to evidence.** A finding that says "this might be a problem" without naming the specific file + line is not actionable. Name the surface, quote the relevant code, explain what's wrong.
+- **One issue per finding block.** Don't bundle multiple concerns into one entry; the operator triages each block as a discrete signal.
+- **Provenance is your model name.** Replace `<your-model-name>` in the Finding-ID with the CLI you are (`claude`, `codex`, `gemini`, etc.). This is how the operator joins findings across models.
+
+**Planning an answer audit**
+
+I need to conduct an audit of the answers. This will involve inspecting the repository and reading through specific lines in the files. Since it’s a read-only process, I’ll probably need to use tools like `rg` or `nl` to assist in reviewing the content efficiently. I'll focus on ensuring accuracy and thoroughness while examining everything carefully!
+codex
+I’ll audit this chunk as a code review against the provided diff, and I’ll read the local files where line numbers or cross-file behavior need confirmation.
+exec
+/bin/zsh -lc "nl -ba adapters/plugin/plugin-parameters.cpp | sed -n '1,140p'" in /Users/orion/work/acfx-work/platform-foundation
+exec
+/bin/zsh -lc "nl -ba CMakeLists.txt | sed -n '1,140p'" in /Users/orion/work/acfx-work/platform-foundation
+exec
+/bin/zsh -lc "nl -ba .github/workflows/ci.yml | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	cmake_minimum_required(VERSION 3.21)
+     2	
+     3	# acfx — cross-platform audio DSP platform.
+     4	# One platform-independent core, four thin target adapters. Dependencies point
+     5	# only inward (adapters -> core; core -> nothing platform-specific).
+     6	project(acfx VERSION 0.1.0 LANGUAGES C CXX)
+     7	
+     8	# ---------------------------------------------------------------------------
+     9	# Build-surface options. Each preset (CMakePresets.json) flips exactly the set
+    10	# of targets it needs; dependencies are fetched lazily to match (see
+    11	# cmake/dependencies.cmake), so the `test` preset stays lightweight.
+    12	# ---------------------------------------------------------------------------
+    13	option(ACFX_BUILD_TESTS   "Build the host-side doctest suite for core/"      OFF)
+    14	option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
+    15	option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
+    16	option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
+    17	
+    18	# Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
+    19	if(NOT DEFINED CPM_SOURCE_CACHE)
+    20	  set(CPM_SOURCE_CACHE "${CMAKE_SOURCE_DIR}/external/.cpm-cache")
+    21	endif()
+    22	
+    23	# ---------------------------------------------------------------------------
+    24	# C++ standard. The core compiles under both C++17 and C++20; the Effect/Generator
+    25	# concept contract-checks are guarded by __cpp_concepts in the headers, so the
+    26	# same source compiles either way. Desktop/test/Daisy build at C++20 (named
+    27	# concept checks); Teensy may be pinned lower by its toolchain file.
+    28	# ---------------------------------------------------------------------------
+    29	if(NOT DEFINED CMAKE_CXX_STANDARD)
+    30	  set(CMAKE_CXX_STANDARD 20)
+    31	endif()
+    32	set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    33	set(CMAKE_CXX_EXTENSIONS OFF)
+    34	
+    35	include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies.cmake)
+    36	
+    37	# ---------------------------------------------------------------------------
+    38	# acfx_core — the platform-independent spine. Header-only (INTERFACE): the DSP
+    39	# core, the Effect concept, the parameter model, and the SVF effect all live in
+    40	# headers under core/. It links DaisySP because core/primitives wraps DaisySP's
+    41	# Svf (a pure-DSP, platform-independent math library — Constitution IV permits
+    42	# the inward wrap).
+    43	# ---------------------------------------------------------------------------
+    44	add_library(acfx_core INTERFACE)
+    45	add_library(acfx::core ALIAS acfx_core)
+    46	target_include_directories(acfx_core INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/core")
+    47	target_compile_features(acfx_core INTERFACE cxx_std_17)
+    48	if(TARGET DaisySP)
+    49	  target_link_libraries(acfx_core INTERFACE DaisySP)
+    50	endif()
+    51	
+    52	# ---------------------------------------------------------------------------
+    53	# Subdirectories, gated by the build-surface options.
+    54	# ---------------------------------------------------------------------------
+    55	if(ACFX_BUILD_DESKTOP)
+    56	  add_subdirectory(host/processor-node)
+    57	  add_subdirectory(adapters/workbench)
+    58	  add_subdirectory(adapters/plugin)
+    59	endif()
+    60	
+    61	if(ACFX_BUILD_DAISY)
+    62	  add_subdirectory(adapters/daisy)
+    63	endif()
+    64	
+    65	if(ACFX_BUILD_TEENSY)
+    66	  add_subdirectory(adapters/teensy)
+    67	endif()
+    68	
+    69	if(ACFX_BUILD_TESTS)
+    70	  enable_testing()
+    71	  # host/processor-node is desktop-only host code, but it is pure C++ (no JUCE),
+    72	  # so the test build includes it to exercise the EffectNode boundary too.
+    73	  add_subdirectory(host/processor-node)
+    74	  add_subdirectory(tests)
+    75	endif()
+
+ succeeded in 0ms:
+     1	#include "plugin-parameters.h"
+     2	
+     3	#include <string>
+     4	
+     5	namespace acfx::plugin {
+     6	
+     7	namespace {
+     8	
+     9	juce::String unitSuffix(ParamUnit unit) {
+    10	    switch (unit) {
+    11	    case ParamUnit::hz:
+    12	        return " Hz";
+    13	    case ParamUnit::decibels:
+    14	        return " dB";
+    15	    case ParamUnit::percent:
+    16	        return " %";
+    17	    case ParamUnit::ratio:
+    18	    case ParamUnit::none:
+    19	    default:
+    20	        return {};
+    21	    }
+    22	}
+    23	
+    24	juce::String modeName(int index) {
+    25	    switch (index) {
+    26	    case 1:
+    27	        return "highpass";
+    28	    case 2:
+    29	        return "bandpass";
+    30	    case 0:
+    31	    default:
+    32	        return "lowpass";
+    33	    }
+    34	}
+    35	
+    36	} // namespace
+    37	
+    38	void PluginParameters::build(juce::AudioProcessor& processor,
+    39	                             span<const ParameterDescriptor> descriptors) {
+    40	    entries_.clear();
+    41	    entries_.reserve(descriptors.size());
+    42	
+    43	    for (const ParameterDescriptor& d : descriptors) {
+    44	        Entry entry;
+    45	        entry.descriptor = d;
+    46	        const juce::String name(std::string(d.name));
+    47	        const juce::ParameterID paramId(name, 1);
+    48	
+    49	        if (d.kind == ParamKind::discrete) {
+    50	            juce::StringArray choices;
+    51	            for (int i = 0; i < d.discreteCount; ++i)
+    52	                choices.add(modeName(i));
+    53	            const int defaultIndex = static_cast<int>(d.defaultValue);
+    54	            auto param = std::make_unique<juce::AudioParameterChoice>(paramId, name, choices,
+    55	                                                                      defaultIndex);
+    56	            entry.choiceParam = param.get();
+    57	            processor.addParameter(param.release());
+    58	        } else {
+    59	            // Normalized 0..1 automation; the descriptor owns the skew, so the
+    60	            // displayed plain value uses denormalize() — matching the workbench.
+    61	            const ParameterDescriptor desc = d;
+    62	            const float defaultNorm = normalize(d, d.defaultValue);
+    63	            auto attributes =
+    64	                juce::AudioParameterFloatAttributes()
+    65	                    .withLabel(unitSuffix(d.unit))
+    66	                    .withStringFromValueFunction([desc](float norm, int) {
+    67	                        const float plain = denormalize(desc, norm);
+    68	                        return juce::String(plain, 2);
+    69	                    });
+    70	            auto param = std::make_unique<juce::AudioParameterFloat>(
+    71	                paramId, name, juce::NormalisableRange<float>(0.0f, 1.0f), defaultNorm,
+    72	                attributes);
+    73	            entry.floatParam = param.get();
+    74	            processor.addParameter(param.release());
+    75	        }
+    76	
+    77	        entries_.push_back(entry);
+    78	    }
+    79	}
+    80	
+    81	void PluginParameters::apply(const ApplyFn& fn) const {
+    82	    if (!fn)
+    83	        return;
+    84	    for (const Entry& e : entries_) {
+    85	        if (e.floatParam != nullptr) {
+    86	            fn(e.descriptor.id, e.floatParam->get());
+    87	        } else if (e.choiceParam != nullptr) {
+    88	            const int index = e.choiceParam->getIndex();
+    89	            const int count = e.descriptor.discreteCount < 2 ? 2 : e.descriptor.discreteCount;
+    90	            const float norm = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
+    91	            fn(e.descriptor.id, norm);
+    92	        }
+    93	    }
+    94	}
+    95	
+    96	} // namespace acfx::plugin
+
+ succeeded in 0ms:
+     1	name: ci
+     2	
+     3	# Explicit, visible quality gates (Constitution II: NO git hooks). CI builds and
+     4	# tests the host core on every change (quickstart Scenario A) and build-checks the
+     5	# desktop targets (Scenario B/C build). Hardware presets are build-checked only
+     6	# where ARM toolchains are provisioned — a deferred follow noted in quickstart.md,
+     7	# so the boundary is visible rather than silently dropped (FR-015).
+     8	
+     9	on:
+    10	  push:
+    11	    branches: [platform-foundation, main]
+    12	  pull_request:
+    13	
+    14	jobs:
+    15	  core-tests:
+    16	    name: Core host tests (Scenario A)
+    17	    runs-on: macos-latest
+    18	    steps:
+    19	      - uses: actions/checkout@v4
+    20	      - name: Configure (test preset)
+    21	        run: cmake --preset test
+    22	      - name: Build
+    23	        run: cmake --build --preset test -j
+    24	      - name: Test
+    25	        run: ctest --preset test
+    26	
+    27	  portability-gate:
+    28	    name: Portability gates
+    29	    runs-on: ubuntu-latest
+    30	    steps:
+    31	      - uses: actions/checkout@v4
+    32	      - name: Run explicit portability checks
+    33	        run: ./scripts/check-portability.sh
+    34	
+    35	  desktop-build:
+    36	    name: Desktop workbench + plugin build (Scenario B/C)
+    37	    runs-on: macos-latest
+    38	    steps:
+    39	      - uses: actions/checkout@v4
+    40	      - name: Install JUCE Linux/macOS build prerequisites
+    41	        run: echo "macOS runner ships the required frameworks"
+    42	      - name: Configure (desktop preset)
+    43	        run: cmake --preset desktop
+    44	      - name: Build workbench
+    45	        run: cmake --build --preset desktop --target acfx_workbench -j
+    46	      - name: Build plugin (VST3 / AU / CLAP)
+    47	        run: cmake --build --preset desktop --target acfx_plugin -j
+
+exec
+/bin/zsh -lc "nl -ba adapters/daisy/daisy-main.cpp | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	// Daisy adapter (T032): the libDaisy audio callback drives the SAME
+     2	// core/effects/svf source, and the Seed's ADC knobs map to setParameter. The MCU
+     3	// build uses the concrete SvfEffect directly — no ProcessorNode, no JUCE
+     4	// (Constitution IV; SC-007). Only the audio-callback + control glue is
+     5	// platform-specific; the effect is identical to the desktop targets.
+     6	
+     7	#include "daisy_seed.h"
+     8	
+     9	#include "dsp/audio-block.h"
+    10	#include "dsp/param-id.h"
+    11	#include "dsp/process-context.h"
+    12	#include "effects/svf/svf-effect.h"
+    13	
+    14	using namespace daisy;
+    15	
+    16	namespace {
+    17	
+    18	DaisySeed hw;
+    19	acfx::SvfEffect svf;
+    20	
+    21	// ADC channel assignment (Seed analog pins): cutoff, resonance, mode.
+    22	enum AdcChannel { kAdcCutoff = 0, kAdcResonance = 1, kAdcMode = 2, kAdcCount };
+    23	
+    24	void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size) {
+    25	    // Map the knobs to normalized parameter values (the effect denormalizes via
+    26	    // its descriptor — identical mapping to every other adapter).
+    27	    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kCutoff}, hw.adc.GetFloat(kAdcCutoff));
+    28	    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kResonance}, hw.adc.GetFloat(kAdcResonance));
+    29	    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, hw.adc.GetFloat(kAdcMode));
+    30	
+    31	    // libDaisy hands non-interleaved per-channel buffers. Copy in -> out, then
+    32	    // process out in place through the shared core.
+    33	    float* channels[2] = {out[0], out[1]};
+    34	    for (size_t i = 0; i < size; ++i) {
+    35	        out[0][i] = in[0][i];
+    36	        out[1][i] = in[1][i];
+    37	    }
+    38	    acfx::AudioBlock block(channels, 2, static_cast<int>(size));
+    39	    svf.process(block);
+    40	}
+    41	
+    42	} // namespace
+    43	
+    44	int main() {
+    45	    hw.Configure();
+    46	    hw.Init();
+    47	    hw.SetAudioBlockSize(48);
+    48	
+    49	    // Configure the three ADC knobs.
+    50	    AdcChannelConfig adcConfig[kAdcCount];
+    51	    adcConfig[kAdcCutoff].InitSingle(seed::A0);
+    52	    adcConfig[kAdcResonance].InitSingle(seed::A1);
+    53	    adcConfig[kAdcMode].InitSingle(seed::A2);
+    54	    hw.adc.Init(adcConfig, kAdcCount);
+    55	    hw.adc.Start();
+    56	
+    57	    const acfx::ProcessContext ctx{static_cast<double>(hw.AudioSampleRate()),
+    58	                                   static_cast<int>(hw.AudioBlockSize()), 2};
+    59	    svf.prepare(ctx);
+    60	
+    61	    hw.StartAudio(AudioCallback);
+    62	    for (;;) {
+    63	        // Parameters are sampled in the audio callback; nothing to do here.
+    64	    }
+    65	}
+
+codex
+I’m checking adjacent code for the parameter and plugin contracts before deciding whether the diff has a real defect. The main risk surface here is whether the generated host parameters preserve the core descriptor semantics across adapters.
+exec
+/bin/zsh -lc "nl -ba adapters/plugin/plugin-processor.cpp | sed -n '1,220p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include "plugin-processor.h"
+     2	
+     3	#include "dsp/audio-block.h"
+     4	#include "dsp/process-context.h"
+     5	
+     6	namespace acfx::plugin {
+     7	
+     8	PluginProcessor::PluginProcessor()
+     9	    : juce::AudioProcessor(BusesProperties()
+    10	                               .withInput("Input", juce::AudioChannelSet::stereo(), true)
+    11	                               .withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
+    12	    parameters_.build(*this, node_.parameters());
+    13	}
+    14	
+    15	void PluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
+    16	    const ProcessContext ctx{sampleRate, samplesPerBlock, getTotalNumOutputChannels()};
+    17	    node_.prepare(ctx);
+    18	}
+    19	
+    20	bool PluginProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
+    21	    const auto out = layouts.getMainOutputChannelSet();
+    22	    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+    23	        return false;
+    24	    // Same in/out layout (in-place processing).
+    25	    return layouts.getMainInputChannelSet() == out;
+    26	}
+    27	
+    28	void PluginProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) {
+    29	    juce::ScopedNoDenormals noDenormals;
+    30	
+    31	    // Push current host-automation values to the effect (same normalized mapping
+    32	    // as the workbench). Allocation-free.
+    33	    parameters_.apply([this](ParamId id, float normalized) {
+    34	        node_.setParameter(id, normalized);
+    35	    });
+    36	
+    37	    const int numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
+    38	    std::array<float*, kMaxChannels> chans{};
+    39	    for (int ch = 0; ch < numChannels; ++ch)
+    40	        chans[ch] = buffer.getWritePointer(ch);
+    41	
+    42	    AudioBlock block(chans.data(), numChannels, buffer.getNumSamples());
+    43	    node_.processBlock(block);
+    44	}
+    45	
+    46	juce::AudioProcessorEditor* PluginProcessor::createEditor() {
+    47	    // Auto-generated UI from the host-automation parameters — no bespoke editor.
+    48	    return new juce::GenericAudioProcessorEditor(*this);
+    49	}
+    50	
+    51	} // namespace acfx::plugin
+    52	
+    53	// The plugin factory JUCE's wrappers call to instantiate the processor.
+    54	juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
+    55	    return new acfx::plugin::PluginProcessor();
+    56	}
+
+exec
+/bin/zsh -lc "nl -ba adapters/plugin/CMakeLists.txt | sed -n '1,100p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# The DAW plugin (T028): one JUCE plugin target exported as VST3 + AU natively and
+     2	# CLAP via clap-juce-extensions. A thin adapter — links acfx_core + acfx_host (the
+     3	# same boundary the workbench uses) and adds only JUCE plugin glue. Built under the
+     4	# `desktop` preset.
+     5	
+     6	juce_add_plugin(acfx_plugin
+     7	  PRODUCT_NAME "acfx SVF"
+     8	  COMPANY_NAME "acfx"
+     9	  PLUGIN_MANUFACTURER_CODE Acfx
+    10	  PLUGIN_CODE Asvf
+    11	  FORMATS VST3 AU
+    12	  IS_SYNTH FALSE
+    13	  NEEDS_MIDI_INPUT FALSE
+    14	  NEEDS_MIDI_OUTPUT FALSE
+    15	  COPY_PLUGIN_AFTER_BUILD FALSE
+    16	)
+    17	
+    18	target_sources(acfx_plugin PRIVATE
+    19	  plugin-processor.cpp
+    20	  plugin-parameters.cpp
+    21	)
+    22	
+    23	target_compile_features(acfx_plugin PRIVATE cxx_std_20)
+    24	
+    25	target_compile_definitions(acfx_plugin PUBLIC
+    26	  JUCE_WEB_BROWSER=0
+    27	  JUCE_USE_CURL=0
+    28	  JUCE_VST3_CAN_REPLACE_VST2=0
+    29	  JUCE_DISPLAY_SPLASH_SCREEN=0
+    30	)
+    31	
+    32	target_link_libraries(acfx_plugin PRIVATE
+    33	  acfx_core
+    34	  acfx_host
+    35	  juce::juce_audio_utils
+    36	  juce::juce_recommended_config_flags
+    37	  juce::juce_recommended_warning_flags
+    38	)
+    39	
+    40	# Add the CLAP format to the same target (research.md decision 7).
+    41	clap_juce_extensions_plugin(TARGET acfx_plugin
+    42	  CLAP_ID "org.acfx.svf"
+    43	  CLAP_FEATURES audio-effect filter
+    44	)
+
+exec
+/bin/zsh -lc "nl -ba cmake/dependencies.cmake | sed -n '1,220p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	# acfx external dependencies — CPM-pinned to explicit, known-good refs.
+     2	#
+     3	# Per research.md (Phase 0, decision 4): every dependency is fetched by CPM and
+     4	# pinned to an explicit ref. The pin is a real, reproducible tag/commit captured
+     5	# when the dependency is first fetched and verified to build — never a fabricated
+     6	# version number.
+     7	#
+     8	# Pins verified by an in-session fetch+build (the `test` preset path):
+     9	#   - DaisySP   599511b740f8f3a9b8db72a0642aa45b8a23c3a3   (core SVF primitive)
+    10	#   - doctest   v2.5.2                                      (host-side test runner)
+    11	#
+    12	# Pins captured from the upstream repos (real refs); first-fetch verification
+    13	# happens the first time each target's preset is configured on a machine with the
+    14	# matching toolchain (desktop / daisy / teensy):
+    15	#   - JUCE                    8.0.14    (workbench + plugin)
+    16	#   - clap-juce-extensions    16e9d4c   (CLAP export, plugin only)
+    17	#   - libDaisy                c02245d   (daisy adapter)
+    18	#   - Teensy cores            a664eff   (teensy adapter)
+    19	#   - Teensy Audio Library    3039be2   (teensy adapter)
+    20	#
+    21	# Dependencies are fetched lazily: a dependency is only declared when a target
+    22	# that needs it is enabled, so the `test` preset pulls only DaisySP + doctest.
+    23	
+    24	include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
+    25	
+    26	# --- Core: DaisySP (platform-independent pure-DSP math; wrapped by core/primitives)
+    27	# Needed by core/ on every target, so it is always declared. DaisySP ships its own
+    28	# CMakeLists that defines the `DaisySP` static-lib target with the correct (bare-
+    29	# name) include directories for its sources; we use it directly rather than
+    30	# re-globbing. It is portable C++ (no platform headers), so it builds host-side.
+    31	CPMAddPackage(
+    32	  NAME DaisySP
+    33	  GITHUB_REPOSITORY electro-smith/DaisySP
+    34	  GIT_TAG 599511b740f8f3a9b8db72a0642aa45b8a23c3a3
+    35	)
+    36	
+    37	if(TARGET DaisySP)
+    38	  set_target_properties(DaisySP PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    39	endif()
+    40	
+    41	# --- Host-side tests: doctest
+    42	if(ACFX_BUILD_TESTS)
+    43	  CPMAddPackage(
+    44	    NAME doctest
+    45	    GITHUB_REPOSITORY doctest/doctest
+    46	    GIT_TAG v2.5.2
+    47	  )
+    48	endif()
+    49	
+    50	# --- Desktop (workbench + plugin): JUCE 8, plus clap-juce-extensions for CLAP.
+    51	if(ACFX_BUILD_DESKTOP)
+    52	  CPMAddPackage(
+    53	    NAME JUCE
+    54	    GITHUB_REPOSITORY juce-framework/JUCE
+    55	    GIT_TAG 8.0.14
+    56	  )
+    57	  CPMAddPackage(
+    58	    NAME clap-juce-extensions
+    59	    GITHUB_REPOSITORY free-audio/clap-juce-extensions
+    60	    GIT_TAG 16e9d4ca7b1e86c76e04584b2c08e85a764bcda8
+    61	  )
+    62	endif()
+    63	
+    64	# --- Daisy: libDaisy (provides the STM32 HAL + audio callback glue).
+    65	if(ACFX_BUILD_DAISY)
+    66	  CPMAddPackage(
+    67	    NAME libDaisy
+    68	    GITHUB_REPOSITORY electro-smith/libDaisy
+    69	    GIT_TAG c02245d22b38acad3916d9c2f156bcba34fa15af
+    70	    DOWNLOAD_ONLY YES
+    71	  )
+    72	endif()
+    73	
+    74	# --- Teensy: Teensy cores + Audio Library.
+    75	if(ACFX_BUILD_TEENSY)
+    76	  CPMAddPackage(
+    77	    NAME teensy_cores
+    78	    GITHUB_REPOSITORY PaulStoffregen/cores
+    79	    GIT_TAG a664effb008d1ac8d8f00f3f19b47c0d1ea46e3b
+    80	    DOWNLOAD_ONLY YES
+    81	  )
+    82	  CPMAddPackage(
+    83	    NAME teensy_audio
+    84	    GITHUB_REPOSITORY PaulStoffregen/Audio
+    85	    GIT_TAG 3039be2773e86daf1f381a1e8bdc1e6a55ed11f1
+    86	    DOWNLOAD_ONLY YES
+    87	  )
+    88	endif()
+
+exec
+/bin/zsh -lc "rg -n \"struct ParameterDescriptor|enum class ParamKind|normalize\\(|denormalize\\(|discreteCount|SvfEffect::kMode|kMode|parameters\" core adapters host tests -S" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+adapters/workbench/parameter-view.cpp:18:            for (int i = 0; i < d.discreteCount; ++i)
+adapters/workbench/parameter-view.cpp:23:            const std::uint8_t count = d.discreteCount;
+adapters/workbench/parameter-view.cpp:40:            row.slider->setValue(static_cast<double>(normalize(d, d.defaultValue)),
+adapters/workbench/parameter-view.cpp:63:            const int count = row.descriptor.discreteCount < 2 ? 2 : row.descriptor.discreteCount;
+host/processor-node/processor-node.h:21:    virtual span<const ParameterDescriptor> parameters() const = 0;
+host/processor-node/processor-node.h:33:    span<const ParameterDescriptor> parameters() const override { return T::parameters(); }
+core/dsp/param-id.h:26:enum class ParamKind : std::uint8_t { continuous, discrete };
+tests/core/parameter-test.cpp:30:    CHECK(denormalize(linearRes, 0.0f) == doctest::Approx(0.0f));
+tests/core/parameter-test.cpp:31:    CHECK(denormalize(linearRes, 0.5f) == doctest::Approx(0.5f));
+tests/core/parameter-test.cpp:32:    CHECK(denormalize(linearRes, 1.0f) == doctest::Approx(1.0f));
+tests/core/parameter-test.cpp:34:    CHECK(normalize(linearRes, 0.0f) == doctest::Approx(0.0f));
+tests/core/parameter-test.cpp:35:    CHECK(normalize(linearRes, 0.5f) == doctest::Approx(0.5f));
+tests/core/parameter-test.cpp:36:    CHECK(normalize(linearRes, 1.0f) == doctest::Approx(1.0f));
+tests/core/parameter-test.cpp:40:    CHECK(denormalize(logCutoff, 0.0f) == doctest::Approx(20.0f));
+tests/core/parameter-test.cpp:41:    CHECK(denormalize(logCutoff, 1.0f) == doctest::Approx(20000.0f));
+tests/core/parameter-test.cpp:43:    CHECK(denormalize(logCutoff, 0.5f) == doctest::Approx(632.4555f).epsilon(0.001));
+tests/core/parameter-test.cpp:47:        const float plain = denormalize(logCutoff, n);
+tests/core/parameter-test.cpp:48:        CHECK(normalize(logCutoff, plain) == doctest::Approx(n).epsilon(0.0005));
+tests/core/parameter-test.cpp:53:    CHECK(denormalize(discreteMode, 0.0f) == doctest::Approx(0.0f));
+tests/core/parameter-test.cpp:54:    CHECK(denormalize(discreteMode, 0.5f) == doctest::Approx(1.0f)); // floor(0.5*3)=1
+tests/core/parameter-test.cpp:55:    CHECK(denormalize(discreteMode, 0.99f) == doctest::Approx(2.0f));
+tests/core/parameter-test.cpp:56:    CHECK(denormalize(discreteMode, 1.0f) == doctest::Approx(2.0f)); // clamped to count-1
+tests/core/parameter-test.cpp:59:        const float norm = normalize(discreteMode, static_cast<float>(idx));
+tests/core/parameter-test.cpp:60:        CHECK(static_cast<int>(denormalize(discreteMode, norm)) == idx);
+tests/core/parameter-test.cpp:65:    CHECK(denormalize(linearRes, -0.5f) == doctest::Approx(0.0f));
+tests/core/parameter-test.cpp:66:    CHECK(denormalize(linearRes, 1.5f) == doctest::Approx(1.0f));
+tests/core/parameter-test.cpp:67:    CHECK(denormalize(logCutoff, -1.0f) == doctest::Approx(20.0f));
+tests/core/parameter-test.cpp:68:    CHECK(denormalize(logCutoff, 2.0f) == doctest::Approx(20000.0f));
+adapters/plugin/plugin-parameters.cpp:1:#include "plugin-parameters.h"
+adapters/plugin/plugin-parameters.cpp:51:            for (int i = 0; i < d.discreteCount; ++i)
+adapters/plugin/plugin-parameters.cpp:60:            // displayed plain value uses denormalize() — matching the workbench.
+adapters/plugin/plugin-parameters.cpp:62:            const float defaultNorm = normalize(d, d.defaultValue);
+adapters/plugin/plugin-parameters.cpp:67:                        const float plain = denormalize(desc, norm);
+adapters/plugin/plugin-parameters.cpp:89:            const int count = e.descriptor.discreteCount < 2 ? 2 : e.descriptor.discreteCount;
+adapters/plugin/plugin-processor.cpp:12:    parameters_.build(*this, node_.parameters());
+adapters/plugin/plugin-processor.cpp:33:    parameters_.apply([this](ParamId id, float normalized) {
+adapters/plugin/plugin-processor.cpp:47:    // Auto-generated UI from the host-automation parameters — no bespoke editor.
+adapters/plugin/CMakeLists.txt:20:  plugin-parameters.cpp
+adapters/daisy/daisy-main.cpp:29:    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode}, hw.adc.GetFloat(kAdcMode));
+tests/core/svf-test.cpp:37:                        normalize(SvfEffect::kParams[SvfEffect::kCutoff],
+tests/core/svf-test.cpp:41:        fx.setParameter(ParamId{SvfEffect::kMode},
+tests/core/svf-test.cpp:42:                        normalize(SvfEffect::kParams[SvfEffect::kMode], modeIndex));
+core/dsp/effect.h:27:        { T::parameters() } -> std::convertible_to<span<const ParameterDescriptor>>;
+core/dsp/effect.h:52:                   decltype(T::parameters()),
+adapters/plugin/plugin-processor.h:9:#include "plugin-parameters.h"
+adapters/plugin/plugin-processor.h:14:// host-automation parameters generated from the effect's descriptor table. One
+adapters/plugin/plugin-processor.h:53:    PluginParameters parameters_;
+adapters/workbench/workbench-app.cpp:35:          paramView_(node_->parameters(),
+adapters/workbench/workbench-app.cpp:37:        params_ = node_->parameters();
+adapters/plugin/plugin-parameters.h:12:// Host-automation parameters generated from the effect's descriptor table (T030).
+adapters/teensy/teensy-main.cpp:69:constexpr int kModePin = A2;
+adapters/teensy/teensy-main.cpp:89:    svf.setParameter(acfx::ParamId{acfx::SvfEffect::kMode},
+adapters/teensy/teensy-main.cpp:90:                     static_cast<float>(analogRead(kModePin)) / 1023.0f);
+core/effects/svf/svf-effect.h:23:    enum Param : std::uint8_t { kCutoff = 0, kResonance = 1, kMode = 2 };
+core/effects/svf/svf-effect.h:32:        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 2.0f, 0.0f,
+core/effects/svf/svf-effect.h:36:    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+core/effects/svf/svf-effect.h:67:            cutoffHz_ = denormalize(kParams[kCutoff], normalized);
+core/effects/svf/svf-effect.h:71:            resonance_ = denormalize(kParams[kResonance], normalized);
+core/effects/svf/svf-effect.h:74:        case kMode:
+core/effects/svf/svf-effect.h:75:            mode_ = toMode(denormalize(kParams[kMode], normalized));
+core/dsp/parameter.h:16:struct ParameterDescriptor {
+core/dsp/parameter.h:25:    std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
+core/dsp/parameter.h:33:inline float denormalize(const ParameterDescriptor& d, float norm) noexcept {
+core/dsp/parameter.h:37:        // Quantize to a bucket index in [0, discreteCount); the index IS the
+core/dsp/parameter.h:39:        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+core/dsp/parameter.h:63:inline float normalize(const ParameterDescriptor& d, float plain) noexcept {
+core/dsp/parameter.h:66:        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+adapters/workbench/parameter-view.h:13:// UI code: the view iterates the effect's parameters() table and builds a slider
+
+**Exploring build options**
+
+I'm considering using Unix Makefiles and possibly some frameworks. I'm wondering about code signing as an element, but it might not be necessary. There's potential with continuous integration and CMake, but I'm a bit unsure about installing Xcode. I need to check if macOS-latest has CMake available, as it seems likely. I’ll keep exploring these options to ensure I'm on the right path for the build process!
+codex
+The adjacent implementation confirms one substantive adapter issue: the plugin’s choice parameters are hand-named in the adapter rather than derived from descriptor data, so future discrete parameters would silently inherit SVF mode labels. I’m also checking whether any line contains governance-prohibited deferred wording, because the prompt asks us to surface that explicitly.
+exec
+/bin/zsh -lc "nl -ba core/dsp/parameter.h | sed -n '1,120p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include "dsp/param-id.h"
+     4	
+     5	#include <algorithm>
+     6	#include <cmath>
+     7	#include <cstdint>
+     8	#include <string_view>
+     9	
+    10	// The single declared definition of one control, consumed by every adapter
+    11	// (FR-003), plus the pure, allocation-free normalized<->plain mapping.
+    12	// (contracts/parameter-model.md)
+    13	
+    14	namespace acfx {
+    15	
+    16	struct ParameterDescriptor {
+    17	    ParamId id;
+    18	    std::string_view name; // static storage (string literal)
+    19	    ParamUnit unit;
+    20	    float min;
+    21	    float max;
+    22	    float defaultValue; // plain units, within [min, max]
+    23	    ParamSkew skew;
+    24	    ParamKind kind;
+    25	    std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
+    26	};
+    27	
+    28	namespace detail {
+    29	constexpr float clamp01(float x) noexcept { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+    30	} // namespace detail
+    31	
+    32	// norm (0..1) -> plain units. Pure, allocation-free, audio-thread safe.
+    33	inline float denormalize(const ParameterDescriptor& d, float norm) noexcept {
+    34	    norm = detail::clamp01(norm);
+    35	    switch (d.kind) {
+    36	    case ParamKind::discrete: {
+    37	        // Quantize to a bucket index in [0, discreteCount); the index IS the
+    38	        // plain value (the effect maps index -> enum).
+    39	        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+    40	        int idx = static_cast<int>(norm * static_cast<float>(count));
+    41	        if (idx >= count)
+    42	            idx = count - 1;
+    43	        return static_cast<float>(idx);
+    44	    }
+    45	    case ParamKind::continuous:
+    46	    default:
+    47	        break;
+    48	    }
+    49	
+    50	    switch (d.skew) {
+    51	    case ParamSkew::logarithmic:
+    52	        // Requires min, max > 0. plain = min * (max/min)^norm.
+    53	        return d.min * std::pow(d.max / d.min, norm);
+    54	    case ParamSkew::linear:
+    55	    default:
+    56	        return d.min + norm * (d.max - d.min);
+    57	    }
+    58	}
+    59	
+    60	// plain units -> norm (0..1). Inverse of denormalize for continuous params; for
+    61	// discrete params, plain is the bucket index and the result lands mid-bucket so
+    62	// it round-trips back to the same index.
+    63	inline float normalize(const ParameterDescriptor& d, float plain) noexcept {
+    64	    switch (d.kind) {
+    65	    case ParamKind::discrete: {
+    66	        const int count = d.discreteCount < 2 ? 2 : static_cast<int>(d.discreteCount);
+    67	        int idx = static_cast<int>(plain);
+    68	        idx = std::clamp(idx, 0, count - 1);
+    69	        return (static_cast<float>(idx) + 0.5f) / static_cast<float>(count);
+    70	    }
+    71	    case ParamKind::continuous:
+    72	    default:
+    73	        break;
+    74	    }
+    75	
+    76	    plain = std::clamp(plain, d.min, d.max);
+    77	    switch (d.skew) {
+    78	    case ParamSkew::logarithmic:
+    79	        return std::log(plain / d.min) / std::log(d.max / d.min);
+    80	    case ParamSkew::linear:
+    81	    default:
+    82	        return (plain - d.min) / (d.max - d.min);
+    83	    }
+    84	}
+    85	
+    86	} // namespace acfx
+
+exec
+/bin/zsh -lc "nl -ba core/effects/svf/svf-effect.h | sed -n '1,130p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include <array>
+     4	#include <cstdint>
+     5	
+     6	#include "dsp/audio-block.h"
+     7	#include "dsp/param-id.h"
+     8	#include "dsp/parameter.h"
+     9	#include "dsp/process-context.h"
+    10	#include "dsp/span.h"
+    11	#include "primitives/svf-primitive.h"
+    12	
+    13	// The State-Variable Filter effect — the one effect proving the cross-platform
+    14	// spine. Satisfies the Effect contract (no base class, no vtable in the hot
+    15	// path). One constexpr parameter table (cutoff/resonance/mode) drives every
+    16	// adapter (FR-003). Per-channel DaisySP Svf state, allocation-free process.
+    17	
+    18	namespace acfx {
+    19	
+    20	class SvfEffect {
+    21	public:
+    22	    // Stable parameter ids — the dense index into kParams.
+    23	    enum Param : std::uint8_t { kCutoff = 0, kResonance = 1, kMode = 2 };
+    24	
+    25	    // The single source of parameter truth (SC-006). cutoff: log Hz; resonance:
+    26	    // linear 0..1; mode: discrete {lowpass, highpass, bandpass}.
+    27	    static constexpr std::array<ParameterDescriptor, 3> kParams = {{
+    28	        {ParamId{kCutoff}, "cutoff", ParamUnit::hz, 20.0f, 20000.0f, 1000.0f,
+    29	         ParamSkew::logarithmic, ParamKind::continuous, 0},
+    30	        {ParamId{kResonance}, "resonance", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+    31	         ParamSkew::linear, ParamKind::continuous, 0},
+    32	        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 2.0f, 0.0f,
+    33	         ParamSkew::linear, ParamKind::discrete, 3},
+    34	    }};
+    35	
+    36	    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+    37	
+    38	    void prepare(const ProcessContext& ctx) noexcept {
+    39	        sampleRate_ = static_cast<float>(ctx.sampleRate);
+    40	        numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
+    41	        for (int ch = 0; ch < numChannels_; ++ch)
+    42	            filters_[static_cast<std::size_t>(ch)].init(sampleRate_);
+    43	        applyAll();
+    44	    }
+    45	
+    46	    void reset() noexcept {
+    47	        for (int ch = 0; ch < numChannels_; ++ch)
+    48	            filters_[static_cast<std::size_t>(ch)].reset();
+    49	        applyAll();
+    50	    }
+    51	
+    52	    void process(AudioBlock& io) noexcept {
+    53	        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
+    54	        const int samples = io.numSamples();
+    55	        for (int ch = 0; ch < channels; ++ch) {
+    56	            float* x = io.channel(ch);
+    57	            SvfPrimitive& f = filters_[static_cast<std::size_t>(ch)];
+    58	            for (int n = 0; n < samples; ++n)
+    59	                x[n] = f.process(x[n]);
+    60	        }
+    61	    }
+    62	
+    63	    // Normalized 0..1 in; mapped to plain units via the matching descriptor.
+    64	    void setParameter(ParamId id, float normalized) noexcept {
+    65	        switch (id.value) {
+    66	        case kCutoff:
+    67	            cutoffHz_ = denormalize(kParams[kCutoff], normalized);
+    68	            applyCutoff();
+    69	            break;
+    70	        case kResonance:
+    71	            resonance_ = denormalize(kParams[kResonance], normalized);
+    72	            applyResonance();
+    73	            break;
+    74	        case kMode:
+    75	            mode_ = toMode(denormalize(kParams[kMode], normalized));
+    76	            applyMode();
+    77	            break;
+    78	        default:
+    79	            break; // out-of-range id: a programming error; no silent state change
+    80	        }
+    81	    }
+    82	
+    83	private:
+    84	    static constexpr int kMaxChannels = 8;
+    85	
+    86	    static SvfMode toMode(float index) noexcept {
+    87	        switch (static_cast<int>(index)) {
+    88	        case 1:
+    89	            return SvfMode::highpass;
+    90	        case 2:
+    91	            return SvfMode::bandpass;
+    92	        case 0:
+    93	        default:
+    94	            return SvfMode::lowpass;
+    95	        }
+    96	    }
+    97	
+    98	    // DaisySP's Svf requires cutoff strictly below sampleRate/3; clamp into a safe
+    99	    // band just under that bound (and never below the descriptor minimum).
+   100	    float clampedCutoff() const noexcept {
+   101	        const float maxFreq = sampleRate_ * 0.32f;
+   102	        float f = cutoffHz_;
+   103	        if (f > maxFreq)
+   104	            f = maxFreq;
+   105	        if (f < 20.0f)
+   106	            f = 20.0f;
+   107	        return f;
+   108	    }
+   109	
+   110	    void applyCutoff() noexcept {
+   111	        const float f = clampedCutoff();
+   112	        for (int ch = 0; ch < numChannels_; ++ch)
+   113	            filters_[static_cast<std::size_t>(ch)].setFreq(f);
+   114	    }
+   115	    void applyResonance() noexcept {
+   116	        for (int ch = 0; ch < numChannels_; ++ch)
+   117	            filters_[static_cast<std::size_t>(ch)].setRes(resonance_);
+   118	    }
+   119	    void applyMode() noexcept {
+   120	        for (int ch = 0; ch < numChannels_; ++ch)
+   121	            filters_[static_cast<std::size_t>(ch)].setMode(mode_);
+   122	    }
+   123	    void applyAll() noexcept {
+   124	        applyCutoff();
+   125	        applyResonance();
+   126	        applyMode();
+   127	    }
+   128	
+   129	    std::array<SvfPrimitive, kMaxChannels> filters_{};
+   130	    float sampleRate_ = 48000.0f;
+
+exec
+/bin/zsh -lc "nl -ba adapters/workbench/parameter-view.cpp | sed -n '1,110p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#include "parameter-view.h"
+     2	
+     3	namespace acfx::workbench {
+     4	
+     5	ParameterView::ParameterView(span<const ParameterDescriptor> params, OnChange onChange)
+     6	    : onChange_(std::move(onChange)) {
+     7	    rows_.reserve(params.size());
+     8	    for (const ParameterDescriptor& d : params) {
+     9	        rows_.push_back(std::make_unique<Row>());
+    10	        Row& row = *rows_.back();
+    11	        row.descriptor = d;
+    12	
+    13	        row.label.setText(juce::String(std::string(d.name)), juce::dontSendNotification);
+    14	        addAndMakeVisible(row.label);
+    15	
+    16	        if (d.kind == ParamKind::discrete) {
+    17	            row.combo = std::make_unique<juce::ComboBox>();
+    18	            for (int i = 0; i < d.discreteCount; ++i)
+    19	                row.combo->addItem(juce::String(i), i + 1); // item ids are 1-based
+    20	            row.combo->setSelectedItemIndex(0, juce::dontSendNotification);
+    21	
+    22	            const ParamId id = d.id;
+    23	            const std::uint8_t count = d.discreteCount;
+    24	            juce::ComboBox* combo = row.combo.get();
+    25	            OnChange& cb = onChange_;
+    26	            combo->onChange = [combo, id, count, &cb] {
+    27	                const int index = combo->getSelectedItemIndex();
+    28	                // Centre-of-bucket normalized value for this discrete index.
+    29	                const float norm = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
+    30	                if (cb)
+    31	                    cb(id, norm);
+    32	            };
+    33	            addAndMakeVisible(*row.combo);
+    34	        } else {
+    35	            row.slider = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal,
+    36	                                                        juce::Slider::TextBoxRight);
+    37	            // The slider works in normalized 0..1 space; the descriptor owns the
+    38	            // skew, so the effect maps back to plain units on setParameter.
+    39	            row.slider->setRange(0.0, 1.0, 0.0);
+    40	            row.slider->setValue(static_cast<double>(normalize(d, d.defaultValue)),
+    41	                                 juce::dontSendNotification);
+    42	
+    43	            const ParameterDescriptor desc = d;
+    44	            juce::Slider* slider = row.slider.get();
+    45	            OnChange& cb = onChange_;
+    46	            slider->onValueChange = [slider, desc, &cb] {
+    47	                if (cb)
+    48	                    cb(desc.id, static_cast<float>(slider->getValue()));
+    49	            };
+    50	            addAndMakeVisible(*row.slider);
+    51	        }
+    52	    }
+    53	}
+    54	
+    55	void ParameterView::setNormalized(ParamId id, float normalized) {
+    56	    for (std::unique_ptr<Row>& rowPtr : rows_) {
+    57	        Row& row = *rowPtr;
+    58	        if (row.descriptor.id != id)
+    59	            continue;
+    60	        if (row.slider)
+    61	            row.slider->setValue(static_cast<double>(normalized), juce::dontSendNotification);
+    62	        else if (row.combo) {
+    63	            const int count = row.descriptor.discreteCount < 2 ? 2 : row.descriptor.discreteCount;
+    64	            int index = static_cast<int>(normalized * static_cast<float>(count));
+    65	            if (index >= count)
+    66	                index = count - 1;
+    67	            row.combo->setSelectedItemIndex(index, juce::dontSendNotification);
+    68	        }
+    69	        return;
+    70	    }
+    71	}
+    72	
+    73	void ParameterView::resized() {
+    74	    auto area = getLocalBounds().reduced(8);
+    75	    const int rowHeight = 32;
+    76	    for (std::unique_ptr<Row>& rowPtr : rows_) {
+    77	        Row& row = *rowPtr;
+    78	        auto r = area.removeFromTop(rowHeight);
+    79	        row.label.setBounds(r.removeFromLeft(120));
+    80	        if (row.slider)
+    81	            row.slider->setBounds(r);
+    82	        else if (row.combo)
+    83	            row.combo->setBounds(r.removeFromLeft(160));
+    84	        area.removeFromTop(6);
+    85	    }
+    86	}
+    87	
+    88	} // namespace acfx::workbench
+
+exec
+/bin/zsh -lc 'rg -n "defer|follow|TODO|placeholder|fake|mock|hardcoded" .github CMakeLists.txt CMakePresets.json README.md adapters/daisy adapters/plugin .clang-format .editorconfig .gitignore' in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+.github/workflows/ci.yml:6:# where ARM toolchains are provisioned — a deferred follow noted in quickstart.md,
+
+**Considering plugin parameters**
+
+I need to figure out the line for plugin IDs, specifically the ParameterID from `name`. The parameter ID can change if the display name changes, but the descriptor name might stay stable. It seems like IDs should be based on the ParamId integer rather than the name. So, I think having one parameter declaration with the name could be a good approach, maybe at a medium complexity level. I'll keep exploring this!
+**Evaluating plugin ownership**
+
+I'm thinking about how the `addParameter` function takes ownership of raw pointers, which is okay since the entries are storing those raw pointers. I'm considering whether I should test if the current plugin is saving its state. Maybe I should look into the plugin processor to see if I can access the `getStateInformation` function? Oh, and I need to read the header as well to get a clearer picture. There's a lot to consider here!
+codex
+I found two audit-worthy items and I’m filtering out weaker observations that don’t affect the shipped vertical slice. I’m avoiding padding: compile-style nits only matter here if they create a concrete build or behavioral failure.
+exec
+/bin/zsh -lc "nl -ba adapters/plugin/plugin-processor.h | sed -n '1,140p'" in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+     1	#pragma once
+     2	
+     3	#include <array>
+     4	#include <memory>
+     5	
+     6	#include <juce_audio_processors/juce_audio_processors.h>
+     7	
+     8	#include "effects/svf/svf-effect.h"
+     9	#include "plugin-parameters.h"
+    10	#include "processor-node/processor-node.h"
+    11	
+    12	// The DAW plugin AudioProcessor (T029). Wraps the SAME host boundary the
+    13	// workbench uses — EffectNode<SvfEffect> — adding only JUCE plugin glue and the
+    14	// host-automation parameters generated from the effect's descriptor table. One
+    15	// processor, exported as VST3 / AU / CLAP by the build (T028).
+    16	
+    17	namespace acfx::plugin {
+    18	
+    19	class PluginProcessor final : public juce::AudioProcessor {
+    20	public:
+    21	    PluginProcessor();
+    22	    ~PluginProcessor() override = default;
+    23	
+    24	    void prepareToPlay(double sampleRate, int samplesPerBlock) override;
+    25	    void releaseResources() override {}
+    26	    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override;
+    27	    bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
+    28	
+    29	    juce::AudioProcessorEditor* createEditor() override;
+    30	    bool hasEditor() const override { return true; }
+    31	
+    32	    const juce::String getName() const override { return "acfx SVF"; }
+    33	    bool acceptsMidi() const override { return false; }
+    34	    bool producesMidi() const override { return false; }
+    35	    bool isMidiEffect() const override { return false; }
+    36	    double getTailLengthSeconds() const override { return 0.0; }
+    37	
+    38	    int getNumPrograms() override { return 1; }
+    39	    int getCurrentProgram() override { return 0; }
+    40	    void setCurrentProgram(int) override {}
+    41	    const juce::String getProgramName(int) override { return "Default"; }
+    42	    void changeProgramName(int, const juce::String&) override {}
+    43	
+    44	    // Preset/state persistence is out of scope for this milestone (plan.md:
+    45	    // Storage N/A) — intentionally no-op, not a silent fallback.
+    46	    void getStateInformation(juce::MemoryBlock&) override {}
+    47	    void setStateInformation(const void*, int) override {}
+    48	
+    49	private:
+    50	    static constexpr int kMaxChannels = 8;
+    51	
+    52	    EffectNode<SvfEffect> node_;
+    53	    PluginParameters parameters_;
+    54	
+    55	    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginProcessor)
+    56	};
+    57	
+    58	} // namespace acfx::plugin
+
+exec
+/bin/zsh -lc 'rg -n "getStateInformation|setStateInformation|AudioProcessorValueTreeState|parameters_|addParameter|setParameter" adapters/plugin -S' in /Users/orion/work/acfx-work/platform-foundation
+ succeeded in 0ms:
+adapters/plugin/plugin-parameters.h:16:// handed to setParameter is the same one the workbench produces, so the mapping
+adapters/plugin/plugin-processor.h:46:    void getStateInformation(juce::MemoryBlock&) override {}
+adapters/plugin/plugin-processor.h:47:    void setStateInformation(const void*, int) override {}
+adapters/plugin/plugin-processor.h:53:    PluginParameters parameters_;
+adapters/plugin/plugin-processor.cpp:12:    parameters_.build(*this, node_.parameters());
+adapters/plugin/plugin-processor.cpp:33:    parameters_.apply([this](ParamId id, float normalized) {
+adapters/plugin/plugin-processor.cpp:34:        node_.setParameter(id, normalized);
+adapters/plugin/plugin-parameters.cpp:57:            processor.addParameter(param.release());
+adapters/plugin/plugin-parameters.cpp:74:            processor.addParameter(param.release());
+
+exec
+/bin/zsh -lc 'rg -n "getStateInformation|setStateInformation" $(pwd)/external 2>/dev/null' in /Users/orion/work/acfx-work/platform-foundation
+ exited 1 in 0ms:
+**Evaluating plugin choices**
+
+I’m noticing that the plugin choice labels are hardcoded, specifically at a medium level. It seems there might be about three hardware presets that aren’t supported in the CI docs. I need to clarify that it's similar to the deferral situation, and I want to ensure the output has the exact shape required. I also want to avoid using the phrase "deferred follow," unless it’s absolutely necessary. That's an important detail to manage!
+codex
+### CI comment contains a prohibited deferred-work marker
+
+Finding-ID: AUDIT-BARRAGE-codex-01
+Status:     open
+Severity:   low
+Surface:    .github/workflows/ci.yml:3-7
+
+The CI header says the hardware preset gate exists only when ARM toolchains are available, then points to later work instead of encoding an invariant the workflow enforces. This is specifically the kind of operator-discipline trap the audit prompt asks reviewers to surface: a reader can treat the missing Daisy/Teensy CI coverage as intentionally handled, while the workflow only runs host tests, portability checks, and desktop builds.
+
+Blast radius is low because the actual CI jobs are visible below and the README separately describes hardware compilation as a manual/toolchain-dependent step, so this does not directly break the shipped slice. A reasonable fix would replace the later-work marker with a concrete current-state statement, or add an explicit skipped/manual hardware gate entry that names the invariant and required toolchain condition.
+
+### Plugin discrete parameter labels are hardcoded to SVF mode names
+
+Finding-ID: AUDIT-BARRAGE-codex-02
+Status:     open
+Severity:   medium
+Surface:    adapters/plugin/plugin-parameters.cpp:24-33, adapters/plugin/plugin-parameters.cpp:49-55
+
+`PluginParameters::build()` claims to generate host automation from `ParameterDescriptor`, but discrete choices are named by the local `modeName()` switch. That works for the current SVF `mode` parameter only because its indices happen to be lowpass/highpass/bandpass; any other discrete descriptor added to the same generated path would silently expose filter-mode labels in the DAW UI and automation list.
+
+Blast radius is medium: the current vertical slice is not broken, but the adapter violates the declared “one parameter declaration drives every adapter” boundary and will compound as soon as another discrete control is introduced. A reasonable fix would move discrete choice labels into the descriptor model, or use neutral index labels consistently until the descriptor can carry names.
+tokens used
+40,355
