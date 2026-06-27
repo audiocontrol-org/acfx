@@ -26,6 +26,7 @@ graph (it fails loud on a cycle / dangling ref / duplicate id).
 Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — core abstractions (Effect concept, ProcessContext, AudioBlock, Parameter model, ProcessorNode boundary), the SVF effect (host-tested), desktop workbench + plugin fully working, Daisy+Teensy cross-compile/link proven, CMake presets + CPM pinning + CI
 
 ## design:feature/workbench-audio-config
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/workbench-audio-config
