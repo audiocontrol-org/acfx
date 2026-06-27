@@ -1,15 +1,40 @@
 #pragma once
 
+#include <functional>
+#include <memory>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
-// The main-window source bar: a Live/File choice plus a "Load file..." button
-// (research.md decision 4). It owns no audio logic — it emits callbacks only
-// (onSelectLive / onChooseFile), so the workbench decides how to apply a source
-// change (always via the audio-stopped restart). The file chooser is async
-// (juce::FileChooser::launchAsync) so it never blocks the message thread.
+// The main-window source bar: a "Live" button plus a "Load file..." button
+// (research.md decision 4). It owns NO audio logic — it emits callbacks only, so the
+// workbench decides how to apply a source change (always via the audio-stopped
+// restart). The file chooser is async (juce::FileChooser::launchAsync) so it never
+// blocks the message thread; on a valid pick it reports the file, and on cancel it
+// reports the cancellation so the workbench can keep a valid source (FR-003/004/009).
 
 namespace acfx::workbench {
 
-class SourceBar; // defined in T009
+class SourceBar final : public juce::Component {
+public:
+    SourceBar();
+
+    // The user chose live input.
+    std::function<void()> onSelectLive;
+    // The user picked a valid file in the chooser.
+    std::function<void(const juce::File&)> onChooseFile;
+    // The user opened the chooser but cancelled without choosing a file.
+    std::function<void()> onChooseCancelled;
+
+    void resized() override;
+
+private:
+    void openChooser();
+
+    juce::TextButton liveButton_{"Live"};
+    juce::TextButton fileButton_{"Load file..."};
+    std::unique_ptr<juce::FileChooser> chooser_;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SourceBar)
+};
 
 } // namespace acfx::workbench

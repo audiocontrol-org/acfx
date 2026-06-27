@@ -14,6 +14,7 @@
 #include "midi-binding.h"
 #include "parameter-view.h"
 #include "processor-node/processor-node.h"
+#include "source-bar.h"
 #include "workbench-settings.h"
 
 // The desktop sketch-and-hear workbench (T022, T026). Holds the effect behind the
@@ -56,6 +57,30 @@ public:
         audioSettingsButton_.onClick = [this] { showAudioSettings(); };
         addAndMakeVisible(audioSettingsButton_);
 
+        // Source bar (FR-003/004): switch between live input and a looped file, no env
+        // var required. Each change updates the message-thread state and then restarts
+        // the audio so prepareToPlay reconfigures with the callback stopped (FR-008).
+        sourceBar_.onSelectLive = [this] {
+            if (mode_ == SourceMode::live)
+                return;
+            mode_ = SourceMode::live;
+            restartAudio();
+        };
+        sourceBar_.onChooseFile = [this](const juce::File& file) {
+            mode_ = SourceMode::file;
+            sourceFile_ = file;
+            restartAudio();
+        };
+        sourceBar_.onChooseCancelled = [this] {
+            // Cancelling must never leave a broken no-source state: only fall back to
+            // live if the current selection is a file with no usable file (FR-009).
+            if (mode_ == SourceMode::file && !sourceFile_.existsAsFile()) {
+                mode_ = SourceMode::live;
+                restartAudio();
+            }
+        };
+        addAndMakeVisible(sourceBar_);
+
         // First-run source default: ACFX_WORKBENCH_FILE selects the built-in file
         // player as a CONVENIENCE only — the UI source bar (T010) is the real control,
         // and the env var is no longer required to reach the player (FR-004). Without
@@ -66,7 +91,7 @@ public:
             sourceFile_ = juce::File(juce::String::fromUTF8(path));
         }
 
-        setSize(520, 260);
+        setSize(520, 300);
         // Stereo in/out: input present for live-input mode.
         setAudioChannels(2, 2);
         // Enable the available MIDI inputs — registering a callback alone does
@@ -160,6 +185,7 @@ public:
     void resized() override {
         auto area = getLocalBounds();
         audioSettingsButton_.setBounds(area.removeFromTop(32).reduced(8, 4));
+        sourceBar_.setBounds(area.removeFromTop(36).reduced(4, 2));
         abToggle_.setBounds(area.removeFromBottom(32).reduced(8, 4));
         paramView_.setBounds(area);
     }
@@ -214,6 +240,7 @@ private:
     WorkbenchAudioSource source_;
     juce::ToggleButton abToggle_;
     juce::TextButton audioSettingsButton_;
+    SourceBar sourceBar_;
     std::unique_ptr<AudioSettingsWindow> audioSettings_;
 
     // Current source selection, owned on the message thread and read by prepareToPlay
