@@ -114,11 +114,17 @@ public:
         // which reads the source state set above.
         setAudioChannels(2, 2, loaded.deviceState.get());
 
-        // Enable the available MIDI inputs — registering a callback alone does
-        // not enable any device, so without this the CC bindings stay inert.
-        // (T015/US4 replaces this auto-enable-all with explicit selection.)
-        for (const auto& input : juce::MidiInput::getAvailableDevices())
-            deviceManager.setMidiInputDeviceEnabled(input.identifier, true);
+        // MIDI inputs (US4): the AudioDeviceSelectorComponent's MIDI-inputs section is
+        // the explicit per-device control, and the enabled set is persisted in the
+        // device-manager state. On FIRST run only (no saved state) enable all inputs
+        // once as a sensible default; thereafter the restored state decides which are
+        // enabled. Registering the callback with an empty device id delivers messages
+        // from only the ENABLED inputs, so a disabled controller has no effect (SC-005).
+        // A callback alone enables no device, hence the first-run enable.
+        if (loaded.deviceState == nullptr) {
+            for (const auto& input : juce::MidiInput::getAvailableDevices())
+                deviceManager.setMidiInputDeviceEnabled(input.identifier, true);
+        }
         deviceManager.addMidiInputDeviceCallback({}, this);
 
         // Persist on every later device-configuration change (added last so the restore
