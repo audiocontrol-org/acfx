@@ -19,7 +19,7 @@ void SourceBar::openChooser() {
     // Async chooser: keeps the message thread responsive and never touches the audio
     // thread. The FileChooser must outlive the launch, so it is owned by the bar.
     chooser_ = std::make_unique<juce::FileChooser>(
-        "Choose an audio file to loop", juce::File{}, "*.wav;*.aiff;*.aif;*.flac;*.mp3");
+        "Choose an audio file to loop", juce::File{}, fileFilter_);
     const auto flags =
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
     chooser_->launchAsync(flags, [this](const juce::FileChooser& fc) {

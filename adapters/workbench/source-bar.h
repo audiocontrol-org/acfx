@@ -25,6 +25,11 @@ public:
     // The user opened the chooser but cancelled without choosing a file.
     std::function<void()> onChooseCancelled;
 
+    // Set the chooser's file filter to the formats the decoder actually supports, so
+    // the picker never advertises a format that cannot be read (AUDIT-20260627-06). The
+    // workbench passes WorkbenchAudioSource::supportedFileWildcard().
+    void setFileFilter(const juce::String& wildcard) { fileFilter_ = wildcard; }
+
     void resized() override;
 
 private:
@@ -32,6 +37,8 @@ private:
 
     juce::TextButton liveButton_{"Live"};
     juce::TextButton fileButton_{"Load file..."};
+    // Conservative default; the workbench overrides it with the decoder's real wildcard.
+    juce::String fileFilter_{"*.wav;*.aiff;*.aif"};
     std::unique_ptr<juce::FileChooser> chooser_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SourceBar)

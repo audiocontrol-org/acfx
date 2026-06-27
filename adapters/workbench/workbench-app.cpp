@@ -75,6 +75,9 @@ public:
             restartAudio();
             saveSettings();
         };
+        // Keep the picker's filter in lock-step with the formats the decoder actually
+        // registers, so it never offers a file the source cannot read (AUDIT-20260627-06).
+        sourceBar_.setFileFilter(source_.supportedFileWildcard());
         sourceBar_.onChooseCancelled = [this] {
             // Cancelling must never leave a broken no-source state: only fall back to
             // live if the current selection is a file with no usable file (FR-009).

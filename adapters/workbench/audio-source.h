@@ -47,6 +47,14 @@ public:
     // configured (release before reselecting).
     void useLiveInput(int availableInputChannels);
 
+    // The wildcard for every format the decoder actually registers (e.g.
+    // "*.wav;*.aiff;..."). The file chooser MUST use this so the picker never offers a
+    // format the decoder cannot read — filter and decoder stay in lock-step
+    // (AUDIT-20260627-06).
+    juce::String supportedFileWildcard() const {
+        return formatManager_.getWildcardForAllFormats();
+    }
+
     void prepare(double sampleRate, int blockSize);
     void release();
 
