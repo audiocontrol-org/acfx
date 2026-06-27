@@ -36,7 +36,7 @@ No change to `core/`, `host/`, the plugin, or the MCU adapters. Descriptive name
 
 ## Phase 1: Setup
 
-- [ ] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` (JUCE-free serde), and `workbench-persistence.cpp` (JUCE) to `adapters/workbench/CMakeLists.txt`; add `tests/core/workbench-settings-test.cpp` AND `adapters/workbench/workbench-settings.cpp` to the `acfx_core_tests` target in `tests/CMakeLists.txt` (the serde TU is JUCE-free so it links there). Create empty stubs so both the `desktop` and `test` presets still configure + build
+- [X] T001 Register the new workbench units and test in the build: add `audio-settings.cpp`, `source-bar.cpp`, `workbench-settings.cpp` (JUCE-free serde), and `workbench-persistence.cpp` (JUCE) to `adapters/workbench/CMakeLists.txt`; add `tests/core/workbench-settings-test.cpp` AND `adapters/workbench/workbench-settings.cpp` to the `acfx_core_tests` target in `tests/CMakeLists.txt` (the serde TU is JUCE-free so it links there). Create empty stubs so both the `desktop` and `test` presets still configure + build
 
 **Checkpoint**: `cmake --build --preset desktop --target acfx_workbench` and `ctest --preset test` still green with the stubs in place.
 
@@ -47,10 +47,10 @@ No change to `core/`, `host/`, the plugin, or the MCU adapters. Descriptive name
 The audio-stopped reconfigure lifecycle and the persistable source config every story
 reuses. No change to the audio callback or the lock-free parameter handoff.
 
-- [ ] T002 Implement `SourceMode` + `SourceConfig` (`std::string filePath`) + pure JUCE-free `serialize`/`parse` (`std::string`; never throws; safe default on garbage) in `adapters/workbench/workbench-settings.h` (+ `.cpp`) per `contracts/source-config.md` — JUCE-free so it links into the JUCE-free `acfx_core_tests`; the workbench converts to/from `juce::String` at the boundary
-- [ ] T003 Write the `SourceConfig` serialize/parse unit test (round-trip for both modes incl. paths with spaces/unicode; safe-default on `""`/garbage/unknown-mode) in `tests/core/workbench-settings-test.cpp` — fails until T002
-- [ ] T004 Rework the workbench source lifecycle in `adapters/workbench/workbench-app.cpp`: hold message-thread `SourceMode`/`sourceFile_` state; make `prepareToPlay()` the single reconfigure point (release → configure live/file from state → prepare); add `restartAudio()` using `deviceManager.restartLastAudioDevice()` (research.md §1) so source changes apply with the callback stopped
-- [ ] T005 Relax `adapters/workbench/audio-source.h`/`.cpp`: replace the "throw if already configured" guard with the release-before-reconfigure lifecycle invariant; keep `fillBlock` `noexcept` + the in-memory player byte-for-byte (RT-safety preserved, Constitution VI)
+- [X] T002 Implement `SourceMode` + `SourceConfig` (`std::string filePath`) + pure JUCE-free `serialize`/`parse` (`std::string`; never throws; safe default on garbage) in `adapters/workbench/workbench-settings.h` (+ `.cpp`) per `contracts/source-config.md` — JUCE-free so it links into the JUCE-free `acfx_core_tests`; the workbench converts to/from `juce::String` at the boundary
+- [X] T003 Write the `SourceConfig` serialize/parse unit test (round-trip for both modes incl. paths with spaces/unicode; safe-default on `""`/garbage/unknown-mode) in `tests/core/workbench-settings-test.cpp` — fails until T002
+- [X] T004 Rework the workbench source lifecycle in `adapters/workbench/workbench-app.cpp`: hold message-thread `SourceMode`/`sourceFile_` state; make `prepareToPlay()` the single reconfigure point (release → configure live/file from state → prepare); add `restartAudio()` using `deviceManager.restartLastAudioDevice()` (research.md §1) so source changes apply with the callback stopped
+- [X] T005 Relax `adapters/workbench/audio-source.h`/`.cpp`: replace the "throw if already configured" guard with the release-before-reconfigure lifecycle invariant; keep `fillBlock` `noexcept` + the in-memory player byte-for-byte (RT-safety preserved, Constitution VI)
 
 **Checkpoint**: `ctest --preset test` green incl. the new serde test; the workbench builds; device-restart reconfigure path compiles against real JUCE.
 
@@ -64,9 +64,9 @@ effect live.
 **Independent test**: quickstart Scenario B — open Audio Settings, change output then
 input device, confirm audio routes accordingly with no restart/crash.
 
-- [ ] T006 [US1] Implement `AudioSettingsWindow` hosting `juce::AudioDeviceSelectorComponent(deviceManager, 0, 2, 0, 2, /*midiIn*/ true, /*midiOut*/ false, /*stereoPairs*/ true, /*hideAdvanced*/ false)` (close box hides) in `adapters/workbench/audio-settings.h`/`.cpp` (research.md §2)
-- [ ] T007 [US1] Add an "Audio Settings…" button to the main window in `adapters/workbench/workbench-app.cpp` that shows the window; confirm a device change drives the lifecycle (T004) so the source reconfigures with the callback stopped
-- [ ] T008 [US1] Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
+- [X] T006 [US1] Implement `AudioSettingsWindow` hosting `juce::AudioDeviceSelectorComponent(deviceManager, 0, 2, 0, 2, /*midiIn*/ true, /*midiOut*/ false, /*stereoPairs*/ true, /*hideAdvanced*/ false)` (close box hides) in `adapters/workbench/audio-settings.h`/`.cpp` (research.md §2)
+- [X] T007 [US1] Add an "Audio Settings…" button to the main window in `adapters/workbench/workbench-app.cpp` that shows the window; confirm a device change drives the lifecycle (T004) so the source reconfigures with the callback stopped
+- [ ] T008 [US1] *(manual acceptance — operator)* Run quickstart Scenario B and confirm the US1 acceptance scenarios (output/input device change routes audio; a failing device is surfaced, previous device kept)
 
 **Checkpoint**: US1 usable — you can route the workbench to chosen in/out devices.
 
@@ -79,9 +79,9 @@ input device, confirm audio routes accordingly with no restart/crash.
 **Independent test**: quickstart Scenario C — switch to File, pick a file, hear it
 looped; switch back to Live; cancel-with-no-file stays valid.
 
-- [ ] T009 [P] [US2] Implement the source bar (Live/File choice + "Load file…" via `juce::FileChooser::launchAsync`) emitting source-change callbacks (no audio logic) in `adapters/workbench/source-bar.h`/`.cpp` (research.md §4)
-- [ ] T010 [US2] Wire the source bar into `adapters/workbench/workbench-app.cpp`: on change, update `SourceMode`/`sourceFile_` then `restartAudio()`; *File* with no chosen file reverts to *Live* (no broken no-source state; FR-009)
-- [ ] T011 [US2] Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
+- [X] T009 [P] [US2] Implement the source bar (Live/File choice + "Load file…" via `juce::FileChooser::launchAsync`) emitting source-change callbacks (no audio logic) in `adapters/workbench/source-bar.h`/`.cpp` (research.md §4)
+- [X] T010 [US2] Wire the source bar into `adapters/workbench/workbench-app.cpp`: on change, update `SourceMode`/`sourceFile_` then `restartAudio()`; *File* with no chosen file reverts to *Live* (no broken no-source state; FR-009)
+- [ ] T011 [US2] *(manual acceptance — operator)* Run quickstart Scenario C and confirm the US2 acceptance scenarios (file loops; new file without restart; cancel stays valid; no glitch at switch)
 
 **Checkpoint**: US2 usable — the built-in player is reachable from the UI, no env var.
 
@@ -94,9 +94,9 @@ looped; switch back to Live; cancel-with-no-file stays valid.
 **Independent test**: quickstart Scenario D — select non-defaults, quit, relaunch,
 confirm restored.
 
-- [ ] T012 [US3] Implement persistence in `adapters/workbench/workbench-persistence.h`/`.cpp` (JUCE; separate TU from the JUCE-free serde): save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
-- [ ] T013 [US3] Wire load-on-launch + save-on-change/quit into `adapters/workbench/workbench-app.cpp`; corrupt/missing settings → safe defaults + surfaced message; a saved device/file that is gone at launch → fall back + surface (FR-009, edge cases)
-- [ ] T014 [US3] Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
+- [X] T012 [US3] Implement persistence in `adapters/workbench/workbench-persistence.h`/`.cpp` (JUCE; separate TU from the JUCE-free serde): save `deviceManager.createStateXml()` + `serialize(SourceConfig)` into a `juce::ApplicationProperties` settings file (app "acfx Workbench"); load + restore on launch (init device manager from saved XML; restore source) (research.md §3)
+- [X] T013 [US3] Wire load-on-launch + save-on-change/quit into `adapters/workbench/workbench-app.cpp`; corrupt/missing settings → safe defaults + surfaced message; a saved device/file that is gone at launch → fall back + surface (FR-009, edge cases)
+- [ ] T014 [US3] *(manual acceptance — operator)* Run quickstart Scenario D and confirm the US3 acceptance scenarios (selections restored; missing saved device falls back + surfaced)
 
 **Checkpoint**: US3 usable — the workbench remembers its configuration.
 
@@ -109,8 +109,8 @@ confirm restored.
 **Independent test**: quickstart Scenario E — enable one of two controllers; only it
 drives CCs.
 
-- [ ] T015 [US4] Replace the auto-enable-all MIDI code in `adapters/workbench/workbench-app.cpp` with the `AudioDeviceSelectorComponent` MIDI-inputs section (from T006) + a first-run default (enable all once); confirm only enabled inputs drive CC 74/71
-- [ ] T016 [US4] Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
+- [X] T015 [US4] Replace the auto-enable-all MIDI code in `adapters/workbench/workbench-app.cpp` with the `AudioDeviceSelectorComponent` MIDI-inputs section (from T006) + a first-run default (enable all once); confirm only enabled inputs drive CC 74/71
+- [ ] T016 [US4] *(manual acceptance — operator)* Run quickstart Scenario E and confirm the US4 acceptance scenario (only the enabled controller affects the filter)
 
 **Checkpoint**: US4 done — MIDI inputs are user-selectable.
 
@@ -118,9 +118,9 @@ drives CCs.
 
 ## Phase 7: Polish & cross-cutting concerns
 
-- [ ] T017 [P] Finalize `adapters/workbench/CMakeLists.txt` (all new sources) and extend the CI workflow / `scripts/check-portability.sh` to build the new workbench sources and run the new `workbench-settings-test`
-- [ ] T018 [P] Confirm each new unit is within the file-size budget (~300–500 lines, Constitution VII); split if any (esp. `workbench-app.cpp`) is over
-- [ ] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
+- [X] T017 [P] Finalize `adapters/workbench/CMakeLists.txt` (all new sources) and extend the CI workflow / `scripts/check-portability.sh` to build the new workbench sources and run the new `workbench-settings-test`
+- [X] T018 [P] Confirm each new unit is within the file-size budget (~300–500 lines, Constitution VII); split if any (esp. `workbench-app.cpp`) is over
+- [~] T019 Run quickstart Scenario A (the serde unit test) and Scenario F (RT-safety under ~20× rapid device/source switches — no glitch/stall/crash); update the workbench section of `README.md` — **Scenario A passing (17/17 host tests) and README updated; Scenario F is interactive manual acceptance (operator)** (in-UI device/source/MIDI selection + persistence; `ACFX_WORKBENCH_FILE` is now a first-run convenience only)
 
 ---
 

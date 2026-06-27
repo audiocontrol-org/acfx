@@ -53,7 +53,19 @@ cmake --build --preset desktop --target acfx_workbench
 ```
 
 Launch the built app: auto-generated controls for cutoff / resonance / mode, a
-built-in player or live input, a bound MIDI CC, and a dry/processed A/B toggle.
+dry/processed A/B toggle, and in-UI audio configuration:
+
+- **Audio Settings…** opens a window (JUCE's device selector) to choose the audio
+  **input/output device**, sample rate, buffer size, and which **MIDI inputs** drive
+  the parameter CCs.
+- The **source bar** switches between **Live** input and a **file** you pick with
+  **Load file…** (looped through the filter) — no environment variable required.
+- All of these selections — device, rate/buffer, source (including the chosen file),
+  and MIDI inputs — are **remembered across launches**. Device/source changes apply
+  with the audio engine stopped, so switching never glitches or stalls the stream.
+- Failures (a device that won't open, an unreadable/missing file, unreadable saved
+  settings) are surfaced and leave the workbench in a safe, usable state — never
+  silent silence or placeholder audio.
 
 ### Desktop plugin (VST3 / AU / CLAP) — Scenario C
 
@@ -63,8 +75,10 @@ cmake --preset desktop
 cmake --build --preset desktop --target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP
 ```
 
-To play the built-in player for reproducible A/B, point the workbench at a file
-with `ACFX_WORKBENCH_FILE=/path/to/audio.wav`; otherwise it uses the live input.
+The workbench's built-in player is reached from the UI (the **Load file…** button);
+`ACFX_WORKBENCH_FILE=/path/to/audio.wav` remains only as a **first-run convenience**
+that seeds the source when nothing has been saved yet — a saved selection always takes
+precedence.
 
 ### Hardware cross-compile — Scenario D
 
