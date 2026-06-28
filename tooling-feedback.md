@@ -15,3 +15,7 @@
 - stackctl govern commits its own artifacts (audit-runs/, govern/convergence/) into the tree; with --diff-base spanning them the next barrage audits govern's own convergence record (recursive finding AUDIT-05). govern should exclude .stack-control/ from the audited diff.
 - No operator-owned-pending task state distinct from done: manual-acceptance tasks must be [X] to pass the tasks-complete gate, which the barrage flags as gaming the gate (AUDIT-03/07). Needs a non-[X] token the gate recognizes as pending-operator.
 - CMake in-place reconfigure after a CMakeLists change fails with Unknown CMake command CPMAddPackage (CPM bootstrap); required rm -rf build/<preset> + clean configure each time.
+
+## session-end 2026-06-28
+- Plugin builds ad-hoc with COPY_PLUGIN_AFTER_BUILD=FALSE and no signing identity, so DAW testing needs a manual install + Developer-ID re-sign after every rebuild. Consider wiring Developer-ID signing + auto-copy into adapters/plugin/CMakeLists.txt.
+- macOS Sequoia 15.7: auval could not register/validate the AU (didn't find the component) despite a valid Developer-ID-signed bundle + coreaudiod bounce, yet Logic loaded it fine. auval is an unreliable gate here; verify in the actual DAW. Notarization only needed for distributing to other Macs.

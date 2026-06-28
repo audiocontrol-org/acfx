@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-06-28: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 0
+  - (no commits this session)
+- Files changed: 0
+- Backlog touched: (none)
+
 ## 2026-06-27: Drive workbench-audio-config implement → govern → ship → close; fix macOS live input
 
 **Goal:** Take the runnable `workbench-audio-config` spec all the way through the
