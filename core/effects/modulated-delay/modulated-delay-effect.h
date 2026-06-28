@@ -13,16 +13,18 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
+#include "effects/modulated-delay/wow-flutter.h"
 #include "primitives/delay-line.h"
 #include "primitives/lfo.h"
 #include "primitives/svf-primitive.h"
 
 // A delay effect with a State-Variable Filter in the feedback loop plus three
-// independent modulation LFOs (US2): delay-time mod, feedback-filter cutoff mod,
-// and feedback-filter resonance mod.  Satisfies the Effect contract (no base
-// class, no vtable in the audio path).
+// independent modulation LFOs (US2) and a wow & flutter stage on the input
+// path (US3).  Satisfies the Effect contract (no base class, no vtable in the
+// audio path).
 //
 // Signal flow per channel, per sample (research Decision 2; post-filter wet tap):
+//   x' = wowFlutter_[ch].processSample(x[n])   (US3 tape instability, FR-017/020)
 //   smoothedDelaySecs_ glides toward targetDelaySecs_ via a one-pole smoother
 //   effectiveDelaySecs = smoothedDelaySecs_ + delayLfo.tick() * delayDepth * kDelayModRangeSecs
 //   dsamp = effectiveDelaySecs * sampleRate                    (clamped by DelayLine, FR-014)
@@ -30,12 +32,12 @@
 //   effRes    = clamp(baseRes + resLfo.tick() * resDepth * kResModRange, 0, 1)
 //   d = delay[ch].readFractional(dsamp)
 //   f = svf[ch].process(d)          (effCutoff / effRes applied per-sample)
-//   delay[ch].write(x[n] + feedback * f)
-//   x[n] = (1-mix)*x[n] + mix*f
+//   delay[ch].write(x' + feedback * f)
+//   x[n] = (1-mix)*x' + mix*f
 //
-// Depth-zero invariant (FR-013): with all three mod depths at 0, process() output
-// is identical within tight tolerance to US1.  depth=0 multiplies every LFO output
-// to zero before it can influence the signal path; pow(2,0)=1 exactly; clamp(base+0)=base.
+// Depth-zero invariants:
+//   FR-013: US2 mod depths at 0 → signal path unchanged from US1 (exact, not approx).
+//   FR-019: US3 wow+flutter depths both 0 → wowFlutter passthrough, x' == x.
 //
 // Thread-ownership boundary: setParameter() may be called from ANY thread; the
 // audio thread consumes pending values at the top of process().
@@ -63,10 +65,15 @@ public:
         kResModRate     = 12,
         kResModDepth    = 13,
         kResModShape    = 14,
+        // US3: wow & flutter on the input path (appended; indices 15..18 stable).
+        kWowRate        = 15,
+        kWowDepth       = 16,
+        kFlutterRate    = 17,
+        kFlutterDepth   = 18,
     };
 
     // Single source of parameter truth (SC-006, FR-022).  All values in plain units.
-    static constexpr std::array<ParameterDescriptor, 15> kParams = {{
+    static constexpr std::array<ParameterDescriptor, 19> kParams = {{
         // US1 parameters (indices 0..5 — frozen)
         {ParamId{kDelayTime}, "delay_time", ParamUnit::seconds,
          0.001f, 2.0f, 0.3f, ParamSkew::logarithmic, ParamKind::continuous, 0},
@@ -101,6 +108,15 @@ public:
          0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kResModShape}, "res_mod_shape", ParamUnit::none,
          0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4},
+        // US3 wow & flutter on the input path (indices 15..18)
+        {ParamId{kWowRate}, "wow_rate", ParamUnit::hz,
+         0.1f, 2.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kWowDepth}, "wow_depth", ParamUnit::none,
+         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kFlutterRate}, "flutter_rate", ParamUnit::hz,
+         5.0f, 12.0f, 8.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kFlutterDepth}, "flutter_depth", ParamUnit::none,
+         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
     // Build-time guard: every descriptor in the table is valid.
@@ -147,6 +163,13 @@ public:
         resLfo_.prepare(sampleRate_);
         resLfo_.setRate(kParams[kResModRate].defaultValue);
 
+        // US3: prepare wow & flutter stage (allocates short per-channel buffers).
+        wowFlutter_.prepare(sampleRate_, numChannels_);
+        wowFlutter_.setWowRate(kParams[kWowRate].defaultValue);
+        wowFlutter_.setFlutterRate(kParams[kFlutterRate].defaultValue);
+        wowFlutter_.setWowDepth(kParams[kWowDepth].defaultValue);       // 0.0 = bypass
+        wowFlutter_.setFlutterDepth(kParams[kFlutterDepth].defaultValue); // 0.0 = bypass
+
         applyAll();
     }
 
@@ -161,6 +184,7 @@ public:
         delayLfo_.reset();
         cutoffLfo_.reset();
         resLfo_.reset();
+        wowFlutter_.reset();
         applyAll();
     }
 
@@ -175,12 +199,17 @@ public:
             smoothedDelaySecs_ +=
                 smoothCoeff_ * (targetDelaySecs_ - smoothedDelaySecs_);
 
-            // Tick all three LFOs exactly once per sample.  Must tick even when
-            // depth=0 so phase advances correctly; depth=0 multiplies the value
-            // to zero, leaving the signal path unchanged (FR-013).
+            // Tick all three US2 LFOs exactly once per sample.  Must tick even
+            // when depth=0 so phase advances correctly; depth=0 multiplies the
+            // value to zero, leaving the signal path unchanged (FR-013).
             const float delayLfoOut  = delayLfo_.tick();
             const float cutoffLfoOut = cutoffLfo_.tick();
             const float resLfoOut    = resLfo_.tick();
+
+            // US3: tick wow & flutter LFOs once per sample (shared across
+            // channels — modulation is correlated/identical per the spec
+            // Assumptions).  Returns zero when both depths are 0 (FR-019).
+            const float wfDisplacement = wowFlutter_.tickModulation();
 
             // Effective delay time — DelayLine clamps to valid range (FR-014).
             // depth=0: + 0.0f*range = no change from smoothed base (FR-013).
@@ -220,10 +249,16 @@ public:
                 if (modCutoff) sv.setFreq(effCutoff);
                 if (modRes)    sv.setRes(effRes);
 
+                // US3: apply wow & flutter to the input before the main delay
+                // (FR-020).  With both depths=0 this is an exact passthrough
+                // (guarded bypass in WowFlutterStage, FR-019).
+                const float xPrime =
+                    wowFlutter_.processSample(x[n], ch, wfDisplacement);
+
                 const float d = dl.readFractional(dsamp);
                 const float f = sv.process(d);
-                dl.write(x[n] + feedback_ * f);
-                x[n] = (1.0f - mix_) * x[n] + mix_ * f;
+                dl.write(xPrime + feedback_ * f);
+                x[n] = (1.0f - mix_) * xPrime + mix_ * f;
             }
         }
     }
@@ -239,7 +274,7 @@ public:
 
 private:
     static constexpr int         kMaxChannels = 8;
-    static constexpr std::size_t kNumParams   = 15;
+    static constexpr std::size_t kNumParams   = 19;
 
     // Physical modulation ranges (in plain units).
     // kDelayModRangeSecs: ±30 ms peak modulation; musical vibrato at depth=1.
@@ -352,6 +387,23 @@ private:
             resLfo_.setShape(toShape(static_cast<int>(
                 denormalize(kParams[kResModShape], pendingValue(kResModShape)))));
         }
+        // US3: wow & flutter parameters
+        if (pendingDirty_[kWowRate].exchange(0u, std::memory_order_acquire)) {
+            wowFlutter_.setWowRate(
+                denormalize(kParams[kWowRate], pendingValue(kWowRate)));
+        }
+        if (pendingDirty_[kWowDepth].exchange(0u, std::memory_order_acquire)) {
+            wowFlutter_.setWowDepth(
+                denormalize(kParams[kWowDepth], pendingValue(kWowDepth)));
+        }
+        if (pendingDirty_[kFlutterRate].exchange(0u, std::memory_order_acquire)) {
+            wowFlutter_.setFlutterRate(
+                denormalize(kParams[kFlutterRate], pendingValue(kFlutterRate)));
+        }
+        if (pendingDirty_[kFlutterDepth].exchange(0u, std::memory_order_acquire)) {
+            wowFlutter_.setFlutterDepth(
+                denormalize(kParams[kFlutterDepth], pendingValue(kFlutterDepth)));
+        }
     }
 
     float clampedCutoff() const noexcept {
@@ -405,6 +457,9 @@ private:
     float delayModDepth_  = kParams[kDelayModDepth].defaultValue;   // 0 = off
     float cutoffModDepth_ = kParams[kCutoffModDepth].defaultValue;  // 0 = off
     float resModDepth_    = kParams[kResModDepth].defaultValue;     // 0 = off
+
+    // US3: wow & flutter stage on the input path (FR-017..FR-021).
+    WowFlutterStage wowFlutter_{};
 
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
