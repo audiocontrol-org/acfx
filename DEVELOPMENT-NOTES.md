@@ -2,6 +2,125 @@
 
 ---
 
+## 2026-06-28: Run the SVF as a DAW plugin (AU + VST3); file tooling-feedback issues
+
+**Goal:** Get the shipped SVF effect loading as a DAW plugin (AU + VST3), and file the two
+upstream govern/lifecycle defects surfaced during the workbench feature.
+
+**Accomplished:**
+- **Filed the two upstream-tool issues** against `audiocontrol-org/deskwork` (operator-approved):
+  **#513** — govern audits its own artifacts (the convergence record in `--diff-base` becomes a
+  recursive finding); **#514** — need an operator-owned-pending task state so `tasks-complete`
+  doesn't force `[X]` on unrun manual-acceptance tasks.
+- **Built + installed all three plugin formats** (VST3 / AU / CLAP — the SVF is `acfx_core` +
+  `acfx_host` only, untouched by the workbench feature) into the user plugin folders, **signed
+  with the Developer ID** (`ES3R29MZ5A`) + hardened runtime.
+- **SVF loads and runs in Logic as an AU** (operator-confirmed). **VST3** is signed + installed
+  and ready in any VST3 host.
+
+**Didn't Work:**
+- **`auval` was a dead end on macOS Sequoia 15.7.** It refused to register/validate the AU
+  (`didn't find the component` / version -50) through every standard fix — AU cache clear,
+  `AudioComponentRegistrar` bounce, a full `coreaudiod` bounce, ad-hoc → Developer-ID re-sign,
+  xattr strip — even though the bundle was valid (arm64, signed, correct `aufx/Asvf/Acfx`
+  Info.plist, `com.acfx.acfx_plugin` id). Yet **Logic loaded it fine.** Burned a lot of
+  diagnosis on a CLI gate that doesn't reflect what the DAW actually does.
+- Initial install was **ad-hoc-signed → Gatekeeper-rejected** (`spctl`), which is what sent me
+  down the (ultimately unnecessary) registration rabbit hole.
+
+**Course Corrections:**
+- Stopped treating `auval` as authoritative once the operator confirmed Logic loads the AU —
+  the **DAW is the real acceptance test** here, not the CLI validator.
+
+**Insights:**
+- For **local** DAW use a Developer-ID signature is plenty; **notarization is only needed to
+  distribute to other Macs** (Gatekeeper-on-download). Don't conflate the two.
+- On this machine `auval` is not a reliable AU gate — verify plugins in the actual host.
+- **Dev-ergonomics gap:** the plugin builds ad-hoc with `COPY_PLUGIN_AFTER_BUILD=FALSE` and no
+  signing identity, so every rebuild needs a manual install + Developer-ID re-sign. Candidate:
+  wire Developer-ID signing + auto-copy into `adapters/plugin/CMakeLists.txt`.
+
+**Quantitative:**
+- Repo commits this session: 0 (work was outside the tree — plugin build/install/sign on the
+  machine + two external GitHub issues).
+- External artifacts: deskwork **#513**, **#514**; signed VST3/AU/CLAP installed under
+  `~/Library/Audio/Plug-Ins/`.
+- Backlog touched: (none)
+
+## 2026-06-27: Drive workbench-audio-config implement → govern → ship → close; fix macOS live input
+
+**Goal:** Take the runnable `workbench-audio-config` spec all the way through the
+stack-control front door — analyze → execute (implement + govern) → ship → close — and
+make the workbench actually usable for live input during manual acceptance.
+
+**Accomplished:**
+- **Analyze + execute via the front door.** `/stack-control:extend` ran `/speckit-analyze`
+  (0 critical/high, 3 mediums); `/stack-control:execute` drove native `/speckit-implement`
+  over all 19 tasks (US1–US4): `AudioSettingsWindow` over JUCE's device selector, the
+  Live/File source bar with async chooser, persistence via `ApplicationProperties`, explicit
+  MIDI selection, and the JUCE-free `SourceConfig` serde seam (written test-first). The
+  audio-stopped reconfigure invariant (prepareToPlay = single reconfigure point) holds.
+  **17/17 host tests green**; workbench compile-verified against real JUCE. Committed + pushed
+  at every task boundary.
+- **Whole-feature governance** (cross-model: claude + codex + sonnet). 3 rounds (4→2→3
+  findings). Fixed every real code defect: saved-device-preference clobber on fallback,
+  unsurfaced missing-input-device, ignored decode-failure, file-chooser/decoder format drift,
+  and missing-saved-file → muted (now surfaced live fallback). Dispositioned the residual
+  (manual-acceptance representation + a govern-chunking artifact) in the audit-log. Converged
+  by **documented `--override`** → `terminal-outcome=graduated`.
+- **Shipped.** `/stack-control:ship`: PR #1 `platform-foundation → main`, CI green
+  (portability + host tests + desktop/plugin build), merged, `status: shipped` recorded by the
+  welded `graduate`.
+- **Fixed macOS live input** (found in manual acceptance): root-caused to a missing
+  `NSMicrophoneUsageDescription` (TCC silently zeroed input); enabled JUCE
+  `MICROPHONE_PERMISSION_ENABLED`. Added a `LevelMeter` (RT-safe atomics + timer) and a
+  `FileLogger` config/peak log (`~/Library/Logs/acfx/acfx-workbench.log`) for observability —
+  the workbench had none. Operator verified input → filter → output works.
+- **Closed.** `/stack-control:close`: recorded the `validated` marker, advanced the roadmap
+  node to the terminal `closed` phase. Full lifecycle complete.
+
+**Didn't Work:**
+- **Live input was silent on first launch** and the workbench had **no meters or logging**, so
+  there was no way to tell whether audio was arriving — flew blind until the mic-permission
+  root cause + observability landed.
+- **Govern audited its own output.** Committing govern artifacts (`audit-runs/`,
+  `govern/convergence/`) into the tree meant the next barrage (with `--diff-base` spanning
+  them) flagged govern's own convergence record as showing unresolved highs (AUDIT-05) — a
+  recursion that can't converge until the artifacts leave the diff.
+- **Manual-acceptance `[X]` gate-gaming recurred every govern round** (AUDIT-03 → -07): the
+  `tasks-complete` gate only accepts `[X]`, but the barrage (correctly) flags marking unrun
+  interactive scenarios as done. No code fix resolves it — structural.
+- **CMake in-place reconfigure** after a `CMakeLists` change repeatedly failed with
+  `Unknown CMake command CPMAddPackage`; needed `rm -rf build/<preset>` + a clean configure.
+
+**Course Corrections:**
+- Operator authorized marking the interactive Scenarios B–F `[X]` (with a prominent banner)
+  so the `tasks-complete` gate could audit the committed code — manual acceptance stays
+  operator-owned before graduation.
+- At ship, operator accepted the post-govern mic-fix commit (`3b9281b`) **as-is / ungoverned**
+  (RT-safe by construction, builds + tests green, live-verified) — documented exception.
+
+**Insights:**
+- A macOS standalone app that opens audio input **must** declare `NSMicrophoneUsageDescription`
+  or TCC silently denies/zeros the input (output needs no permission — hence "output works,
+  input doesn't"). Now baked into the workbench `CMakeLists.txt`.
+- Governance must **exclude its own `.stack-control/` artifacts** from the audited diff, else
+  the barrage recursively finds its own convergence record.
+- The lifecycle needs an **operator-owned-pending** task state distinct from done, so
+  manual-acceptance tasks don't have to be forced to `[X]`.
+
+**Quantitative (corrected — session boundary b561b3e..HEAD; the auto-derived merge-base
+boundary undercounted to 1 after the mid-session merge to main):**
+- Commits: 16 (T001–T019 across US1–US4, 3 govern-fix commits, mic-fix + observability,
+  graduate, close, session-end)
+- Files changed: ~21 (+1071 / −53) across `adapters/workbench/`, `tests/`, `specs/`,
+  `README.md`, `.github/`, `.gitignore`
+- New workbench units: `audio-settings`, `source-bar`, `workbench-settings` (serde),
+  `workbench-persistence`, `level-meter`
+- Backlog touched: (none)
+- Lifecycle: `workbench-audio-config` specifying → implementing → governing → merging →
+  validating → **closed**
+
 ## 2026-06-26: Govern the SVF slice to graduation; build + verify the workbench; author the next feature through the front door
 
 **Goal:** Take the runnable `svf-vertical-slice` spec through the governed execution
@@ -147,3 +266,4 @@ roadmap → design → define → plan → tasks → analyze.
 - Files changed: 46 (+5510)
 - Backlog touched: (none)
 - Next session: `/stack-control:execute` (add the deskwork-governance Spec Kit extension first; MVP scope = US1, Phases 1+2+3).
+workflow(graduate): design:feature/workbench-audio-config merging -> validating
