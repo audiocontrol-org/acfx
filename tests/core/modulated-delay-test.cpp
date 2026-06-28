@@ -739,3 +739,175 @@ TEST_CASE("FR-014: maximal modulation produces no NaN/Inf and bounded output") {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// T011-F: FR-012a Resonance modulation causes periodic output variation.
+//
+// A sine at the filter cutoff is fed through a LP delay whose resonance is
+// modulated.  The SVF resonance peak is largest exactly at the cutoff
+// frequency, so varying resonance sweeps the peak amplitude.  The max/min
+// per-block RMS ratio must be significant over one mod cycle.
+// ---------------------------------------------------------------------------
+TEST_CASE("FR-012a: resonance modulation causes periodic output variation") {
+    const double sr        = 48000.0;
+    const int    blockSize = 512;
+    const int    warmup    = 25;
+    const int    measure   = 48;  // ~0.5s @ 512 samples — 1 cycle at 1 Hz
+
+    ModulatedDelayEffect fx;
+    fx.prepare(ProcessContext{sr, blockSize, 1});
+    // LP at 1 kHz, base resonance 0.3, no feedback (isolate filter effect).
+    setBaseParams(fx, 0.05f, 0.0f, 1.0f, 1000.0f, 0.3f, 0.0f);
+    setModParam(fx, ModulatedDelayEffect::kResModRate,  1.0f);
+    setModParam(fx, ModulatedDelayEffect::kResModDepth, 1.0f);  // effRes: 0..~0.8
+
+    std::vector<float> buf(static_cast<std::size_t>(blockSize));
+    float* chans[1] = {buf.data()};
+    double phase = 0.0;
+
+    // Warm up: let echoes build with the modulated resonance.
+    for (int b = 0; b < warmup; ++b) {
+        fillSine(buf.data(), blockSize, 1000.0, sr, phase);  // at cutoff = peak of resonance
+        AudioBlock block(chans, 1, blockSize);
+        fx.process(block);
+    }
+
+    float minRms = 1e9f, maxRms = 0.0f;
+    for (int b = 0; b < measure; ++b) {
+        fillSine(buf.data(), blockSize, 1000.0, sr, phase);
+        AudioBlock block(chans, 1, blockSize);
+        fx.process(block);
+        const float rms = computeRms(buf.data(), blockSize);
+        if (rms < minRms) minRms = rms;
+        if (rms > maxRms) maxRms = rms;
+    }
+
+    // Resonance sweeping 0..~0.8 at 1000 Hz creates a measurable amplitude swing.
+    CHECK(maxRms > minRms * 1.5f);
+}
+
+// ---------------------------------------------------------------------------
+// T011-G: Depth active->0 restores the base cutoff coefficient (I-1 fix).
+//
+// Instance A runs the entire time with only the base cutoff (no modulation).
+// Instance B runs with cutoff mod depth > 0 for some blocks (filter is driven
+// by a modulated coefficient), then depth is set to 0.  After settling, both
+// should converge to the same steady-state RMS because the base coefficient is
+// restored — a stale modulated coefficient would leave B at a different level.
+//
+// No feedback is used so the delay-line content is identical in both instances
+// and the only driver of divergence / convergence is the filter coefficient.
+// ---------------------------------------------------------------------------
+TEST_CASE("depth-to-zero restores base cutoff coefficient") {
+    const double sr        = 48000.0;
+    const int    blockSize = 512;
+    const float  freqHz    = 880.0f;
+
+    // Instance A: base params only, no cutoff modulation ever.
+    ModulatedDelayEffect fxA;
+    fxA.prepare(ProcessContext{sr, blockSize, 1});
+    setBaseParams(fxA, 0.05f, 0.0f, 1.0f, 2000.0f, 0.0f, 0.0f);
+
+    // Instance B: same base params, cutoff mod active, then depth->0.
+    ModulatedDelayEffect fxB;
+    fxB.prepare(ProcessContext{sr, blockSize, 1});
+    setBaseParams(fxB, 0.05f, 0.0f, 1.0f, 2000.0f, 0.0f, 0.0f);
+    setModParam(fxB, ModulatedDelayEffect::kCutoffModRate,  5.0f);
+    setModParam(fxB, ModulatedDelayEffect::kCutoffModDepth, 1.0f);
+
+    std::vector<float> bufA(static_cast<std::size_t>(blockSize));
+    std::vector<float> bufB(static_cast<std::size_t>(blockSize));
+    float* chansA[1] = {bufA.data()};
+    float* chansB[1] = {bufB.data()};
+    double phase = 0.0;
+
+    // Diverge: run B with modulation active for some blocks.
+    for (int b = 0; b < 30; ++b) {
+        fillSine(bufA.data(), blockSize, freqHz, sr, phase);
+        std::copy(bufA.begin(), bufA.end(), bufB.begin());
+        AudioBlock blockA(chansA, 1, blockSize); fxA.process(blockA);
+        AudioBlock blockB(chansB, 1, blockSize); fxB.process(blockB);
+    }
+
+    // Transition: set B's depth to 0 — applyPending() calls applyCutoff() to
+    // restore the base coefficient immediately.
+    setModParam(fxB, ModulatedDelayEffect::kCutoffModDepth, 0.0f);
+
+    // Settling period: with no feedback and a short delay, the SVF state
+    // converges to base-coefficient steady-state within a few input periods.
+    for (int b = 0; b < 100; ++b) {
+        fillSine(bufA.data(), blockSize, freqHz, sr, phase);
+        std::copy(bufA.begin(), bufA.end(), bufB.begin());
+        AudioBlock blockA(chansA, 1, blockSize); fxA.process(blockA);
+        AudioBlock blockB(chansB, 1, blockSize); fxB.process(blockB);
+    }
+
+    // Measurement: steady-state RMS of A and B should converge.
+    float rmsA = 0.0f, rmsB = 0.0f;
+    for (int b = 0; b < 20; ++b) {
+        fillSine(bufA.data(), blockSize, freqHz, sr, phase);
+        std::copy(bufA.begin(), bufA.end(), bufB.begin());
+        AudioBlock blockA(chansA, 1, blockSize); fxA.process(blockA);
+        AudioBlock blockB(chansB, 1, blockSize); fxB.process(blockB);
+        rmsA += computeRms(bufA.data(), blockSize);
+        rmsB += computeRms(bufB.data(), blockSize);
+    }
+    // A stale modulated coefficient would leave B at a measurably different RMS.
+    CHECK(rmsB == doctest::Approx(rmsA).epsilon(0.02f));
+}
+
+// ---------------------------------------------------------------------------
+// T011-H: Depth active->0 restores the base resonance coefficient (I-1 fix).
+//
+// Same structure as T011-G but for resonance modulation.  Instance A has a
+// steady base resonance; instance B runs with res mod depth > 0 then drops
+// depth to 0.  After settling the per-block RMS must agree with A.
+// ---------------------------------------------------------------------------
+TEST_CASE("depth-to-zero restores base resonance coefficient") {
+    const double sr        = 48000.0;
+    const int    blockSize = 512;
+    const float  freqHz    = 1000.0f;
+
+    ModulatedDelayEffect fxA;
+    fxA.prepare(ProcessContext{sr, blockSize, 1});
+    setBaseParams(fxA, 0.05f, 0.0f, 1.0f, 1000.0f, 0.3f, 0.0f);
+
+    ModulatedDelayEffect fxB;
+    fxB.prepare(ProcessContext{sr, blockSize, 1});
+    setBaseParams(fxB, 0.05f, 0.0f, 1.0f, 1000.0f, 0.3f, 0.0f);
+    setModParam(fxB, ModulatedDelayEffect::kResModRate,  5.0f);
+    setModParam(fxB, ModulatedDelayEffect::kResModDepth, 1.0f);
+
+    std::vector<float> bufA(static_cast<std::size_t>(blockSize));
+    std::vector<float> bufB(static_cast<std::size_t>(blockSize));
+    float* chansA[1] = {bufA.data()};
+    float* chansB[1] = {bufB.data()};
+    double phase = 0.0;
+
+    for (int b = 0; b < 30; ++b) {
+        fillSine(bufA.data(), blockSize, freqHz, sr, phase);
+        std::copy(bufA.begin(), bufA.end(), bufB.begin());
+        AudioBlock blockA(chansA, 1, blockSize); fxA.process(blockA);
+        AudioBlock blockB(chansB, 1, blockSize); fxB.process(blockB);
+    }
+
+    setModParam(fxB, ModulatedDelayEffect::kResModDepth, 0.0f);
+
+    for (int b = 0; b < 100; ++b) {
+        fillSine(bufA.data(), blockSize, freqHz, sr, phase);
+        std::copy(bufA.begin(), bufA.end(), bufB.begin());
+        AudioBlock blockA(chansA, 1, blockSize); fxA.process(blockA);
+        AudioBlock blockB(chansB, 1, blockSize); fxB.process(blockB);
+    }
+
+    float rmsA = 0.0f, rmsB = 0.0f;
+    for (int b = 0; b < 20; ++b) {
+        fillSine(bufA.data(), blockSize, freqHz, sr, phase);
+        std::copy(bufA.begin(), bufA.end(), bufB.begin());
+        AudioBlock blockA(chansA, 1, blockSize); fxA.process(blockA);
+        AudioBlock blockB(chansB, 1, blockSize); fxB.process(blockB);
+        rmsA += computeRms(bufA.data(), blockSize);
+        rmsB += computeRms(bufB.data(), blockSize);
+    }
+    CHECK(rmsB == doctest::Approx(rmsA).epsilon(0.02f));
+}

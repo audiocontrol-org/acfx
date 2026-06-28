@@ -34,8 +34,8 @@
 //   x[n] = (1-mix)*x[n] + mix*f
 //
 // Depth-zero invariant (FR-013): with all three mod depths at 0, process() output
-// is bit-for-bit identical to US1.  depth=0 multiplies every LFO output to zero
-// before it can influence the signal path; pow(2,0)=1 exactly; clamp(base+0)=base.
+// is identical within tight tolerance to US1.  depth=0 multiplies every LFO output
+// to zero before it can influence the signal path; pow(2,0)=1 exactly; clamp(base+0)=base.
 //
 // Thread-ownership boundary: setParameter() may be called from ANY thread; the
 // audio thread consumes pending values at the top of process().
@@ -188,22 +188,28 @@ public:
                 smoothedDelaySecs_ + delayLfoOut * delayModDepth_ * kDelayModRangeSecs;
             const float dsamp = effectiveDelaySecs * sampleRate_;
 
-            // Effective cutoff in the log domain.
-            // pow(2, lfoVal * 0.0f * octaves) = pow(2, 0.0f) = 1.0f exactly.
-            // So effCutoff = cutoffHz_ * 1.0f = cutoffHz_ when depth=0 (FR-013).
-            float effCutoff = cutoffHz_ *
-                std::pow(2.0f, cutoffLfoOut * cutoffModDepth_ * kCutoffModOctaves);
-            {
+            // Guard: skip the per-sample transcendental cost (std::pow, setFreq
+            // sinf+powf, setRes powf) when depth==0.  applyPending() (and the
+            // depth->0 restore path) keep the base coefficient current so no
+            // per-sample work is needed in the common case.  (I-1 fix)
+            const bool modCutoff = (cutoffModDepth_ != 0.0f);
+            const bool modRes    = (resModDepth_    != 0.0f);
+
+            float effCutoff = 0.0f;
+            if (modCutoff) {
+                effCutoff = cutoffHz_ *
+                    std::pow(2.0f, cutoffLfoOut * cutoffModDepth_ * kCutoffModOctaves);
                 const float maxFreq = sampleRate_ * 0.32f;
                 if (effCutoff > maxFreq) effCutoff = maxFreq;
                 if (effCutoff < 20.0f)  effCutoff = 20.0f;
             }
 
-            // Effective resonance, clamped to [0,1].
-            // depth=0: baseRes + 0.0f = baseRes; clamp(baseRes)=baseRes (FR-013).
-            float effRes = resonance_ + resLfoOut * resModDepth_ * kResModRange;
-            if (effRes < 0.0f) effRes = 0.0f;
-            if (effRes > 1.0f) effRes = 1.0f;
+            float effRes = 0.0f;
+            if (modRes) {
+                effRes = resonance_ + resLfoOut * resModDepth_ * kResModRange;
+                if (effRes < 0.0f) effRes = 0.0f;
+                if (effRes > 1.0f) effRes = 1.0f;
+            }
 
             for (int ch = 0; ch < channels; ++ch) {
                 const std::size_t idx = static_cast<std::size_t>(ch);
@@ -211,10 +217,8 @@ public:
                 DelayLine&        dl  = delays_[idx];
                 SvfPrimitive&     sv  = filters_[idx];
 
-                // Apply modulated filter params per-sample.  When depth=0 these
-                // equal the block-level values already set by applyPending().
-                sv.setFreq(effCutoff);
-                sv.setRes(effRes);
+                if (modCutoff) sv.setFreq(effCutoff);
+                if (modRes)    sv.setRes(effRes);
 
                 const float d = dl.readFractional(dsamp);
                 const float f = sv.process(d);
@@ -328,6 +332,7 @@ private:
         if (pendingDirty_[kCutoffModDepth].exchange(0u, std::memory_order_acquire)) {
             cutoffModDepth_ =
                 denormalize(kParams[kCutoffModDepth], pendingValue(kCutoffModDepth));
+            applyCutoff();  // depth->0: immediately restore base coefficient (I-1)
         }
         if (pendingDirty_[kCutoffModShape].exchange(0u, std::memory_order_acquire)) {
             cutoffLfo_.setShape(toShape(static_cast<int>(
@@ -341,6 +346,7 @@ private:
         if (pendingDirty_[kResModDepth].exchange(0u, std::memory_order_acquire)) {
             resModDepth_ =
                 denormalize(kParams[kResModDepth], pendingValue(kResModDepth));
+            applyResonance();  // depth->0: immediately restore base coefficient (I-1)
         }
         if (pendingDirty_[kResModShape].exchange(0u, std::memory_order_acquire)) {
             resLfo_.setShape(toShape(static_cast<int>(
