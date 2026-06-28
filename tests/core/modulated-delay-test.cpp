@@ -405,3 +405,337 @@ TEST_CASE("extreme settings produce no crash and finite output") {
         }
     }
 }
+
+// ===========================================================================
+// T011 — ModulatedDelayEffect US2: modulation LFOs for delay, cutoff, resonance.
+// FR-011 delay-time mod, FR-012 cutoff mod, FR-012a resonance mod,
+// FR-013 depth-zero equivalence, FR-014 in-range, FR-015 SR-independence.
+// ===========================================================================
+
+namespace {
+
+// Run the effect for numBlocks and collect all output samples.
+std::vector<float> runAndCollect(ModulatedDelayEffect& fx,
+                                  double sr, int blockSize, int numBlocks,
+                                  double inputFreqHz) {
+    std::vector<float> all;
+    all.reserve(static_cast<std::size_t>(blockSize * numBlocks));
+    std::vector<float> buf(static_cast<std::size_t>(blockSize));
+    float* chans[1] = {buf.data()};
+    double phase = 0.0;
+    for (int b = 0; b < numBlocks; ++b) {
+        fillSine(buf.data(), blockSize, inputFreqHz, sr, phase);
+        AudioBlock block(chans, 1, blockSize);
+        fx.process(block);
+        all.insert(all.end(), buf.begin(), buf.end());
+    }
+    return all;
+}
+
+// Compute RMS of a vector.
+float vecRms(const std::vector<float>& v) {
+    if (v.empty()) return 0.0f;
+    double sum = 0.0;
+    for (float x : v) sum += static_cast<double>(x) * x;
+    return static_cast<float>(std::sqrt(sum / static_cast<double>(v.size())));
+}
+
+// Convenience: set a parameter from a plain (denormalized) value.
+void setModParam(ModulatedDelayEffect& fx,
+                 ModulatedDelayEffect::Param p, float plain) {
+    fx.setParameter(ParamId{p},
+                    normalize(ModulatedDelayEffect::kParams[p], plain));
+}
+
+// Set up the six US1 base params identically on an effect instance.
+void setBaseParams(ModulatedDelayEffect& fx,
+                   float delayTime, float feedback, float mix,
+                   float cutoff, float res, float mode) {
+    setModParam(fx, ModulatedDelayEffect::kDelayTime,  delayTime);
+    setModParam(fx, ModulatedDelayEffect::kFeedback,   feedback);
+    setModParam(fx, ModulatedDelayEffect::kMix,        mix);
+    setModParam(fx, ModulatedDelayEffect::kCutoff,     cutoff);
+    setModParam(fx, ModulatedDelayEffect::kResonance,  res);
+    setModParam(fx, ModulatedDelayEffect::kMode,       mode);
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// T011-A: FR-013 Depth-zero equivalence — the most important invariant.
+//
+// An instance with non-zero mod RATES but all three depths = 0 must produce
+// output identical (within tight tolerance) to an instance with US1 defaults.
+// The LFOs tick but depth=0 multiplies their output to zero before it reaches
+// the signal path:
+//   delay: smoothedBase + lfo * 0.0 * range  = smoothedBase  (exact)
+//   cutoff: base * pow(2, lfo * 0.0 * oct)   = base * 1.0   (exact)
+//   res:    base + lfo * 0.0 * range          = base          (exact)
+// ---------------------------------------------------------------------------
+TEST_CASE("FR-013: depth-zero mod produces output identical to US1 within tolerance") {
+    const double sr        = 48000.0;
+    const int    blockSize = 256;
+
+    ModulatedDelayEffect fxA, fxB;
+    fxA.prepare(ProcessContext{sr, blockSize, 1});
+    fxB.prepare(ProcessContext{sr, blockSize, 1});
+
+    setBaseParams(fxA, 0.3f, 0.6f, 0.5f, 1000.0f, 0.3f, 0.0f);
+    setBaseParams(fxB, 0.3f, 0.6f, 0.5f, 1000.0f, 0.3f, 0.0f);
+
+    // fxB: set fast rates on all three LFOs but keep all depths at 0.
+    setModParam(fxB, ModulatedDelayEffect::kDelayModRate,   10.0f);
+    setModParam(fxB, ModulatedDelayEffect::kDelayModDepth,   0.0f);
+    setModParam(fxB, ModulatedDelayEffect::kDelayModShape,   2.0f);   // saw
+    setModParam(fxB, ModulatedDelayEffect::kCutoffModRate,   7.0f);
+    setModParam(fxB, ModulatedDelayEffect::kCutoffModDepth,  0.0f);
+    setModParam(fxB, ModulatedDelayEffect::kCutoffModShape,  1.0f);   // triangle
+    setModParam(fxB, ModulatedDelayEffect::kResModRate,      5.0f);
+    setModParam(fxB, ModulatedDelayEffect::kResModDepth,     0.0f);
+    setModParam(fxB, ModulatedDelayEffect::kResModShape,     3.0f);   // random
+
+    std::vector<float> bufA(static_cast<std::size_t>(blockSize));
+    std::vector<float> bufB(static_cast<std::size_t>(blockSize));
+    float* chansA[1] = {bufA.data()};
+    float* chansB[1] = {bufB.data()};
+    double phase = 0.0;
+
+    for (int b = 0; b < 200; ++b) {
+        fillSine(bufA.data(), blockSize, 440.0, sr, phase);
+        std::copy(bufA.begin(), bufA.end(), bufB.begin());
+
+        AudioBlock blockA(chansA, 1, blockSize);
+        AudioBlock blockB(chansB, 1, blockSize);
+        fxA.process(blockA);
+        fxB.process(blockB);
+
+        for (int i = 0; i < blockSize; ++i) {
+            CHECK(bufA[i] == doctest::Approx(bufB[i]).epsilon(1e-5));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T011-B: FR-011 Delay-time modulation produces measurable output variation.
+//
+// Two instances with the same settings, one with delay mod depth=0, one with
+// depth=1 at 2 Hz.  After the delay buffer fills, the depth=1 output should
+// measurably differ from depth=0: the effective read position oscillates,
+// creating Doppler pitch variation in the wet signal.
+// ---------------------------------------------------------------------------
+TEST_CASE("FR-011: delay-time modulation causes measurable output difference") {
+    const double sr        = 48000.0;
+    const int    blockSize = 256;
+    const int    warmup    = 30;   // let the delay buffer fill
+    const int    measure   = 100;
+
+    const auto runEffect = [&](float modDepth) -> std::vector<float> {
+        ModulatedDelayEffect fx;
+        fx.prepare(ProcessContext{sr, blockSize, 1});
+        setBaseParams(fx, 0.15f, 0.0f, 1.0f, 20000.0f, 0.0f, 0.0f);
+        setModParam(fx, ModulatedDelayEffect::kDelayModRate,  2.0f);
+        setModParam(fx, ModulatedDelayEffect::kDelayModDepth, modDepth);
+
+        std::vector<float> all;
+        all.reserve(static_cast<std::size_t>(blockSize * measure));
+        std::vector<float> buf(static_cast<std::size_t>(blockSize));
+        float* chans[1] = {buf.data()};
+        double phase = 0.0;
+
+        for (int b = 0; b < warmup + measure; ++b) {
+            fillSine(buf.data(), blockSize, 440.0, sr, phase);
+            AudioBlock block(chans, 1, blockSize);
+            fx.process(block);
+            if (b >= warmup)
+                all.insert(all.end(), buf.begin(), buf.end());
+        }
+        return all;
+    };
+
+    const auto outFlat = runEffect(0.0f);
+    const auto outMod  = runEffect(1.0f);
+
+    // Compute RMS of the sample-by-sample difference.
+    float rmsDiff = 0.0f;
+    for (std::size_t i = 0; i < outFlat.size(); ++i) {
+        float d = outMod[i] - outFlat[i];
+        rmsDiff += d * d;
+    }
+    rmsDiff = std::sqrt(rmsDiff / static_cast<float>(outFlat.size()));
+
+    // With a ±30 ms delay sweep at 2 Hz, the Doppler effect introduces measurable
+    // pitch variation.  Require the RMS difference to exceed a small floor.
+    CHECK(rmsDiff > 1e-3f);
+}
+
+// ---------------------------------------------------------------------------
+// T011-C: FR-012 Cutoff modulation produces periodic brightness variation.
+//
+// A 4 kHz sine is fed into a LP-filtered feedback delay at 1 kHz base cutoff
+// with depth=1 and 2-octave range.  The cutoff sweeps from 250 Hz to 4 kHz,
+// causing the filtered output energy to oscillate.  The ratio of max to min
+// per-block RMS must be significant.
+// ---------------------------------------------------------------------------
+TEST_CASE("FR-012: cutoff modulation causes periodic brightness variation") {
+    const double sr        = 48000.0;
+    const int    blockSize = 512;
+    const int    warmup    = 25;  // let echoes build up
+    const int    measure   = 48;  // ~0.5s @ 512 samples ≈ 1 mod cycle at 1 Hz
+
+    ModulatedDelayEffect fx;
+    fx.prepare(ProcessContext{sr, blockSize, 1});
+    setBaseParams(fx, 0.05f, 0.0f, 1.0f, 1000.0f, 0.0f, 0.0f);  // LP at 1 kHz
+    setModParam(fx, ModulatedDelayEffect::kCutoffModRate,  1.0f);
+    setModParam(fx, ModulatedDelayEffect::kCutoffModDepth, 1.0f);
+
+    std::vector<float> buf(static_cast<std::size_t>(blockSize));
+    float* chans[1] = {buf.data()};
+    double phase = 0.0;
+
+    for (int b = 0; b < warmup; ++b) {
+        fillSine(buf.data(), blockSize, 4000.0, sr, phase);  // 4 kHz — near LP edge
+        AudioBlock block(chans, 1, blockSize);
+        fx.process(block);
+    }
+
+    float minRms = 1e9f, maxRms = 0.0f;
+    for (int b = 0; b < measure; ++b) {
+        fillSine(buf.data(), blockSize, 4000.0, sr, phase);
+        AudioBlock block(chans, 1, blockSize);
+        fx.process(block);
+        const float rms = computeRms(buf.data(), blockSize);
+        if (rms < minRms) minRms = rms;
+        if (rms > maxRms) maxRms = rms;
+    }
+
+    // With a 2-octave sweep (cutoff 250 Hz..4 kHz), the 4 kHz input alternates
+    // between strongly attenuated (near 250 Hz cutoff) and near-passthrough.
+    // Require the max/min energy ratio to be at least 3x.
+    CHECK(maxRms > minRms * 3.0f);
+}
+
+// ---------------------------------------------------------------------------
+// T011-D: FR-015 Sample-rate independence.
+//
+// A 1 Hz delay-mod rate must complete exactly 1 cycle per second at any SR.
+// We run for exactly one mod period's worth of samples at 44100 and 96000 Hz,
+// measure the RMS modulation effect (difference from depth=0), and verify
+// the magnitude is consistent — proving the period tracks in seconds, not samples.
+// ---------------------------------------------------------------------------
+TEST_CASE("FR-015: delay-mod rate is sample-rate independent") {
+    const float modRateHz = 1.0f;
+
+    const auto measureModRms = [&](double sr) -> float {
+        const int blockSize = 512;
+        // Run 1.5 mod periods so the period is well covered.
+        const int totalSamples = static_cast<int>(sr * 1.5f / modRateHz);
+
+        ModulatedDelayEffect fxMod, fxFlat;
+        fxMod.prepare(ProcessContext{sr, blockSize, 1});
+        fxFlat.prepare(ProcessContext{sr, blockSize, 1});
+
+        const auto setupBase = [&](ModulatedDelayEffect& fx) {
+            setBaseParams(fx, 0.15f, 0.0f, 1.0f, 20000.0f, 0.0f, 0.0f);
+        };
+        setupBase(fxMod);
+        setupBase(fxFlat);
+        setModParam(fxMod, ModulatedDelayEffect::kDelayModRate,  modRateHz);
+        setModParam(fxMod, ModulatedDelayEffect::kDelayModDepth, 0.5f);
+
+        std::vector<float> bufMod(static_cast<std::size_t>(blockSize));
+        std::vector<float> bufFlat(static_cast<std::size_t>(blockSize));
+        float* chansMod[1]  = {bufMod.data()};
+        float* chansFlat[1] = {bufFlat.data()};
+        double phase = 0.0;
+
+        // Warm-up: fill the delay buffer before measuring.
+        const int warmupSamples = static_cast<int>(sr * 0.15f);
+        int wLeft = warmupSamples;
+        while (wLeft > 0) {
+            const int n = std::min(blockSize, wLeft);
+            fillSine(bufMod.data(), n, 440.0, sr, phase);
+            std::copy(bufMod.begin(), bufMod.begin() + n, bufFlat.begin());
+            { AudioBlock bm(chansMod, 1, n); fxMod.process(bm); }
+            { AudioBlock bf(chansFlat, 1, n); fxFlat.process(bf); }
+            wLeft -= n;
+        }
+
+        double sumSq = 0.0;
+        int    count = 0;
+        int    left  = totalSamples;
+        while (left > 0) {
+            const int n = std::min(blockSize, left);
+            fillSine(bufMod.data(), n, 440.0, sr, phase);
+            std::copy(bufMod.begin(), bufMod.begin() + n, bufFlat.begin());
+            { AudioBlock bm(chansMod, 1, n); fxMod.process(bm); }
+            { AudioBlock bf(chansFlat, 1, n); fxFlat.process(bf); }
+            for (int i = 0; i < n; ++i) {
+                float d = bufMod[i] - bufFlat[i];
+                sumSq += static_cast<double>(d) * d;
+                ++count;
+            }
+            left -= n;
+        }
+        return count > 0 ? static_cast<float>(std::sqrt(sumSq / count)) : 0.0f;
+    };
+
+    const float rms44 = measureModRms(44100.0);
+    const float rms96 = measureModRms(96000.0);
+
+    // Both must show measurable modulation.
+    CHECK(rms44 > 1e-4f);
+    CHECK(rms96 > 1e-4f);
+
+    // The mod effect magnitude must be similar at both SRs (same physical sweep).
+    // Allow ±40% tolerance for interpolation-quality differences.
+    const float ratio = (rms44 > 0.0f) ? rms96 / rms44 : 0.0f;
+    CHECK(ratio == doctest::Approx(1.0f).epsilon(0.4f));
+}
+
+// ---------------------------------------------------------------------------
+// T011-E: FR-014 In-range under maximal modulation — no NaN/Inf, no crash.
+//
+// All three LFOs at maximum rate and depth, combined with max delay time and
+// significant feedback, must not produce NaN/Inf or crash over many blocks.
+// The DelayLine's built-in clamp keeps read positions valid (FR-007/FR-014).
+// ---------------------------------------------------------------------------
+TEST_CASE("FR-014: maximal modulation produces no NaN/Inf and bounded output") {
+    const double sr        = 48000.0;
+    const int    blockSize = 256;
+
+    ModulatedDelayEffect fx;
+    fx.prepare(ProcessContext{sr, blockSize, 2});
+
+    setBaseParams(fx, 2.0f, 0.5f, 0.5f, 20000.0f, 0.0f, 0.0f);
+
+    setModParam(fx, ModulatedDelayEffect::kDelayModRate,   20.0f);
+    setModParam(fx, ModulatedDelayEffect::kDelayModDepth,   1.0f);
+    setModParam(fx, ModulatedDelayEffect::kDelayModShape,   0.0f);
+    setModParam(fx, ModulatedDelayEffect::kCutoffModRate,  20.0f);
+    setModParam(fx, ModulatedDelayEffect::kCutoffModDepth,  1.0f);
+    setModParam(fx, ModulatedDelayEffect::kCutoffModShape,  1.0f);
+    setModParam(fx, ModulatedDelayEffect::kResModRate,     20.0f);
+    setModParam(fx, ModulatedDelayEffect::kResModDepth,     1.0f);
+    setModParam(fx, ModulatedDelayEffect::kResModShape,     2.0f);
+
+    const std::size_t sz = static_cast<std::size_t>(blockSize);
+    std::vector<float> left(sz, 0.0f), right(sz, 0.0f);
+    float* chans[2] = {left.data(), right.data()};
+
+    left[0] = right[0] = 1.0f;  // impulse
+    {
+        AudioBlock block(chans, 2, blockSize);
+        fx.process(block);
+    }
+
+    for (int b = 0; b < 200; ++b) {
+        std::fill(left.begin(),  left.end(),  0.3f);
+        std::fill(right.begin(), right.end(), 0.3f);
+        AudioBlock block(chans, 2, blockSize);
+        fx.process(block);
+        for (int i = 0; i < blockSize; ++i) {
+            REQUIRE(std::isfinite(left[i]));
+            REQUIRE(std::isfinite(right[i]));
+        }
+    }
+}

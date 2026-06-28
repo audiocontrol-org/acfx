@@ -14,66 +14,96 @@
 #include "dsp/process-context.h"
 #include "dsp/span.h"
 #include "primitives/delay-line.h"
+#include "primitives/lfo.h"
 #include "primitives/svf-primitive.h"
 
-// A delay effect with a State-Variable Filter in the feedback loop.
-// Satisfies the Effect contract (no base class, no vtable in the audio path).
-// Parameters: delay time, feedback, dry/wet mix, feedback filter cutoff/resonance/mode.
-// US1: no LFO modulation or wow/flutter — those are added in later units.
+// A delay effect with a State-Variable Filter in the feedback loop plus three
+// independent modulation LFOs (US2): delay-time mod, feedback-filter cutoff mod,
+// and feedback-filter resonance mod.  Satisfies the Effect contract (no base
+// class, no vtable in the audio path).
 //
 // Signal flow per channel, per sample (research Decision 2; post-filter wet tap):
 //   smoothedDelaySecs_ glides toward targetDelaySecs_ via a one-pole smoother
-//   (research Decision 5; click-free on stepped control edits)
-//   dsamp = smoothedDelaySecs_ * sampleRate
+//   effectiveDelaySecs = smoothedDelaySecs_ + delayLfo.tick() * delayDepth * kDelayModRangeSecs
+//   dsamp = effectiveDelaySecs * sampleRate                    (clamped by DelayLine, FR-014)
+//   effCutoff = baseCutoff * pow(2, cutoffLfo.tick() * cutoffDepth * kCutoffModOctaves)
+//   effRes    = clamp(baseRes + resLfo.tick() * resDepth * kResModRange, 0, 1)
 //   d = delay[ch].readFractional(dsamp)
-//   f = svf[ch].process(d)                  (cutoff clamped < sr/3, FR-003)
-//   delay[ch].write(x[n] + feedback * f)    (feedback clamped strictly < 1, FR-010)
-//   x[n] = (1-mix)*x[n] + mix*f             (dry/wet blend, FR-002)
+//   f = svf[ch].process(d)          (effCutoff / effRes applied per-sample)
+//   delay[ch].write(x[n] + feedback * f)
+//   x[n] = (1-mix)*x[n] + mix*f
 //
-// Thread-ownership boundary (identical to SvfEffect):
-//   setParameter() may be called from ANY thread — it only publishes a lock-free
-//   atomic; the audio thread consumes pending values at the top of process().
-//   prepare()/reset() mutate state directly and MUST be called while the audio
-//   stream is stopped.
+// Depth-zero invariant (FR-013): with all three mod depths at 0, process() output
+// is bit-for-bit identical to US1.  depth=0 multiplies every LFO output to zero
+// before it can influence the signal path; pow(2,0)=1 exactly; clamp(base+0)=base.
+//
+// Thread-ownership boundary: setParameter() may be called from ANY thread; the
+// audio thread consumes pending values at the top of process().
+// prepare()/reset() mutate state directly and MUST be called while stopped.
 
 namespace acfx {
 
 class ModulatedDelayEffect {
 public:
-    // Stable parameter ids — dense index into kParams. Append-only in later units.
+    // Stable parameter ids — dense index into kParams.  US1 ids 0..5 are frozen.
     enum Param : std::uint8_t {
-        kDelayTime = 0,
-        kFeedback  = 1,
-        kMix       = 2,
-        kCutoff    = 3,
-        kResonance = 4,
-        kMode      = 5
+        kDelayTime      = 0,
+        kFeedback       = 1,
+        kMix            = 2,
+        kCutoff         = 3,
+        kResonance      = 4,
+        kMode           = 5,
+        // US2: three independent modulation LFOs (appended; indices 6..14 stable).
+        kDelayModRate   = 6,
+        kDelayModDepth  = 7,
+        kDelayModShape  = 8,
+        kCutoffModRate  = 9,
+        kCutoffModDepth = 10,
+        kCutoffModShape = 11,
+        kResModRate     = 12,
+        kResModDepth    = 13,
+        kResModShape    = 14,
     };
 
-    // Single source of parameter truth (SC-006, FR-022). All values in plain units.
-    static constexpr std::array<ParameterDescriptor, 6> kParams = {{
-        // delay_time: log Hz over [0.001, 2.0] s; min must be > 0 for log skew.
+    // Single source of parameter truth (SC-006, FR-022).  All values in plain units.
+    static constexpr std::array<ParameterDescriptor, 15> kParams = {{
+        // US1 parameters (indices 0..5 — frozen)
         {ParamId{kDelayTime}, "delay_time", ParamUnit::seconds,
          0.001f, 2.0f, 0.3f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        // feedback: linear [0, 0.98] — hard maximum strictly below 1.0 (FR-010).
         {ParamId{kFeedback}, "feedback", ParamUnit::none,
          0.0f, 0.98f, 0.4f, ParamSkew::linear, ParamKind::continuous, 0},
-        // mix: linear dry/wet [0=dry, 1=wet].
         {ParamId{kMix}, "mix", ParamUnit::none,
          0.0f, 1.0f, 0.35f, ParamSkew::linear, ParamKind::continuous, 0},
-        // fb_cutoff: log Hz over [20, 20000]; min > 0 required for log.
         {ParamId{kCutoff}, "fb_cutoff", ParamUnit::hz,
          20.0f, 20000.0f, 2000.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        // fb_resonance: linear [0, 1].
         {ParamId{kResonance}, "fb_resonance", ParamUnit::none,
          0.0f, 1.0f, 0.2f, ParamSkew::linear, ParamKind::continuous, 0},
-        // fb_mode: discrete {0=LP, 1=HP, 2=BP} — same mapping as SvfEffect.
         {ParamId{kMode}, "fb_mode", ParamUnit::none,
          0.0f, 2.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 3},
+        // US2 delay-time modulation (indices 6..8)
+        {ParamId{kDelayModRate}, "delay_mod_rate", ParamUnit::hz,
+         0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kDelayModDepth}, "delay_mod_depth", ParamUnit::none,
+         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kDelayModShape}, "delay_mod_shape", ParamUnit::none,
+         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4},
+        // US2 cutoff modulation (indices 9..11)
+        {ParamId{kCutoffModRate}, "cutoff_mod_rate", ParamUnit::hz,
+         0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kCutoffModDepth}, "cutoff_mod_depth", ParamUnit::none,
+         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kCutoffModShape}, "cutoff_mod_shape", ParamUnit::none,
+         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4},
+        // US2 resonance modulation (indices 12..14)
+        {ParamId{kResModRate}, "res_mod_rate", ParamUnit::hz,
+         0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kResModDepth}, "res_mod_depth", ParamUnit::none,
+         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kResModShape}, "res_mod_shape", ParamUnit::none,
+         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4},
     }};
 
-    // Build-time guard: every descriptor in the table is valid. A malformed entry
-    // (e.g. log param with min<=0) becomes a compile error, not a runtime NaN.
+    // Build-time guard: every descriptor in the table is valid.
     static_assert(
         [] {
             for (const ParameterDescriptor& d : kParams)
@@ -93,27 +123,29 @@ public:
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
-    // Audio stream must be stopped. Allocates 2.0-second delay buffers per channel.
+    // Audio stream must be stopped.  Allocates 2.0-second delay buffers per channel.
     void prepare(const ProcessContext& ctx) noexcept {
         sampleRate_  = static_cast<float>(ctx.sampleRate);
         numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
 
-        // 2.0-second buffer capacity + 1 guard sample (DelayLine contract).
         const int capacity = static_cast<int>(sampleRate_ * 2.0f) + 2;
-
         for (int ch = 0; ch < numChannels_; ++ch) {
             const std::size_t idx = static_cast<std::size_t>(ch);
-            // Heap allocation here is intentional (prepare is called with stream stopped).
             buffers_[idx].assign(static_cast<std::size_t>(capacity), 0.0f);
             delays_[idx].prepare(buffers_[idx].data(), capacity, sampleRate_);
             filters_[idx].init(sampleRate_);
         }
 
-        // One-pole smoother for delay time: ~20 ms time constant.
-        // Formula: smoothed += coeff * (target - smoothed) each audio sample.
-        // coeff = 1 - exp(-1 / (sr * T)) with T = 0.020 s.
         smoothCoeff_       = 1.0f - std::exp(-1.0f / (sampleRate_ * 0.020f));
-        smoothedDelaySecs_ = targetDelaySecs_;  // start at current target; no pending glide.
+        smoothedDelaySecs_ = targetDelaySecs_;
+
+        // Prepare LFOs with sample rate and seed them at their default rates.
+        delayLfo_.prepare(sampleRate_);
+        delayLfo_.setRate(kParams[kDelayModRate].defaultValue);
+        cutoffLfo_.prepare(sampleRate_);
+        cutoffLfo_.setRate(kParams[kCutoffModRate].defaultValue);
+        resLfo_.prepare(sampleRate_);
+        resLfo_.setRate(kParams[kResModRate].defaultValue);
 
         applyAll();
     }
@@ -125,21 +157,53 @@ public:
             delays_[idx].reset();
             filters_[idx].reset();
         }
-        smoothedDelaySecs_ = targetDelaySecs_;  // cancel any in-flight glide.
+        smoothedDelaySecs_ = targetDelaySecs_;
+        delayLfo_.reset();
+        cutoffLfo_.reset();
+        resLfo_.reset();
         applyAll();
     }
 
     void process(AudioBlock& io) noexcept {
-        applyPending();  // consume cross-thread parameter edits at block top.
+        applyPending();
 
         const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
         const int samples  = io.numSamples();
 
         for (int n = 0; n < samples; ++n) {
-            // Advance the one-pole smoother once per sample (shared across channels).
+            // Advance the one-pole delay-time smoother (shared across channels).
             smoothedDelaySecs_ +=
                 smoothCoeff_ * (targetDelaySecs_ - smoothedDelaySecs_);
-            const float dsamp = smoothedDelaySecs_ * sampleRate_;
+
+            // Tick all three LFOs exactly once per sample.  Must tick even when
+            // depth=0 so phase advances correctly; depth=0 multiplies the value
+            // to zero, leaving the signal path unchanged (FR-013).
+            const float delayLfoOut  = delayLfo_.tick();
+            const float cutoffLfoOut = cutoffLfo_.tick();
+            const float resLfoOut    = resLfo_.tick();
+
+            // Effective delay time — DelayLine clamps to valid range (FR-014).
+            // depth=0: + 0.0f*range = no change from smoothed base (FR-013).
+            const float effectiveDelaySecs =
+                smoothedDelaySecs_ + delayLfoOut * delayModDepth_ * kDelayModRangeSecs;
+            const float dsamp = effectiveDelaySecs * sampleRate_;
+
+            // Effective cutoff in the log domain.
+            // pow(2, lfoVal * 0.0f * octaves) = pow(2, 0.0f) = 1.0f exactly.
+            // So effCutoff = cutoffHz_ * 1.0f = cutoffHz_ when depth=0 (FR-013).
+            float effCutoff = cutoffHz_ *
+                std::pow(2.0f, cutoffLfoOut * cutoffModDepth_ * kCutoffModOctaves);
+            {
+                const float maxFreq = sampleRate_ * 0.32f;
+                if (effCutoff > maxFreq) effCutoff = maxFreq;
+                if (effCutoff < 20.0f)  effCutoff = 20.0f;
+            }
+
+            // Effective resonance, clamped to [0,1].
+            // depth=0: baseRes + 0.0f = baseRes; clamp(baseRes)=baseRes (FR-013).
+            float effRes = resonance_ + resLfoOut * resModDepth_ * kResModRange;
+            if (effRes < 0.0f) effRes = 0.0f;
+            if (effRes > 1.0f) effRes = 1.0f;
 
             for (int ch = 0; ch < channels; ++ch) {
                 const std::size_t idx = static_cast<std::size_t>(ch);
@@ -147,16 +211,20 @@ public:
                 DelayLine&        dl  = delays_[idx];
                 SvfPrimitive&     sv  = filters_[idx];
 
-                const float d = dl.readFractional(dsamp);         // fractional tap
-                const float f = sv.process(d);                    // post-filter wet tap
-                dl.write(x[n] + feedback_ * f);                   // write into feedback loop
-                x[n] = (1.0f - mix_) * x[n] + mix_ * f;          // dry/wet blend
+                // Apply modulated filter params per-sample.  When depth=0 these
+                // equal the block-level values already set by applyPending().
+                sv.setFreq(effCutoff);
+                sv.setRes(effRes);
+
+                const float d = dl.readFractional(dsamp);
+                const float f = sv.process(d);
+                dl.write(x[n] + feedback_ * f);
+                x[n] = (1.0f - mix_) * x[n] + mix_ * f;
             }
         }
     }
 
-    // Publish a normalized 0..1 value for a parameter. Callable from any thread;
-    // the audio thread applies it at the top of the next process() call.
+    // Publish a normalized 0..1 value for a parameter.  Callable from any thread.
     void setParameter(ParamId id, float normalized) noexcept {
         const std::uint8_t i = id.value;
         if (i >= kNumParams)
@@ -167,10 +235,16 @@ public:
 
 private:
     static constexpr int         kMaxChannels = 8;
-    static constexpr std::size_t kNumParams   = 6;
+    static constexpr std::size_t kNumParams   = 15;
 
-    // float <-> uint32 bit reinterpretation: a 4-byte memcpy is a register move.
-    // Lets the cross-thread atomics be provably lock-free on every target.
+    // Physical modulation ranges (in plain units).
+    // kDelayModRangeSecs: ±30 ms peak modulation; musical vibrato at depth=1.
+    // kCutoffModOctaves:  ±2 octaves at depth=1 (quarter to four times base freq).
+    // kResModRange:       ±0.5 resonance range at depth=1.
+    static constexpr float kDelayModRangeSecs = 0.030f;
+    static constexpr float kCutoffModOctaves  = 2.0f;
+    static constexpr float kResModRange       = 0.5f;
+
     static std::uint32_t floatBits(float f) noexcept {
         std::uint32_t u = 0;
         std::memcpy(&u, &f, sizeof(u));
@@ -191,21 +265,30 @@ private:
         }
     }
 
+    static LfoShape toShape(int index) noexcept {
+        switch (index) {
+        case 1:  return LfoShape::triangle;
+        case 2:  return LfoShape::saw;
+        case 3:  return LfoShape::random;
+        case 0:
+        default: return LfoShape::sine;
+        }
+    }
+
     float pendingValue(Param p) const noexcept {
         return bitsFloat(pendingBits_[static_cast<std::size_t>(p)].load(
             std::memory_order_relaxed));
     }
 
-    // Consume any parameter edits published since the last block. Audio thread only.
+    // Consume any parameter edits published since the last block.  Audio thread only.
     void applyPending() noexcept {
+        // US1 base params
         if (pendingDirty_[kDelayTime].exchange(0u, std::memory_order_acquire)) {
             targetDelaySecs_ =
                 denormalize(kParams[kDelayTime], pendingValue(kDelayTime));
         }
         if (pendingDirty_[kFeedback].exchange(0u, std::memory_order_acquire)) {
             float fb = denormalize(kParams[kFeedback], pendingValue(kFeedback));
-            // Clamp strictly below 1.0 to prevent runaway even if a future parameter
-            // table change widens the range (FR-010; the descriptor max is 0.98).
             if (fb >= 1.0f) fb = 0.999f;
             feedback_ = fb;
         }
@@ -224,10 +307,47 @@ private:
             mode_ = toMode(denormalize(kParams[kMode], pendingValue(kMode)));
             applyMode();
         }
+        // US2: delay-time modulation
+        if (pendingDirty_[kDelayModRate].exchange(0u, std::memory_order_acquire)) {
+            delayLfo_.setRate(
+                denormalize(kParams[kDelayModRate], pendingValue(kDelayModRate)));
+        }
+        if (pendingDirty_[kDelayModDepth].exchange(0u, std::memory_order_acquire)) {
+            delayModDepth_ =
+                denormalize(kParams[kDelayModDepth], pendingValue(kDelayModDepth));
+        }
+        if (pendingDirty_[kDelayModShape].exchange(0u, std::memory_order_acquire)) {
+            delayLfo_.setShape(toShape(static_cast<int>(
+                denormalize(kParams[kDelayModShape], pendingValue(kDelayModShape)))));
+        }
+        // US2: cutoff modulation
+        if (pendingDirty_[kCutoffModRate].exchange(0u, std::memory_order_acquire)) {
+            cutoffLfo_.setRate(
+                denormalize(kParams[kCutoffModRate], pendingValue(kCutoffModRate)));
+        }
+        if (pendingDirty_[kCutoffModDepth].exchange(0u, std::memory_order_acquire)) {
+            cutoffModDepth_ =
+                denormalize(kParams[kCutoffModDepth], pendingValue(kCutoffModDepth));
+        }
+        if (pendingDirty_[kCutoffModShape].exchange(0u, std::memory_order_acquire)) {
+            cutoffLfo_.setShape(toShape(static_cast<int>(
+                denormalize(kParams[kCutoffModShape], pendingValue(kCutoffModShape)))));
+        }
+        // US2: resonance modulation
+        if (pendingDirty_[kResModRate].exchange(0u, std::memory_order_acquire)) {
+            resLfo_.setRate(
+                denormalize(kParams[kResModRate], pendingValue(kResModRate)));
+        }
+        if (pendingDirty_[kResModDepth].exchange(0u, std::memory_order_acquire)) {
+            resModDepth_ =
+                denormalize(kParams[kResModDepth], pendingValue(kResModDepth));
+        }
+        if (pendingDirty_[kResModShape].exchange(0u, std::memory_order_acquire)) {
+            resLfo_.setShape(toShape(static_cast<int>(
+                denormalize(kParams[kResModShape], pendingValue(kResModShape)))));
+        }
     }
 
-    // DaisySP's Svf requires cutoff strictly below sampleRate/3; clamp into a safe
-    // band just under that bound (and never below the descriptor minimum).
     float clampedCutoff() const noexcept {
         const float maxFreq = sampleRate_ * 0.32f;
         float       f       = cutoffHz_;
@@ -255,8 +375,6 @@ private:
         applyMode();
     }
 
-    // Per-channel storage: each vector is sized once in prepare(); DelayLine holds
-    // a non-owning pointer into it. No resize occurs in process().
     std::array<std::vector<float>, kMaxChannels> buffers_{};
     std::array<DelayLine,          kMaxChannels> delays_{};
     std::array<SvfPrimitive,       kMaxChannels> filters_{};
@@ -264,20 +382,24 @@ private:
     float sampleRate_  = 48000.0f;
     int   numChannels_ = 0;
 
-    // One-pole delay-time smoother state (research Decision 5).
     float targetDelaySecs_   = kParams[kDelayTime].defaultValue;
     float smoothedDelaySecs_ = kParams[kDelayTime].defaultValue;
-    float smoothCoeff_       = 0.0f;  // computed in prepare()
+    float smoothCoeff_       = 0.0f;
 
-    // Applied parameter state — mutated only in prepare/reset/applyPending.
     float   feedback_  = kParams[kFeedback].defaultValue;
     float   mix_       = kParams[kMix].defaultValue;
     float   cutoffHz_  = kParams[kCutoff].defaultValue;
     float   resonance_ = kParams[kResonance].defaultValue;
     SvfMode mode_      = SvfMode::lowpass;
 
-    // Cross-thread pending edits: any thread publishes, the audio thread consumes.
-    // Stored as float bit-patterns so the atomic is provably lock-free on every target.
+    // US2: three independent modulation LFOs and their depth scalars.
+    Lfo   delayLfo_{};
+    Lfo   cutoffLfo_{};
+    Lfo   resLfo_{};
+    float delayModDepth_  = kParams[kDelayModDepth].defaultValue;   // 0 = off
+    float cutoffModDepth_ = kParams[kCutoffModDepth].defaultValue;  // 0 = off
+    float resModDepth_    = kParams[kResModDepth].defaultValue;     // 0 = off
+
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
     static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
