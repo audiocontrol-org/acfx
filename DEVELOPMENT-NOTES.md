@@ -2,26 +2,49 @@
 
 ---
 
-## 2026-06-28: <!-- session title -->
+## 2026-06-28: Run the SVF as a DAW plugin (AU + VST3); file tooling-feedback issues
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Get the shipped SVF effect loading as a DAW plugin (AU + VST3), and file the two
+upstream govern/lifecycle defects surfaced during the workbench feature.
 
 **Accomplished:**
-- <!-- compose -->
+- **Filed the two upstream-tool issues** against `audiocontrol-org/deskwork` (operator-approved):
+  **#513** — govern audits its own artifacts (the convergence record in `--diff-base` becomes a
+  recursive finding); **#514** — need an operator-owned-pending task state so `tasks-complete`
+  doesn't force `[X]` on unrun manual-acceptance tasks.
+- **Built + installed all three plugin formats** (VST3 / AU / CLAP — the SVF is `acfx_core` +
+  `acfx_host` only, untouched by the workbench feature) into the user plugin folders, **signed
+  with the Developer ID** (`ES3R29MZ5A`) + hardened runtime.
+- **SVF loads and runs in Logic as an AU** (operator-confirmed). **VST3** is signed + installed
+  and ready in any VST3 host.
 
 **Didn't Work:**
-- <!-- compose -->
+- **`auval` was a dead end on macOS Sequoia 15.7.** It refused to register/validate the AU
+  (`didn't find the component` / version -50) through every standard fix — AU cache clear,
+  `AudioComponentRegistrar` bounce, a full `coreaudiod` bounce, ad-hoc → Developer-ID re-sign,
+  xattr strip — even though the bundle was valid (arm64, signed, correct `aufx/Asvf/Acfx`
+  Info.plist, `com.acfx.acfx_plugin` id). Yet **Logic loaded it fine.** Burned a lot of
+  diagnosis on a CLI gate that doesn't reflect what the DAW actually does.
+- Initial install was **ad-hoc-signed → Gatekeeper-rejected** (`spctl`), which is what sent me
+  down the (ultimately unnecessary) registration rabbit hole.
 
 **Course Corrections:**
-- <!-- compose -->
+- Stopped treating `auval` as authoritative once the operator confirmed Logic loads the AU —
+  the **DAW is the real acceptance test** here, not the CLI validator.
 
 **Insights:**
-- <!-- compose -->
+- For **local** DAW use a Developer-ID signature is plenty; **notarization is only needed to
+  distribute to other Macs** (Gatekeeper-on-download). Don't conflate the two.
+- On this machine `auval` is not a reliable AU gate — verify plugins in the actual host.
+- **Dev-ergonomics gap:** the plugin builds ad-hoc with `COPY_PLUGIN_AFTER_BUILD=FALSE` and no
+  signing identity, so every rebuild needs a manual install + Developer-ID re-sign. Candidate:
+  wire Developer-ID signing + auto-copy into `adapters/plugin/CMakeLists.txt`.
 
-**Quantitative (auto-derived from git; verify before publishing):**
-- Commits: 0
-  - (no commits this session)
-- Files changed: 0
+**Quantitative:**
+- Repo commits this session: 0 (work was outside the tree — plugin build/install/sign on the
+  machine + two external GitHub issues).
+- External artifacts: deskwork **#513**, **#514**; signed VST3/AU/CLAP installed under
+  `~/Library/Audio/Plug-Ins/`.
 - Backlog touched: (none)
 
 ## 2026-06-27: Drive workbench-audio-config implement → govern → ship → close; fix macOS live input
