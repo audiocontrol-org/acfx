@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **workbench-audio-config**.
+Active Spec Kit feature: **modulated-delay**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/workbench-audio-config/plan.md` (spec: `specs/workbench-audio-config/spec.md`).
+current plan at `specs/modulated-delay/plan.md` (spec: `specs/modulated-delay/spec.md`).
 <!-- SPECKIT END -->
