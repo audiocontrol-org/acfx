@@ -95,6 +95,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:feature/measurement-infrastructure
 - status: in-flight
+- analyze-clean: yes
 - spec: specs/measurement-infrastructure
 - design-approved: yes
 - design: docs/superpowers/specs/2026-06-29-measurement-infrastructure-design.md
