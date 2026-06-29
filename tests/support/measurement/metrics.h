@@ -202,8 +202,14 @@ inline double thd(acfx::span<const float> out,
 // Implemented via CorrelationAnalyzer::lagSamples(in, out), which returns the
 // lag at peak cross-correlation — the number of samples by which `out` lags
 // `in`. This is the effect's own processing delay (e.g. algorithmic latency or
-// look-ahead), not a measurement artefact. Works correctly for an impulse
-// stimulus and for general broadband signals.
+// look-ahead), not a measurement artefact.
+//
+// STIMULUS CONTRACT (AUDIT-20260629-10): drive this with an IMPULSE (or a
+// broadband WHITE) stimulus. The underlying unnormalized correlator is only
+// well-defined for a sharply-peaked autocorrelation; a periodic/tonal `in`
+// (sine, sustained tone, program material) can select a side-lobe lag and
+// return the wrong delay — that is out of contract for this minimal-first
+// metric (see CorrelationAnalyzer's contract note).
 // ---------------------------------------------------------------------------
 inline int latencySamples(acfx::span<const float> in,
                           acfx::span<const float> out) {

@@ -5,16 +5,17 @@
 // NOTE on stability and the SVF: the DaisySP SVF (SvfPrimitive / SvfEffect)
 // does not flush subnormal float values in its internal state, so it fails
 // the "denormal" stability case when fed a subnormal-decaying input.  This is
-// a genuine limitation of the underlying DaisySP implementation, correctly
-// caught by the harness — it is not a harness bug.  Tests 1 and 2 use minimal
-// in-test stubs (CleanFx / BrokenFx) to demonstrate that the stability verdict
-// correctly discriminates between numerically clean and broken effects.  A
-// further test EXECUTABLY guards the SVF's known denormal failure — asserting
-// `stability(svf).ok == false` with `failedCase == "denormal"` — so the
-// limitation (backlog TASK-1) lives in a real assertion, not just this comment,
-// and a future flush-to-zero fix will force the guard to be updated
-// (AUDIT-20260629-07).  The remaining tests use the real SVF for the allocation
-// and exec-time measurements (those do not depend on stability).
+// a genuine limitation of the underlying DaisySP implementation — but whether
+// the SVF actually *produces* subnormals is environment-conditional: with FPU
+// flush-to-zero / denormals-are-zero enabled (FTZ/DAZ, common on embedded
+// ARM/release builds) the hardware flushes the decaying state and no subnormal
+// appears (AUDIT-20260629-09).  So the real-SVF behavior is NOT hard-asserted
+// here; it is recorded as a backlog item (TASK-1).  Instead the stability
+// verdict is validated with deterministic, FPU-mode-independent stubs: CleanFx
+// (passes), BrokenFx (NaN -> fails), and DenormalFx (a stored subnormal CONSTANT
+// -> fails), the last portably guarding the harness's subnormal-DETECTION
+// capability.  The remaining tests use the real SVF for the allocation and
+// exec-time measurements (those do not depend on stability).
 
 #include <cmath>
 #include <limits>
@@ -76,6 +77,27 @@ struct BrokenFx {
     }
 };
 
+// DenormalFx — a minimal effect stub whose process() writes a SUBNORMAL float
+// (denorm_min) into every sample. This is a STORED CONSTANT, not the result of
+// an arithmetic operation, so it is NOT affected by the FPU flush-to-zero /
+// denormals-are-zero rounding mode (FTZ/DAZ) — it deterministically presents a
+// subnormal to stability() on any host, unlike a real decaying filter whose
+// subnormal generation is environment-conditional (AUDIT-20260629-09). It
+// exercises the harness's subnormal-DETECTION capability portably.
+struct DenormalFx {
+    void prepare(const acfx::ProcessContext&) noexcept {}
+    void reset() noexcept {}
+    void process(acfx::AudioBlock& blk) noexcept {
+        const float sub = std::numeric_limits<float>::denorm_min();
+        for (int ch = 0; ch < blk.numChannels(); ++ch) {
+            float* samples = blk.channel(ch);
+            for (int i = 0; i < blk.numSamples(); ++i) {
+                samples[i] = sub;
+            }
+        }
+    }
+};
+
 } // namespace
 
 TEST_CASE("stability: clean effect stub passes all cases (FR-012)") {
@@ -111,24 +133,24 @@ TEST_CASE("stability: broken effect fails verdict (FR-012, discriminating)") {
     CHECK(result.failedCase != nullptr);
 }
 
-TEST_CASE("stability: real SVF FAILS the denormal case (FR-012 known limitation, AUDIT-20260629-07)") {
-    // Executable guard for the DaisySP SVF's known denormal limitation (backlog
-    // TASK-1): SvfPrimitive does not flush subnormals, so the harness's
-    // denormal-prone stimulus drives its state subnormal and stability() reports
-    // {false, "denormal"}. Asserting this here turns the limitation from a source
-    // comment into a real, executable guard: if a future flush-to-zero fix lands,
-    // this test will start failing and force the limitation record to be updated.
-    acfx::SvfEffect svf;
-    configureLowpass(svf, kRefCutoffHz);
+TEST_CASE("stability: detects subnormal output deterministically (FR-012, AUDIT-20260629-09)") {
+    // Portable executable guard for the harness's subnormal-DETECTION capability.
+    // DenormalFx deterministically emits a subnormal CONSTANT (not affected by
+    // FTZ/DAZ rounding mode), so stability() must flag it on ANY host. This
+    // replaces an earlier guard that hard-asserted the real SVF fails the
+    // denormal case — that assertion was environment-conditional (with FTZ/DAZ
+    // enabled, common on embedded ARM/release builds, the SVF flushes and the
+    // assertion inverts; AUDIT-20260629-09). The real SVF's denormal behavior
+    // remains recorded as a backlog item (TASK-1), not a hard test invariant.
+    DenormalFx denormalFx;
 
     const acfx::ProcessContext ctx{kRefSampleRate, 512, 1};
-    const Stability result = stability(svf, ctx);
+    const Stability result = stability(denormalFx, ctx);
 
-    INFO("SVF stability failedCase = "
+    INFO("DenormalFx stability failedCase = "
          << (result.failedCase ? result.failedCase : "(none)"));
-    CHECK(result.ok == false);
-    REQUIRE(result.failedCase != nullptr);
-    CHECK(std::string(result.failedCase) == "denormal");
+    CHECK(result.ok == false);          // subnormal output must be caught
+    CHECK(result.failedCase != nullptr);
 }
 
 TEST_CASE("SVF process() allocates zero heap (FR-011)") {

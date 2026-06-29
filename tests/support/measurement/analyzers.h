@@ -198,6 +198,16 @@ struct GoertzelAnalyzer {
 //   which peaks at k = D.  So lagSamples returns D, the delay of out relative
 //   to in, regardless of polarity.
 //
+// CONTRACT / STIMULUS INVARIANT (AUDIT-20260629-10): this unnormalized
+//   correlator is well-defined only for an IMPULSE or broadband WHITE stimulus,
+//   whose autocorrelation is sharply peaked at zero. For a periodic or tonal
+//   `in` (a sine, a sustained sweep segment, program material), a side-lobe or
+//   period-aligned lag can produce a larger unnormalized overlap than the true
+//   delay, so the returned lag may be wrong — that input is OUT OF CONTRACT for
+//   this minimal-first metric (a normalized/windowed correlator with a
+//   caller-supplied search range is deferred). Drive latency measurement with an
+//   impulse (as the harness's latency tests do).
+//
 // Degenerate / empty spans: returns 0 (documented sentinel).
 // ---------------------------------------------------------------------------
 struct CorrelationAnalyzer {

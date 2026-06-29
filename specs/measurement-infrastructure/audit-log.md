@@ -105,3 +105,46 @@ The header NOTE (lines 6-15) concedes that the real `SvfEffect` *fails* the harn
 The blast radius is that a downstream consumer (or an unattended agent) reading this suite concludes FR-012 stability is validated for the effect library, when in fact the one real effect available (`SvfEffect`) is known to fail the denormal case and that failure is captured **only in a source comment** — there is no `xfail`/expected-failure assertion, no executable guard. If the SVF were later "fixed" (or broken in a new way), nothing in the suite would detect the regression, and the comment's claim ("correctly caught by the harness") is itself never executed. A reasonable fix: add an explicit test that asserts `stability(svf, ctx).ok == false` with `failedCase` naming the denormal case, so the known limitation is enforced executably and a future flush-to-zero fix forces the test to be updated (turning the silent comment into a real guard).
 
 ---
+
+## 2026-06-29 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260629-08 — Ledger asserts 19/19 review-clean but the post-govern audit-fix commits are unledgered
+
+Finding-ID: AUDIT-20260629-08 (claude-02 + claude-03 + codex-01 + claude-01; cross-model)
+Status:     resolved (fa-fixup3) — ledger gained GOVERN-FIX-round1/2/3 rows whose reviewedTreeSha matches the post-fix trees c925a75/bcaab5e (round3=self by necessity); each fix round is independently re-audited by the next govern pass
+Severity:   high
+Per-lane:   claude=high, codex=high, sonnet=medium
+Decision:   agreement (gate-counted high)
+Surface:    .stack-control/execute/measurement-infrastructure.ledger.jsonl:14-19 (and the ledger as a whole)
+
+The ledger's most-recent rows (T016–T019) pin `reviewedTreeSha`/`commitRange` to `fa3ce69`, and *every* row carries `reviewClean:true`. But the audited commit log shows three commits landed after `fa3ce69`: `31b437c` (mark T001-T019 complete), `c925a75` (resolve AUDIT-01..04), and `bcaab5e` (resolve AUDIT-05..07). The diff under audit is the *complete* new-file content — exactly 19 rows — so the ledger was never extended to record review of those audit-driven fixes. The govern pass found AUDIT-01..07 in this very feature, the fixes shipped, and nothing in the ledger covers them.
+
+This is the round-0 self-red-team failure mode directly: a fix is a fresh surface and must be reviewed in its own right, yet the convergence ledger still reads "fully clean" for code that has since changed twice. Blast radius is high — a consumer (or unattended agent) reading this ledger concludes the feature is review-clean at HEAD, when the most recently modified lines (the AUDIT-01..07 resolutions) have *no* review-of-record here. The ledger should gain rows (or amended rows) whose `reviewedTreeSha` matches the post-fix trees `c925a75`/`bcaab5e`, or it should not be presented as the authoritative convergence record for the shipped feature.
+
+---
+
+### AUDIT-20260629-09 — SVF denormal-guard test asserts a build/hardware-flag-dependent behavior as an invariant
+
+Finding-ID: AUDIT-20260629-09
+Status:     resolved (fa-fixup3) — replaced the FPU-mode-dependent real-SVF hard assertion with a deterministic DenormalFx stub (a stored subnormal CONSTANT, unaffected by FTZ/DAZ) that portably guards stability()'s subnormal DETECTION; real-SVF behavior recorded as backlog TASK-1, not a hard invariant
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    tests/core/measurement-stability-test.cpp:96-113
+
+The test `stability: real SVF FAILS the denormal case` hard-asserts `result.ok == false` and `failedCase == "denormal"`. The premise is that `SvfPrimitive` lets its internal state decay into subnormal floats. But whether subnormals are *produced at all* is not a property of the SVF code — it is a property of the FPU rounding mode at run time. With flush-to-zero / denormals-are-zero enabled (FTZ/DAZ on x86 via `_MM_SET_FLUSH_ZERO_MODE`, the `FZ` bit in AArch64 `FPCR`, or any build with `-ffast-math`), the hardware silently flushes the SVF's decaying state to zero, the denormal stimulus never drives state subnormal, `stability(svf)` returns `{true, nullptr}`, and this test **inverts and fails** — with no actual regression in the SVF.
+
+This matters because the target platforms here are embedded DSP (Daisy/Teensy ARM), and audio/release builds commonly enable FTZ for performance; a CI lane or developer building with FTZ on will see a red test that reads as "the SVF broke" when nothing changed. The blast radius is a false-failure that an unattended agent would chase as a real defect, or "fix" by changing the SVF. A robust guard would either (a) explicitly set the FPU to IEEE/denormals-on at the top of this test so the precondition is enforced rather than assumed, or (b) assert the actual contract under test — that `stability()` *detects* subnormal output when subnormals are present — using the `BrokenFx`-style stub that deterministically emits a subnormal, rather than depending on the real SVF + ambient rounding mode. The accompanying comment (lines 51-67) frames this as catching a "genuine limitation," but the limitation it actually probes is environment-conditional.
+
+### AUDIT-20260629-10 — Correlation latency can report the wrong delay for valid non-impulse inputs
+
+Finding-ID: AUDIT-20260629-10
+Status:     resolved (fa-fixup3) — narrowed the documented contract (CorrelationAnalyzer + latencySamples): the unnormalized correlator is well-defined only for impulse/white stimulus; periodic/tonal inputs are out of contract for this minimal-first metric (normalized/windowed correlator deferred). Harness latency tests drive impulses (in-contract)
+Severity:   high
+Per-lane:   codex=high
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    tests/support/measurement/analyzers.h:175-223
+
+`CorrelationAnalyzer::lagSamples()` searches every lag using unnormalized `|sum in[n] * out[n+k]|`. The comment claims that for `out = ±in` delayed by `D`, the magnitude peaks at `D`, but that only holds for signals whose autocorrelation is dominated at zero under the same overlap window. With ordinary tonal, periodic, high-tail-energy, or otherwise structured inputs, a shorter or periodic lag can produce a larger unnormalized overlap than the true delay.
+
+The blast radius is high because this analyzer backs the reusable FR-009 latency metric; a downstream consumer can pass a sine, sweep segment, or program-like measurement buffer and receive a plausible integer latency that is simply the strongest autocorrelation side-lobe or overlap artifact. The fix should narrow the contract and fixtures to impulse/known-white stimulus, or normalize/window/bound the correlation and add adversarial tests where non-impulse inputs would otherwise select the wrong lag.
