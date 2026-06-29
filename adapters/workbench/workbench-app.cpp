@@ -10,7 +10,7 @@
 #include "audio-source.h"
 #include "dsp/audio-block.h"
 #include "dsp/process-context.h"
-#include "effects/svf/svf-effect.h"
+#include ACFX_EFFECT_HEADER
 #include "level-meter.h"
 #include "midi-binding.h"
 #include "parameter-view.h"
@@ -30,6 +30,11 @@
 
 namespace acfx::workbench {
 
+// The concrete effect this build targets. Injected by the build via compile
+// definitions (ACFX_EFFECT_TYPE / ACFX_EFFECT_HEADER) so the SAME adapter source
+// builds a workbench for any type satisfying acfx::Effect — no per-effect source.
+using AppEffect = ACFX_EFFECT_TYPE;
+
 namespace {
 constexpr int kMaxChannels = 8;
 } // namespace
@@ -39,14 +44,19 @@ class WorkbenchComponent final : public juce::AudioAppComponent,
                                  private juce::ChangeListener {
 public:
     WorkbenchComponent()
-        : node_(std::make_unique<EffectNode<SvfEffect>>()),
+        : node_(std::make_unique<EffectNode<AppEffect>>()),
           paramView_(node_->parameters(),
                      [this](ParamId id, float norm) { node_->setParameter(id, norm); }) {
         params_ = node_->parameters();
 
-        // Default MIDI map: CC 74 -> cutoff (the conventional filter-cutoff CC).
-        midi_.bind(74, ParamId{SvfEffect::kCutoff});
-        midi_.bind(71, ParamId{SvfEffect::kResonance});
+        // Default MIDI map: bind a small fixed set of CCs to the effect's FIRST
+        // parameters by index (effect-generic — no effect-specific enum members).
+        // CC 74 -> param 0, CC 71 -> param 1. For SVF that is cutoff/resonance
+        // (preserves prior behaviour); other effects map to their first two params.
+        if (params_.size() > 0)
+            midi_.bind(74, ParamId{0});
+        if (params_.size() > 1)
+            midi_.bind(71, ParamId{1});
 
         addAndMakeVisible(paramView_);
         abToggle_.setButtonText("Process (A/B)");

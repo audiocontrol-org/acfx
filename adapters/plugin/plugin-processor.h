@@ -5,7 +5,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-#include "effects/svf/svf-effect.h"
+#include ACFX_EFFECT_HEADER
 #include "plugin-parameters.h"
 #include "processor-node/processor-node.h"
 
@@ -15,6 +15,11 @@
 // processor, exported as VST3 / AU / CLAP by the build (T028).
 
 namespace acfx::plugin {
+
+// The concrete effect this build targets. Injected by the build via compile
+// definitions (ACFX_EFFECT_TYPE / ACFX_EFFECT_HEADER) so the SAME adapter source
+// builds a plugin for any type satisfying acfx::Effect — no per-effect source.
+using AppEffect = ACFX_EFFECT_TYPE;
 
 class PluginProcessor final : public juce::AudioProcessor {
 public:
@@ -29,7 +34,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "acfx SVF"; }
+    const juce::String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -49,7 +54,7 @@ public:
 private:
     static constexpr int kMaxChannels = 8;
 
-    EffectNode<SvfEffect> node_;
+    EffectNode<AppEffect> node_;
     PluginParameters parameters_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginProcessor)
