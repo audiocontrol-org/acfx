@@ -44,7 +44,7 @@ Reduces a captured output (and, where needed, the input) to raw results.
 - `capture(effect_or_callable, stimulus_span, out_span)` — runs an `Effect` (via prepare/process
   over blocks) OR a per-sample `float(float)` callable across the stimulus into the output buffer.
   The single effect-agnostic seam (FR-004).
-- A `MeasurementRow` aggregates a run's metric values for the optional CSV report.
+- A `MeasurementRow` is one normalized record (one per measured metric) for the optional CSV report — canonical schema in `contracts/metrics.md` (effect, metric, stimulus, sample rate, block size, value, units, tolerance, pass).
 
 ### Reference bound
 An analytic truth + named tolerance a metric is asserted against (e.g. `kPassbandMinGain`,

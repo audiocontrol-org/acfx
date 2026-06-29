@@ -35,19 +35,32 @@ template <class FX> Stability stability(FX& fx, const ProcessContext& ctx);
 
 ```cpp
 namespace acfx::measure {
-struct MeasurementRow { std::string name; double magnitude, phaseRad, thd, latencySamples,
-                        execTimePerBlock; int blockSize; bool stable; long allocations; };
+// Canonical CSV schema (defined ONCE here — FR-014). Long/normalized form: one row per
+// measured metric, so reports are directly plottable/trendable and never ad-hoc per call site.
+struct MeasurementRow {
+  std::string effect;      // effect identifier under test (e.g. "svf-lowpass")
+  std::string metric;      // metric name (e.g. "magnitude", "thd", "latency", "relative_exec_time")
+  std::string stimulus;    // stimulus used (e.g. "sine@1kHz", "impulse")
+  double      sampleRate;  // Hz
+  int         blockSize;   // samples (relevant to relative_exec_time; 0/NA otherwise)
+  double      value;       // the measured value
+  std::string units;       // e.g. "ratio", "dB", "radians", "samples", "ms", "time/block", "count"
+  double      tolerance;   // the named tolerance asserted against
+  bool        pass;        // pass/fail vs the analytic reference bound
+};
 class CsvReport {                       // opt-in; OFF by default — assertions gate CI regardless
 public:
   void add(const MeasurementRow&);
-  void write(const std::string& path) const;   // well-formed CSV (header + rows)
+  void write(const std::string& path) const;   // header: the field names above; one row per metric
 };
 } // namespace acfx::measure
 ```
 
+- **Canonical header (fixed order)**: `effect,metric,stimulus,sample_rate,block_size,value,units,tolerance,pass`.
 - When report emission is **off** (default), no file is written and CI relies solely on the
-  doctest assertions. When **on**, a well-formed CSV (header + one row per run) is written for
-  trending/plotting (the seam labs later reuse — Principle IX).
+  doctest assertions. When **on**, a well-formed CSV using exactly this schema is written for
+  trending/plotting (the seam labs later reuse — Principle IX). The schema is defined once here
+  so every call site emits the same columns (FR-014).
 
 ## Test obligations
 - Each metric asserted vs an analytic reference within a named tolerance on a known effect.

@@ -122,6 +122,7 @@ emission is off.
 - **Sample-rate dependence**: frequencies/bins are expressed relative to the sample rate so measurements are consistent across rates.
 - **Non-`Effect` callables**: the harness accepts both an `Effect` and a plain per-sample callable (the SVF test already measures a callable).
 - **Block-based vs per-sample**: relative-execution-time is measured per processed block; the block size used must be recorded for the figure to be comparable.
+- **Phase at low signal**: phase is undefined where the analyzed magnitude is near zero (e.g. deep stopband, or silence). Below a named magnitude floor the harness reports phase as not-a-number / skipped, never a spurious value (FR-007).
 - **No false precision**: where an exact number is not analytically known, assert an analytic relationship + named tolerance, never a fabricated exact value.
 
 ## Requirements *(mandatory)*
@@ -132,14 +133,14 @@ emission is off.
 
 - **FR-001**: The harness MUST provide **stimulus generators** that produce known input signals, including at minimum impulse, step, sine, sweep, and noise; the design also captures multi-tone and MLS generators as forward-looking (not required in the first cut).
 - **FR-002**: The harness MUST provide **analyzers** that reduce a captured effect output to raw analysis results, including at minimum an impulse analyzer, a single-bin spectral analyzer (Goertzel), and a correlation/delay analyzer; a general FFT analyzer is explicitly deferred to Phase 8.
-- **FR-003**: The harness MUST keep **stimulus, analyzer, and metric as separated, single-purpose concepts** with clean interfaces, so a new measurement is a composition (stimulus → effect → analyzer → metric), not a bespoke utility. Implementations are minimal-first (no speculative machinery ahead of a concrete need).
+- **FR-003**: The harness MUST keep **stimulus, analyzer, and metric as separated, single-purpose concepts** with clean interfaces, so a new measurement is a composition (stimulus → effect → analyzer → metric), not a bespoke utility. The boundary is explicit: **analyzers produce raw analysis data; metrics interpret that data into engineering quantities** (and assert/report it) — they are distinct types, not merged. Implementations are minimal-first (no speculative machinery ahead of a concrete need).
 - **FR-004**: The harness MUST be **effect-agnostic**: it operates against any type satisfying the `Effect` contract AND any plain per-sample callable, with no effect-specific measurement code.
 
 #### Metric suite (Principle X)
 
 - **FR-005**: The harness MUST measure **frequency response** (magnitude vs frequency).
 - **FR-006**: The harness MUST measure **impulse response**.
-- **FR-007**: The harness MUST measure **phase response** (phase shift vs frequency).
+- **FR-007**: The harness MUST measure **phase response** (phase shift vs frequency), reported in **radians** as the **principal value (wrapped to (-π, π])** for a single-frequency measurement; unwrapping across a frequency sweep is a curve-level concern of the caller. Phase is **undefined at near-zero magnitude** — below a named magnitude floor the harness MUST report it as not-a-number / skipped rather than a spurious value (see Edge Cases). Processing latency is accounted for per the latency Edge Case.
 - **FR-008**: The harness MUST measure **harmonic distortion (THD)** from a pure-tone stimulus using single-bin (Goertzel) harmonic analysis.
 - **FR-009**: The harness MUST measure **latency** (processing/group delay), accounting for the effect's own delay.
 - **FR-010**: The harness MUST report **relative execution time** — a desktop-relative host-time-per-block proxy — explicitly labeled as NOT absolute hardware/MCU cycles, with the block size recorded.
@@ -149,7 +150,7 @@ emission is off.
 #### Output & gating
 
 - **FR-013**: CI gating MUST rely **exclusively on doctest assertions** of metrics against analytic/reference bounds (the `svf-reference` analytic-truths + named-tolerance pattern); the harness MUST NOT fabricate exact reference numbers (no false precision).
-- **FR-014**: The harness MUST support an **opt-in CSV report** of metric values (off by default); when off, gating relies solely on assertions and no report is written.
+- **FR-014**: The harness MUST support an **opt-in CSV report** of metric values (off by default); when off, gating relies solely on assertions and no report is written. When on, the CSV MUST follow the **single canonical schema** defined in `contracts/metrics.md` (effect identifier, metric, stimulus, sample rate, block size, value, units, tolerance, pass/fail) so reports are interoperable rather than ad-hoc per call site.
 
 #### Cross-cutting constraints
 
@@ -158,7 +159,7 @@ emission is off.
 - **FR-017**: The harness MUST build on the existing `tests/support/allocation-sentinel` and the `svf-reference` measurement pattern rather than duplicating them.
 - **FR-018**: Source modules MUST follow the project's strict-typing and small-module budget (no `any`-equivalent/unchecked casts; ~300–500-line files).
 - **FR-019**: Scope is **measurement tooling only** — the feature MUST NOT add any new effect, MUST NOT add runtime/audio-path code, and MUST NOT introduce a general FFT (deferred to Phase 8) or any new third-party dependency.
-- **FR-020**: The harness's analyzer/metric outputs MUST be structured so later laboratory exercises can reuse them for visualization (Bode plots, spectra, impulse/step responses, waterfall) without separate measurement code (Principle IX) — a reusability constraint, not lab code in this feature.
+- **FR-020**: The harness's analyzer/metric outputs MUST be structured so later laboratory exercises can reuse them for visualization (Bode plots, spectra, impulse/step responses, waterfall) without separate measurement code (Principle IX) — a reusability constraint, not lab code in this feature. **Rationale**: this is *why* the harness preserves intermediate analyzer results (raw magnitude/phase/impulse data) rather than exposing only final pass/fail verdicts — the same intermediate data a future lab needs to plot is what a test asserts against.
 
 ### Key Entities *(include if feature involves data)*
 
