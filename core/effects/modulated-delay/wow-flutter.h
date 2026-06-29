@@ -106,8 +106,10 @@ public:
     // displacement: value returned by tickModulation() for this sample period.
     float processSample(float x, int ch, float displacement) noexcept {
         const std::size_t idx = static_cast<std::size_t>(ch);
-        // Always write so the buffer stays current (avoids a click if depths
-        // are raised later mid-stream without an intervening reset).
+        // Always write so the buffer stays current; enabling later does not read
+        // stale/silent data.  A one-time latency-transition step on first enable
+        // (bypass returns x directly; active returns a ~10 ms-old sample) is
+        // inherent to the guarded-bypass design.
         lines_[idx].write(x);
 
         // Guarded bypass: both depths at zero → return input unchanged.
