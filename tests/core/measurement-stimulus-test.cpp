@@ -165,6 +165,13 @@ TEST_CASE("SweepGenerator: degenerate params stay finite (AUDIT-20260629-11)") {
         s.fill(acfx::span<float>(buf));
         CHECK(allFinite(buf));
     }
+    SUBCASE("near-equal endpoints whose ratio rounds to 1.0 (log)") {
+        // f0 != f1 in source, but f1/f0 rounds to exactly 1.0 in double ->
+        // logRatio 0 -> would be NaN without the AUDIT-13 guard.
+        SweepGenerator s{1000.0, 1000.0 + 1e-14, 48000.0, true};
+        s.fill(acfx::span<float>(buf));
+        CHECK(allFinite(buf));
+    }
     SUBCASE("non-positive sample rate -> silence") {
         SweepGenerator s{100.0, 2000.0, 0.0, true};
         s.fill(acfx::span<float>(buf));

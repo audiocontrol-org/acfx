@@ -12,6 +12,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 #include <doctest/doctest.h>
@@ -138,5 +139,34 @@ TEST_CASE("CsvReport: emission OFF — no write() call leaves no file on disk (S
         });
         // write() intentionally NOT called.
     }
+    CHECK(std::filesystem::exists(path) == false);
+}
+
+TEST_CASE("CsvReport: NaN value serializes to a canonical token (FR-014, AUDIT-20260629-15)") {
+    // thd() now returns NaN for an unmeasurable/dead effect; such a value can be
+    // logged into a row. write() must emit a canonical, parser-stable token
+    // ("nan"), not the platform-dependent ostream spelling (e.g. MSVC "-1.#IND").
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "acfx-measure-audit15-nan.csv";
+    std::filesystem::remove(path);
+
+    CsvReport report;
+    report.add({"dead-fx", "thd", "sine@1kHz", 48000.0, 0,
+                std::numeric_limits<double>::quiet_NaN(), "ratio", 0.05, false});
+    report.write(path.string());
+
+    std::ifstream in(path);
+    REQUIRE(in.good());
+    std::string header;
+    std::string row;
+    std::getline(in, header);
+    std::getline(in, row);
+    in.close();
+
+    INFO("row = " << row);
+    CHECK(row.find("nan") != std::string::npos);       // canonical lowercase token
+    CHECK(row.find("-1.#IND") == std::string::npos);    // not the MSVC spelling
+
+    std::filesystem::remove(path);
     CHECK(std::filesystem::exists(path) == false);
 }

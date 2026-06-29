@@ -9,8 +9,14 @@
 //
 // Serialization choices:
 //   - `pass` field:   written as the literal strings "true" or "false".
-//   - double fields:  default ostream formatting (no fixed width or precision
-//                     override). This is sufficient for offline trending / plotting.
+//   - double fields:  default ostream formatting for finite values. NON-FINITE
+//                     values are emitted as CANONICAL, parser-stable tokens —
+//                     "nan", "inf", "-inf" — instead of the platform-dependent
+//                     output of `ostream << nan` ("nan" vs "-1.#IND" vs "NaN")
+//                     (AUDIT-20260629-15). A NaN `value` is reachable in practice:
+//                     thd() returns NaN for an unmeasurable/dead effect, and that
+//                     value may be logged to a row. Downstream CSV/quality-gate
+//                     parsers therefore see one stable spelling on every host.
 //
 // String-field assumption:
 //   The fields effect, metric, stimulus, and units are expected to be simple
@@ -28,7 +34,9 @@
 // Canonical CSV column order (FIXED, must not change):
 //   effect,metric,stimulus,sample_rate,block_size,value,units,tolerance,pass
 
+#include <cmath>
 #include <fstream>
+#include <ostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -66,6 +74,17 @@ struct MeasurementRow {
 // CI correctness gates on doctest assertions regardless of whether write() is
 // called. Only call write() when you want an artifact for trending/plotting.
 // ---------------------------------------------------------------------------
+namespace detail {
+// Canonical, parser-stable serialization for a double CSV field: finite values
+// use default ostream formatting; non-finite values get fixed spellings so the
+// CSV does not vary by platform/STL (AUDIT-20260629-15).
+inline void writeCsvDouble(std::ostream& os, double v) {
+    if (std::isnan(v))      os << "nan";
+    else if (std::isinf(v)) os << (v < 0.0 ? "-inf" : "inf");
+    else                    os << v;
+}
+} // namespace detail
+
 class CsvReport {
 public:
     // Append a row. Rows are emitted in insertion order.
@@ -93,16 +112,15 @@ public:
                "value,units,tolerance,pass\n";
 
         for (const MeasurementRow& r : rows_) {
-            out << r.effect      << ','
-                << r.metric      << ','
-                << r.stimulus    << ','
-                << r.sampleRate  << ','
-                << r.blockSize   << ','
-                << r.value       << ','
-                << r.units       << ','
-                << r.tolerance   << ','
-                << (r.pass ? "true" : "false")
-                << '\n';
+            out << r.effect    << ',';
+            out << r.metric    << ',';
+            out << r.stimulus  << ',';
+            detail::writeCsvDouble(out, r.sampleRate); out << ',';
+            out << r.blockSize << ',';
+            detail::writeCsvDouble(out, r.value);      out << ',';
+            out << r.units     << ',';
+            detail::writeCsvDouble(out, r.tolerance);  out << ',';
+            out << (r.pass ? "true" : "false") << '\n';
         }
     }
 

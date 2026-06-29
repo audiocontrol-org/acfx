@@ -106,6 +106,17 @@ struct SweepGenerator {
         if (logarithmic) {
             const double ratio    = f1Hz / f0Hz;
             const double logRatio = std::log(ratio);
+            // Even with f0Hz != f1Hz in source, `ratio` can round to exactly 1.0
+            // in double when the endpoints are within ~1 ULP (e.g. 1000.0 vs
+            // 1000.0+1e-14), giving logRatio == 0 and scale = finite/0 = Inf, then
+            // phi = Inf*0 = NaN. Guard on the rounded ratio/logRatio and fall back
+            // to the constant-frequency tone (AUDIT-20260629-13).
+            if (logRatio == 0.0) {
+                const double w = twoPi * f0Hz / sampleRate;
+                for (std::size_t n = 0; n < N; ++n)
+                    out[n] = static_cast<float>(std::sin(w * static_cast<double>(n)));
+                return;
+            }
             const double scale    = twoPi * f0Hz * Nm1 / (sampleRate * logRatio);
             for (std::size_t n = 0; n < N; ++n) {
                 const double t   = static_cast<double>(n) / Nm1;

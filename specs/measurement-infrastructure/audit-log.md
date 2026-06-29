@@ -180,3 +180,68 @@ Surface:    tests/support/measurement/metrics.h:303-318 (`detail::isClean`), con
 - **"silence"/"idle" cases:** an effect with a quiet decaying tail whose samples are *below the 1e-6 idle floor* (i.e. inaudible, passing the magnitude bound) still fails purely because those tiny tail values are subnormal — the value is rejected for being too *small*, not too large.
 
 Blast radius: this is test-support code adopters run to validate their effects. A correct effect failing the "stability" battery is worse than a silent pass — it sends the adopter to debug a non-bug, or to bolt on denormal-flushing they didn't need, or to distrust the harness. A reasonable fix: drop the `FP_SUBNORMAL` rejection from the stability/idle/silence criteria entirely (subnormals are bounded and finite, so they don't threaten stability), or split it into a *separate, explicitly-named* "produces-no-sustained-denormals" check that the adopter opts into — and that measures denormals the effect *generates* rather than ones it merely *passes through* from a deliberately-denormal stimulus.
+
+## 2026-06-29 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260629-13 — SweepGenerator log-mode NaN path survives AUDIT-11 fix
+
+Finding-ID: AUDIT-20260629-13
+Status:     resolved (fa-fixup5) — SweepGenerator log branch now guards `logRatio == 0.0` (ratio rounding to 1.0 for ~1-ULP-apart endpoints) and falls back to the constant-frequency tone; + a near-equal-endpoints finite fixture
+Severity:   high
+Per-lane:   sonnet=high
+Decision:   single-model (gate-counted high)
+Surface:    tests/support/measurement/stimulus.h:85-115
+
+The AUDIT-11 fix added a `degenerate` guard:
+```cpp
+const bool degenerate =
+    (f0Hz == f1Hz) ||
+    (logarithmic && (f0Hz <= 0.0 || f1Hz <= 0.0));
+```
+This closes the exact-equality and non-positive-endpoint cases. However, in the logarithmic branch (lines 100–113), the computation is:
+```cpp
+const double ratio    = f1Hz / f0Hz;
+const double logRatio = std::log(ratio);
+const double scale    = twoPi * f0Hz * Nm1 / (sampleRate * logRatio);
+...
+const double phi = scale * (std::pow(ratio, t) - 1.0);
+```
+When `f0Hz` and `f1Hz` are positive and unequal in exact arithmetic, but close enough that `f1Hz / f0Hz` rounds to exactly `1.0` in double precision (which occurs when `|f1/f0 - 1| < ~2.2e-16`), IEEE 754 gives: `logRatio = log(1.0) = 0.0`; `scale = finite / 0.0 = ±Inf`; `pow(1.0, t) - 1.0 = 0.0`; `phi = Inf * 0.0 = NaN`; `sin(NaN) = NaN`. The entire output buffer becomes NaN from a `noexcept` function that emits no error. For example, `f0Hz = 1000.0` and `f1Hz = 1000.0 + 1e-14` reproduce this: the ratio rounds to `1.0` in double, `logRatio = 0.0`, and all output samples are NaN.
+
+The channel-enumeration driver applies: the AUDIT-11 fix added an exact-equality guard, which opens a state channel — the boundary between "degenerate" and "non-degenerate" is a knife-edge at exact float equality of `f0Hz` and `f1Hz`, but the NaN-producing condition is triggered by `ratio` (not the raw values) rounding to `1.0`. A robust fix is to check `ratio` after computing it: `if (ratio == 1.0) { /* fall back to degenerate path */ }` — or to compute `logRatio` and guard on `logRatio == 0.0` before dividing.
+
+---
+
+### AUDIT-20260629-14 — Round-4 fix attests `reviewClean:true` on a commit it has not been independently re-audited against — verification-closure invariant is broken
+
+Finding-ID: AUDIT-20260629-14
+Status:     resolved (fa-fixup5) — GOVERN-FIX ledger rows restructured to provenance-only (id/fixRound/commit/resolved/verifiedBy); they no longer self-attest reviewClean:true. The authoritative clean/blocked verdict is the govern convergence record, not a self-reference in the ledger — breaking the 02->05->08->14 self-attestation chain
+Severity:   high
+Per-lane:   claude=high
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    .stack-control/execute/measurement-infrastructure.ledger.jsonl:23 (the `GOVERN-FIX-round4` entry)
+
+The first three fix-round entries each carry a real commit sha as `reviewedTreeSha` (`c925a75`, `bcaab5e`, `635f443`) and a note ending "independently re-audited by round-N+1 govern". Those three establish a load-bearing invariant for this ledger: **each fix round's clean claim is verified by the subsequent round, not by itself.** Round-4 (line 23) breaks that closure. It records `reviewClean:true` while its own note says verification is still pending — `"commitRange=self (ships in the commit it records), verified by next re-govern"`. There is no round-5 entry, so the chain terminates on a self-attested clean claim that nothing in this ledger has independently confirmed.
+
+Blast radius: a downstream consumer — the ship gate, a convergence reader, or an unattended agent advancing the feature — scans this ledger, sees `reviewClean:true` on all 23 rows including the terminal one, and concludes the feature is fully govern-converged and shippable. The natural first reading is "all clean → ship," and acting on it ships AUDIT-11..12's fix (SweepGenerator degenerate guard + the stability/denormal redesign, per the note) on the strength of a clean flag the fix asserted about itself. This is precisely the round-0 self-red-team / myopic-convergence trap the process drivers warn against: the fix that resolved a finding marks itself clean and preempts the fresh-surface audit its own redesign demands. A correct fix records the round-4 fix as `reviewClean` *unknown/pending* until a subsequent re-govern entry closes it, rather than asserting `true` up front.
+
+### AUDIT-20260629-15 — NaN-valued MeasurementRow never exercised through CsvReport
+
+Finding-ID: AUDIT-20260629-15
+Status:     resolved (fa-fixup5) — CsvReport::write() now serializes non-finite doubles as canonical tokens (nan / inf / -inf) via detail::writeCsvDouble, documented in the header; + a NaN-value round-trip test asserting the "nan" token (and absence of the MSVC "-1.#IND" spelling)
+Severity:   high
+Per-lane:   sonnet=high
+Decision:   single-model (gate-counted high)
+Surface:    tests/core/measurement-report-test.cpp:33–74 (all rows added to CsvReport) / tests/core/measurement-distortion-test.cpp:119–137 (out-of-band NaN test)
+
+`measurement-distortion-test.cpp` explicitly verifies that `thd()` returns `NaN` for a dead/silent effect and for a fundamental whose harmonics all lie above Nyquist. Both cases are contractually correct — they test the right thing. The problem is that `measurement-report-test.cpp` never puts a NaN `value` into a `MeasurementRow` and round-trips it through `CsvReport::write()`. Every `value` in the report test is a well-formed finite double (0.9987, 0.0032, 5.0).
+
+The blast-radius is real: if a user collects THD results for a dead channel and calls `CsvReport::write()`, the serialised output of `std::ofstream << nan_value` is platform-dependent — "nan" on GCC/Clang, "-1.#IND" on MSVC, potentially "NaN" on others. The CSV spec has no canonical NaN encoding. A downstream quality-gate parser consuming the file (the stated purpose of SC-005 is CI-level gating) may reject the row, interpret the value field as the string "nan", or silently coerce it to 0. None of those outcomes are tested. A fix is to add a test case that:
+
+1. Adds a `MeasurementRow` with `value = std::numeric_limits<double>::quiet_NaN()`.
+2. Calls `write()`.
+3. Reads the CSV back and asserts the produced token is the implementation's documented representation (e.g., `"nan"` or `"NaN"`).
+
+This also requires that `CsvReport::write()` specify its NaN serialisation behaviour, which it currently does not.
+
+---
