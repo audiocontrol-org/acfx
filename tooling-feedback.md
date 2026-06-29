@@ -19,3 +19,8 @@
 ## session-end 2026-06-28
 - Plugin builds ad-hoc with COPY_PLUGIN_AFTER_BUILD=FALSE and no signing identity, so DAW testing needs a manual install + Developer-ID re-sign after every rebuild. Consider wiring Developer-ID signing + auto-copy into adapters/plugin/CMakeLists.txt.
 - macOS Sequoia 15.7: auval could not register/validate the AU (didn't find the component) despite a valid Developer-ID-signed bundle + coreaudiod bounce, yet Logic loaded it fine. auval is an unreliable gate here; verify in the actual DAW. Notarization only needed for distributing to other Macs.
+
+## session-end 2026-06-29
+- govern --mode implement exceeded the environment per-command time limit on a docs-heavy whole-feature diff and was killed 3x with no resume; had to close via --override. Govern is not chunk-resumable across kills — large diffs cannot converge under a hard time cap. (upstream: audiocontrol-org/deskwork)
+- speckit agent-context update script requires PyYAML which is absent in this environment; the CLAUDE.md SPECKIT marker had to be hand-edited every plan. (upstream: audiocontrol-org/deskwork)
+- acfx-local: in-place 'cmake --preset <p>' on an existing build dir fails 'Unknown CMake command CPMAddPackage'; only a clean reconfigure (rm -rf build/<p>) works — hurts make ergonomics.
