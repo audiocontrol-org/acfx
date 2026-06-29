@@ -133,7 +133,7 @@ public:
             return true;
         }(),
         "ModulatedDelayEffect parameter table violates a descriptor invariant "
-        "(max>min; logarithmic => min>0; discrete => count>=2)");
+        "(max>min; logarithmic => min>0; discrete => count>=2 and choices.size()==count)");
 
     ModulatedDelayEffect() noexcept {
         for (std::size_t i = 0; i < kNumParams; ++i) {
