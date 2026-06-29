@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **modulated-delay**.
+Active Spec Kit feature: **program-scaffolding**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/modulated-delay/plan.md` (spec: `specs/modulated-delay/spec.md`).
+current plan at `specs/program-scaffolding/plan.md` (spec: `specs/program-scaffolding/spec.md`).
 <!-- SPECKIT END -->
