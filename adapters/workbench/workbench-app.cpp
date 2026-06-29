@@ -304,11 +304,8 @@ private:
         return 0;
     }
 
-    // Apply a source change with the audio callback STOPPED. restartLastAudioDevice()
-    // drives audioDeviceStopped -> releaseResources -> audioDeviceAboutToStart ->
-    // prepareToPlay, and prepareToPlay reconfigures the source from the updated
-    // message-thread state. The swap therefore happens entirely inside that stopped
-    // window (FR-008) — no mid-callback source change. Message-thread only.
+    // Restart with the audio callback STOPPED; prepareToPlay reconfigures the source
+    // from the updated message-thread state (FR-008). Message-thread only.
     void restartAudio() { deviceManager.restartLastAudioDevice(); }
 
     // Open (creating on first use) the Audio Settings window. The selector's own edits
@@ -356,13 +353,9 @@ private:
     }
 
     void saveSettings() {
-        // While a preferred device is temporarily unavailable, preserve the saved
-        // device-state rather than clobbering it with the fallback device, so the
-        // preference is reselected when the device returns (AUDIT-20260627-01). The
-        // tradeoff: a deliberate device change made DURING a fallback session is not
-        // persisted until the preferred device is back — the conservative choice, since
-        // a fallback and a deliberate pick are indistinguishable here. The source
-        // selection is always persisted.
+        // While preferred device is unavailable, preserve the saved state so it is
+        // reselected when the device returns (AUDIT-20260627-01). The source selection
+        // is always persisted.
         if (preferredDeviceUnavailable() && preferredDeviceState_ != nullptr) {
             persistence_.savePreserving(preferredDeviceState_.get(), currentSourceConfig());
             return;

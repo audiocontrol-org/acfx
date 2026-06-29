@@ -36,8 +36,8 @@
 // RT-safety (FR-021, Constitution VI): all buffers preallocated in prepare();
 // process path zero-heap, lock-free, O(1) bounded work.
 //
-// Platform independence (Constitution IV): standard library only; no JUCE,
-// libDaisy, Teensy, or other platform headers.
+// Platform independence (Constitution IV): standard library only; no desktop
+// or MCU platform-specific headers.
 
 namespace acfx {
 

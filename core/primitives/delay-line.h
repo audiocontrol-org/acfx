@@ -18,8 +18,8 @@
 // beyond capacity — readFractional accesses ONLY indices in [0, capacity_).
 // delaySamples is clamped to [0, capacity_-1] before the fetch.
 //
-// Platform independence (Constitution IV): standard library only; no JUCE,
-// libDaisy, Teensy, or other platform headers.
+// Platform independence (Constitution IV): standard library only; no desktop
+// or MCU platform-specific headers.
 
 namespace acfx {
 

@@ -10,6 +10,7 @@ add_executable(acfx_core_tests
   core/delay-line-test.cpp
   core/lfo-test.cpp
   core/modulated-delay-test.cpp
+  core/modulated-delay-us2-test.cpp
   core/modulated-delay-wowflutter-test.cpp
   core/no-allocation-test.cpp
   core/workbench-settings-test.cpp
