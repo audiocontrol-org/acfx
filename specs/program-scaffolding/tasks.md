@@ -40,7 +40,7 @@ Governed artifacts only: `docs/superpowers/specs/` (prospectus), `.specify/memor
 
 **Purpose**: Confirm the working branch and the front-door node for this spec.
 
-- [ ] T001 Confirm work is on the `program-scaffolding` branch and that this spec has a roadmap node (capture-fusion / FR-014); if absent, create `design:feature/program-scaffolding --spec specs/program-scaffolding` (dry-run → `--apply`).
+- [X] T001 Confirm work is on the `program-scaffolding` branch and that this spec has a roadmap node (capture-fusion / FR-014); if absent, create `design:feature/program-scaffolding --spec specs/program-scaffolding` (dry-run → `--apply`).
 
 ---
 
@@ -58,8 +58,8 @@ code; intentionally empty so stories can proceed.)
 **Independent Test**: The prospectus file exists at its canonical path with the content
 intact, and is referenced from the constitution and the roadmap program node.
 
-- [ ] T002 [US1] Create `docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md` containing the project prospectus verbatim (the "Progressive Audio DSP & Analog Modeling Platform" prospectus text).
-- [ ] T003 [US1] Verify (quickstart US1): the file exists and holds the prospectus content; commit + push the prospectus.
+- [X] T002 [US1] Create `docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md` containing the project prospectus verbatim (the "Progressive Audio DSP & Analog Modeling Platform" prospectus text).
+- [X] T003 [US1] Verify (quickstart US1): the file exists and holds the prospectus content; commit + push the prospectus.
 
 (Its inbound references from the constitution and roadmap are added in US2 T006 and US3 T013.)
 
