@@ -141,3 +141,39 @@ TEST_CASE("NoiseGenerator: different seeds produce different sequences") {
     }
     CHECK(anyDifference);
 }
+
+TEST_CASE("SweepGenerator: degenerate params stay finite (AUDIT-20260629-11)") {
+    // A noexcept generator must never emit NaN/Inf — a corrupt stimulus would
+    // silently poison downstream measurements. Degenerate configs fall back to a
+    // well-defined constant-frequency tone (or silence for an invalid rate).
+    constexpr std::size_t N = 128;
+    std::vector<float> buf(N, -99.0f);
+
+    auto allFinite = [&](const std::vector<float>& b) {
+        for (float v : b)
+            if (!std::isfinite(v)) return false;
+        return true;
+    };
+
+    SUBCASE("equal endpoints (log)") {
+        SweepGenerator s{1000.0, 1000.0, 48000.0, true};
+        s.fill(acfx::span<float>(buf));
+        CHECK(allFinite(buf));
+    }
+    SUBCASE("zero start frequency (log)") {
+        SweepGenerator s{0.0, 1000.0, 48000.0, true};
+        s.fill(acfx::span<float>(buf));
+        CHECK(allFinite(buf));
+    }
+    SUBCASE("non-positive sample rate -> silence") {
+        SweepGenerator s{100.0, 2000.0, 0.0, true};
+        s.fill(acfx::span<float>(buf));
+        CHECK(allFinite(buf));
+        for (float v : buf) CHECK(v == 0.0f);
+    }
+    SUBCASE("valid log sweep stays finite") {
+        SweepGenerator s{100.0, 8000.0, 48000.0, true};
+        s.fill(acfx::span<float>(buf));
+        CHECK(allFinite(buf));
+    }
+}

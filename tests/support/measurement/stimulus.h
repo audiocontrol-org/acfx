@@ -73,8 +73,31 @@ struct SweepGenerator {
 
         const double twoPi = 2.0 * std::numbers::pi;
 
+        // Invalid timing: a non-positive sample rate makes the phase undefined.
+        // Emit a well-defined silence rather than NaN/Inf from this noexcept path
+        // (AUDIT-20260629-11 — a corrupt stimulus silently poisons measurements).
+        if (!(sampleRate > 0.0)) {
+            for (std::size_t n = 0; n < N; ++n)
+                out[n] = 0.0f;
+            return;
+        }
+
         if (N == 1) {
             out[0] = static_cast<float>(std::sin(0.0));
+            return;
+        }
+
+        // Degenerate sweep: equal endpoints, or non-positive endpoints for a
+        // logarithmic sweep (where ratio/log(ratio) would be undefined and emit
+        // NaN/Inf). Fall back to a well-defined constant-frequency tone at f0Hz —
+        // the limit of a zero-span sweep — keeping the output finite (AUDIT-11).
+        const bool degenerate =
+            (f0Hz == f1Hz) ||
+            (logarithmic && (f0Hz <= 0.0 || f1Hz <= 0.0));
+        if (degenerate) {
+            const double w = twoPi * f0Hz / sampleRate;
+            for (std::size_t n = 0; n < N; ++n)
+                out[n] = static_cast<float>(std::sin(w * static_cast<double>(n)));
             return;
         }
 

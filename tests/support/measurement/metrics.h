@@ -253,14 +253,22 @@ struct Stability {
 // ---------------------------------------------------------------------------
 // detail::isClean  (internal helper for stability)
 //
-// Returns true when every sample in `buf` satisfies all four criteria:
+// Returns true when every sample in `buf` is numerically stable and bounded:
 //   1. Not NaN  (std::isnan)
 //   2. Not infinite  (std::isinf)
-//   3. Not subnormal  (std::fpclassify != FP_SUBNORMAL)
-//   4. |x| <= bound
+//   3. |x| <= bound
+//
+// Subnormals are deliberately NOT rejected here (AUDIT-20260629-12): a subnormal
+// is finite and bounded, so it does not threaten numerical stability — the FR-012
+// stability contract is about NaN/Inf/runaway growth. Rejecting subnormals in the
+// general check produced false-positive "failures" for perfectly stable, correct
+// effects (a bypass passing a tiny input through, a high-pass decaying DC toward
+// zero, a quiet decaying tail below the idle floor). The denormal-GENERATION
+// concern (a CPU-stall hazard, separate from stability) is handled by the
+// dedicated "denormal" case via detail::hasSubnormal, which probes denormals the
+// effect manufactures internally rather than ones it merely passes through.
 //
 // Returns true vacuously for an empty span.
-// Used by stability() to validate each case's output buffer.
 // ---------------------------------------------------------------------------
 namespace detail {
 
@@ -270,12 +278,20 @@ inline bool isClean(acfx::span<const float> buf, double bound) noexcept {
         const float x = buf[i];
         if (std::isnan(x) || std::isinf(x))
             return false;
-        if (std::fpclassify(x) == FP_SUBNORMAL)
-            return false;
         if (std::abs(x) > fBound)
             return false;
     }
     return true;
+}
+
+// True if any sample is subnormal (FP_SUBNORMAL). Used ONLY by the "denormal"
+// case, applied to the SILENT decay tail after a normal-amplitude excitation, so
+// it detects denormals the effect GENERATES, not subnormal inputs passed through.
+inline bool hasSubnormal(acfx::span<const float> buf) noexcept {
+    for (std::size_t i = 0; i < buf.size(); ++i)
+        if (std::fpclassify(buf[i]) == FP_SUBNORMAL)
+            return true;
+    return false;
 }
 
 } // namespace detail
@@ -294,28 +310,26 @@ inline bool isClean(acfx::span<const float> buf, double bound) noexcept {
 // Cases (in order):
 //
 //   "silence"  — All-zeros input. The entire output must stay below
-//                kIdleNoiseFloor. Detects self-noise, idle oscillation, or
-//                denormal-driven feedback with no excitation.
+//                kIdleNoiseFloor (and be NaN/Inf-free). Detects self-noise or
+//                idle oscillation with no excitation.
 //
-//   "dc"       — Constant 1.0f input. Output must be bounded within
-//                kStabilityBound and contain no NaN, Inf, or subnormals.
-//                Detects instability under sustained DC excitation.
+//   "dc"       — Constant 1.0f input. Output must be NaN/Inf-free and bounded
+//                within kStabilityBound. Detects instability under sustained DC.
 //
-//   "denormal" — Decaying exponential: input[n] = 10^(-40 * n / (kBufLen-1)).
-//                Starts at 1.0f, decays to ~1e-40 (deep in float subnormal
-//                range, below FLT_MIN ~= 1.175e-38) by the last sample.
-//                The decay multiplier is computed in double precision (~0.97774)
-//                so the multiplier itself is a normal float; subnormals arise
-//                naturally in the running product as it approaches zero.
-//                The output must contain no subnormals, NaN, or Inf, and must
-//                remain within kStabilityBound.
+//   "denormal" — Denormal GENERATION probe (not passthrough): a normal-amplitude
+//                step (1.0f) for the first half, then silence (0.0f) for the
+//                second. The output must be NaN/Inf-free and bounded over the
+//                whole buffer, AND the SILENT decay tail (second half) must
+//                contain no subnormals. Because the stimulus is normal (never a
+//                subnormal input), an effect that merely passes a small value
+//                through is not flagged — only subnormals the effect MANUFACTURES
+//                as its state decays toward zero (a CPU-stall hazard) fail
+//                (AUDIT-20260629-12).
 //
 //   "idle"     — Tail of a fresh silence run: only the second half of a new
 //                all-zeros capture is checked (the first half is the settling
-//                window). After kBufLen/2 silent samples the effect is
-//                considered settled; the tail must stay below kIdleNoiseFloor.
-//                Distinct from "silence": targets slowly-building idle drift
-//                rather than any-sample exceedance across the full buffer.
+//                window). The tail must stay below kIdleNoiseFloor (NaN/Inf-free).
+//                Distinct from "silence": targets slowly-building idle drift.
 // ---------------------------------------------------------------------------
 template <class FX>
 Stability stability(FX& fx, const acfx::ProcessContext& ctx) {
@@ -340,23 +354,29 @@ Stability stability(FX& fx, const acfx::ProcessContext& ctx) {
     if (!detail::isClean(outConst, kStabilityBound))
         return {false, "dc"};
 
-    // ---- "denormal" --------------------------------------------------------
-    // Decaying exponential from 1.0 to ~1e-40 over kBufLen samples.
-    // The per-sample multiplier = 10^(-40/(kBufLen-1)), computed in double
-    // (~0.97774) and cast to float — a normal value. Subnormals appear
-    // naturally in the running product near the end of the buffer.
+    // ---- "denormal" (generation probe, not passthrough) --------------------
+    // Normal-amplitude step (1.0f) for the first half, then silence for the
+    // second. The stimulus is always NORMAL (never a subnormal input), so an
+    // effect that merely passes a small value through is NOT flagged; only
+    // denormals the effect MANUFACTURES as its state decays into the silent tail
+    // count as a failure (a CPU-stall hazard; AUDIT-20260629-12).
     {
-        const float kDenormalDecay = static_cast<float>(
-            std::pow(10.0, -40.0 / static_cast<double>(kBufLen - 1)));
-        float val = 1.0f;
-        for (int i = 0; i < kBufLen; ++i) {
-            input[static_cast<std::size_t>(i)] = val;
-            val *= kDenormalDecay;
-        }
+        const std::size_t half = static_cast<std::size_t>(kBufLen / 2);
+        std::fill(input.begin(), input.begin() + static_cast<std::ptrdiff_t>(half), 1.0f);
+        std::fill(input.begin() + static_cast<std::ptrdiff_t>(half), input.end(), 0.0f);
     }
     capture(fx, ctx, acfx::span<const float>{input}, outSpan);
     if (!detail::isClean(outConst, kStabilityBound))
-        return {false, "denormal"};
+        return {false, "denormal"};   // NaN / Inf / runaway growth
+    {
+        // The SILENT decay tail (second half): any subnormal here was generated
+        // by the effect's internal state decay, not passed through from input.
+        const std::size_t tailStart = static_cast<std::size_t>(kBufLen / 2);
+        const acfx::span<const float> tail{output.data() + tailStart,
+                                           static_cast<std::size_t>(kBufLen) - tailStart};
+        if (detail::hasSubnormal(tail))
+            return {false, "denormal"};
+    }
 
     // ---- "idle" ------------------------------------------------------------
     // Run a fresh silence capture; check only the tail (second half) so the

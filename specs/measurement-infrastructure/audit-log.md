@@ -148,3 +148,35 @@ Surface:    tests/support/measurement/analyzers.h:175-223
 `CorrelationAnalyzer::lagSamples()` searches every lag using unnormalized `|sum in[n] * out[n+k]|`. The comment claims that for `out = ±in` delayed by `D`, the magnitude peaks at `D`, but that only holds for signals whose autocorrelation is dominated at zero under the same overlap window. With ordinary tonal, periodic, high-tail-energy, or otherwise structured inputs, a shorter or periodic lag can produce a larger unnormalized overlap than the true delay.
 
 The blast radius is high because this analyzer backs the reusable FR-009 latency metric; a downstream consumer can pass a sine, sweep segment, or program-like measurement buffer and receive a plausible integer latency that is simply the strongest autocorrelation side-lobe or overlap artifact. The fix should narrow the contract and fixtures to impulse/known-white stimulus, or normalize/window/bound the correlation and add adversarial tests where non-impulse inputs would otherwise select the wrong lag.
+
+## 2026-06-29 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260629-11 — Log sweep can emit NaN/Inf without any guard
+
+Finding-ID: AUDIT-20260629-11
+Status:     resolved (fa-fixup4) — SweepGenerator::fill now guards degenerate configs: non-positive sample rate -> silence; equal endpoints or non-positive log endpoints -> well-defined constant-frequency tone at f0Hz. No NaN/Inf from the noexcept path; + a degenerate-params finite fixture
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    tests/support/measurement/stimulus.h:76-86
+
+`SweepGenerator`’s logarithmic branch computes `ratio = f1Hz / f0Hz`, `logRatio = std::log(ratio)`, and then divides by `logRatio` without validating `f0Hz`, `f1Hz`, `sampleRate`, or the `f0Hz == f1Hz` case. Inputs like `f0Hz == 0`, negative frequencies, equal endpoints, or `sampleRate == 0` produce NaN/Inf samples while `fill()` is marked `noexcept`, so the failure becomes silent measurement data corruption rather than an explicit rejected configuration.
+
+The blast radius is high because this is a shared test-support primitive: downstream measurement tests may trust generated stimuli as analytic references, and a bad stimulus can make analyzers fail for the wrong reason or pass against invalid data. A reasonable fix is to define the invariant for valid sweep parameters and either assert/guard invalid inputs or fall back to a well-defined constant-frequency/linear path for degenerate cases.
+
+### AUDIT-20260629-12 — `isClean()` rejects subnormals → false-positive "stability" failures for correct, stable effects
+
+Finding-ID: AUDIT-20260629-12 (claude-01 + claude-02; cross-model)
+Status:     resolved (fa-fixup4) — isClean() no longer rejects subnormals (finite+bounded does not threaten stability); the denormal case redesigned to a GENERATION probe (normal step -> silence, check the silent decay tail via detail::hasSubnormal), so passthrough of small values is not flagged. + an IdentityFx passthrough fixture asserting ok==true (would have failed under the old check)
+Severity:   high
+Per-lane:   claude=high, sonnet=low
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    tests/support/measurement/metrics.h:303-318 (`detail::isClean`), consumed by `stability()` lines 360-430
+
+`detail::isClean()` fails any buffer containing a subnormal sample (`std::fpclassify(x) == FP_SUBNORMAL → return false`), and `stability()` applies it to **all four** cases. This conflates a *performance* concern (sustained denormals stall the CPU) with the *numerical-stability* contract FR-012 actually scopes (NaN/Inf/runaway growth), and it produces spurious failures for effects that are perfectly stable and correct:
+
+- **"denormal" case (lines 389-405):** the stimulus is a decaying exponential reaching ~1e-40, which is *itself subnormal* in its final ~hundreds of samples (FLT_MIN ≈ 1.175e-38). A faithful linear effect — a bypass, a unity gain, any effect that passes small inputs through without flushing — reproduces those subnormal inputs on its output and is reported as a stability *failure*. The test cannot distinguish "effect manufactures denormals internally (bad)" from "effect faithfully passes a denormal input (fine)."
+- **"dc" case (lines 382-387):** a stable high-pass filter fed constant DC decays its output toward 0, passing through the subnormal range on the way down. Stable, correct, bounded — yet flagged.
+- **"silence"/"idle" cases:** an effect with a quiet decaying tail whose samples are *below the 1e-6 idle floor* (i.e. inaudible, passing the magnitude bound) still fails purely because those tiny tail values are subnormal — the value is rejected for being too *small*, not too large.
+
+Blast radius: this is test-support code adopters run to validate their effects. A correct effect failing the "stability" battery is worse than a silent pass — it sends the adopter to debug a non-bug, or to bolt on denormal-flushing they didn't need, or to distrust the harness. A reasonable fix: drop the `FP_SUBNORMAL` rejection from the stability/idle/silence criteria entirely (subnormals are bounded and finite, so they don't threaten stability), or split it into a *separate, explicitly-named* "produces-no-sustained-denormals" check that the adopter opts into — and that measures denormals the effect *generates* rather than ones it merely *passes through* from a deliberately-denormal stimulus.

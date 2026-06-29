@@ -98,6 +98,18 @@ struct DenormalFx {
     }
 };
 
+// IdentityFx — a pure passthrough (no denormal flushing). It is numerically
+// stable and correct, but it faithfully passes small inputs through. Under the
+// old subnormal-rejecting stability check it was FALSELY flagged; it must now
+// pass all cases (AUDIT-20260629-12) — generation, not passthrough, is what the
+// denormal case probes, and a normal-excitation-then-silence stimulus leaves an
+// identity effect with an exact-zero tail.
+struct IdentityFx {
+    void prepare(const acfx::ProcessContext&) noexcept {}
+    void reset() noexcept {}
+    void process(acfx::AudioBlock&) noexcept {}   // in-place: output == input
+};
+
 } // namespace
 
 TEST_CASE("stability: clean effect stub passes all cases (FR-012)") {
@@ -131,6 +143,24 @@ TEST_CASE("stability: broken effect fails verdict (FR-012, discriminating)") {
     INFO("failedCase = " << failedCaseStr);
     CHECK(result.ok == false);
     CHECK(result.failedCase != nullptr);
+}
+
+TEST_CASE("stability: correct passthrough is NOT false-flagged (FR-012, AUDIT-20260629-12)") {
+    // IdentityFx is stable and correct but does not flush denormals. The
+    // stability battery must NOT flag it: the denormal case probes GENERATED
+    // denormals (its normal-excitation-then-silence stimulus leaves an identity
+    // effect with an exact-zero tail), and the other cases no longer reject
+    // merely-small subnormal values. (Under the old subnormal-rejecting check
+    // this effect failed spuriously.)
+    IdentityFx idFx;
+
+    const acfx::ProcessContext ctx{kRefSampleRate, 512, 1};
+    const Stability result = stability(idFx, ctx);
+
+    INFO("IdentityFx failedCase = "
+         << (result.failedCase ? result.failedCase : "(none)"));
+    CHECK(result.ok == true);
+    CHECK(result.failedCase == nullptr);
 }
 
 TEST_CASE("stability: detects subnormal output deterministically (FR-012, AUDIT-20260629-09)") {
