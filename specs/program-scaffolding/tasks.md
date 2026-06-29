@@ -108,9 +108,9 @@ All roadmap mutations: **dry-run first, then `--apply`** (FR-012). Use the ids i
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T015 [P] Idempotence check (FR-012): re-run a representative `roadmap add`/`add-edge` and confirm no duplicate nodes/edges and no `ROADMAP.md` corruption.
-- [ ] T016 [P] Governance-only scope check (FR-013, SC-007): `git diff --name-only origin/main...HEAD` touches only `docs/`, `.specify/`, `ROADMAP.md`, and `specs/program-scaffolding/` — no `core/`/`adapters/`/`tests/`, no `labs/`, no primitive reorg.
-- [ ] T017 [P] Walk quickstart.md end to end; confirm every Success Criterion (SC-001..007) is satisfied by a governed artifact.
+- [X] T015 [P] Idempotence check (FR-012): re-run a representative `roadmap add`/`add-edge` and confirm no duplicate nodes/edges and no `ROADMAP.md` corruption.
+- [X] T016 [P] Governance-only scope check (FR-013, SC-007): `git diff --name-only origin/main...HEAD` touches only `docs/`, `.specify/`, `ROADMAP.md`, and `specs/program-scaffolding/` — no `core/`/`adapters/`/`tests/`, no `labs/`, no primitive reorg.
+- [X] T017 [P] Walk quickstart.md end to end; confirm every Success Criterion (SC-001..007) is satisfied by a governed artifact.
 
 ---
 
