@@ -63,7 +63,7 @@ speculative machinery ahead of a concrete measurement that needs it.
   explicit checks added by review enh. 1: **silence-in → silence-out**, **DC-offset**,
   **denormal generation**, and **idle noise-floor**.
 
-## Decisions (settled)
+## Decisions
 
 1. **Host-side analysis only** — pure offline test/analysis utilities; **no runtime or
    audio-path cost** (Principles VI, VIII). (Review: strongly agree.)
