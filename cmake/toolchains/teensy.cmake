@@ -23,6 +23,34 @@ set(CMAKE_C_COMPILER   "${ARM_CC}")
 set(CMAKE_CXX_COMPILER "${ARM_CXX}")
 set(CMAKE_ASM_COMPILER "${ARM_CC}")
 
+# The found toolchain must ship the C++ standard library. Homebrew's
+# arm-none-eabi-gcc is C-only (no libstdc++ headers); a build would otherwise fail
+# deep in a TU with a confusing "<algorithm>: No such file" error. Probe once and
+# fail loud + actionable here (Constitution V: no silent/host-side fallback). Set
+# ACFX_ARM_CXX_LIBCXX_OK to skip if you know better.
+if(NOT DEFINED ACFX_ARM_CXX_LIBCXX_OK)
+  set(_acfx_arm_probe "${CMAKE_BINARY_DIR}/acfx-arm-cxx-probe.cpp")
+  file(WRITE "${_acfx_arm_probe}" "#include <algorithm>
+int main() { return 0; }
+")
+  execute_process(
+    COMMAND "${ARM_CXX}" -std=c++17 -c "${_acfx_arm_probe}" -o "${_acfx_arm_probe}.o"
+    RESULT_VARIABLE _acfx_arm_probe_rc OUTPUT_QUIET ERROR_QUIET)
+  if(_acfx_arm_probe_rc EQUAL 0)
+    set(ACFX_ARM_CXX_LIBCXX_OK TRUE CACHE INTERNAL "ARM toolchain ships the C++ stdlib")
+  else()
+    set(ACFX_ARM_CXX_LIBCXX_OK FALSE CACHE INTERNAL "ARM toolchain ships the C++ stdlib")
+  endif()
+endif()
+if(NOT ACFX_ARM_CXX_LIBCXX_OK)
+  message(FATAL_ERROR
+    "The ARM toolchain at '${ARM_CXX}' cannot compile C++: the standard library "
+    "headers (e.g. <algorithm>) are missing. Homebrew's arm-none-eabi-gcc is C-only. "
+    "Install a complete ARM embedded toolchain that ships libstdc++ (the Teensy/Arm GNU "
+    "Toolchain), put its bin/ first on PATH, and reconfigure the teensy preset (no "
+    "host-side fallback).")
+endif()
+
 # Verified during implementation (T034); default to C++17, the level the Teensy
 # core is known to support. Raised here if the installed toolchain supports more.
 if(NOT DEFINED ACFX_TEENSY_CXX_STANDARD)

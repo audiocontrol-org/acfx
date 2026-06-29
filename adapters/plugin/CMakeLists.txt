@@ -1,51 +1,38 @@
-# The DAW plugin (T028): one JUCE plugin target exported as VST3 + AU natively and
-# CLAP via clap-juce-extensions. A thin adapter — links acfx_core + acfx_host (the
-# same boundary the workbench uses) and adds only JUCE plugin glue. Built under the
-# `desktop` preset.
+# The DAW plugin: one JUCE plugin target per effect, exported as VST3 + AU
+# natively and CLAP via clap-juce-extensions. A thin adapter — links acfx_core +
+# acfx_host (the same boundary the workbench uses) and adds only JUCE plugin glue.
+# The SAME sources build a plugin for ANY effect that satisfies acfx::Effect — the
+# concrete effect type/header are injected by the acfx_add_effect_plugin factory
+# via compile definitions (ACFX_EFFECT_TYPE / ACFX_EFFECT_HEADER). Each effect
+# needs a UNIQUE PLUGIN_CODE, CLAP_ID, and PRODUCT_NAME (JUCE requires unique
+# codes). Built under the `desktop` preset. Add a new effect's plugin with one
+# more factory call below.
 
-# AU is an Apple-only format; request it only on Apple so the desktop preset stays
-# buildable on Linux/Windows (VST3 + CLAP there, VST3 + AU + CLAP on macOS).
-set(_acfx_plugin_formats VST3)
-if(APPLE)
-  list(APPEND _acfx_plugin_formats AU)
-endif()
+set(_acfx_plugin_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin-processor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin-parameters.cpp
+)
 
-juce_add_plugin(acfx_plugin
-  PRODUCT_NAME "acfx SVF"
-  COMPANY_NAME "acfx"
-  PLUGIN_MANUFACTURER_CODE Acfx
+# SVF — preserve the existing target name, product, code, and CLAP id exactly.
+acfx_add_effect_plugin(
+  NAME acfx_plugin
+  EFFECT_TYPE acfx::SvfEffect
+  EFFECT_HEADER effects/svf/svf-effect.h
+  PRODUCT "acfx SVF"
   PLUGIN_CODE Asvf
-  FORMATS ${_acfx_plugin_formats}
-  IS_SYNTH FALSE
-  NEEDS_MIDI_INPUT FALSE
-  NEEDS_MIDI_OUTPUT FALSE
-  COPY_PLUGIN_AFTER_BUILD FALSE
-)
-
-target_sources(acfx_plugin PRIVATE
-  plugin-processor.cpp
-  plugin-parameters.cpp
-)
-
-target_compile_features(acfx_plugin PRIVATE cxx_std_20)
-
-target_compile_definitions(acfx_plugin PUBLIC
-  JUCE_WEB_BROWSER=0
-  JUCE_USE_CURL=0
-  JUCE_VST3_CAN_REPLACE_VST2=0
-  JUCE_DISPLAY_SPLASH_SCREEN=0
-)
-
-target_link_libraries(acfx_plugin PRIVATE
-  acfx_core
-  acfx_host
-  juce::juce_audio_utils
-  juce::juce_recommended_config_flags
-  juce::juce_recommended_warning_flags
-)
-
-# Add the CLAP format to the same target (research.md decision 7).
-clap_juce_extensions_plugin(TARGET acfx_plugin
-  CLAP_ID "org.acfx.svf"
+  CLAP_ID org.acfx.svf
   CLAP_FEATURES audio-effect filter
+  SOURCES ${_acfx_plugin_sources}
+)
+
+# Modulated delay — new plugin for the second effect (unique code + CLAP id).
+acfx_add_effect_plugin(
+  NAME acfx_plugin_delay
+  EFFECT_TYPE acfx::ModulatedDelayEffect
+  EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
+  PRODUCT "acfx Modulated Delay"
+  PLUGIN_CODE Amdl
+  CLAP_ID org.acfx.modulated-delay
+  CLAP_FEATURES audio-effect delay
+  SOURCES ${_acfx_plugin_sources}
 )

@@ -10,7 +10,7 @@
 #include "audio-source.h"
 #include "dsp/audio-block.h"
 #include "dsp/process-context.h"
-#include "effects/svf/svf-effect.h"
+#include ACFX_EFFECT_HEADER
 #include "level-meter.h"
 #include "midi-binding.h"
 #include "parameter-view.h"
@@ -30,6 +30,11 @@
 
 namespace acfx::workbench {
 
+// The concrete effect this build targets. Injected by the build via compile
+// definitions (ACFX_EFFECT_TYPE / ACFX_EFFECT_HEADER) so the SAME adapter source
+// builds a workbench for any type satisfying acfx::Effect — no per-effect source.
+using AppEffect = ACFX_EFFECT_TYPE;
+
 namespace {
 constexpr int kMaxChannels = 8;
 } // namespace
@@ -39,14 +44,19 @@ class WorkbenchComponent final : public juce::AudioAppComponent,
                                  private juce::ChangeListener {
 public:
     WorkbenchComponent()
-        : node_(std::make_unique<EffectNode<SvfEffect>>()),
+        : node_(std::make_unique<EffectNode<AppEffect>>()),
           paramView_(node_->parameters(),
                      [this](ParamId id, float norm) { node_->setParameter(id, norm); }) {
         params_ = node_->parameters();
 
-        // Default MIDI map: CC 74 -> cutoff (the conventional filter-cutoff CC).
-        midi_.bind(74, ParamId{SvfEffect::kCutoff});
-        midi_.bind(71, ParamId{SvfEffect::kResonance});
+        // Default MIDI map: bind a small fixed set of CCs to the effect's FIRST
+        // parameters by index (effect-generic — no effect-specific enum members).
+        // CC 74 -> param 0, CC 71 -> param 1. For SVF that is cutoff/resonance
+        // (preserves prior behaviour); other effects map to their first two params.
+        if (params_.size() > 0)
+            midi_.bind(74, ParamId{0});
+        if (params_.size() > 1)
+            midi_.bind(71, ParamId{1});
 
         addAndMakeVisible(paramView_);
         abToggle_.setButtonText("Process (A/B)");
@@ -294,11 +304,8 @@ private:
         return 0;
     }
 
-    // Apply a source change with the audio callback STOPPED. restartLastAudioDevice()
-    // drives audioDeviceStopped -> releaseResources -> audioDeviceAboutToStart ->
-    // prepareToPlay, and prepareToPlay reconfigures the source from the updated
-    // message-thread state. The swap therefore happens entirely inside that stopped
-    // window (FR-008) — no mid-callback source change. Message-thread only.
+    // Restart with the audio callback STOPPED; prepareToPlay reconfigures the source
+    // from the updated message-thread state (FR-008). Message-thread only.
     void restartAudio() { deviceManager.restartLastAudioDevice(); }
 
     // Open (creating on first use) the Audio Settings window. The selector's own edits
@@ -346,13 +353,9 @@ private:
     }
 
     void saveSettings() {
-        // While a preferred device is temporarily unavailable, preserve the saved
-        // device-state rather than clobbering it with the fallback device, so the
-        // preference is reselected when the device returns (AUDIT-20260627-01). The
-        // tradeoff: a deliberate device change made DURING a fallback session is not
-        // persisted until the preferred device is back — the conservative choice, since
-        // a fallback and a deliberate pick are indistinguishable here. The source
-        // selection is always persisted.
+        // While preferred device is unavailable, preserve the saved state so it is
+        // reselected when the device returns (AUDIT-20260627-01). The source selection
+        // is always persisted.
         if (preferredDeviceUnavailable() && preferredDeviceState_ != nullptr) {
             persistence_.savePreserving(preferredDeviceState_.get(), currentSourceConfig());
             return;

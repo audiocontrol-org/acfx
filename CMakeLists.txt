@@ -54,15 +54,24 @@ endif()
 # ---------------------------------------------------------------------------
 if(ACFX_BUILD_DESKTOP)
   add_subdirectory(host/processor-node)
+  # The reusable desktop effect-target factory (workbench + plugin per effect).
+  # "We are going to make many effects": each adapter CMakeLists below calls the
+  # factory once per effect, recompiling the shared adapter sources with the
+  # concrete effect type/header injected via compile definitions.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
   add_subdirectory(adapters/workbench)
   add_subdirectory(adapters/plugin)
 endif()
 
 if(ACFX_BUILD_DAISY)
+  # The reusable effect-target factory (firmware per effect). Include-guarded, so
+  # it is safe to include here as well as in the desktop branch above.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
   add_subdirectory(adapters/daisy)
 endif()
 
 if(ACFX_BUILD_TEENSY)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
   add_subdirectory(adapters/teensy)
 endif()
 

@@ -16,8 +16,10 @@ struct ParamId {
 constexpr bool operator==(ParamId a, ParamId b) noexcept { return a.value == b.value; }
 constexpr bool operator!=(ParamId a, ParamId b) noexcept { return a.value != b.value; }
 
-// Display/semantic unit of a parameter (for labels + host metadata).
-enum class ParamUnit : std::uint8_t { none, hz, decibels, percent, ratio };
+// Display/semantic unit of a parameter (for labels + host metadata). `seconds` is
+// appended (kept last to preserve existing enumerator values) for time-valued
+// controls such as a delay time (modulated-delay feature, research Decision 7).
+enum class ParamUnit : std::uint8_t { none, hz, decibels, percent, ratio, seconds };
 
 // How a normalized 0..1 value maps to plain units.
 enum class ParamSkew : std::uint8_t { linear, logarithmic };

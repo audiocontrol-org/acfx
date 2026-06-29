@@ -48,9 +48,22 @@ if grep -rEn '#if(def)?.*(JUCE|DAISY|TEENSY|__arm__|DESKTOP)' core/effects/ ; th
 else
   note "  OK: no per-target #ifdef forks in core/effects/"
 fi
+
+# Assert the factory file links acfx_core so the factory path below is real.
+if ! grep -q 'acfx_core' cmake/acfx-effect-targets.cmake 2>/dev/null; then
+  note "  FAIL: cmake/acfx-effect-targets.cmake does not link acfx_core"
+  fail=1
+fi
+
+# An adapter passes if its CMakeLists references acfx_core directly OR invokes an
+# acfx_add_effect_ factory function (which links acfx_core via the factory).
 for adapter in workbench plugin daisy teensy; do
-  if ! grep -rq 'acfx_core' "adapters/$adapter/CMakeLists.txt" 2>/dev/null; then
-    note "  FAIL: adapters/$adapter does not link acfx_core"
+  cml="adapters/$adapter/CMakeLists.txt"
+  if grep -q 'acfx_core' "$cml" 2>/dev/null || \
+     grep -qE 'acfx_add_effect_' "$cml" 2>/dev/null; then
+    :
+  else
+    note "  FAIL: adapters/$adapter does not link acfx_core (neither directly nor via factory)"
     fail=1
   fi
 done
