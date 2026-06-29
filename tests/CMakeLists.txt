@@ -7,7 +7,11 @@ add_executable(acfx_core_tests
   core/test-main.cpp
   core/parameter-test.cpp
   core/svf-test.cpp
-  core/measurement-test.cpp
+  core/measurement-stimulus-test.cpp
+  core/measurement-response-test.cpp
+  core/measurement-distortion-test.cpp
+  core/measurement-stability-test.cpp
+  core/measurement-report-test.cpp
   core/delay-line-test.cpp
   core/lfo-test.cpp
   core/modulated-delay-test.cpp
