@@ -94,13 +94,13 @@ three-layer-structure item; `stackctl roadmap next` surfaces measurement-infrast
 All roadmap mutations: **dry-run first, then `--apply`** (FR-012). Use the ids in data-model.md
 (`contracts/roadmap-nodes.md`).
 
-- [ ] T008 [US3] Add the program node `multi:feature/progressive-dsp-platform` with a ref to the prospectus (dry-run → apply); record the prospectus pointer (FR-005, supports FR-002).
-- [ ] T009 [US3] Add the nine phase cluster nodes (`multi:feature/phase-*` per data-model.md) and an edge `part-of` the program for each (FR-006).
-- [ ] T010 [US3] Add `depends-on` edges sequencing phase N+1 → phase N for phases 1→9 (FR-008).
-- [ ] T011 [P] [US3] Add each phase's headline-deliverable items (`design:<kind>/<slug>` per data-model.md) `part-of` their phase (FR-007); include the Phase-1 `measurement-infrastructure` deliverable.
-- [ ] T012 [US3] Add the cross-cutting `three-layer-structure` item and sequence it before Phase-2 implementation work (FR-010).
-- [ ] T013 [US3] Map shipped/closed work under Phase 1: edge `impl:feature/modulated-delay`, `design:feature/svf-vertical-slice`, `design:feature/workbench-audio-config` `part-of` the Phase-1 cluster, preserving their existing status (FR-009).
-- [ ] T014 [US3] Verify (quickstart US3): `stackctl roadmap graph` shows program + 9 phases + deliverables + edges + shipped-work-under-Phase-1 + three-layer item; `stackctl roadmap next` returns measurement-infrastructure (FR-011). Commit + push the roadmap change.
+- [X] T008 [US3] Add the program node `multi:feature/progressive-dsp-platform` with a ref to the prospectus (dry-run → apply); record the prospectus pointer (FR-005, supports FR-002).
+- [X] T009 [US3] Add the nine phase cluster nodes (`multi:feature/phase-*` per data-model.md) and an edge `part-of` the program for each (FR-006).
+- [X] T010 [US3] Add `depends-on` edges sequencing phase N+1 → phase N for phases 1→9 (FR-008).
+- [X] T011 [P] [US3] Add each phase's headline-deliverable items (`design:<kind>/<slug>` per data-model.md) `part-of` their phase (FR-007); include the Phase-1 `measurement-infrastructure` deliverable.
+- [X] T012 [US3] Add the cross-cutting `three-layer-structure` item and sequence it before Phase-2 implementation work (FR-010).
+- [X] T013 [US3] Map shipped/closed work under Phase 1: edge `impl:feature/modulated-delay`, `design:feature/svf-vertical-slice`, `design:feature/workbench-audio-config` `part-of` the Phase-1 cluster, preserving their existing status (FR-009).
+- [X] T014 [US3] Verify (quickstart US3): `stackctl roadmap graph` shows program + 9 phases + deliverables + edges + shipped-work-under-Phase-1 + three-layer item; `stackctl roadmap next` returns measurement-infrastructure (FR-011). Commit + push the roadmap change.
 
 **Checkpoint**: The program is a governed, queryable DAG with a clear next-ready item.
 
