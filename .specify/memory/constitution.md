@@ -104,6 +104,32 @@ The platform-independent core is unit-tested on the host with no hardware:
 parameter scaling, DSP correctness (impulse/frequency response against known-good
 values), stability guards (no NaN/denormal), and the no-allocation invariant.
 
+### IX. Progressive Layered Architecture
+
+The DSP core is organized in three layers — `labs/ → primitives/ → effects/` — and
+every concept graduates through four stages: **Theory → Laboratory → Reusable
+Primitive → Production Effect**. Laboratories introduce a concept through a small,
+focused experiment; once understood, the concept becomes a reusable, tested primitive;
+effects are built by composing primitives and document which primitives they use.
+Educational code is not disposable: laboratory implementations evolve into production
+primitives rather than being thrown away. (Program vision:
+`docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`.)
+
+### X. Measurable Engineering
+
+Every effect is validated by objective measurements, not opinion: frequency response,
+impulse response, phase response, harmonic distortion (THD), latency, CPU usage, memory
+allocation, and numerical stability. Measurements are the primary acceptance evidence;
+listening tests complement them but never replace them. This extends Principle VIII from
+correctness invariants to a standard, reported metric suite for effects.
+
+### XI. One Concept at a Time
+
+Each phase — and each laboratory — introduces a single major new idea and applies it to
+a complete effect before moving on. Advanced techniques (numerical solvers, wave digital
+filters, physical models) are built up incrementally, never presented as an unexplained
+black box; every step is explainable and reproducible.
+
 ## Governance
 
 This constitution supersedes ad-hoc practice. Amendments require a written
@@ -116,4 +142,9 @@ Versioning policy (semantic):
 - MINOR: a new principle/section added or materially expanded guidance.
 - PATCH: clarifications, wording, non-semantic refinements.
 
-**Version**: 1.2.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-06-25
+**Program north star**: the multi-phase direction these principles serve is the
+Progressive Audio DSP & Analog Modeling Platform prospectus
+(`docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`), tracked on the
+stack-control roadmap (the `progressive-dsp-platform` program node).
+
+**Version**: 1.3.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-06-29

@@ -74,10 +74,10 @@ intact, and is referenced from the constitution and the roadmap program node.
 **Independent Test**: `.specify/memory/constitution.md` carries Principles IX, X, XI with the
 agreed content, version `1.3.0`, and dependent templates in sync.
 
-- [ ] T004 [US2] Drive the `speckit-constitution` mechanism to add Principle IX (Progressive Layered Architecture), X (Measurable Engineering), XI (One Concept at a Time) in the guidance tier after VIII, with the content from data-model.md, in `.specify/memory/constitution.md`.
-- [ ] T005 [US2] Bump the constitution version `1.2.0 → 1.3.0` (MINOR) and propagate to the dependent templates in `.specify/templates/` per the constitution's governance policy (no dangling references).
-- [ ] T006 [US2] Add a reference to the persisted prospectus in the constitution governance section (north-star pointer, supports FR-002).
-- [ ] T007 [US2] Verify (quickstart US2): Principles IX–XI present with agreed content; version `1.3.0`; templates consistent. Commit + push the constitution change.
+- [X] T004 [US2] Drive the `speckit-constitution` mechanism to add Principle IX (Progressive Layered Architecture), X (Measurable Engineering), XI (One Concept at a Time) in the guidance tier after VIII, with the content from data-model.md, in `.specify/memory/constitution.md`.
+- [X] T005 [US2] Bump the constitution version `1.2.0 → 1.3.0` (MINOR) and propagate to the dependent templates in `.specify/templates/` per the constitution's governance policy (no dangling references).
+- [X] T006 [US2] Add a reference to the persisted prospectus in the constitution governance section (north-star pointer, supports FR-002).
+- [X] T007 [US2] Verify (quickstart US2): Principles IX–XI present with agreed content; version `1.3.0`; templates consistent. Commit + push the constitution change.
 
 **Checkpoint**: Constitution governs the new principles.
 
