@@ -1,1 +1,10 @@
 version: 1
+
+# Model-sized dispatch (stack-control 033): /stack-control:execute resolves each
+# tasks.md [tier:<label>] to a model via this map and dispatches each task's subagent
+# at that model. Labels are operator-chosen; values must be accepted models
+# (haiku | sonnet | opus | fable). Starter mapping from the SDD complexity taxonomy.
+tier_map:
+  fast: haiku       # mechanical: 1-2 files, complete spec, setup/polish
+  balanced: sonnet  # standard implementation + integration/judgment + tests
+  powerful: opus    # architecture / broad-context / subtle correctness
