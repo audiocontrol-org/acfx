@@ -33,5 +33,5 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - spec: specs/workbench-audio-config
 
 ## impl:feature/modulated-delay
-- status: planned
+- status: shipped
 - spec: specs/modulated-delay
