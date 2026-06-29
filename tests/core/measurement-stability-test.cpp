@@ -6,14 +6,19 @@
 // does not flush subnormal float values in its internal state, so it fails
 // the "denormal" stability case when fed a subnormal-decaying input.  This is
 // a genuine limitation of the underlying DaisySP implementation, correctly
-// caught by the harness — it is not a harness bug.  Tests 1 and 2 therefore
-// use minimal in-test stubs (CleanFx / BrokenFx) to demonstrate that the
-// stability verdict correctly discriminates between numerically clean and broken
-// effects.  Tests 3 and 4 use the real SVF for the allocation and exec-time
-// measurements (those do not depend on stability).
+// caught by the harness — it is not a harness bug.  Tests 1 and 2 use minimal
+// in-test stubs (CleanFx / BrokenFx) to demonstrate that the stability verdict
+// correctly discriminates between numerically clean and broken effects.  A
+// further test EXECUTABLY guards the SVF's known denormal failure — asserting
+// `stability(svf).ok == false` with `failedCase == "denormal"` — so the
+// limitation (backlog TASK-1) lives in a real assertion, not just this comment,
+// and a future flush-to-zero fix will force the guard to be updated
+// (AUDIT-20260629-07).  The remaining tests use the real SVF for the allocation
+// and exec-time measurements (those do not depend on stability).
 
 #include <cmath>
 #include <limits>
+#include <string>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -104,6 +109,26 @@ TEST_CASE("stability: broken effect fails verdict (FR-012, discriminating)") {
     INFO("failedCase = " << failedCaseStr);
     CHECK(result.ok == false);
     CHECK(result.failedCase != nullptr);
+}
+
+TEST_CASE("stability: real SVF FAILS the denormal case (FR-012 known limitation, AUDIT-20260629-07)") {
+    // Executable guard for the DaisySP SVF's known denormal limitation (backlog
+    // TASK-1): SvfPrimitive does not flush subnormals, so the harness's
+    // denormal-prone stimulus drives its state subnormal and stability() reports
+    // {false, "denormal"}. Asserting this here turns the limitation from a source
+    // comment into a real, executable guard: if a future flush-to-zero fix lands,
+    // this test will start failing and force the limitation record to be updated.
+    acfx::SvfEffect svf;
+    configureLowpass(svf, kRefCutoffHz);
+
+    const acfx::ProcessContext ctx{kRefSampleRate, 512, 1};
+    const Stability result = stability(svf, ctx);
+
+    INFO("SVF stability failedCase = "
+         << (result.failedCase ? result.failedCase : "(none)"));
+    CHECK(result.ok == false);
+    REQUIRE(result.failedCase != nullptr);
+    CHECK(std::string(result.failedCase) == "denormal");
 }
 
 TEST_CASE("SVF process() allocates zero heap (FR-011)") {

@@ -99,6 +99,49 @@ TEST_CASE("THD is elevated for a hard-clip nonlinearity (FR-008, SC-003)") {
     CHECK(thdClip > thdClean);
 }
 
+TEST_CASE("THD is NaN (not 0.0) for a dead/silent effect (FR-008, AUDIT-20260629-06)") {
+    // A dead effect (no output) has no measurable fundamental. THD must report
+    // NaN, NOT 0.0 — a 0.0 would masquerade as a perfectly linear effect and
+    // silently pass `thd < threshold` for a completely broken effect.
+    std::vector<float> in(kThdN, 0.0f);
+    std::vector<float> out(kThdN, 0.0f);
+
+    SineGenerator sine;
+    sine.freqHz = kThdFundHz; sine.sampleRate = kThdSampleRate; sine.amplitude = 1.0f; sine.phase = 0.0;
+    sine.fill(acfx::span<float>(in));
+
+    // A "muted" effect: output is silence regardless of input.
+    captureCallable([](float) { return 0.0f; },
+                    acfx::span<const float>(in), acfx::span<float>(out));
+
+    const double thdDead = thd(acfx::span<const float>(out), kThdFundHz, kThdSampleRate);
+    INFO("dead-effect THD = " << thdDead);
+    CHECK(std::isnan(thdDead));
+}
+
+TEST_CASE("THD is NaN (not 0.0) when no harmonic falls below Nyquist (FR-008, AUDIT-20260629-06)") {
+    // Fundamental 15 kHz at 44.1 kHz: the 2nd harmonic (30 kHz) already exceeds
+    // Nyquist (22.05 kHz), so no harmonic is measurable. Distortion is
+    // UNMEASURABLE here — distinct from "linear" — so THD must be NaN, not 0.0.
+    constexpr double      fundHz = 15000.0;
+    constexpr double      srHz   = 44100.0;
+    constexpr std::size_t N      = 4096;
+
+    std::vector<float> in(N, 0.0f);
+    std::vector<float> out(N, 0.0f);
+
+    SineGenerator sine;
+    sine.freqHz = fundHz; sine.sampleRate = srHz; sine.amplitude = 1.0f; sine.phase = 0.0;
+    sine.fill(acfx::span<float>(in));
+
+    captureCallable([](float x) { return 0.5f * x; },  // linear, but harmonics out of band
+                    acfx::span<const float>(in), acfx::span<float>(out));
+
+    const double thdOutOfBand = thd(acfx::span<const float>(out), fundHz, srHz);
+    INFO("out-of-band THD = " << thdOutOfBand);
+    CHECK(std::isnan(thdOutOfBand));
+}
+
 TEST_CASE("latencySamples matches a known D-sample processing delay (FR-009, SC-003)") {
     // A stateful ring-buffer delay of exactly D samples: out[n] = in[n - D].
     // The correlation peak of out relative to in falls at lag D.

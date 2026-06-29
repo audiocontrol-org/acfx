@@ -165,10 +165,16 @@ inline double thd(acfx::span<const float> out,
     const double v1 =
         GoertzelAnalyzer{fundamentalHz, sampleRate}.analyze(out).magnitude;
 
+    // No measurable fundamental (silence, a dead/unwired effect, or a wrong-band
+    // capture): THD is UNDEFINED. Return NaN rather than 0.0 — a 0.0 here would
+    // masquerade as a perfectly linear effect and silently pass an assertion like
+    // `thd < 0.05` for a completely dead effect (AUDIT-20260629-06; Constitution V
+    // forbids failure-hiding fallbacks, doubly so inside the measurement harness).
     if (v1 < kEpsilon)
-        return 0.0;
+        return std::numeric_limits<double>::quiet_NaN();
 
     double sumSq = 0.0;
+    int    measured = 0;
     for (int n = 2; n <= harmonics; ++n) {
         const double harmHz = static_cast<double>(n) * fundamentalHz;
         if (harmHz >= nyquist)
@@ -176,7 +182,14 @@ inline double thd(acfx::span<const float> out,
         const double vn =
             GoertzelAnalyzer{harmHz, sampleRate}.analyze(out).magnitude;
         sumSq += vn * vn;
+        ++measured;
     }
+
+    // Not a single harmonic fell below Nyquist (e.g. a 15 kHz fundamental at
+    // 44.1 kHz): distortion is UNMEASURABLE for this fundamental/sample-rate,
+    // which is distinct from "linear". Return NaN, not 0.0 (AUDIT-20260629-06).
+    if (measured == 0)
+        return std::numeric_limits<double>::quiet_NaN();
 
     return std::sqrt(sumSq) / v1;
 }

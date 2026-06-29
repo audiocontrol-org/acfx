@@ -58,3 +58,50 @@ Surface:    tests/support/measurement/analyzers.h:203-218
 `CorrelationAnalyzer::lagSamples()` selects the lag with the largest signed correlation. For a delayed but polarity-inverted output, such as `out[n] = -in[n - D]`, the true delay lag has a negative peak, while lag 0 can have correlation `0` and therefore wins. With an impulse input, `corr(D) == -1` and `corr(0) == 0`, so the analyzer reports `0` instead of `D`.
 
 This matters because `latencySamples()` is the reusable FR-009 latency metric, not just a narrow test helper. A downstream consumer measuring an inverting filter, all-pass stage, or any processor with a 180-degree polarity flip would get a quietly plausible but wrong latency. The fix should choose the strongest correlation magnitude for latency, while preserving sign separately only if a caller needs polarity information.
+
+## 2026-06-29 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260629-05 — `reviewRef` points at a non-existent audit-log anchor
+
+Finding-ID: AUDIT-20260629-05
+Status:     resolved (fa-fixup2) — reviewRef now points at the real convergence record `.stack-control/govern/convergence/impl__design-feature-measurement-infrastructure.json` (a concrete, existing artifact) instead of a non-existent heading anchor
+Severity:   high
+Per-lane:   codex=high
+Decision:   adjudicated (gate-counted high) — blast-radius=high, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    .stack-control/execute/measurement-infrastructure.ledger.jsonl:1-19
+
+All 19 ledger rows now add `reviewRef:"specs/measurement-infrastructure/audit-log.md#end-govern-2026-06-29"` as the retrievable evidence for `reviewClean:true`, but that anchor does not exist in the target file. The audit log’s relevant heading is `## 2026-06-29 — audit-barrage lift (end-govern-after_implement)` at `specs/measurement-infrastructure/audit-log.md:8`, and `rg` finds `end-govern-2026-06-29` only in the ledger rows, not as a heading or explicit anchor in the audit log.
+
+This is a fresh defect in the fix for the prior provenance finding: the ledger no longer merely lacks evidence, it records a broken evidence pointer. Blast radius is high because this field is the mechanism that makes `reviewClean:true` verifiable for downstream governance or an unattended ship/reconciliation consumer; acting on the artifact as written either fails to resolve the review evidence or silently accepts an unverifiable clean claim. A reasonable fix is to point `reviewRef` at an actual stable target, such as a real heading anchor, a concrete audit-run report path, or an explicit named anchor added to the audit log.
+
+### AUDIT-20260629-06 — `thd()` silently returns 0.0 in unmeasurable cases — a dead or out-of-band effect reads as "linear"
+
+Finding-ID: AUDIT-20260629-06
+Status:     resolved (fa-fixup2) — thd() now returns NaN (not 0.0) when the fundamental is unmeasurable (v1<eps) or when no harmonic falls below Nyquist (measured==0); added two fixtures (dead effect, out-of-band fundamental)
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    tests/support/measurement/metrics.h — `thd()`, the `if (v1 < kEpsilon) return 0.0;` guard and the `if (harmHz >= nyquist) break;` loop exit (≈ lines 185–225)
+
+`thd()` returns `0.0` in two distinct "couldn't measure" situations, and `0.0` is indistinguishable from "the effect is perfectly linear":
+
+1. **Fundamental absent** — `if (v1 < kEpsilon) return 0.0;`. If the effect under test outputs silence (broken, not wired, crashed reset, wrong channel), `v1≈0` and `thd` reports `0.0`. A test written as `EXPECT_LT(thd(out, f, sr), 0.05)` then *passes for a completely dead effect*. The most common real failure mode (no output) is scored as the best possible distortion result.
+
+2. **No harmonics in band** — for a high fundamental (e.g. 15 kHz at 44.1 kHz), the 2nd harmonic (30 kHz) already exceeds Nyquist, the loop `break`s on the first iteration, `sumSq` stays `0`, and the function returns `0.0/v1 = 0.0`. A grossly nonlinear effect reads as zero THD purely because its harmonics fell above Nyquist.
+
+This is the worst place for a silent fallback — the project commandments forbid fallbacks that hide failure modes precisely because they are bug-factories, and here the fallback lives in the *measurement* harness, so it makes broken effects look correct. The blast radius: every downstream THD assertion silently loses its ability to catch a dead/no-output effect or an unmeasurable-band configuration. A reasonable fix is to return a sentinel that asserts loudly (NaN, mirroring `phaseRad`'s floor guard) or to expose the harmonic count actually summed so callers can distinguish "linear" from "nothing to measure," rather than collapsing both onto `0.0`.
+
+### AUDIT-20260629-07 — Stability tests substitute synthetic stubs for the real SVF, leaving FR-012 untested against any real effect and the known SVF denormal failure unguarded
+
+Finding-ID: AUDIT-20260629-07
+Status:     resolved (fa-fixup2) — added an executable guard asserting stability(svf).ok==false with failedCase=="denormal" (the known DaisySP SVF limitation, backlog TASK-1), so it is enforced executably rather than living only in a comment
+Severity:   high
+Per-lane:   claude=high
+Decision:   single-model (gate-counted high)
+Surface:    tests/core/measurement-stability-test.cpp:6-15, 39-86, 88-104
+
+The header NOTE (lines 6-15) concedes that the real `SvfEffect` *fails* the harness's denormal stability case, then resolves this by swapping in two in-test stubs — `CleanFx` (a denormal-flushing passthrough, lines 39-58) and `BrokenFx` (writes NaN, lines 60-72) — for the two stability cases (tests 1 and 2, lines 88-104, 106-120). The result is that the entire US3 stability surface (FR-012) is validated **only** against synthetic stubs purpose-built to pass/fail. No real effect is ever exercised by `stability()`. The clean-stub test proves the verdict returns `{true,nullptr}` for a passthrough that flushes subnormals; the broken-stub test proves NaN is caught. Neither proves any *shipped* effect is numerically stable.
+
+The blast radius is that a downstream consumer (or an unattended agent) reading this suite concludes FR-012 stability is validated for the effect library, when in fact the one real effect available (`SvfEffect`) is known to fail the denormal case and that failure is captured **only in a source comment** — there is no `xfail`/expected-failure assertion, no executable guard. If the SVF were later "fixed" (or broken in a new way), nothing in the suite would detect the regression, and the comment's claim ("correctly caught by the harness") is itself never executed. A reasonable fix: add an explicit test that asserts `stability(svf, ctx).ok == false` with `failedCase` naming the denormal case, so the known limitation is enforced executably and a future flush-to-zero fix forces the test to be updated (turning the silent comment into a real guard).
+
+---
