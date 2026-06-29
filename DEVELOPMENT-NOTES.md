@@ -267,3 +267,4 @@ roadmap → design → define → plan → tasks → analyze.
 - Backlog touched: (none)
 - Next session: `/stack-control:execute` (add the deskwork-governance Spec Kit extension first; MVP scope = US1, Phases 1+2+3).
 workflow(graduate): design:feature/workbench-audio-config merging -> validating
+workflow(graduate): design:feature/program-scaffolding merging -> validating
