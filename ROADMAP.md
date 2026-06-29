@@ -40,7 +40,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - spec: specs/modulated-delay
 
 ## design:feature/program-scaffolding
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/program-scaffolding
 
