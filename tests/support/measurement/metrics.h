@@ -9,10 +9,14 @@
 // (magnitude, phaseRad) or driving an effect/callable with an impulse stimulus
 // (captureImpulseResponse*).  The test composer: stimulus -> capture -> metric.
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <vector>
 
+#include "dsp/audio-block.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
 #include "support/measurement/analyzers.h"
@@ -191,6 +195,252 @@ inline double thd(acfx::span<const float> out,
 inline int latencySamples(acfx::span<const float> in,
                           acfx::span<const float> out) {
     return CorrelationAnalyzer::lagSamples(in, out);
+}
+
+// ---------------------------------------------------------------------------
+// kIdleNoiseFloor (FR-012)
+//
+// Maximum acceptable absolute output amplitude when the effect's input is
+// silence (all zeros). Values exceeding this floor indicate self-noise, idle
+// oscillation, or denormal-driven feedback. Chosen at 1e-6 (~-120 dBFS):
+// inaudible for any sane audio context yet comfortably above floating-point
+// round-off for a correctly implemented filter.
+// ---------------------------------------------------------------------------
+inline constexpr double kIdleNoiseFloor = 1.0e-6;
+
+// ---------------------------------------------------------------------------
+// kStabilityBound (FR-012)
+//
+// Maximum acceptable absolute output amplitude for the DC and denormal
+// stability cases. Guards against unbounded growth (runaway feedback) or
+// NaN/Inf propagation. Chosen at 1e3 (~+60 dBFS above unity): permissive
+// enough for any compressor/limiter with realistic make-up gain, yet tight
+// enough to catch catastrophic numerical blow-up.
+// ---------------------------------------------------------------------------
+inline constexpr double kStabilityBound = 1.0e3;
+
+// ---------------------------------------------------------------------------
+// Stability  (FR-012)
+//
+// Result of the stability battery. ok == true means all named cases passed;
+// failedCase is nullptr in that case. When ok == false, failedCase holds a
+// pointer to a static string naming the first failing case.
+// ---------------------------------------------------------------------------
+struct Stability {
+    bool ok;
+    const char* failedCase;  // nullptr when ok == true
+};
+
+// ---------------------------------------------------------------------------
+// detail::isClean  (internal helper for stability)
+//
+// Returns true when every sample in `buf` satisfies all four criteria:
+//   1. Not NaN  (std::isnan)
+//   2. Not infinite  (std::isinf)
+//   3. Not subnormal  (std::fpclassify != FP_SUBNORMAL)
+//   4. |x| <= bound
+//
+// Returns true vacuously for an empty span.
+// Used by stability() to validate each case's output buffer.
+// ---------------------------------------------------------------------------
+namespace detail {
+
+inline bool isClean(acfx::span<const float> buf, double bound) noexcept {
+    const float fBound = static_cast<float>(bound);
+    for (std::size_t i = 0; i < buf.size(); ++i) {
+        const float x = buf[i];
+        if (std::isnan(x) || std::isinf(x))
+            return false;
+        if (std::fpclassify(x) == FP_SUBNORMAL)
+            return false;
+        if (std::abs(x) > fBound)
+            return false;
+    }
+    return true;
+}
+
+} // namespace detail
+
+// ---------------------------------------------------------------------------
+// stability  (FR-012)
+//
+// Drives `fx` through a battery of four named numerical-stability cases and
+// returns the first failure, or {true, nullptr} if all cases pass.
+//
+// Each case calls capture(fx, ctx, in, out), which calls fx.prepare(ctx) and
+// fx.reset() before streaming the input — so every case runs on a freshly
+// prepared, reset effect. Buffer length: 4096 samples (~93 ms at 44100 Hz),
+// enough for most effects to settle from any initialization transient.
+//
+// Cases (in order):
+//
+//   "silence"  — All-zeros input. The entire output must stay below
+//                kIdleNoiseFloor. Detects self-noise, idle oscillation, or
+//                denormal-driven feedback with no excitation.
+//
+//   "dc"       — Constant 1.0f input. Output must be bounded within
+//                kStabilityBound and contain no NaN, Inf, or subnormals.
+//                Detects instability under sustained DC excitation.
+//
+//   "denormal" — Decaying exponential: input[n] = 10^(-40 * n / (kBufLen-1)).
+//                Starts at 1.0f, decays to ~1e-40 (deep in float subnormal
+//                range, below FLT_MIN ~= 1.175e-38) by the last sample.
+//                The decay multiplier is computed in double precision (~0.97774)
+//                so the multiplier itself is a normal float; subnormals arise
+//                naturally in the running product as it approaches zero.
+//                The output must contain no subnormals, NaN, or Inf, and must
+//                remain within kStabilityBound.
+//
+//   "idle"     — Tail of a fresh silence run: only the second half of a new
+//                all-zeros capture is checked (the first half is the settling
+//                window). After kBufLen/2 silent samples the effect is
+//                considered settled; the tail must stay below kIdleNoiseFloor.
+//                Distinct from "silence": targets slowly-building idle drift
+//                rather than any-sample exceedance across the full buffer.
+// ---------------------------------------------------------------------------
+template <class FX>
+Stability stability(FX& fx, const acfx::ProcessContext& ctx) {
+    constexpr int kBufLen = 4096;
+
+    std::vector<float> input(static_cast<std::size_t>(kBufLen));
+    std::vector<float> output(static_cast<std::size_t>(kBufLen));
+    const acfx::span<float>       outSpan {output};
+    const acfx::span<const float> outConst{output};
+
+    // ---- "silence" ---------------------------------------------------------
+    // Feed all-zeros; every output sample must stay below kIdleNoiseFloor.
+    std::fill(input.begin(), input.end(), 0.0f);
+    capture(fx, ctx, acfx::span<const float>{input}, outSpan);
+    if (!detail::isClean(outConst, kIdleNoiseFloor))
+        return {false, "silence"};
+
+    // ---- "dc" --------------------------------------------------------------
+    // Feed constant 1.0f DC; output must be bounded and free of NaN/Inf/subnormal.
+    std::fill(input.begin(), input.end(), 1.0f);
+    capture(fx, ctx, acfx::span<const float>{input}, outSpan);
+    if (!detail::isClean(outConst, kStabilityBound))
+        return {false, "dc"};
+
+    // ---- "denormal" --------------------------------------------------------
+    // Decaying exponential from 1.0 to ~1e-40 over kBufLen samples.
+    // The per-sample multiplier = 10^(-40/(kBufLen-1)), computed in double
+    // (~0.97774) and cast to float — a normal value. Subnormals appear
+    // naturally in the running product near the end of the buffer.
+    {
+        const float kDenormalDecay = static_cast<float>(
+            std::pow(10.0, -40.0 / static_cast<double>(kBufLen - 1)));
+        float val = 1.0f;
+        for (int i = 0; i < kBufLen; ++i) {
+            input[static_cast<std::size_t>(i)] = val;
+            val *= kDenormalDecay;
+        }
+    }
+    capture(fx, ctx, acfx::span<const float>{input}, outSpan);
+    if (!detail::isClean(outConst, kStabilityBound))
+        return {false, "denormal"};
+
+    // ---- "idle" ------------------------------------------------------------
+    // Run a fresh silence capture; check only the tail (second half) so the
+    // effect has kBufLen/2 samples to settle first.
+    std::fill(input.begin(), input.end(), 0.0f);
+    capture(fx, ctx, acfx::span<const float>{input}, outSpan);
+    {
+        constexpr std::size_t tailStart = static_cast<std::size_t>(kBufLen / 2);
+        constexpr std::size_t tailLen   = static_cast<std::size_t>(kBufLen) - tailStart;
+        const acfx::span<const float> tail{output.data() + tailStart, tailLen};
+        if (!detail::isClean(tail, kIdleNoiseFloor))
+            return {false, "idle"};
+    }
+
+    return {true, nullptr};
+}
+
+// ---------------------------------------------------------------------------
+// ExecCost  (FR-010)
+//
+// Result of relativeExecTime().
+//
+// timePerBlock — MEDIAN wall-clock duration of a single fx.process() call,
+//               in SECONDS (double).  This is a desktop-relative host-time
+//               proxy: it reflects scheduling on the measurement host and
+//               MUST NOT be treated as absolute hardware or MCU cycle counts.
+// blockSize    — the block size (in samples) used during measurement.
+// ---------------------------------------------------------------------------
+struct ExecCost {
+    double timePerBlock;  // seconds — desktop-relative proxy (NOT hardware cycles)
+    int    blockSize;
+};
+
+// ---------------------------------------------------------------------------
+// relativeExecTime  (FR-010)
+//
+// Desktop-relative host time-per-block PROXY for effect `fx`.
+// IMPORTANT: this metric is a proxy for relative desktop performance only.
+// It does NOT measure absolute hardware or MCU execution cycles and MUST NOT
+// be interpreted as such.
+//
+// Procedure:
+//   1. Calls fx.prepare(ctx) and fx.reset() once to initialize state.
+//   2. Allocates a single-channel scratch buffer of `blockSize` samples.
+//   3. Fills the scratch buffer with a deterministic mid-frequency sine
+//      stimulus (440 Hz) using SineGenerator so the effect always receives a
+//      representative non-decaying signal.
+//   4. Runs `repeats` timed iterations. For each iteration:
+//        a. Refills the scratch buffer (OUTSIDE the timed region) so the
+//           effect always processes a fresh, consistent signal.
+//        b. Times ONLY the fx.process(blk) call using
+//           std::chrono::steady_clock.
+//   5. Collects per-iteration durations (in seconds), sorts them, and returns
+//      the MEDIAN — more robust to OS scheduling jitter than the mean.
+//
+// Guard: if repeats <= 0, it is treated as 1.
+// Allocation is permitted (offline measurement path).
+//
+// Returns: ExecCost{ timePerBlock = median duration in seconds,
+//                    blockSize    = blockSize }.
+// ---------------------------------------------------------------------------
+template <class FX>
+ExecCost relativeExecTime(FX& fx,
+                          const acfx::ProcessContext& ctx,
+                          int blockSize,
+                          int repeats) {
+    const int safeRepeats = (repeats <= 0) ? 1 : repeats;
+
+    fx.prepare(ctx);
+    fx.reset();
+
+    // Allocate scratch buffer and wrap it in a single-channel AudioBlock.
+    std::vector<float> scratch(static_cast<std::size_t>(blockSize));
+    float* chans[1] = { scratch.data() };
+    acfx::AudioBlock blk(chans, 1, blockSize);
+
+    // Build the sine generator used to refill the buffer before each iteration.
+    // 440 Hz is a representative mid-frequency signal; constant across calls so
+    // every iteration presents an identical input to the effect.
+    const SineGenerator gen{440.0, ctx.sampleRate, 1.0f, 0.0};
+
+    std::vector<double> durations(static_cast<std::size_t>(safeRepeats));
+
+    for (int i = 0; i < safeRepeats; ++i) {
+        // Refill scratch OUTSIDE the timed region so timing captures only
+        // the effect's processing cost, not the stimulus generation cost.
+        gen.fill(acfx::span<float>{scratch});
+
+        const auto t0 = std::chrono::steady_clock::now();
+        fx.process(blk);
+        const auto t1 = std::chrono::steady_clock::now();
+
+        durations[static_cast<std::size_t>(i)] =
+            std::chrono::duration<double>(t1 - t0).count();
+    }
+
+    // Compute median: sort, take middle element.
+    // For even counts the lower-middle element is returned (consistent,
+    // deterministic, and avoids a spurious average of two values).
+    std::sort(durations.begin(), durations.end());
+    const double median = durations[static_cast<std::size_t>(safeRepeats) / 2u];
+
+    return ExecCost{ median, blockSize };
 }
 
 } // namespace acfx::measure
