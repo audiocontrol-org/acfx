@@ -52,7 +52,7 @@ effect-agnostically. **Independent test**: measure SVF + a known callable with t
 
 - [ ] T005 [US1] [tier:balanced] Implement `ImpulseAnalyzer` and `GoertzelAnalyzer` (magnitude + phase at a bin) in `tests/support/measurement/analyzers.h` per `contracts/analyzer.md`.
 - [ ] T006 [US1] [tier:balanced] Implement the response metrics in `tests/support/measurement/metrics.h` — `magnitude`, `phaseRad`, and impulse-response capture — generalizing `svf-reference::measureMagnitude` to any Effect/callable (FR-005/006/007).
-- [ ] T007 [US1] [tier:powerful] Tests in `tests/core/measurement-test.cpp`: Goertzel magnitude/phase match closed-form for a pure sine; SVF magnitude/impulse/phase asserted vs analytic bounds (passband≈unity, stopband attenuated) within named tolerances; the SAME calls measure a second effect/callable with no effect-specific code (FR-004, SC-001/002).
+- [ ] T007 [US1] [tier:powerful] Tests in `tests/core/measurement-test.cpp`: Goertzel magnitude/phase match closed-form for a pure sine; SVF magnitude/impulse/phase asserted vs analytic bounds (passband≈unity, stopband attenuated) within named tolerances; **phase is reported NaN/skipped (never a spurious value) below the named magnitude floor** — asserted on a deep-stopband/silence input where the analyzed magnitude is near zero (FR-007 near-zero clause); the SAME calls measure a second effect/callable with no effect-specific code (FR-004, SC-001/002).
 
 **Checkpoint**: reusable response measurement — MVP.
 
