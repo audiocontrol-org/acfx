@@ -133,4 +133,64 @@ void captureImpulseResponseCallable(Fn&& fn,
                     out);
 }
 
+// ---------------------------------------------------------------------------
+// thd  (FR-008)
+//
+// Total harmonic distortion of `out` for a pure-tone stimulus at
+// `fundamentalHz`, measured via single-bin Goertzel (no FFT).
+//
+// Algorithm:
+//   V1 = Goertzel amplitude of `out` at fundamentalHz.
+//   V2..V(harmonics) = amplitudes at 2*fundamentalHz, 3*fundamentalHz, etc.
+//   Harmonics at or above Nyquist (sampleRate/2) are skipped silently.
+//   THD = sqrt(V2^2 + V3^2 + ...) / V1
+//
+// If V1 is below a small epsilon (effectively zero), returns 0.0 to avoid a
+// divide-by-zero; this is appropriate because with no fundamental there is no
+// meaningful distortion ratio to report.
+//
+// Result is ~0.0 for a linear effect, elevated for a nonlinear one.
+// ---------------------------------------------------------------------------
+inline double thd(acfx::span<const float> out,
+                  double fundamentalHz,
+                  double sampleRate,
+                  int harmonics = 5) {
+    constexpr double kEpsilon = 1.0e-12;
+    const double nyquist = sampleRate / 2.0;
+
+    const double v1 =
+        GoertzelAnalyzer{fundamentalHz, sampleRate}.analyze(out).magnitude;
+
+    if (v1 < kEpsilon)
+        return 0.0;
+
+    double sumSq = 0.0;
+    for (int n = 2; n <= harmonics; ++n) {
+        const double harmHz = static_cast<double>(n) * fundamentalHz;
+        if (harmHz >= nyquist)
+            break;
+        const double vn =
+            GoertzelAnalyzer{harmHz, sampleRate}.analyze(out).magnitude;
+        sumSq += vn * vn;
+    }
+
+    return std::sqrt(sumSq) / v1;
+}
+
+// ---------------------------------------------------------------------------
+// latencySamples  (FR-009)
+//
+// Returns the processing delay of `out` relative to `in`, in samples (>= 0).
+//
+// Implemented via CorrelationAnalyzer::lagSamples(in, out), which returns the
+// lag at peak cross-correlation — the number of samples by which `out` lags
+// `in`. This is the effect's own processing delay (e.g. algorithmic latency or
+// look-ahead), not a measurement artefact. Works correctly for an impulse
+// stimulus and for general broadband signals.
+// ---------------------------------------------------------------------------
+inline int latencySamples(acfx::span<const float> in,
+                          acfx::span<const float> out) {
+    return CorrelationAnalyzer::lagSamples(in, out);
+}
+
 } // namespace acfx::measure

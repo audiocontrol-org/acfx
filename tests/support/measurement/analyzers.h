@@ -170,7 +170,56 @@ struct GoertzelAnalyzer {
 };
 
 // ---------------------------------------------------------------------------
-// CorrelationAnalyzer — added by later task T008; goes here.
+// CorrelationAnalyzer
+//
+// Finds the delay lag (in samples, >= 0) at which `out` best correlates with
+// `in` via standard non-normalized cross-correlation:
+//
+//   corr(k) = sum_n  in[n] * out[n + k]
+//
+//   where n ranges over all indices for which both in[n] and out[n+k] are
+//   valid (i.e. n in [0, min(in.size(), out.size() - k))).
+//
+// The lag k in [0, maxLag] that maximises corr(k) is returned.
+//
+// maxLag bound: out.size() - 1.  At lag k the inner sum covers
+//   min(in.size(), out.size() - k) terms; the final lag k = out.size()-1
+//   contributes exactly one term.  Time complexity: O(N * maxLag) — fine for
+//   the small offline test buffers used here.
+//
+// Correctness: if out = in delayed by D samples (out[n] = in[n - D]), then
+//   corr(k) reduces to the autocorrelation of in at shift k - D, which peaks
+//   at k = D.  So lagSamples returns D, the delay of out relative to in.
+//
+// Degenerate / empty spans: returns 0 (documented sentinel).
 // ---------------------------------------------------------------------------
+struct CorrelationAnalyzer {
+    static int lagSamples(acfx::span<const float> in,
+                          acfx::span<const float> out) noexcept {
+        if (in.empty() || out.empty()) return 0;
+
+        const std::size_t maxLag = out.size() - 1;
+
+        // Compute cross-correlation at lag k.
+        const auto corrAt = [&](std::size_t k) -> double {
+            const std::size_t terms = std::min(in.size(), out.size() - k);
+            double c = 0.0;
+            for (std::size_t n = 0; n < terms; ++n)
+                c += static_cast<double>(in[n]) * static_cast<double>(out[n + k]);
+            return c;
+        };
+
+        int    bestLag  = 0;
+        double bestCorr = corrAt(0);
+        for (std::size_t k = 1; k <= maxLag; ++k) {
+            const double c = corrAt(k);
+            if (c > bestCorr) {
+                bestCorr = c;
+                bestLag  = static_cast<int>(k);
+            }
+        }
+        return bestLag;
+    }
+};
 
 } // namespace acfx::measure
