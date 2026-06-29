@@ -180,16 +180,23 @@ struct GoertzelAnalyzer {
 //   where n ranges over all indices for which both in[n] and out[n+k] are
 //   valid (i.e. n in [0, min(in.size(), out.size() - k))).
 //
-// The lag k in [0, maxLag] that maximises corr(k) is returned.
+// The lag k in [0, maxLag] that maximises the correlation MAGNITUDE |corr(k)|
+// is returned. Magnitude (not signed value) is used so a polarity-inverted
+// delay — out[n] = -in[n - D] — is still detected: its true-delay peak is a
+// strong NEGATIVE correlation, which a signed-maximum would miss (lag 0 with
+// corr 0 would spuriously win). Callers needing the polarity can inspect the
+// sign separately; for the FR-009 latency metric only the delay magnitude
+// matters.
 //
 // maxLag bound: out.size() - 1.  At lag k the inner sum covers
 //   min(in.size(), out.size() - k) terms; the final lag k = out.size()-1
 //   contributes exactly one term.  Time complexity: O(N * maxLag) — fine for
 //   the small offline test buffers used here.
 //
-// Correctness: if out = in delayed by D samples (out[n] = in[n - D]), then
-//   corr(k) reduces to the autocorrelation of in at shift k - D, which peaks
-//   at k = D.  So lagSamples returns D, the delay of out relative to in.
+// Correctness: if out = ±in delayed by D samples (out[n] = ±in[n - D]), then
+//   |corr(k)| reduces to the magnitude of in's autocorrelation at shift k - D,
+//   which peaks at k = D.  So lagSamples returns D, the delay of out relative
+//   to in, regardless of polarity.
 //
 // Degenerate / empty spans: returns 0 (documented sentinel).
 // ---------------------------------------------------------------------------
@@ -209,13 +216,13 @@ struct CorrelationAnalyzer {
             return c;
         };
 
-        int    bestLag  = 0;
-        double bestCorr = corrAt(0);
+        int    bestLag = 0;
+        double bestMag = std::abs(corrAt(0));
         for (std::size_t k = 1; k <= maxLag; ++k) {
-            const double c = corrAt(k);
-            if (c > bestCorr) {
-                bestCorr = c;
-                bestLag  = static_cast<int>(k);
+            const double mag = std::abs(corrAt(k));
+            if (mag > bestMag) {
+                bestMag = mag;
+                bestLag = static_cast<int>(k);
             }
         }
         return bestLag;

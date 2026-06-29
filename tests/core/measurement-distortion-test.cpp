@@ -131,3 +131,36 @@ TEST_CASE("latencySamples matches a known D-sample processing delay (FR-009, SC-
     INFO("expected lag = " << D << ", measured lag = " << measuredLag);
     CHECK(measuredLag == D);
 }
+
+TEST_CASE("latencySamples detects a POLARITY-INVERTED delay (FR-009, AUDIT-20260629-04)") {
+    // out[n] = -in[n - D]: a delayed AND polarity-inverted processor (inverting
+    // all-pass / 180-degree flip). The true-delay correlation peak is strongly
+    // NEGATIVE; a signed-maximum correlator would wrongly report lag 0. The
+    // magnitude-based selection must still recover D.
+    constexpr int         D = 5;
+    constexpr std::size_t N = 64;
+
+    std::vector<float> in(N, 0.0f);
+    std::vector<float> out(N, 0.0f);
+
+    ImpulseGenerator impulse;
+    impulse.amplitude = 1.0f;
+    impulse.fill(acfx::span<float>(in));
+
+    // Stateful D-sample delay that ALSO inverts polarity: out[n] = -in[n - D].
+    std::vector<float> zbuf(static_cast<std::size_t>(D), 0.0f);
+    int widx = 0;
+    auto invertingDelay = [&](float x) -> float {
+        float y     = zbuf[static_cast<std::size_t>(widx)];
+        zbuf[static_cast<std::size_t>(widx)] = x;
+        widx = (widx + 1) % D;
+        return -y;
+    };
+
+    captureCallable(invertingDelay, acfx::span<const float>(in), acfx::span<float>(out));
+
+    const int measuredLag = latencySamples(acfx::span<const float>(in),
+                                           acfx::span<const float>(out));
+    INFO("expected lag = " << D << " (inverted), measured lag = " << measuredLag);
+    CHECK(measuredLag == D);
+}

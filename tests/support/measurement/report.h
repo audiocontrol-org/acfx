@@ -29,6 +29,7 @@
 //   effect,metric,stimulus,sample_rate,block_size,value,units,tolerance,pass
 
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 

@@ -77,15 +77,23 @@ TEST_CASE("NoiseGenerator: same seed produces identical buffers") {
     constexpr std::size_t N         = 64;
     constexpr float       amplitude = 0.8f;
 
-    NoiseGenerator gen;
-    gen.amplitude = amplitude;
-    gen.seed      = 0xABCD1234u;
+    // Two SEPARATE generators with the same seed (mirrors the sibling
+    // "different seeds" test). This asserts exactly the named contract —
+    // determinism from the seed — rather than relying on a single instance's
+    // per-call re-seed behavior (AUDIT-20260629-03).
+    NoiseGenerator gen1;
+    gen1.amplitude = amplitude;
+    gen1.seed      = 0xABCD1234u;
+
+    NoiseGenerator gen2;
+    gen2.amplitude = amplitude;
+    gen2.seed      = 0xABCD1234u;
 
     std::vector<float> buf1(N, 0.0f);
     std::vector<float> buf2(N, 0.0f);
 
-    gen.fill(acfx::span<float>(buf1));
-    gen.fill(acfx::span<float>(buf2));
+    gen1.fill(acfx::span<float>(buf1));
+    gen2.fill(acfx::span<float>(buf2));
 
     for (std::size_t i = 0; i < N; ++i) {
         INFO("sample index = " << i);
