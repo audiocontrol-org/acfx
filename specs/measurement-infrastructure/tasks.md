@@ -33,15 +33,15 @@ code, no adapters, no new dependency.
 
 ## Phase 1: Setup
 
-- [ ] T001 [tier:fast] Create `tests/support/measurement/` and register `tests/core/measurement-test.cpp` in the `acfx_core_tests` CMake target (mirror how `tests/core/svf-test.cpp` is registered in `tests/CMakeLists.txt`).
+- [x] T001 [tier:fast] Create `tests/support/measurement/` and register `tests/core/measurement-test.cpp` in the `acfx_core_tests` CMake target (mirror how `tests/core/svf-test.cpp` is registered in `tests/CMakeLists.txt`).
 
 ---
 
 ## Phase 2: Foundational (blocking prerequisites for all stories)
 
-- [ ] T002 [P] [tier:balanced] Implement the stimulus generators in `tests/support/measurement/stimulus.h` per `contracts/stimulus.md` — Impulse/Step/Sine/Sweep/Noise (deterministic, seedable noise; `fill(span<float>)`); platform-independent, no audio-path code.
-- [ ] T003 [P] [tier:balanced] Implement the effect-agnostic capture seam in `tests/support/measurement/analyzers.h` per `contracts/analyzer.md` — `capture(Effect, ctx, in, out)` and `captureCallable(fn, in, out)`.
-- [ ] T004 [P] [tier:balanced] Stimulus-generator tests in `tests/core/measurement-test.cpp` — sine/step/impulse match closed-form; noise reproducible for a fixed seed and bounded (FR-001).
+- [x] T002 [P] [tier:balanced] Implement the stimulus generators in `tests/support/measurement/stimulus.h` per `contracts/stimulus.md` — Impulse/Step/Sine/Sweep/Noise (deterministic, seedable noise; `fill(span<float>)`); platform-independent, no audio-path code.
+- [x] T003 [P] [tier:balanced] Implement the effect-agnostic capture seam in `tests/support/measurement/analyzers.h` per `contracts/analyzer.md` — `capture(Effect, ctx, in, out)` and `captureCallable(fn, in, out)`.
+- [x] T004 [P] [tier:balanced] Stimulus-generator tests in `tests/core/measurement-test.cpp` — sine/step/impulse match closed-form; noise reproducible for a fixed seed and bounded (FR-001).
 
 ---
 
@@ -50,9 +50,9 @@ code, no adapters, no new dependency.
 **Goal**: magnitude/frequency, impulse, and phase response measured against analytic bounds,
 effect-agnostically. **Independent test**: measure SVF + a known callable with the same calls.
 
-- [ ] T005 [US1] [tier:balanced] Implement `ImpulseAnalyzer` and `GoertzelAnalyzer` (magnitude + phase at a bin) in `tests/support/measurement/analyzers.h` per `contracts/analyzer.md`.
-- [ ] T006 [US1] [tier:balanced] Implement the response metrics in `tests/support/measurement/metrics.h` — `magnitude`, `phaseRad`, and impulse-response capture — generalizing `svf-reference::measureMagnitude` to any Effect/callable (FR-005/006/007).
-- [ ] T007 [US1] [tier:powerful] Tests in `tests/core/measurement-test.cpp`: Goertzel magnitude/phase match closed-form for a pure sine; SVF magnitude/impulse/phase asserted vs analytic bounds (passband≈unity, stopband attenuated) within named tolerances; **phase is reported NaN/skipped (never a spurious value) below the named magnitude floor** — asserted on a deep-stopband/silence input where the analyzed magnitude is near zero (FR-007 near-zero clause); the SAME calls measure a second effect/callable with no effect-specific code (FR-004, SC-001/002).
+- [x] T005 [US1] [tier:balanced] Implement `ImpulseAnalyzer` and `GoertzelAnalyzer` (magnitude + phase at a bin) in `tests/support/measurement/analyzers.h` per `contracts/analyzer.md`.
+- [x] T006 [US1] [tier:balanced] Implement the response metrics in `tests/support/measurement/metrics.h` — `magnitude`, `phaseRad`, and impulse-response capture — generalizing `svf-reference::measureMagnitude` to any Effect/callable (FR-005/006/007).
+- [x] T007 [US1] [tier:powerful] Tests in `tests/core/measurement-test.cpp`: Goertzel magnitude/phase match closed-form for a pure sine; SVF magnitude/impulse/phase asserted vs analytic bounds (passband≈unity, stopband attenuated) within named tolerances; **phase is reported NaN/skipped (never a spurious value) below the named magnitude floor** — asserted on a deep-stopband/silence input where the analyzed magnitude is near zero (FR-007 near-zero clause); the SAME calls measure a second effect/callable with no effect-specific code (FR-004, SC-001/002).
 
 **Checkpoint**: reusable response measurement — MVP.
 
@@ -62,9 +62,9 @@ effect-agnostically. **Independent test**: measure SVF + a known callable with t
 
 **Goal**: THD (Goertzel harmonics) + latency.
 
-- [ ] T008 [US2] [tier:balanced] Implement `CorrelationAnalyzer` (delay lag) in `tests/support/measurement/analyzers.h` (FR-002).
-- [ ] T009 [US2] [tier:balanced] Implement `thd(...)` (Goertzel over fundamental + harmonics) and `latencySamples(...)` (impulse-peak / correlation, accounting for the effect's own delay) in `tests/support/measurement/metrics.h` (FR-008/009).
-- [ ] T010 [US2] [tier:balanced] Tests: THD ≈0 for a clean linear effect, elevated for a known nonlinearity (e.g. a hard-clip callable); latency matches a known processing delay within tolerance (SC-003).
+- [x] T008 [US2] [tier:balanced] Implement `CorrelationAnalyzer` (delay lag) in `tests/support/measurement/analyzers.h` (FR-002).
+- [x] T009 [US2] [tier:balanced] Implement `thd(...)` (Goertzel over fundamental + harmonics) and `latencySamples(...)` (impulse-peak / correlation, accounting for the effect's own delay) in `tests/support/measurement/metrics.h` (FR-008/009).
+- [x] T010 [US2] [tier:balanced] Tests: THD ≈0 for a clean linear effect, elevated for a known nonlinearity (e.g. a hard-clip callable); latency matches a known processing delay within tolerance (SC-003).
 
 **Checkpoint**: distortion + delay characterization.
 
@@ -74,9 +74,9 @@ effect-agnostically. **Independent test**: measure SVF + a known callable with t
 
 **Goal**: numerical stability (incl. silence/DC/denormal/idle), allocation, relative exec time.
 
-- [ ] T011 [US3] [tier:balanced] Implement `stability(...)` in `tests/support/measurement/metrics.h` — NaN/Inf/denormal + bounds scan PLUS explicit silence-in→silence-out, DC-offset, denormal-prone, idle-noise-floor cases, returning a verdict + failed-case (FR-012).
-- [ ] T012 [US3] [tier:balanced] Implement `relativeExecTime(...)` (desktop-relative host time-per-block, median of repeats, records block size; labeled a proxy) in `tests/support/measurement/metrics.h` (FR-010).
-- [ ] T013 [US3] [tier:balanced] Tests: stability verdicts correct for each special case (no NaN/Inf/denormal); allocation == 0 via `tests/support/allocation-sentinel` around `process()` (FR-011); a relative-exec-time figure is produced and labeled desktop-relative (SC-004).
+- [x] T011 [US3] [tier:balanced] Implement `stability(...)` in `tests/support/measurement/metrics.h` — NaN/Inf/denormal + bounds scan PLUS explicit silence-in→silence-out, DC-offset, denormal-prone, idle-noise-floor cases, returning a verdict + failed-case (FR-012).
+- [x] T012 [US3] [tier:balanced] Implement `relativeExecTime(...)` (desktop-relative host time-per-block, median of repeats, records block size; labeled a proxy) in `tests/support/measurement/metrics.h` (FR-010).
+- [x] T013 [US3] [tier:balanced] Tests: stability verdicts correct for each special case (no NaN/Inf/denormal); allocation == 0 via `tests/support/allocation-sentinel` around `process()` (FR-011); a relative-exec-time figure is produced and labeled desktop-relative (SC-004).
 
 **Checkpoint**: RT-safety + stability + cost metrics.
 
@@ -86,8 +86,8 @@ effect-agnostically. **Independent test**: measure SVF + a known callable with t
 
 **Goal**: opt-in CSV report; CI still gates on assertions only.
 
-- [ ] T014 [US4] [tier:balanced] Implement `MeasurementRow` + `CsvReport` (add/write, well-formed header+rows) in `tests/support/measurement/report.h` per `contracts/metrics.md` (FR-014).
-- [ ] T015 [US4] [tier:balanced] Tests: with emission on, a well-formed CSV is written; with it off (default), no file is written and assertions alone gate (SC-005).
+- [x] T014 [US4] [tier:balanced] Implement `MeasurementRow` + `CsvReport` (add/write, well-formed header+rows) in `tests/support/measurement/report.h` per `contracts/metrics.md` (FR-014).
+- [x] T015 [US4] [tier:balanced] Tests: with emission on, a well-formed CSV is written; with it off (default), no file is written and assertions alone gate (SC-005).
 
 **Checkpoint**: optional engineering artifact (the lab-reuse seam).
 
@@ -95,10 +95,10 @@ effect-agnostically. **Independent test**: measure SVF + a known callable with t
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T016 [P] [tier:fast] Run `make test` — full host suite (existing + new measurement tests) green.
-- [ ] T017 [P] [tier:fast] Portability/scope check: `./scripts/check-portability.sh` passes; `git diff --name-only origin/main...HEAD` touches only `tests/support/measurement/`, `tests/core/`, `tests/CMakeLists.txt`, `specs/` (+ CLAUDE.md marker) — no `core/`/`adapters/` audio code, no new dependency, no general FFT (FR-015/016/019, SC-006).
-- [ ] T018 [P] [tier:fast] File-size + strict-typing pass: each new unit (`stimulus.h`, `analyzers.h`, `metrics.h`, `report.h`) ≤ ~500 lines, no unchecked casts (FR-018).
-- [ ] T019 [P] [tier:fast] Walk `quickstart.md`; confirm every Success Criterion (SC-001..007) is satisfied; confirm all eight Principle-X metrics are represented (SC-007).
+- [x] T016 [P] [tier:fast] Run `make test` — full host suite (existing + new measurement tests) green.
+- [x] T017 [P] [tier:fast] Portability/scope check: `./scripts/check-portability.sh` passes; `git diff --name-only origin/main...HEAD` touches only `tests/support/measurement/`, `tests/core/`, `tests/CMakeLists.txt`, `specs/` (+ CLAUDE.md marker) — no `core/`/`adapters/` audio code, no new dependency, no general FFT (FR-015/016/019, SC-006).
+- [x] T018 [P] [tier:fast] File-size + strict-typing pass: each new unit (`stimulus.h`, `analyzers.h`, `metrics.h`, `report.h`) ≤ ~500 lines, no unchecked casts (FR-018).
+- [x] T019 [P] [tier:fast] Walk `quickstart.md`; confirm every Success Criterion (SC-001..007) is satisfied; confirm all eight Principle-X metrics are represented (SC-007).
 
 ---
 
