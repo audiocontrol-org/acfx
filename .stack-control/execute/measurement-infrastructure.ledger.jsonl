@@ -1,0 +1,19 @@
+{"id":"T001","tierLabel":"fast","model":"haiku","commitRange":"8ba8583","reviewClean":true}
+{"id":"T002","tierLabel":"balanced","model":"sonnet","commitRange":"7581af2","reviewClean":true}
+{"id":"T003","tierLabel":"balanced","model":"sonnet","commitRange":"7581af2","reviewClean":true}
+{"id":"T004","tierLabel":"balanced","model":"sonnet","commitRange":"7581af2","reviewClean":true}
+{"id":"T005","tierLabel":"balanced","model":"sonnet","commitRange":"3e97865","reviewClean":true}
+{"id":"T006","tierLabel":"balanced","model":"sonnet","commitRange":"3e97865","reviewClean":true}
+{"id":"T007","tierLabel":"powerful","model":"opus","commitRange":"3e97865","reviewClean":true}
+{"id":"T008","tierLabel":"balanced","model":"sonnet","commitRange":"bcea94d","reviewClean":true}
+{"id":"T009","tierLabel":"balanced","model":"sonnet","commitRange":"bcea94d","reviewClean":true}
+{"id":"T010","tierLabel":"balanced","model":"sonnet","commitRange":"bcea94d","reviewClean":true}
+{"id":"T011","tierLabel":"balanced","model":"sonnet","commitRange":"8241ad4","reviewClean":true}
+{"id":"T012","tierLabel":"balanced","model":"sonnet","commitRange":"8241ad4","reviewClean":true}
+{"id":"T013","tierLabel":"balanced","model":"sonnet","commitRange":"8241ad4","reviewClean":true}
+{"id":"T014","tierLabel":"balanced","model":"sonnet","commitRange":"94ab067","reviewClean":true}
+{"id":"T015","tierLabel":"balanced","model":"sonnet","commitRange":"94ab067","reviewClean":true}
+{"id":"T016","tierLabel":"fast","model":"haiku","commitRange":"fa3ce69","reviewClean":true,"note":"verification gate run by controller"}
+{"id":"T017","tierLabel":"fast","model":"haiku","commitRange":"fa3ce69","reviewClean":true,"note":"verification gate run by controller"}
+{"id":"T018","tierLabel":"fast","model":"haiku","commitRange":"fa3ce69","reviewClean":true,"note":"verification gate run by controller"}
+{"id":"T019","tierLabel":"fast","model":"haiku","commitRange":"fa3ce69","reviewClean":true,"note":"verification gate run by controller"}
