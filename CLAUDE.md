@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **program-scaffolding**.
+Active Spec Kit feature: **measurement-infrastructure**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/program-scaffolding/plan.md` (spec: `specs/program-scaffolding/spec.md`).
+current plan at `specs/measurement-infrastructure/plan.md` (spec: `specs/measurement-infrastructure/spec.md`).
 <!-- SPECKIT END -->
