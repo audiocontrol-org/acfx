@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 
 #include "dsp/audio-block.h"
 #include "dsp/param-id.h"
@@ -37,6 +38,9 @@ public:
     // Stable parameter ids — the dense index into kParams.
     enum Param : std::uint8_t { kCutoff = 0, kResonance = 1, kMode = 2 };
 
+    // Option labels for the mode discrete parameter (single source of truth).
+    static constexpr std::array<std::string_view, 3> kModeLabels = {{"lowpass", "highpass", "bandpass"}};
+
     // The single source of parameter truth (SC-006). cutoff: log Hz; resonance:
     // linear 0..1; mode: discrete {lowpass, highpass, bandpass}.
     static constexpr std::array<ParameterDescriptor, 3> kParams = {{
@@ -45,7 +49,7 @@ public:
         {ParamId{kResonance}, "resonance", ParamUnit::none, 0.0f, 1.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 2.0f, 0.0f,
-         ParamSkew::linear, ParamKind::discrete, 3},
+         ParamSkew::linear, ParamKind::discrete, 3, kModeLabels},
     }};
 
     SvfEffect() noexcept {

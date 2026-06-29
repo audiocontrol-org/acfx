@@ -21,18 +21,6 @@ juce::String unitSuffix(ParamUnit unit) {
     }
 }
 
-juce::String modeName(int index) {
-    switch (index) {
-    case 1:
-        return "highpass";
-    case 2:
-        return "bandpass";
-    case 0:
-    default:
-        return "lowpass";
-    }
-}
-
 } // namespace
 
 void PluginParameters::build(juce::AudioProcessor& processor,
@@ -49,7 +37,7 @@ void PluginParameters::build(juce::AudioProcessor& processor,
         if (d.kind == ParamKind::discrete) {
             juce::StringArray choices;
             for (int i = 0; i < d.discreteCount; ++i)
-                choices.add(modeName(i));
+                choices.add(juce::String(std::string(d.choices[i])));
             const int defaultIndex = static_cast<int>(d.defaultValue);
             auto param = std::make_unique<juce::AudioParameterChoice>(paramId, name, choices,
                                                                       defaultIndex);

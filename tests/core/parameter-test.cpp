@@ -2,9 +2,12 @@
 
 #include <cmath>
 #include <limits>
+#include <string_view>
 
 #include "dsp/param-id.h"
 #include "dsp/parameter.h"
+#include "effects/modulated-delay/modulated-delay-effect.h"
+#include "effects/svf/svf-effect.h"
 
 // T014 — parameter scaling/skew: assert linear / logarithmic / discrete mapping
 // at min/mid/max plus out-of-range clamping. Fails until parameter.h (T008) is
@@ -85,4 +88,52 @@ TEST_CASE("non-finite normalized inputs are neutralized, never propagated") {
     CHECK(denormalize(logCutoff, nan) == doctest::Approx(20.0f));
     CHECK(denormalize(logCutoff, inf) == doctest::Approx(20000.0f));
     CHECK(denormalize(logCutoff, -inf) == doctest::Approx(20.0f));
+}
+
+TEST_CASE("isValidDescriptor rejects discrete descriptor with mismatched choices count") {
+    // discreteMode has choices defaulting to empty (size 0) but discreteCount 3.
+    CHECK(!isValidDescriptor(discreteMode));
+
+    // Explicit mismatch: discreteCount 4 but only 3 labels.
+    static constexpr std::array<std::string_view, 3> threeLabels = {{"a", "b", "c"}};
+    constexpr ParameterDescriptor mismatch{ParamId{9}, "mismatch", ParamUnit::none,
+                                           0.0f, 3.0f, 0.0f,
+                                           ParamSkew::linear, ParamKind::discrete,
+                                           4, threeLabels};
+    CHECK(!isValidDescriptor(mismatch));
+}
+
+TEST_CASE("SvfEffect mode descriptor carries correct option labels") {
+    const auto& d = SvfEffect::kParams[SvfEffect::kMode];
+    CHECK(isValidDescriptor(d));
+    REQUIRE(d.choices.size() == 3);
+    CHECK(d.choices[0] == std::string_view{"lowpass"});
+    CHECK(d.choices[1] == std::string_view{"highpass"});
+    CHECK(d.choices[2] == std::string_view{"bandpass"});
+}
+
+TEST_CASE("ModulatedDelayEffect fb_mode descriptor carries correct option labels") {
+    const auto& d = ModulatedDelayEffect::kParams[ModulatedDelayEffect::kMode];
+    CHECK(isValidDescriptor(d));
+    REQUIRE(d.choices.size() == 3);
+    CHECK(d.choices[0] == std::string_view{"lowpass"});
+    CHECK(d.choices[1] == std::string_view{"highpass"});
+    CHECK(d.choices[2] == std::string_view{"bandpass"});
+}
+
+TEST_CASE("ModulatedDelayEffect LFO shape descriptors carry correct option labels") {
+    constexpr std::array<ModulatedDelayEffect::Param, 3> shapeParams = {{
+        ModulatedDelayEffect::kDelayModShape,
+        ModulatedDelayEffect::kCutoffModShape,
+        ModulatedDelayEffect::kResModShape,
+    }};
+    for (const auto p : shapeParams) {
+        const auto& d = ModulatedDelayEffect::kParams[p];
+        CHECK(isValidDescriptor(d));
+        REQUIRE(d.choices.size() == 4);
+        CHECK(d.choices[0] == std::string_view{"sine"});
+        CHECK(d.choices[1] == std::string_view{"triangle"});
+        CHECK(d.choices[2] == std::string_view{"saw"});
+        CHECK(d.choices[3] == std::string_view{"random"});
+    }
 }
