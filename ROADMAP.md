@@ -54,7 +54,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## multi:feature/phase-nonlinear-dsp
 - status: planned
-- depends-on: multi:feature/phase-digital-fundamentals, design:gap/three-layer-structure
+- depends-on: multi:feature/phase-digital-fundamentals, design:gap/three-layer-structure, design:feature/measurement-infrastructure
 - part-of: multi:feature/progressive-dsp-platform
 
 ## multi:feature/phase-dynamic-systems

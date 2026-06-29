@@ -106,11 +106,13 @@ values), stability guards (no NaN/denormal), and the no-allocation invariant.
 
 ### IX. Progressive Layered Architecture
 
-The DSP core is organized in three layers — `labs/ → primitives/ → effects/` — and
-every concept graduates through four stages: **Theory → Laboratory → Reusable
-Primitive → Production Effect**. Laboratories introduce a concept through a small,
-focused experiment; once understood, the concept becomes a reusable, tested primitive;
-effects are built by composing primitives and document which primitives they use.
+The DSP core is organized into three layers — `labs/ → primitives/ → effects/` — as its
+**target architecture**, established by the `three-layer-structure` roadmap work (the
+physical `labs/` layer and primitive taxonomy do not yet exist on disk and are not assumed
+present). Once that structure lands, every concept graduates through four stages: **Theory →
+Laboratory → Reusable Primitive → Production Effect**. Laboratories introduce a concept
+through a small, focused experiment; once understood, the concept becomes a reusable, tested
+primitive; effects are built by composing primitives and document which primitives they use.
 Educational code is not disposable: laboratory implementations evolve into production
 primitives rather than being thrown away. (Program vision:
 `docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`.)

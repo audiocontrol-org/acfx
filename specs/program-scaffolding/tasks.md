@@ -99,7 +99,7 @@ All roadmap mutations: **dry-run first, then `--apply`** (FR-012). Use the ids i
 - [X] T010 [US3] Add `depends-on` edges sequencing phase N+1 → phase N for phases 1→9 (FR-008).
 - [X] T011 [P] [US3] Add each phase's headline-deliverable items (`design:<kind>/<slug>` per data-model.md) `part-of` their phase (FR-007); include the Phase-1 `measurement-infrastructure` deliverable.
 - [X] T012 [US3] Add the cross-cutting `three-layer-structure` item and sequence it before Phase-2 implementation work (FR-010).
-- [X] T013 [US3] Map shipped/closed work under Phase 1: edge `impl:feature/modulated-delay`, `design:feature/svf-vertical-slice`, `design:feature/workbench-audio-config` `part-of` the Phase-1 cluster, preserving their existing status (FR-009).
+- [X] T013 [US3] Map shipped/closed work under Phase 1: edge `impl:feature/modulated-delay` (delay + modulation), `design:feature/svf-vertical-slice` (SVF filter + the parameter system), and `design:feature/workbench-audio-config` (workbench audio config) `part-of` the Phase-1 cluster, preserving their existing status (FR-009). The prospectus's "parameter system" IS part of the `svf-vertical-slice` milestone, not a separate node.
 - [X] T014 [US3] Verify (quickstart US3): `stackctl roadmap graph` shows program + 9 phases + deliverables + edges + shipped-work-under-Phase-1 + three-layer item; `stackctl roadmap next` returns measurement-infrastructure (FR-011). Commit + push the roadmap change.
 
 **Checkpoint**: The program is a governed, queryable DAG with a clear next-ready item.
@@ -109,7 +109,7 @@ All roadmap mutations: **dry-run first, then `--apply`** (FR-012). Use the ids i
 ## Phase 6: Polish & Cross-Cutting
 
 - [X] T015 [P] Idempotence check (FR-012): re-run a representative `roadmap add`/`add-edge` and confirm no duplicate nodes/edges and no `ROADMAP.md` corruption.
-- [X] T016 [P] Governance-only scope check (FR-013, SC-007): `git diff --name-only origin/main...HEAD` touches only `docs/`, `.specify/`, `ROADMAP.md`, and `specs/program-scaffolding/` — no `core/`/`adapters/`/`tests/`, no `labs/`, no primitive reorg.
+- [X] T016 [P] Governance-only scope check (FR-013, SC-007): `git diff --name-only origin/main...HEAD` touches only `docs/`, `.specify/`, `ROADMAP.md`, `CLAUDE.md` (the SPECKIT agent-context marker), and `specs/program-scaffolding/` — no `core/`/`adapters/`/`tests/`, no `labs/`, no primitive reorg.
 - [X] T017 [P] Walk quickstart.md end to end; confirm every Success Criterion (SC-001..007) is satisfied by a governed artifact.
 
 ---

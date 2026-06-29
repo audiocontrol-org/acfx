@@ -86,7 +86,7 @@ surfaces the Phase-1 measurement-infrastructure sub-project.
 
 1. **Given** the roadmap, **When** rendered as a graph, **Then** it shows a program node pointing at the prospectus and nine phase clusters (Digital Fundamentals → Reference Hardware Models) each `part-of` the program.
 2. **Given** the phases, **When** their edges are inspected, **Then** each phase's headline deliverables are `part-of` that phase and each phase N+1 `depends-on` phase N.
-3. **Given** the already-shipped SVF filter, modulated-delay, and parameter system, **When** the roadmap is inspected, **Then** they are recorded under Phase 1 with a done/shipped status.
+3. **Given** the already-shipped work (`svf-vertical-slice` = SVF filter + parameter system; `modulated-delay` = delay + modulation; `workbench-audio-config` = workbench audio config), **When** the roadmap is inspected, **Then** they are recorded under Phase 1 with a done/shipped status.
 4. **Given** the deferred physical reorg, **When** the roadmap is inspected, **Then** a cross-cutting "establish the three-layer structure + primitive taxonomy" item exists, sequenced before Phase-2 code.
 5. **Given** the roadmap frontier, **When** next-ready is queried, **Then** the Phase-1 measurement-infrastructure sub-project is surfaced as the recommended next item.
 
@@ -111,7 +111,7 @@ surfaces the Phase-1 measurement-infrastructure sub-project.
 - **FR-006**: The roadmap MUST contain one cluster node per prospectus phase (1 Digital Fundamentals, 2 Nonlinear DSP, 3 Dynamic Systems, 4 Circuit Modeling, 5 Numerical Circuit Solvers, 6 Wave Digital Filters, 7 Physical Modeling, 8 Convolution, 9 Reference Hardware Models), each `part-of` the program node.
 - **FR-007**: Each phase's headline deliverables (from the prospectus) MUST be recorded as items `part-of` their phase.
 - **FR-008**: The roadmap MUST sequence the phases with `depends-on` edges such that phase N+1 depends on phase N.
-- **FR-009**: The already-shipped SVF filter, modulated-delay, and parameter system MUST be recorded under Phase 1 with a status reflecting that they are done.
+- **FR-009**: The already-shipped work MUST be recorded under Phase 1 with a done/shipped status — specifically the nodes `svf-vertical-slice` (which delivered both the SVF filter **and** the parameter system), `modulated-delay` (delay + modulation), and `workbench-audio-config` (workbench audio-device configuration). Together these cover the prospectus's Phase-1 deliverables (filters, delay, modulation, parameter system); measurement infrastructure is the remaining Phase-1 deliverable. ("Parameter system" is part of the `svf-vertical-slice` milestone, not a separate node.)
 - **FR-010**: The roadmap MUST contain a cross-cutting item "establish the three-layer structure + primitive taxonomy", sequenced before Phase-2 implementation work.
 - **FR-011**: The roadmap's next-ready frontier MUST surface the Phase-1 measurement-infrastructure sub-project as the recommended next item.
 - **FR-012**: All mutating governance steps MUST be idempotent / non-duplicating (dry-run before apply); re-running them MUST NOT create duplicate nodes or corrupt governed files.
@@ -145,5 +145,5 @@ surfaces the Phase-1 measurement-infrastructure sub-project.
 - **Roadmap identifier grammar**: Phase and deliverable nodes are named to satisfy the roadmap's `<phase>:<kind>/<slug>` identifier grammar; the specific identifiers are an implementation detail of the plan.
 - **Guidance tier**: Principles IX–XI are guidance (like IV–VIII), not the NON-NEGOTIABLE tier (I–III), per the operator's decision.
 - **Prospectus is a vision doc**: It is persisted as documentation, not run through the Spec Kit authoring chain.
-- **Existing work status**: The SVF filter, modulated-delay, and parameter system are already shipped; the roadmap reflects that rather than re-planning them.
+- **Existing work status**: The `svf-vertical-slice` milestone (SVF filter + parameter system), `modulated-delay` (delay + modulation), and `workbench-audio-config` are already shipped; the roadmap reflects that rather than re-planning them.
 - **Phases 2–9 are placeholders for now**: Each phase cluster records headline deliverables only; finer task breakdowns are authored when each sub-project is specced.

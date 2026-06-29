@@ -35,7 +35,7 @@ the stack-control `ROADMAP.md`, and `docs/superpowers/specs/` for the prospectus
 
 **Testing**: verification of governed artifacts (not unit tests): prospectus present +
 referenced; constitution carries IX–XI + bumped version + in-sync templates; `stackctl
-roadmap graph` shows the program/phase/deliverable nodes + edges; `roadmap` next-ready
+roadmap graph` shows the program/phase/deliverable nodes + edges; `stackctl roadmap next`
 surfaces the measurement-infrastructure item. See quickstart.md.
 
 **Target Platform**: the repository's governance surfaces (constitution, roadmap, docs).
