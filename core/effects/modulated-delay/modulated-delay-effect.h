@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 #include <vector>
 
 #include "dsp/audio-block.h"
@@ -72,6 +73,10 @@ public:
         kFlutterDepth   = 18,
     };
 
+    // Option labels for discrete parameters (single source of truth for adapters).
+    static constexpr std::array<std::string_view, 3> kModeLabels = {{"lowpass", "highpass", "bandpass"}};
+    static constexpr std::array<std::string_view, 4> kShapeLabels = {{"sine", "triangle", "saw", "random"}};
+
     // Single source of parameter truth (SC-006, FR-022).  All values in plain units.
     static constexpr std::array<ParameterDescriptor, 19> kParams = {{
         // US1 parameters (indices 0..5 — frozen)
@@ -86,28 +91,28 @@ public:
         {ParamId{kResonance}, "fb_resonance", ParamUnit::none,
          0.0f, 1.0f, 0.2f, ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kMode}, "fb_mode", ParamUnit::none,
-         0.0f, 2.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 3},
+         0.0f, 2.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 3, kModeLabels},
         // US2 delay-time modulation (indices 6..8)
         {ParamId{kDelayModRate}, "delay_mod_rate", ParamUnit::hz,
          0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kDelayModDepth}, "delay_mod_depth", ParamUnit::none,
          0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kDelayModShape}, "delay_mod_shape", ParamUnit::none,
-         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4},
+         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4, kShapeLabels},
         // US2 cutoff modulation (indices 9..11)
         {ParamId{kCutoffModRate}, "cutoff_mod_rate", ParamUnit::hz,
          0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kCutoffModDepth}, "cutoff_mod_depth", ParamUnit::none,
          0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kCutoffModShape}, "cutoff_mod_shape", ParamUnit::none,
-         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4},
+         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4, kShapeLabels},
         // US2 resonance modulation (indices 12..14)
         {ParamId{kResModRate}, "res_mod_rate", ParamUnit::hz,
          0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kResModDepth}, "res_mod_depth", ParamUnit::none,
          0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kResModShape}, "res_mod_shape", ParamUnit::none,
-         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4},
+         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4, kShapeLabels},
         // US3 wow & flutter on the input path (indices 15..18)
         {ParamId{kWowRate}, "wow_rate", ParamUnit::hz,
          0.1f, 2.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
@@ -128,7 +133,7 @@ public:
             return true;
         }(),
         "ModulatedDelayEffect parameter table violates a descriptor invariant "
-        "(max>min; logarithmic => min>0; discrete => count>=2)");
+        "(max>min; logarithmic => min>0; discrete => count>=2 and choices.size()==count)");
 
     ModulatedDelayEffect() noexcept {
         for (std::size_t i = 0; i < kNumParams; ++i) {

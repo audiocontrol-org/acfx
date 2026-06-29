@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dsp/param-id.h"
+#include "dsp/span.h"
 
 #include <algorithm>
 #include <cassert>
@@ -24,6 +25,7 @@ struct ParameterDescriptor {
     ParamSkew skew;
     ParamKind kind;
     std::uint8_t discreteCount; // >= 2 when kind == discrete, else 0
+    span<const std::string_view> choices{}; // option labels; size == discreteCount for discrete params
 };
 
 // Compile-time descriptor validity: max>min; a logarithmic param needs min>0
@@ -37,6 +39,8 @@ constexpr bool isValidDescriptor(const ParameterDescriptor& d) noexcept {
     if (d.skew == ParamSkew::logarithmic && !(d.min > 0.0f))
         return false;
     if (d.kind == ParamKind::discrete && d.discreteCount < 2)
+        return false;
+    if (d.kind == ParamKind::discrete && d.choices.size() != d.discreteCount)
         return false;
     return true;
 }

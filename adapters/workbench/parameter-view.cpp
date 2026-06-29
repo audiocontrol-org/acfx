@@ -16,7 +16,7 @@ ParameterView::ParameterView(span<const ParameterDescriptor> params, OnChange on
         if (d.kind == ParamKind::discrete) {
             row.combo = std::make_unique<juce::ComboBox>();
             for (int i = 0; i < d.discreteCount; ++i)
-                row.combo->addItem(juce::String(i), i + 1); // item ids are 1-based
+                row.combo->addItem(juce::String(std::string(d.choices[i])), i + 1); // item ids are 1-based
             row.combo->setSelectedItemIndex(0, juce::dontSendNotification);
 
             const ParamId id = d.id;
