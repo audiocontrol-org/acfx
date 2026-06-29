@@ -64,10 +64,14 @@ if(ACFX_BUILD_DESKTOP)
 endif()
 
 if(ACFX_BUILD_DAISY)
+  # The reusable effect-target factory (firmware per effect). Include-guarded, so
+  # it is safe to include here as well as in the desktop branch above.
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
   add_subdirectory(adapters/daisy)
 endif()
 
 if(ACFX_BUILD_TEENSY)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
   add_subdirectory(adapters/teensy)
 endif()
 

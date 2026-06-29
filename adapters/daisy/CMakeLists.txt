@@ -1,6 +1,9 @@
-# Daisy firmware target (T032). Compiles the SAME core/effects/svf into a Daisy
-# firmware via libDaisy — the only platform-specific code is daisy-main.cpp
-# (audio callback + ADC). No JUCE, no ProcessorNode (Constitution IV; SC-007).
+# Daisy firmware targets (T032/T010 embedded). Compiles the SAME core effects into
+# Daisy firmware via libDaisy — the only platform-specific code is daisy-main.cpp
+# (audio callback + ADC), recompiled per effect with the concrete effect
+# type/header injected by the acfx_add_effect_daisy factory (ACFX_EFFECT_TYPE /
+# ACFX_EFFECT_HEADER). No JUCE, no ProcessorNode (Constitution IV; SC-007). Add a
+# new effect's firmware with one more factory call below.
 #
 # Requires the ARM embedded toolchain WITH the C++ standard library (ARM's
 # gcc-arm-embedded or the Daisy toolchain). A C-only arm-none-eabi (no libstdc++)
@@ -12,19 +15,29 @@ if(NOT DEFINED libDaisy_SOURCE_DIR)
     "pins and downloads libDaisy.")
 endif()
 
-# libDaisy ships its own CMake that defines the `daisy` static library + the
-# STM32H750 build flags and linker script.
+# One-time platform setup: libDaisy ships its own CMake that defines the `daisy`
+# static library + the STM32H750 build flags and linker script. Added ONCE here,
+# not per effect.
 add_subdirectory("${libDaisy_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/libDaisy" EXCLUDE_FROM_ALL)
 
-add_executable(acfx_daisy daisy-main.cpp)
-target_compile_features(acfx_daisy PRIVATE cxx_std_20)
-target_link_libraries(acfx_daisy PRIVATE acfx_core daisy)
-
-# Daisy bootloader linker script (STM32H750IB internal flash).
+# Daisy bootloader linker script (STM32H750IB internal flash), shared by all firmwares.
 set(_daisy_lds "${libDaisy_SOURCE_DIR}/core/STM32H750IB_flash.lds")
-target_link_options(acfx_daisy PRIVATE
-  -T "${_daisy_lds}"
-  -Wl,-Map=acfx_daisy.map,--cref
-  -Wl,--gc-sections
+set(_daisy_main "${CMAKE_CURRENT_SOURCE_DIR}/daisy-main.cpp")
+
+# SVF — preserve the existing target name + behavior exactly (no regression).
+acfx_add_effect_daisy(
+  NAME acfx_daisy
+  EFFECT_TYPE acfx::SvfEffect
+  EFFECT_HEADER effects/svf/svf-effect.h
+  SOURCE ${_daisy_main}
+  LINKER_SCRIPT ${_daisy_lds}
 )
-set_target_properties(acfx_daisy PROPERTIES SUFFIX ".elf")
+
+# Modulated delay — firmware for the second effect.
+acfx_add_effect_daisy(
+  NAME acfx_daisy_delay
+  EFFECT_TYPE acfx::ModulatedDelayEffect
+  EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
+  SOURCE ${_daisy_main}
+  LINKER_SCRIPT ${_daisy_lds}
+)

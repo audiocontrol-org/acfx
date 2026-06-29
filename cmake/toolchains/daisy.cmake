@@ -25,9 +25,29 @@ set(CMAKE_CXX_COMPILER "${ARM_CXX}")
 set(CMAKE_ASM_COMPILER "${ARM_CC}")
 
 set(_daisy_cpu_flags "-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard")
-set(CMAKE_C_FLAGS_INIT   "${_daisy_cpu_flags}")
-set(CMAKE_CXX_FLAGS_INIT "${_daisy_cpu_flags} -fno-exceptions -fno-rtti")
+# -ffunction-sections/-fdata-sections place each symbol in its own section so the
+# linker's --gc-sections (set on each firmware target) can drop everything unused.
+# libDaisy's own toolchain (stm32h750xx.cmake) sets these; omitting them here left
+# the whole daisy static lib un-collectable and overflowed the 128 KB internal
+# FLASH. -fomit-frame-pointer trims further. Match libDaisy.
+set(_daisy_size_flags "-ffunction-sections -fdata-sections -fomit-frame-pointer")
+set(CMAKE_C_FLAGS_INIT   "${_daisy_cpu_flags} ${_daisy_size_flags}")
+set(CMAKE_CXX_FLAGS_INIT "${_daisy_cpu_flags} ${_daisy_size_flags} -fno-exceptions -fno-rtti")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${_daisy_cpu_flags} --specs=nano.specs --specs=nosys.specs")
+
+# STM32H750 device-selection defines. libDaisy normally injects these from its own
+# toolchain (cmake/toolchains/stm32h750xx.cmake) via add_compile_definitions, but
+# that toolchain is bypassed when we supply this one (libDaisy applies it only when
+# CMAKE_TOOLCHAIN_FILE is unset). Without them the CMSIS/HAL headers cannot select
+# the target device (`#error "Please select first the target STM32H7xx device"`)
+# and uint32_t goes undeclared. Match libDaisy's stm32h750xx.cmake exactly.
+add_compile_definitions(
+  CORE_CM7
+  STM32H750xx
+  STM32H750IB
+  ARM_MATH_CM7
+  HSE_VALUE=16000000
+)
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)

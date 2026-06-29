@@ -36,6 +36,13 @@ CPMAddPackage(
 
 if(TARGET DaisySP)
   set_target_properties(DaisySP PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  # DaisySP's sources use POSIX/GNU math constants (M_E, M_PI, ...), which newlib
+  # hides under a strict -std=c++NN (__STRICT_ANSI__) on the ARM toolchain. The
+  # repo-wide CMAKE_CXX_EXTENSIONS OFF therefore breaks the embedded DaisySP build;
+  # DaisySP upstream itself compiles with GNU extensions. Re-enable them for this
+  # dependency target only (no effect on the acfx core/adapters, which stay strict;
+  # desktop math.h exposes these constants regardless).
+  set_target_properties(DaisySP PROPERTIES CXX_EXTENSIONS ON)
 endif()
 
 # --- Host-side tests: doctest
