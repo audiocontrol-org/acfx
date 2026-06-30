@@ -49,7 +49,7 @@
 #include <cmath>
 #include <vector>
 
-#include "labs/waveshaping/waveshaper.h"
+#include "primitives/nonlinear/waveshaper.h"
 #include "core/measurement-support.h"
 
 using namespace acfx;

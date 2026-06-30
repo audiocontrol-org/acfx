@@ -65,9 +65,9 @@
 #include <cmath>
 #include <cstddef>
 
-#include "labs/waveshaping/waveshaper-lut.h"
-#include "labs/waveshaping/waveshaper-shapes.h"
-#include "labs/waveshaping/waveshaper.h"
+#include "primitives/nonlinear/waveshaper-lut.h"
+#include "primitives/nonlinear/waveshaper-shapes.h"
+#include "primitives/nonlinear/waveshaper.h"
 #include "support/allocation-sentinel.h"
 
 using namespace acfx;

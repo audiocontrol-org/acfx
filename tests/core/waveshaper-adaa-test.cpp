@@ -3,8 +3,8 @@
 #include <cmath>
 #include <stdexcept>
 
-#include "labs/waveshaping/adaa-waveshaper.h"  // T020: not yet authored → RED (missing header)
-#include "labs/waveshaping/waveshaper.h"
+#include "primitives/nonlinear/adaa-waveshaper.h"
+#include "primitives/nonlinear/waveshaper.h"
 #include "core/measurement-support.h"
 
 // T018 -- ADAAWaveshaper: aliasing reduction (SC-003), uncovered-shape

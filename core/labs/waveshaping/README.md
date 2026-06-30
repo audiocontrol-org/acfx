@@ -137,8 +137,11 @@ deliberately kept in separate projects.
 
 ## Walkthrough
 
-The waveshaper is organized into four kernel headers and a measurement harness,
-all residing in `core/labs/waveshaping/`:
+The waveshaper is organized into four kernel headers and a measurement harness.
+The kernel headers graduated to `core/primitives/nonlinear/` in T024; the harness
+(`core/labs/waveshaping/harness/waveshaping-harness.cpp`) remains here and now
+drives the graduated primitive. The walkthrough below describes each header in its
+graduated location:
 
 ### `waveshaper-shapes.h`
 
@@ -284,12 +287,13 @@ naive waveshaper at this stimulus. The harmonic power in the ADAA arm is also
 lower (0.671 vs 0.805), reflecting that ADAA suppresses some of the higher-order
 harmonics that would otherwise alias rather than simply relocating them.
 
-## Graduation target
+## Graduation (T024 — completed)
 
 The kernel headers (`waveshaper-shapes.h`, `waveshaper.h`, `waveshaper-lut.h`,
-`adaa-waveshaper.h`) graduate from this lab to `core/primitives/nonlinear/`
-in task T024 via `git mv`, preserving full history.
+`adaa-waveshaper.h`) graduated from this lab to `core/primitives/nonlinear/`
+via `git mv` in T024, preserving full git history.
 
-The lab folder persists after graduation, holding this README and the host-only
-harness. The harness will be updated to include the graduated primitive's path
-so it continues to serve as a measurement record for the primitive family.
+This lab folder persists as the lab record: README (theory + measured evidence)
+and the host-only harness. The harness now includes the graduated primitive's
+paths (`primitives/nonlinear/...`) and continues to serve as the measurement
+record for the primitive family. No kernel headers remain in this directory.

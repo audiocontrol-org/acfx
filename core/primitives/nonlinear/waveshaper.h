@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include "labs/waveshaping/waveshaper-shapes.h"
-#include "labs/waveshaping/waveshaper-lut.h"
+#include "primitives/nonlinear/waveshaper-shapes.h"
+#include "primitives/nonlinear/waveshaper-lut.h"
 
 // Stateful waveshaper wrapper — applies drive/bias, a selected memoryless shape,
 // a wrapper-owned DC-blocker, and optional gain compensation.
@@ -25,8 +25,8 @@
 //   the Shape requires a re-init() to refresh the table.  process() never rebuilds
 //   the table; this ensures process() remains RT-safe (no heavy work on audio path).
 //
-// Pre-graduation location: core/labs/waveshaping/
-// Post-graduation target:  core/primitives/nonlinear/   (T024)
+// Graduated from: core/labs/waveshaping/ (T024)
+// Current location: core/primitives/nonlinear/
 
 namespace acfx {
 

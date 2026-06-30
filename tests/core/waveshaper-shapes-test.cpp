@@ -26,7 +26,7 @@
 #include <cmath>
 #include <cstddef>
 
-#include "labs/waveshaping/waveshaper-shapes.h"
+#include "primitives/nonlinear/waveshaper-shapes.h"
 
 using namespace acfx::shape;
 

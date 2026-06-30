@@ -12,9 +12,9 @@
 // Include root: core/.  Compile with -std=c++20.
 // May allocate, loop, printf.  Never included by portable code (C-1 gate).
 
-#include "labs/waveshaping/waveshaper.h"
-#include "labs/waveshaping/waveshaper-shapes.h"
-#include "labs/waveshaping/adaa-waveshaper.h"
+#include "primitives/nonlinear/waveshaper.h"
+#include "primitives/nonlinear/waveshaper-shapes.h"
+#include "primitives/nonlinear/adaa-waveshaper.h"
 
 #include <cmath>
 #include <cstdio>

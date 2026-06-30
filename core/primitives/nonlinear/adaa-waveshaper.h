@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "labs/waveshaping/waveshaper-shapes.h"
+#include "primitives/nonlinear/waveshaper-shapes.h"
 
 // First-order antiderivative anti-aliasing (ADAA) waveshaper — research.md
 // Decision 5.  A SEPARATE, opt-in, strictly-layered type: it does NOT modify
@@ -29,7 +29,8 @@
 // OPEN QUESTION (research.md Decision 5): second-order ADAA is intentionally
 // NOT implemented here; AdaaOrder currently exposes only `first`.
 //
-// Pre-graduation location: core/labs/waveshaping/
+// Graduated from: core/labs/waveshaping/ (T024)
+// Current location: core/primitives/nonlinear/
 
 namespace acfx {
 
