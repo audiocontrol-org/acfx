@@ -6,7 +6,7 @@
 
 # Implementation Plan: Measurement Infrastructure
 
-**Branch**: `main` | **Date**: 2026-06-29 | **Spec**: [spec.md](./spec.md)
+**Branch**: `measurement-infrastructure` | **Date**: 2026-06-29 | **Spec**: [spec.md](./spec.md)
 
 **Input**: `specs/measurement-infrastructure/spec.md` (from the approved, externally-reviewed
 design `docs/superpowers/specs/2026-06-29-measurement-infrastructure-design.md`).

@@ -7,7 +7,7 @@
 
 # Feature Specification: Measurement Infrastructure — host-side Measurable Engineering harness
 
-**Feature Branch**: `main`
+**Feature Branch**: `measurement-infrastructure`
 
 **Created**: 2026-06-29
 

@@ -2,6 +2,69 @@
 
 ---
 
+## 2026-06-29: Close program-scaffolding; design + define measurement-infrastructure (Phase 1)
+
+**Goal:** Close out the shipped `program-scaffolding` governance feature, clean up the merged
+branches/worktrees, and stand up the first concrete Progressive-DSP sub-project —
+`measurement-infrastructure` — through the stack-control front door, left runnable for
+execution next session.
+
+**Accomplished:**
+- **Closed `program-scaffolding`** — recorded the `validated` marker and advanced it to the
+  terminal `closed` phase; removed the merged `modulated-delay` worktree and deleted three
+  merged branches (`program-scaffolding`, `fix-discrete-param-labels`, `modulated-delay`)
+  locally + on the remote.
+- **Designed `measurement-infrastructure`** via `/stack-control:design` — wrote the design
+  record (Stimulus→Effect→Analyzer→Metric harness, Principle X), circulated it, and folded an
+  external "approve with minor revisions" review into it (Goertzel+sine-sweep, assertions+CSV,
+  separated stimulus/analyzer/metric, silence/DC/denormal/idle checks, relative-exec-time rename).
+- **Defined it** via `/stack-control:define` — full chain (specify→clarify→plan→checklist→
+  tasks→analyze), runnable spec linked to the node.
+- **Adopted the new model-sized-dispatch execute protocol (033)** — added a `tier_map` to
+  `.stack-control/config.yaml` and `[tier:]` tags to all 19 tasks; `resolve-tiers` resolves
+  every task to a model.
+- **Incorporated a second third-party spec review's clarifications** (phase semantics, canonical
+  CSV schema in the contract, educational-reuse rationale, analyzer/metric reinforcement).
+- **Set up the feature branch + worktree** (`acfx-work/measurement-infrastructure`), baseline
+  `make test` 62/62 green. **Execution deferred to next session.**
+
+**Didn't Work:**
+- **`govern --mode implement` could not converge** on the docs-heavy `program-scaffolding`
+  diff — killed 3× by the environment's per-command time cap with no resume; closed via a
+  documented `--override` after the audit had run and all findings were fixed.
+- The **speckit agent-context update script needs PyYAML** (absent here), so the `CLAUDE.md`
+  SPECKIT marker was hand-edited each plan.
+
+**Course Corrections:**
+- The compass **refused `define` before `design`** (node `planned`, `designing` skipped) — pivoted
+  to `/stack-control:design` first, which is the correct rail (and the right home for the
+  open decisions).
+- **Pushed back on the spec review** rather than rubber-stamping: 3 of 5 items were already
+  handled; put the canonical CSV schema in `contracts/metrics.md`, not the spec body.
+- The cross-model audit caught that **`measurement-infrastructure` was ungated** despite being
+  the stated Phase-2 enabler — added the `phase-nonlinear-dsp depends-on measurement-infrastructure`
+  edge so `roadmap next` reflects the real frontier.
+
+**Insights:**
+- The new execute is **all-or-nothing on tiers** — every task needs `[tier:]` and the
+  installation needs a `tier_map`, or it dispatches nothing (no silent session-default).
+- **`govern` doesn't fit a hard per-command time cap** on large docs diffs (no chunk-resume);
+  `--override` is the documented escape, but a resumable govern is the real fix (upstream-worthy).
+- The audit earned its cost on a *substantive* diff (caught the ungated enabler + a present-tense
+  constitution overclaim), even though convergence couldn't be persisted here.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 7
+  - spec(measurement-infrastructure): incorporate third-party review clarifications
+  - chore(measurement-infrastructure): adopt model-sized-dispatch execute (033)
+  - define(measurement-infrastructure): author spec/plan/tasks from the approved design
+  - design(measurement-infrastructure): record design-approved; rename Decisions heading for the exit gate
+  - design(measurement-infrastructure): incorporate external design review
+  - design(measurement-infrastructure): host-side Measurable Engineering harness design record
+  - chore(roadmap): close design:feature/program-scaffolding (validated; terminal)
+- Files changed: 16
+- Backlog touched: (none)
+
 ## 2026-06-28: Run the SVF as a DAW plugin (AU + VST3); file tooling-feedback issues
 
 **Goal:** Get the shipped SVF effect loading as a DAW plugin (AU + VST3), and file the two
