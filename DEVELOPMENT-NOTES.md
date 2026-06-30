@@ -2,6 +2,46 @@
 
 ---
 
+## 2026-06-30: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 19
+  - workflow(graduate): design:feature/measurement-infrastructure merging -> validating
+  - Merge pull request #6 from audiocontrol-org/measurement-infrastructure
+  - fix(measurement-infrastructure): guard relativeExecTime against non-positive blockSize
+  - fix(measurement-infrastructure): resolve end-govern round-5 findings AUDIT-13..15
+  - fix(measurement-infrastructure): resolve end-govern round-4 findings AUDIT-11..12
+  - fix(measurement-infrastructure): resolve end-govern round-3 findings AUDIT-08..10
+  - fix(measurement-infrastructure): resolve end-govern round-2 findings AUDIT-05..07
+  - fix(measurement-infrastructure): resolve end-govern findings AUDIT-01..04
+  - chore(measurement-infrastructure): mark T001-T019 complete (implemented, reviewed, committed)
+  - chore(measurement-infrastructure): execute ledger (T001-T019) + backlog finds (SVF denormals, CPM reconfigure)
+  - refactor(measurement-infrastructure): split measurement tests by user story to satisfy 500-line portability budget (T017/T018)
+  - impl(measurement-infrastructure): US4 — opt-in CSV report + emission on/off tests (T014-T015)
+  - test(measurement-infrastructure): T013 US3 stability/allocation/exec-time tests
+  - impl(measurement-infrastructure): US2 — correlation analyzer, THD + latency metrics, distortion/delay tests (T008-T010)
+  - impl(measurement-infrastructure): US1 MVP — impulse/Goertzel analyzers, response metrics, effect-agnostic tests (T005-T007)
+  - impl(measurement-infrastructure): Foundational — stimulus generators + capture seam + generator tests (T002-T004)
+  - impl(measurement-infrastructure): T001 scaffold harness dir + register measurement test TU
+  - chore(measurement-infrastructure): record analyze-clean marker (specifying -> implementing)
+  - refine(measurement-infrastructure): close analyze findings C1/I1
+- Files changed: 20
+- Backlog touched: (none)
+
 ## 2026-06-29: Close program-scaffolding; design + define measurement-infrastructure (Phase 1)
 
 **Goal:** Close out the shipped `program-scaffolding` governance feature, clean up the merged

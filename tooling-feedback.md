@@ -24,3 +24,8 @@
 - govern --mode implement exceeded the environment per-command time limit on a docs-heavy whole-feature diff and was killed 3x with no resume; had to close via --override. Govern is not chunk-resumable across kills — large diffs cannot converge under a hard time cap. (upstream: audiocontrol-org/deskwork)
 - speckit agent-context update script requires PyYAML which is absent in this environment; the CLAUDE.md SPECKIT marker had to be hand-edited every plan. (upstream: audiocontrol-org/deskwork)
 - acfx-local: in-place 'cmake --preset <p>' on an existing build dir fails 'Unknown CMake command CPMAddPackage'; only a clean reconfigure (rm -rf build/<p>) works — hurts make ergonomics.
+
+## session-end 2026-06-30
+- Worktree ship gap: the govern convergence record is gitignored and per-worktree, so graduating merging->validating from the main worktree failed the graduate-impl gate (record lived only in the feature worktree). Had to manually copy .stack-control/govern/convergence/<item>.json into the main worktree. Worktree-based ship needs the convergence record to travel or be re-resolvable across worktrees.
+- cmake --preset test reconfigure over an existing build/test fails with Unknown CMake command CPMAddPackage; workaround rm -rf build/test (CPM bootstrap not reconfigure-safe; also backlog TASK-2).
+- end-govern audit-barrage took 5 rounds without converging to zero HIGH; later rounds were fix-induced + an inherent meta-ledger self-reference; closed via operator-approved --override once substantive code converged.
