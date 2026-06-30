@@ -3,8 +3,8 @@
 #include <array>
 #include <vector>
 
-#include "primitives/delay-line.h"
-#include "primitives/lfo.h"
+#include "primitives/delays/delay-line.h"
+#include "primitives/modulation/lfo.h"
 
 // WowFlutterStage — input-path tape-instability processor (US3, FR-017..FR-021).
 // Owns its own short per-channel DelayLine plus two independent LFOs:

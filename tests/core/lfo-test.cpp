@@ -3,7 +3,7 @@
 
 #include <doctest/doctest.h>
 
-#include "primitives/lfo.h"
+#include "primitives/modulation/lfo.h"
 
 // Helpers -----------------------------------------------------------------
 

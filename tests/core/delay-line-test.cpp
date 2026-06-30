@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 #include <array>
-#include "primitives/delay-line.h"
+#include "primitives/delays/delay-line.h"
 
 using acfx::DelayLine;
 
