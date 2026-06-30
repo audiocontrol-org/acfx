@@ -75,10 +75,11 @@ Waveshapers, saturators, and distortion kernels. Graduated from `core/labs/waves
 | `nonlinear/waveshaper-lut.h` | `WaveshaperLut` fixed-size table (512 points, linear interpolation, edge-clamp); built in `init()`, never in `process()`; error bound `kMaxDeviation = 1e-3`. |
 | `nonlinear/adaa-waveshaper.h` | `ADAAWaveshaper` first-order antiderivative anti-aliasing variant; refuses uncovered shapes with a descriptive error; same drive/bias/DC-block/gain-comp staging as `Waveshaper`. |
 
-Consumers/tests: `tests/core/waveshaper-test.cpp`, `waveshaper-harmonics-test.cpp`,
-`waveshaper-shapes-test.cpp`, `waveshaper-lut-test.cpp`, `waveshaper-adaa-test.cpp`,
-`waveshaper-antiderivatives-test.cpp`.
+Consumers: none yet — the saturation/distortion effects in later phases will consume these.
+Tests: `tests/core/waveshaper-test.cpp`, `waveshaper-harmonics-test.cpp`, `waveshaper-shapes-test.cpp`, `waveshaper-lut-test.cpp`, `waveshaper-adaa-test.cpp`, `waveshaper-antiderivatives-test.cpp`.
 Lab: `core/labs/waveshaping/` (persists as README + harness driving the graduated primitive).
+
+**Diode-curve altitude boundary (research.md Decision 6)**: `diodeCurve` is a memoryless transfer curve — a pure `float → float` closed form in `namespace acfx::shape`, explicitly distinct from the stateful circuit-solved diode clipper in `phase-circuit-modeling`'s `diode-clippers` item (FR-004). See `core/labs/waveshaping/README.md` for the complete altitude boundary explanation.
 
 ---
 
