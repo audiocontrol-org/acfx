@@ -5,6 +5,8 @@
 //       the first 6 harmonics (f0 = 1000 Hz, integer-cycle window N = 4800).
 //   (b) Naive-vs-ADAA aliasing comparison for hardClip at 10 kHz:
 //       inharmonic (aliased) power for each arm and the reduction ratio/dB.
+//   (c) OPTIONAL: --csv flag for machine-readable CSV dump of harmonic spectra
+//       for cross-lab comparison (default: human-readable tables only).
 //
 // Oversampled arm: OMITTED per FR-018 and the exec brief — no oversampler is
 // built as a deliverable.  Oversampling is a contingent future extension.
@@ -18,6 +20,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -83,16 +86,18 @@ static double goertzel(const float* buf, int n, double freqHz, double sampleRate
 }
 
 // ---------------------------------------------------------------------------
-// Per-shape harmonic signature
-//
-// Drives a unit sine at kFundHz through each shape (after kWarmup samples to
-// settle the DC-blocker) and prints absolute Goertzel amplitude at each
-// harmonic.  Static buffer avoids a large stack allocation.
+// Harmonic signature structure and computation
 // ---------------------------------------------------------------------------
+
+struct HarmonicSignature {
+    const char* shapeName;
+    double magnitudes[kNumHarm];  // harmonic amplitudes at h=1..kNumHarm
+};
 
 static float gHarmBuf[kWarmup + kN];
 
-static void printHarmonicSignature(acfx::Shape shape, const char* name)
+// Computes harmonic signature for a shape; reused for both human and CSV output.
+static HarmonicSignature computeHarmonicSignature(acfx::Shape shape, const char* name)
 {
     acfx::Waveshaper ws;
     ws.setShape(shape);
@@ -109,14 +114,28 @@ static void printHarmonicSignature(acfx::Shape shape, const char* name)
 
     const float* win = gHarmBuf + kWarmup;  // measurement window
 
-    std::printf("  %-14s |", name);
+    HarmonicSignature sig;
+    sig.shapeName = name;
     for (int h = 1; h <= kNumHarm; ++h) {
         const double freq = kFundHz * static_cast<double>(h);
         if (freq >= kSampleRateD * 0.5) {
+            sig.magnitudes[h - 1] = 0.0;  // Nyquist cutoff
+        } else {
+            sig.magnitudes[h - 1] = goertzel(win, kN, freq, kSampleRateD);
+        }
+    }
+    return sig;
+}
+
+// Prints harmonic signature in human-readable table format.
+static void printHarmonicSignature(const HarmonicSignature& sig)
+{
+    std::printf("  %-14s |", sig.shapeName);
+    for (int h = 0; h < kNumHarm; ++h) {
+        if (sig.magnitudes[h] == 0.0 && h > 0) {  // Nyquist cutoff marker
             std::printf("   ------  |");
         } else {
-            const double mag = goertzel(win, kN, freq, kSampleRateD);
-            std::printf("   %6.4f  |", mag);
+            std::printf("   %6.4f  |", sig.magnitudes[h]);
         }
     }
     std::printf("\n");
@@ -164,6 +183,23 @@ static AliasMeasure measureAliasing(const float* buf, int n, double fundHz)
         inharmonic = 0.0;
 
     return {totalPower, harmonicPower, inharmonic};
+}
+
+// ---------------------------------------------------------------------------
+// CSV output helper
+//
+// Dumps harmonic signature in CSV format: shape, harmonic_index, frequency_hz, magnitude
+// ---------------------------------------------------------------------------
+
+static void printHarmonicSignatureCSV(const HarmonicSignature& sig)
+{
+    for (int h = 1; h <= kNumHarm; ++h) {
+        const double freq = kFundHz * static_cast<double>(h);
+        if (freq >= kSampleRateD * 0.5) {
+            continue;  // Skip out-of-band harmonics
+        }
+        std::printf("%s,%d,%.1f,%g\n", sig.shapeName, h, freq, sig.magnitudes[h - 1]);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -234,41 +270,67 @@ static void runAliasingComparison()
 // main
 // ---------------------------------------------------------------------------
 
-int main()
+int main(int argc, char* argv[])
 {
-    std::printf("=== acfx Waveshaping Lab Harness ===\n");
-    std::printf("sample rate: %.0f Hz   drive: %.1f   fundamental: %.0f Hz\n",
-                kSampleRateD, static_cast<double>(kDrive), kFundHz);
-    std::printf("window: %d measurement + %d warmup samples (%d integer cycles)\n\n",
-                kN, kWarmup, static_cast<int>(kFundHz * kN / kSampleRateD));
+    // Parse --csv flag for machine-readable output.
+    bool outputCSV = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--csv") == 0) {
+            outputCSV = true;
+            break;
+        }
+    }
 
-    std::printf("=== Per-shape harmonic signatures (absolute Goertzel amplitudes) ===\n");
-    std::printf("  (f0 = %.0f Hz; each cell is the amplitude at that harmonic)\n\n",
-                kFundHz);
-    std::printf("  %-14s |   f0    |   2f0   |   3f0   |   4f0   |   5f0   |   6f0   |\n", "shape");
-    std::printf("  %-14s +---------+---------+---------+---------+---------+---------+\n",
-                "--------------");
+    // Compute all harmonic signatures (independent of output format).
+    HarmonicSignature sigs[] = {
+        computeHarmonicSignature(acfx::Shape::tanh,         "tanh"),
+        computeHarmonicSignature(acfx::Shape::arctan,       "arctan"),
+        computeHarmonicSignature(acfx::Shape::cubicSoft,    "cubicSoft"),
+        computeHarmonicSignature(acfx::Shape::algebraic,    "algebraic"),
+        computeHarmonicSignature(acfx::Shape::hardClip,     "hardClip"),
+        computeHarmonicSignature(acfx::Shape::softKnee,     "softKnee"),
+        computeHarmonicSignature(acfx::Shape::chebyshev,    "chebyshev"),
+        computeHarmonicSignature(acfx::Shape::biasedAsym,   "biasedAsym"),
+        computeHarmonicSignature(acfx::Shape::diodeCurve,   "diodeCurve"),
+        computeHarmonicSignature(acfx::Shape::sineFold,     "sineFold"),
+        computeHarmonicSignature(acfx::Shape::triangleFold, "triangleFold"),
+    };
 
-    printHarmonicSignature(acfx::Shape::tanh,         "tanh");
-    printHarmonicSignature(acfx::Shape::arctan,       "arctan");
-    printHarmonicSignature(acfx::Shape::cubicSoft,    "cubicSoft");
-    printHarmonicSignature(acfx::Shape::algebraic,    "algebraic");
-    printHarmonicSignature(acfx::Shape::hardClip,     "hardClip");
-    printHarmonicSignature(acfx::Shape::softKnee,     "softKnee");
-    printHarmonicSignature(acfx::Shape::chebyshev,    "chebyshev");
-    printHarmonicSignature(acfx::Shape::biasedAsym,   "biasedAsym");
-    printHarmonicSignature(acfx::Shape::diodeCurve,   "diodeCurve");
-    printHarmonicSignature(acfx::Shape::sineFold,     "sineFold");
-    printHarmonicSignature(acfx::Shape::triangleFold, "triangleFold");
+    if (outputCSV) {
+        // Machine-readable CSV: shape, harmonic_index, frequency_hz, magnitude
+        std::printf("shape,harmonic_index,frequency_hz,magnitude\n");
+        for (const auto& sig : sigs) {
+            printHarmonicSignatureCSV(sig);
+        }
+    } else {
+        // Human-readable table format (default, unchanged from before).
+        std::printf("=== acfx Waveshaping Lab Harness ===\n");
+        std::printf("sample rate: %.0f Hz   drive: %.1f   fundamental: %.0f Hz\n",
+                    kSampleRateD, static_cast<double>(kDrive), kFundHz);
+        std::printf("window: %d measurement + %d warmup samples (%d integer cycles)\n\n",
+                    kN, kWarmup, static_cast<int>(kFundHz * kN / kSampleRateD));
 
-    std::printf("\n  Symmetric (odd) shapes produce only odd harmonics (3f0, 5f0 non-zero;\n");
-    std::printf("  2f0, 4f0, 6f0 ~0): tanh, arctan, cubicSoft, algebraic, hardClip, softKnee.\n");
-    std::printf("  Asymmetric shapes produce even+odd harmonics: biasedAsym, diodeCurve.\n");
-    std::printf("  Folding shapes have rich harmonic content: sineFold, triangleFold.\n");
-    std::printf("  Chebyshev T2 targets the 2nd harmonic (2f0 dominant).\n");
+        std::printf("=== Per-shape harmonic signatures (absolute Goertzel amplitudes) ===\n");
+        std::printf("  (f0 = %.0f Hz; each cell is the amplitude at that harmonic)\n\n",
+                    kFundHz);
+        std::printf("  %-14s |   f0    |   2f0   |   3f0   |   4f0   |   5f0   |   6f0   |\n", "shape");
+        std::printf("  %-14s +---------+---------+---------+---------+---------+---------+\n",
+                    "--------------");
 
-    runAliasingComparison();
+        for (const auto& sig : sigs) {
+            printHarmonicSignature(sig);
+        }
 
-    std::printf("\n=== Done ===\n");
+        std::printf("\n  Symmetric (odd) shapes produce only odd harmonics (3f0, 5f0 non-zero;\n");
+        std::printf("  2f0, 4f0, 6f0 ~0): tanh, arctan, cubicSoft, algebraic, hardClip, softKnee.\n");
+        std::printf("  Asymmetric shapes produce even+odd harmonics: biasedAsym, diodeCurve.\n");
+        std::printf("  Folding shapes have rich harmonic content: sineFold, triangleFold.\n");
+        std::printf("  Chebyshev T2 targets the 2nd harmonic (2f0 dominant).\n");
+
+        runAliasingComparison();
+
+        std::printf("\n=== Done ===\n");
+    }
+
     return 0;
 }
