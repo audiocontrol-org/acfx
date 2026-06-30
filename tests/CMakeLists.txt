@@ -24,13 +24,9 @@ add_executable(acfx_core_tests
   "${CMAKE_SOURCE_DIR}/adapters/workbench/workbench-settings.cpp"
   support/allocation-sentinel.cpp
   # ---------------------------------------------------------------------------
-  # Waveshaper test suites (T007/T008/T012/T015/T018): add each new .cpp below
-  # as it is authored, one line per suite, e.g.:
-  #   core/waveshaper-shape-test.cpp
-  #   core/waveshaper-adaa-test.cpp
-  #   core/waveshaper-dc-block-test.cpp
-  #   core/waveshaper-drive-test.cpp
-  #   core/waveshaper-integration-test.cpp
+  # Waveshaper test suites (waveshapers feature): the six suites below are the
+  # actual authored set (T007/T008 wrapper+harmonics, T012 shapes, T019
+  # antiderivatives, T015 LUT, T018 ADAA).
   # ---------------------------------------------------------------------------
   core/waveshaper-test.cpp
   core/waveshaper-harmonics-test.cpp

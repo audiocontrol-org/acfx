@@ -25,8 +25,9 @@ before the implementation they validate.
 and testing. Pre-graduation everything lives under `core/labs/waveshaping/`; Phase US5 graduates the
 kernel into `core/primitives/nonlinear/`.
 
-**First graduated cut (resolves the design Open Question, sequencing-only)**: US1 lands `tanh`,
-`hardClip`, and `cubicSoft` as the first shapes; US2 completes the full catalog. No scope is cut —
+**First graduated cut (resolves the design Open Question, sequencing-only)**: US1 lands the `Shape`
+enum members `tanh`/`hardClip`/`cubicSoft` (functions `tanhShape`/`hardClip`/`cubicSoftClip`) as the
+first shapes; US2 completes the full catalog. No scope is cut —
 the full catalog is delivered across US1+US2; only the order is decided here.
 
 ## Format: `[ID] [P?] [Story] [tier:label] Description`
@@ -122,7 +123,7 @@ memoryless contract.
 aggressive shape; an uncovered shape raises a descriptive error (US4 acceptance scenarios).
 
 - [x] T018 [US4] [tier:balanced] Write `tests/core/waveshaper-adaa-test.cpp`: high-frequency stimulus, naive-vs-ADAA inharmonic-energy comparison (≥ named margin, SC-003); assert selecting an antiderivative-less shape raises a descriptive error (naive-only, Constitution V); assert the base `Shape`/`Waveshaper` are unchanged.
-- [x] T019 [US4] [tier:powerful] Implement antiderivatives in `waveshaper-shapes.h` for the covered shapes (e.g. `tanhAntideriv = log(cosh)`, `hardClipAntideriv`, ...); flag uncovered shapes explicitly.
+- [x] T019 [US4] [tier:powerful] Implement antiderivatives in `waveshaper-shapes.h` for the covered shapes (e.g. `tanhAntideriv = log(cosh)`, `hardClipAntideriv`, ...); flag uncovered shapes explicitly via `hasAntiderivative(Shape)`; author `tests/core/waveshaper-antiderivatives-test.cpp` asserting `F'(u) ≈ shape(u)` (finite-difference) and the coverage predicate.
 - [x] T020 [US4] [tier:powerful] Implement `ADAAWaveshaper` in `core/labs/waveshaping/adaa-waveshaper.h`: first-order `(F(u)−F(uPrev))/(u−uPrev)` with the small-denominator midpoint fallback, same drive/bias/DC-block/gain-comp staging, history reset; refuse uncovered shapes. (Second-order ADAA left as the documented Open Question.)
 
 ---
