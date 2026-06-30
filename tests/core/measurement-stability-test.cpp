@@ -220,3 +220,23 @@ TEST_CASE("relativeExecTime produces a finite figure with the correct block size
     CHECK(cost.timePerBlock >= 0.0);
     CHECK(std::isfinite(cost.timePerBlock));
 }
+
+TEST_CASE("relativeExecTime guards non-positive blockSize (FR-010, defensive precondition)") {
+    // A non-positive blockSize is caller misuse; a NEGATIVE value would cast to a
+    // huge size_t scratch allocation. The guard must return a NaN sentinel WITHOUT
+    // allocating, echoing back the offending blockSize — never crash or over-allocate.
+    acfx::SvfEffect svf;
+    configureLowpass(svf, kRefCutoffHz);
+    const acfx::ProcessContext ctx{kRefSampleRate, 256, 1};
+
+    SUBCASE("blockSize == 0") {
+        const ExecCost cost = relativeExecTime(svf, ctx, 0, 16);
+        CHECK(cost.blockSize == 0);
+        CHECK(std::isnan(cost.timePerBlock));
+    }
+    SUBCASE("blockSize < 0") {
+        const ExecCost cost = relativeExecTime(svf, ctx, -256, 16);
+        CHECK(cost.blockSize == -256);
+        CHECK(std::isnan(cost.timePerBlock));
+    }
+}

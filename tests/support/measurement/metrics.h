@@ -433,16 +433,27 @@ struct ExecCost {
 //      the MEDIAN — more robust to OS scheduling jitter than the mean.
 //
 // Guard: if repeats <= 0, it is treated as 1.
+// Precondition: blockSize MUST be > 0. A non-positive blockSize is caller misuse
+// (and a negative value would, via static_cast<size_t>, request a huge scratch
+// allocation). Rather than allocate/clamp silently, the function returns
+// ExecCost{ quiet_NaN(), blockSize } WITHOUT allocating — surfacing the invalid
+// request via NaN (mirroring thd()/phaseRad()'s unmeasurable sentinel) while
+// echoing back the offending blockSize for diagnosis. No measurement is run.
 // Allocation is permitted (offline measurement path).
 //
 // Returns: ExecCost{ timePerBlock = median duration in seconds,
-//                    blockSize    = blockSize }.
+//                    blockSize    = blockSize }, or {NaN, blockSize} if blockSize <= 0.
 // ---------------------------------------------------------------------------
 template <class FX>
 ExecCost relativeExecTime(FX& fx,
                           const acfx::ProcessContext& ctx,
                           int blockSize,
                           int repeats) {
+    // Defensive precondition (before any allocation): a non-positive blockSize is
+    // invalid; a negative one would cast to an enormous size_t allocation.
+    if (blockSize <= 0)
+        return ExecCost{ std::numeric_limits<double>::quiet_NaN(), blockSize };
+
     const int safeRepeats = (repeats <= 0) ? 1 : repeats;
 
     fx.prepare(ctx);
