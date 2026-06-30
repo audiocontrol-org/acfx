@@ -137,7 +137,10 @@ static bool runStabilityCheck()
         }
     }
 
-    const bool bounded = (maxAbs < kBoundLimit);
+    // Only meaningful when every sample was finite — a run that broke early on a
+    // non-finite output never observed the divergent peak, so do not report it as
+    // bounded (that would contradict the "all finite : NO" line above).
+    const bool bounded = allFinite && (maxAbs < kBoundLimit);
 
     std::printf("  peak |output|  : %g\n",     static_cast<double>(maxAbs));
     std::printf("  all finite     : %s\n",      allFinite ? "YES" : "NO");

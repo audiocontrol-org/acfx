@@ -31,11 +31,11 @@ done < <(find core host adapters tests -type f \( -name '*.h' -o -name '*.cpp' \
 note "== 2. No platform headers in core/ (Constitution IV; C-4: harness paths exempt) =="
 _c4_fail=0
 while IFS= read -r f; do
-  if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+  if grep -EHn 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
     _c4_fail=1
   fi
 done < <(find core -type f \( -name '*.h' -o -name '*.cpp' \) \
-           -not -path '*/labs/*/harness/*' 2>/dev/null)
+           -not -path 'core/labs/*/harness/*' 2>/dev/null)
 if [ "$_c4_fail" -eq 1 ]; then
   note "  FAIL: platform header in core/ (non-harness)"
   fail=1

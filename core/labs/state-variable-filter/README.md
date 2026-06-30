@@ -125,8 +125,10 @@ With resonance normalized to 0.99 (near the DaisySP-documented stability limit),
 the harness feeds a single impulse followed by 200 000 samples of silence in
 bandpass mode. It then asserts:
 
-- Every output sample passes `std::isfinite`: no NaN or denormal escapes the
-  filter state under near-maximum resonance.
+- Every output sample passes `std::isfinite`: no NaN or infinity escapes the
+  filter state under near-maximum resonance. (`std::isfinite` does not classify
+  denormals; the NaN/denormal-free guarantee is asserted by the host test suite,
+  `tests/core/svf-test.cpp`.)
 - Peak absolute output remains below 100.0: any self-oscillation decays rather
   than diverging.
 
