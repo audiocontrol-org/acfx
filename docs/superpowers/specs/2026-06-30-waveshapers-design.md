@@ -121,11 +121,13 @@ whole answer.
 
 ### Chosen — Both anti-aliasing schools: memoryless core + optional ADAA, oversampling orthogonal
 
-Memoryless shapes are the base primitive. **ADAA** (antiderivative anti-aliasing,
-1st/2nd order, stateful) is an opt-in `ADAAWaveshaper` variant. **Oversampling**
-(the sibling primitive) remains the orthogonal "wrap any callable" layer:
-`saturation = waveshaper inside oversampler`. Captures both anti-aliasing schools
-the literature offers without forcing one; planning sequences which lands first.
+Memoryless shapes are the base primitive **and the base shape contract is and stays
+memoryless**. **ADAA** (antiderivative anti-aliasing, 1st/2nd order, stateful) is an
+opt-in `ADAAWaveshaper` variant **layered around** that contract — never folded into
+it. **Oversampling** (the sibling primitive) remains the orthogonal "wrap any
+callable" layer: `saturation = waveshaper inside oversampler`. Captures both
+anti-aliasing schools the literature offers without forcing one and without letting
+either contaminate the memoryless core; planning sequences which lands first.
 
 ### Rejected — Memoryless only; oversampling is the sole anti-aliasing path
 
@@ -198,29 +200,47 @@ reference the LUT is measured against.
    kernel into `core/primitives/nonlinear/` and refine in place. First concept to
    walk the forward pattern.
 
-2. **Two-tier interface.**
-   - **`acfx::shape::*`** — stateless, memoryless transfer functions (the
-     catalog). No sample rate, no state; the unit the lab teaches and the suite
-     unit-tests for analytic correctness.
-   - **`Waveshaper`** — runtime enum-selected stateful primitive wrapping a
-     selected shape:
+2. **Two-tier interface, with a hard memoryless/stateful split.**
+   - **`acfx::shape::*` and the base `Shape` enum are the memoryless primitive
+     core.** Each is a stateless, pure transfer function: `float → float`, no
+     sample rate, no history, no DC-blocker. This is the base shape *contract*, and
+     it does not change. It is the unit the lab teaches and the suite unit-tests for
+     analytic correctness. **DC-blocking, bias, drive, and gain-compensation are NOT
+     part of this contract** — they live only in the stateful wrapper below.
+   - **`Waveshaper`** — runtime enum-selected stateful primitive wrapping a selected
+     shape and owning all stateful/gain-staging concerns:
      ```
      enum class Shape   { tanh, arctan, cubicSoft, algebraic, hardClip,
                           softKnee, chebyshev, biasedAsym, diodeCurve,
                           sineFold, triangleFold };  // catalog; planning cuts first set
      enum class Evaluation { closedForm, lut };
      class Waveshaper {
-       void  init(float sampleRate) noexcept;   // builds LUT if selected
+       void  init(float sampleRate) noexcept;   // builds LUT if selected; preps DC-blocker
        void  setShape(Shape) noexcept;
        void  setEvaluation(Evaluation) noexcept;
-       void  setDrive(float) noexcept;          // pre-gain
-       void  setBias(float) noexcept;           // asymmetry / even harmonics
+       void  setDrive(float) noexcept;          // pre-gain (input scale)
+       void  setBias(float) noexcept;           // fixed offset (asymmetry / even harmonics)
        void  setGainCompensation(bool) noexcept;// auto-makeup toward unity
-       void  reset() noexcept;
-       float process(float x) noexcept;         // drive → shape → comp → DC-block
+       void  reset() noexcept;                  // clears DC-blocker state
+       float process(float x) noexcept;         // see signal chain below
      };
      ```
-   Mirrors the `SvfPrimitive` idiom (allocation-free, `init/set*/reset/process`).
+   **Signal chain (the resolution of bias-vs-drive order, review item 2):**
+   ```
+   process(x):  u = drive · x + bias        // drive scales the input; bias is a
+                                            //   FIXED post-drive offset (tube-grid-bias
+                                            //   analogy) → constant asymmetry point
+                                            //   independent of drive
+                y = shape(u)                // the memoryless transfer function
+                y = dcBlock(y)              // one-pole high-pass; removes the DC the
+                                            //   bias-induced asymmetry introduced
+                y = gainComp · y            // optional makeup (LTI scalar; commutes
+                                            //   with dcBlock)
+                return y
+   ```
+   The DC-blocker is a member of `Waveshaper`, never of `acfx::shape::*` (review
+   item 3). Mirrors the `SvfPrimitive` idiom (allocation-free,
+   `init/set*/reset/process`).
 
 3. **Transfer-function catalog (captured in full; planning sequences the first
    graduated cut).** Soft saturators (`tanh`, `arctan`, cubic soft-clip `x−x³/3`,
@@ -229,33 +249,49 @@ reference the LUT is measured against.
    odd harmonics, via `bias` + DC-block); a **memoryless diode-style** curve
    (exp / `tanh`-approx); **wavefolders** (sine-fold, triangle-fold).
 
-4. **Asymmetry → bias + DC-blocker.** The `Waveshaper` owns a `bias` control and a
-   one-pole DC-blocking high-pass on the output, so asymmetric shapes contribute
-   even harmonics without a DC offset reaching downstream. The DC-block cutoff
-   choice (fixed vs parameter) is an open question.
+4. **Asymmetry → bias + DC-blocker, both in the wrapper.** The `Waveshaper` owns a
+   `bias` control and a one-pole DC-blocking high-pass, so asymmetric shapes
+   contribute even harmonics without a DC offset reaching downstream. `bias` is a
+   **fixed offset applied after `drive`** (`shape(drive·x + bias)`, per the
+   Decision-2 signal chain), giving a constant asymmetry point independent of drive.
+   The DC-blocker is a member of `Waveshaper` and is **not** part of the
+   `acfx::shape::*` memoryless contract. The DC-block cutoff choice (fixed vs
+   parameter) is an open question.
 
 5. **Diode boundary (one-concept-at-a-time).** The diode here is a *memoryless
    transfer function*. The *circuit-accurate* diode clipper (numerically solved I-V
    curve, stateful) is `phase-circuit-modeling`'s `diode-clippers`. The design
    records the boundary so the later item does not read as a duplicate.
 
-6. **Both anti-aliasing schools, captured.** `Waveshaper` is memoryless;
-   `ADAAWaveshaper` is an opt-in stateful 1st/2nd-order antiderivative-AA variant;
-   the `oversampling` sibling is the orthogonal wrap-any-callable layer. The lab
-   harness *compares* naive vs ADAA vs oversampled aliasing so the trade-off is
-   measured, not asserted.
+6. **Both anti-aliasing schools, captured — ADAA strictly layered, never in the
+   base contract (review item 1).** The base shape contract (`acfx::shape::*` /
+   `Shape`) is memoryless and stays so. `ADAAWaveshaper` is a **separate, opt-in
+   stateful wrapper** (1st/2nd-order antiderivative AA) that consumes a shape's
+   antiderivative; it adds state *around* the transfer function and **does not
+   modify the memoryless shape contract or the `Waveshaper` base**. The
+   `oversampling` sibling is the orthogonal wrap-any-callable layer. The harness's
+   anti-aliasing comparison is **naive vs ADAA** (both fully in-scope for this
+   item). The **oversampled arm is contingent, not promised** (review item 5): it is
+   included only if the `oversampling` sibling has landed, or via a throwaway
+   in-harness up/down-sampler that is **explicitly non-reusable and never graduated**
+   — building a reusable oversampling primitive here is out of scope (one concept at
+   a time; that is the sibling's charter).
 
-7. **Two evaluation backends, peers.** `closedForm` (exact, portable reference) and
-   `lut` (precomputed in `init()`, interpolated in `process()` — RT-cheap, uniform
-   on MCU) are both first-class and selectable. Table resolution and interpolation
-   error are validated quantities, with closed-form as the reference bound.
+7. **Two evaluation backends, peers — closed-form is the LUT's reference (review
+   item 4).** `closedForm` (exact, portable) and `lut` (precomputed in `init()`,
+   interpolated in `process()` — RT-cheap, uniform on MCU) are both first-class and
+   selectable. **LUT interpolation error is asserted against the closed-form
+   evaluation of the same shape as ground truth** — closed-form is the reference, the
+   LUT is the measured-and-bounded approximation. Table resolution and the resulting
+   interpolation-error bound are validated quantities.
 
 8. **Validation reuses the shipped measurement infrastructure.** The harness drives
    the existing Goertzel/THD analyzer + sine stimulus to produce per-shape harmonic
-   signatures and the naive/ADAA/oversampled aliasing comparison; assertions use
-   analytic harmonic truths + named tolerances (the `svf-reference` pattern).
-   Deeper, nonlinear-specific harmonic tooling is the `harmonic-analysis` sibling's
-   charter — boundary noted.
+   signatures and the **naive-vs-ADAA** aliasing comparison (the oversampled arm is
+   contingent per Decision 6, not a promised deliverable); assertions use analytic
+   harmonic truths + named tolerances (the `svf-reference` pattern). Deeper,
+   nonlinear-specific harmonic tooling is the `harmonic-analysis` sibling's charter
+   — boundary noted.
 
 9. **Portability gate extended.** `scripts/check-portability.sh` (in CI, never a
    hook) learns `core/labs/waveshaping/**` and `core/primitives/nonlinear/**` so its
@@ -327,6 +363,18 @@ scoping pass (`/speckit-clarify` / planning), **not** discarded:
   DC-block), diode boundary (memoryless diode curve here), evaluation (closed-form
   and LUT as peers). The operator consistently chose the capture-everything option,
   aligning with the capture-over-YAGNI house rule.
+- **External review (2026-06-30), incorporated before `/define`:** a third-party
+  review raised the ADAA-vs-memoryless contract boundary as its main concern plus
+  five clarifications. All incorporated: (1) the memoryless shape contract is stated
+  as fixed, with ADAA strictly layered around it (Decision 6, solution space); (2)
+  bias is defined as a fixed offset applied after drive — `shape(drive·x + bias)` —
+  with the full signal chain spelled out (Decision 2, 4); (3) the DC-blocker is
+  pinned to the `Waveshaper` wrapper, never the `acfx::shape::*` contract (Decision
+  2, 4); (4) closed-form is named the ground-truth reference for LUT interpolation
+  error (Decision 7); (5) the oversampled comparison is demoted to contingent — naive
+  vs ADAA is the promised comparison, the oversampled arm requires the sibling or a
+  throwaway non-reusable in-harness resampler (Decision 6, 8); (6) the "first
+  graduated cut" stays an open question for planning, which the review affirmed.
 - **Next step:** operator records the `design-approved:` marker on the roadmap node;
   on a met `design-to-spec` gate, hand off to `/stack-control:define` to author the
   Spec Kit spec.
