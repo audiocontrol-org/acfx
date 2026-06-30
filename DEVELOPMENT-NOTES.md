@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-06-30: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 8
+  - roadmap(waveshapers): record analyze-clean; spec runnable, phase=implementing
+  - tasks(waveshapers): 27 tasks across US1-US5; analyze-clean (0 critical/high)
+  - plan(waveshapers): impl plan + research/data-model/contracts/quickstart; constitution PASS
+  - define(waveshapers): author Spec Kit spec from approved design; set spec pointer
+  - design(waveshapers): operator-approved; design-to-spec gate 7/7 met
+  - design(waveshapers): incorporate external review before /define
+  - design(waveshapers): record nonlinear memoryless primitive design
+  - chore(roadmap): close phase-digital-fundamentals and all shipped children
+- Files changed: 12
+- Backlog touched: (none)
+
 ## 2026-06-30: Design + define three-layer-structure → execute-ready
 
 **Goal:** Take up the `design:gap/three-layer-structure` roadmap item and drive it through the
