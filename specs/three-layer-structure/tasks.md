@@ -22,9 +22,10 @@ description: "Task list for three-layer-structure implementation"
 
 **Organization**: grouped by user story (US1 P1 → US2 P2 → US3 P3) so each is an independently testable increment.
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `[ID] [P?] [Story] [tier:label] Description`
 
 - **[P]**: can run in parallel (different files, no dependency on an incomplete task)
+- **[tier:label]**: model-sized-dispatch tier (033) — `fast`/`balanced`/`powerful` resolve via `.stack-control/config.yaml` `tier_map`.
 - Paths are repo-relative; the include root is `core/`.
 
 ---
@@ -33,8 +34,8 @@ description: "Task list for three-layer-structure implementation"
 
 **Purpose**: establish a known-green baseline before any move.
 
-- [ ] T001 Confirm the baseline builds and passes today: `cmake --preset test && cmake --build --preset test && ctest --preset test` — record that all tests are green before migration (SC-001 reference point).
-- [ ] T002 Confirm the portability gate is green today: `./scripts/check-portability.sh` exits 0.
+- [ ] T001 [tier:fast] Confirm the baseline builds and passes today: `cmake --preset test && cmake --build --preset test && ctest --preset test` — record that all tests are green before migration (SC-001 reference point).
+- [ ] T002 [tier:fast] Confirm the portability gate is green today: `./scripts/check-portability.sh` exits 0.
 
 ---
 
@@ -42,7 +43,7 @@ description: "Task list for three-layer-structure implementation"
 
 **Purpose**: the taxonomy document that both migration stories write into; creating it first prevents two stories racing on its content.
 
-- [ ] T003 Create the taxonomy document `core/primitives/README.md`: enumerate the full intended taxonomy — inhabited categories `filters/`, `delays/`, `modulation/` (filled in by US1/US2) and documented-only prospectus families `nonlinear/`, `dynamics/`, `analog/`, `circuit/`, `convolution/`, `wdf/`, `physical/`; state the rule that a category folder is created only when it has an inhabitant and uninhabited categories live here, not as empty dirs (FR-008, FR-009, SC-006).
+- [ ] T003 [tier:balanced] Create the taxonomy document `core/primitives/README.md`: enumerate the full intended taxonomy — inhabited categories `filters/`, `delays/`, `modulation/` (filled in by US1/US2) and documented-only prospectus families `nonlinear/`, `dynamics/`, `analog/`, `circuit/`, `convolution/`, `wdf/`, `physical/`; state the rule that a category folder is created only when it has an inhabitant and uninhabited categories live here, not as empty dirs (FR-008, FR-009, SC-006).
 
 **Checkpoint**: taxonomy doc exists; baseline green.
 
@@ -54,14 +55,14 @@ description: "Task list for three-layer-structure implementation"
 
 **Independent test**: `ls core/{labs,primitives,effects,dsp}` and `core/primitives/filters/svf-primitive.h` succeed; `ctest --preset test` passes unchanged; the SVF lab has README + host-only harness; `svf-effect.h` includes the new path.
 
-- [ ] T004 [US1] `git mv core/primitives/svf-primitive.h core/primitives/filters/svf-primitive.h` (preserve history; body unchanged — research Decision 1).
-- [ ] T005 [US1] Update the SVF effect include in `core/effects/svf/svf-effect.h`: `"primitives/svf-primitive.h"` → `"primitives/filters/svf-primitive.h"` (FR-012).
-- [ ] T006 [US1] Update the SVF include in `core/effects/modulated-delay/modulated-delay-effect.h`: `"primitives/svf-primitive.h"` → `"primitives/filters/svf-primitive.h"` (FR-012).
-- [ ] T007 [US1] Author `core/labs/state-variable-filter/README.md` per the lab-folder contract: Theory, Walkthrough, Graduation target (`core/primitives/filters/svf-primitive.h`, graduated state), Measurements (per-mode frequency response + high-resonance stability) (FR-003, FR-013).
-- [ ] T008 [US1] Author the host-only harness `core/labs/state-variable-filter/harness/svf-harness.cpp` that drives the graduated `acfx::SvfPrimitive` and prints per-mode frequency-response + stability evidence, reusing the measurement intent of `tests/core/svf-test.cpp` (FR-013; research Decision 6). Include only `core/dsp/`, `core/primitives/**`, and the kernel — never an effect.
-- [ ] T009 [US1] Add the host-only CMake target `acfx_lab_svf_harness` (links `acfx_core`, built under the `test`/`desktop` configuration only, absent from `daisy`/`teensy`) — in `CMakeLists.txt` / the appropriate `cmake/*.cmake` (research Decision 3, FR-005).
-- [ ] T010 [US1] Verify: `cmake --preset test && cmake --build --preset test && ctest --preset test` — all existing SVF tests pass unchanged (SC-001); build `acfx_lab_svf_harness` and run it, confirming it emits the expected evidence (SC-002).
-- [ ] T011 [US1] Commit + push US1 as an atomic increment (Commandment 1).
+- [ ] T004 [US1] [tier:fast] `git mv core/primitives/svf-primitive.h core/primitives/filters/svf-primitive.h` (preserve history; body unchanged — research Decision 1).
+- [ ] T005 [US1] [tier:fast] Update the SVF effect include in `core/effects/svf/svf-effect.h`: `"primitives/svf-primitive.h"` → `"primitives/filters/svf-primitive.h"` (FR-012).
+- [ ] T006 [US1] [tier:fast] Update the SVF include in `core/effects/modulated-delay/modulated-delay-effect.h`: `"primitives/svf-primitive.h"` → `"primitives/filters/svf-primitive.h"` (FR-012).
+- [ ] T007 [US1] [tier:balanced] Author `core/labs/state-variable-filter/README.md` per the lab-folder contract: Theory, Walkthrough, Graduation target (`core/primitives/filters/svf-primitive.h`, graduated state), Measurements (per-mode frequency response + high-resonance stability) (FR-003, FR-013).
+- [ ] T008 [US1] [tier:balanced] Author the host-only harness `core/labs/state-variable-filter/harness/svf-harness.cpp` that drives the graduated `acfx::SvfPrimitive` and prints per-mode frequency-response + stability evidence, reusing the measurement intent of `tests/core/svf-test.cpp` (FR-013; research Decision 6). Include only `core/dsp/`, `core/primitives/**`, and the kernel — never an effect.
+- [ ] T009 [US1] [tier:balanced] Add the host-only CMake target `acfx_lab_svf_harness` (links `acfx_core`, built under the `test`/`desktop` configuration only, absent from `daisy`/`teensy`) — in `CMakeLists.txt` / the appropriate `cmake/*.cmake` (research Decision 3, FR-005).
+- [ ] T010 [US1] [tier:fast] Verify: `cmake --preset test && cmake --build --preset test && ctest --preset test` — all existing SVF tests pass unchanged (SC-001); build `acfx_lab_svf_harness` and run it, confirming it emits the expected evidence (SC-002).
+- [ ] T011 [US1] [tier:fast] Commit + push US1 as an atomic increment (Commandment 1).
 
 **Checkpoint**: US1 is a complete, demonstrable MVP — one concept exists at every stage.
 
@@ -73,15 +74,15 @@ description: "Task list for three-layer-structure implementation"
 
 **Independent test**: `find core/primitives -maxdepth 1 -name '*.h'` returns nothing; `ctest --preset test` passes; modulated-delay builds with updated includes.
 
-- [ ] T012 [P] [US2] `git mv core/primitives/delay-line.h core/primitives/delays/delay-line.h` (FR-011).
-- [ ] T013 [P] [US2] `git mv core/primitives/lfo.h core/primitives/modulation/lfo.h` (FR-011).
-- [ ] T014 [US2] Update delay-line + lfo includes in `core/effects/modulated-delay/wow-flutter.h`: `"primitives/delay-line.h"` → `"primitives/delays/delay-line.h"`, `"primitives/lfo.h"` → `"primitives/modulation/lfo.h"` (FR-012).
-- [ ] T015 [US2] Update delay-line + lfo includes in `core/effects/modulated-delay/modulated-delay-effect.h` to the new `delays/` + `modulation/` paths (FR-012).
-- [ ] T016 [P] [US2] Update `tests/core/delay-line-test.cpp` include: `"primitives/delay-line.h"` → `"primitives/delays/delay-line.h"` (FR-012).
-- [ ] T017 [P] [US2] Update `tests/core/lfo-test.cpp` include: `"primitives/lfo.h"` → `"primitives/modulation/lfo.h"` (FR-012).
-- [ ] T018 [US2] Mark `filters/`, `delays/`, `modulation/` as inhabited in `core/primitives/README.md` (FR-009).
-- [ ] T019 [US2] Verify: `ctest --preset test` passes unchanged (SC-001); `find core/primitives -maxdepth 1 -name '*.h'` is empty (SC-003).
-- [ ] T020 [US2] Commit + push US2 (Commandment 1).
+- [ ] T012 [P] [US2] [tier:fast] `git mv core/primitives/delay-line.h core/primitives/delays/delay-line.h` (FR-011).
+- [ ] T013 [P] [US2] [tier:fast] `git mv core/primitives/lfo.h core/primitives/modulation/lfo.h` (FR-011).
+- [ ] T014 [US2] [tier:fast] Update delay-line + lfo includes in `core/effects/modulated-delay/wow-flutter.h`: `"primitives/delay-line.h"` → `"primitives/delays/delay-line.h"`, `"primitives/lfo.h"` → `"primitives/modulation/lfo.h"` (FR-012).
+- [ ] T015 [US2] [tier:fast] Update delay-line + lfo includes in `core/effects/modulated-delay/modulated-delay-effect.h` to the new `delays/` + `modulation/` paths (FR-012).
+- [ ] T016 [P] [US2] [tier:fast] Update `tests/core/delay-line-test.cpp` include: `"primitives/delay-line.h"` → `"primitives/delays/delay-line.h"` (FR-012).
+- [ ] T017 [P] [US2] [tier:fast] Update `tests/core/lfo-test.cpp` include: `"primitives/lfo.h"` → `"primitives/modulation/lfo.h"` (FR-012).
+- [ ] T018 [US2] [tier:fast] Mark `filters/`, `delays/`, `modulation/` as inhabited in `core/primitives/README.md` (FR-009).
+- [ ] T019 [US2] [tier:fast] Verify: `ctest --preset test` passes unchanged (SC-001); `find core/primitives -maxdepth 1 -name '*.h'` is empty (SC-003).
+- [ ] T020 [US2] [tier:fast] Commit + push US2 (Commandment 1).
 
 **Checkpoint**: `core/primitives/` holds only category subdirs + README.
 
@@ -93,13 +94,13 @@ description: "Task list for three-layer-structure implementation"
 
 **Independent test**: gate exits 0 on the conformant tree; exits 1 naming the rule on each deliberate violation.
 
-- [ ] T021 [US3] Extend `scripts/check-portability.sh` with check C-1 (lab-harness isolation): fail if any portable file — `core/dsp/**`, `core/primitives/**`, `core/effects/**`, or a lab kernel (`core/labs/**` excluding `*/harness/**`) — has an `#include` matching `labs/[^/]*/harness/` (contracts/layering-rules.md C-1, FR-016).
-- [ ] T022 [US3] Extend `scripts/check-portability.sh` with check C-2 (dependency direction): fail if any `core/primitives/**` file `#include`s an `effects/` path (C-2, FR-015).
-- [ ] T023 [US3] Extend the existing platform-header scan (check 2) to exclude `core/labs/*/harness/` (host-only, legitimately non-portable) while still covering `core/labs/**` kernels; confirm the file-size scan already covers `core/labs` (contracts C-4, FR-017).
-- [ ] T024 [US3] Add the MCU-harness backstop (check C-3): fail if a `labs/*/harness/` path appears in the `adapters/daisy` or `adapters/teensy` build inputs (C-3, FR-005).
-- [ ] T025 [US3] Verify the gate on the conformant tree: `./scripts/check-portability.sh` exits 0 with the new checks among its passes (SC-004).
-- [ ] T026 [US3] Verify the gate catches violations: temporarily inject (a) a `core/` file including a `labs/*/harness/` header and (b) a `core/primitives/` header including `effects/svf/svf-effect.h`; confirm exit 1 naming each rule; revert both probes (quickstart Scenario D, SC-004).
-- [ ] T027 [US3] Commit + push US3 (Commandment 1).
+- [ ] T021 [US3] [tier:balanced] Extend `scripts/check-portability.sh` with check C-1 (lab-harness isolation): fail if any portable file — `core/dsp/**`, `core/primitives/**`, `core/effects/**`, or a lab kernel (`core/labs/**` excluding `*/harness/**`) — has an `#include` matching `labs/[^/]*/harness/` (contracts/layering-rules.md C-1, FR-016).
+- [ ] T022 [US3] [tier:balanced] Extend `scripts/check-portability.sh` with check C-2 (dependency direction): fail if any `core/primitives/**` file `#include`s an `effects/` path (C-2, FR-015).
+- [ ] T023 [US3] [tier:balanced] Extend the existing platform-header scan (check 2) to exclude `core/labs/*/harness/` (host-only, legitimately non-portable) while still covering `core/labs/**` kernels; confirm the file-size scan already covers `core/labs` (contracts C-4, FR-017).
+- [ ] T024 [US3] [tier:balanced] Add the MCU-harness backstop (check C-3): fail if a `labs/*/harness/` path appears in the `adapters/daisy` or `adapters/teensy` build inputs (C-3, FR-005).
+- [ ] T025 [US3] [tier:fast] Verify the gate on the conformant tree: `./scripts/check-portability.sh` exits 0 with the new checks among its passes (SC-004).
+- [ ] T026 [US3] [tier:balanced] Verify the gate catches violations: temporarily inject (a) a `core/` file including a `labs/*/harness/` header and (b) a `core/primitives/` header including `effects/svf/svf-effect.h`; confirm exit 1 naming each rule; revert both probes (quickstart Scenario D, SC-004).
+- [ ] T027 [US3] [tier:fast] Commit + push US3 (Commandment 1).
 
 **Checkpoint**: the invariants are mechanically locked in.
 
@@ -107,10 +108,10 @@ description: "Task list for three-layer-structure implementation"
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T028 Run the full quickstart validation (`specs/three-layer-structure/quickstart.md` Scenarios A–D; E if an ARM toolchain is present) and confirm each expected outcome.
-- [ ] T029 [P] Confirm no file touched/created exceeds the ~500-line budget (the gate's check 1 covers this; spot-confirm the new harness + README) (FR-021, Principle VII).
-- [ ] T030 [P] Confirm CI (`.github/workflows/ci.yml`) exercises the extended gate + host tests on the branch (no hook added — Commandment 2 / FR-018).
-- [ ] T031 Final commit + push; branch ready for `/stack-control:execute` governance + ship.
+- [ ] T028 [tier:balanced] Run the full quickstart validation (`specs/three-layer-structure/quickstart.md` Scenarios A–D; E if an ARM toolchain is present) and confirm each expected outcome.
+- [ ] T029 [P] [tier:fast] Confirm no file touched/created exceeds the ~500-line budget (the gate's check 1 covers this; spot-confirm the new harness + README) (FR-021, Principle VII).
+- [ ] T030 [P] [tier:fast] Confirm CI (`.github/workflows/ci.yml`) exercises the extended gate + host tests on the branch (no hook added — Commandment 2 / FR-018).
+- [ ] T031 [tier:fast] Final commit + push; branch ready for `/stack-control:execute` governance + ship.
 
 ---
 
