@@ -467,3 +467,4 @@ roadmap → design → define → plan → tasks → analyze.
 workflow(graduate): design:feature/workbench-audio-config merging -> validating
 workflow(graduate): design:feature/program-scaffolding merging -> validating
 workflow(graduate): design:feature/measurement-infrastructure merging -> validating
+workflow(graduate): design:gap/three-layer-structure merging -> validating
