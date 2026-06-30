@@ -121,9 +121,10 @@ inline float chebyshev(float u, int n) noexcept {
     return tk;
 }
 
-// Asymmetric memoryless diode-style transfer CURVE (research Decision 6).
+// Asymmetric memoryless diode-style transfer CURVE (FR-004 / research Decision 6).
 // NOT a circuit-solved diode clipper (numerically integrated I–V, stateful) —
 // that distinct item belongs to phase-circuit-modeling's diode-clippers.
+// See core/labs/waveshaping/README.md for the altitude boundary explanation.
 // Closed form (sign-asymmetric tanh): the forward branch (u>=0) conducts softly
 // to +1; the reverse branch (u<0) is strongly attenuated toward −0.2.  Result is
 // monotone non-decreasing, continuous at 0, NOT odd (so it injects even

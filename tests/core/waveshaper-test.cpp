@@ -261,7 +261,141 @@ TEST_CASE("reset clears DC-block state and preserves shape/drive/bias parameters
 }
 
 // ---------------------------------------------------------------------------
-// TEST 6: RT-safety — Waveshaper::process() allocates zero bytes on the heap
+// TEST 6 (T014): setShape runtime switch — no stale state, all enum members
+//   dispatchable (US2 contract: complete catalog dispatch).
+//
+// Three sub-assertions:
+//   A. Every Shape enum member is dispatchable (loop over all 11); output is
+//      finite and bounded for representative inputs.
+//   B. After setShape + reset (DC cleared), the FIRST sample output equals the
+//      new shape's transfer exactly.  DC-blocker is transparent at n=0
+//      (y[0] = x[0] − 0 + R·0 = x[0]).  Verifies no old-shape residue.
+//   C. DC-block state converges after the switch: after kWarmup >> tau=200
+//      samples of the same input, ws (switched from hardClip→tanh) and ref
+//      (always tanh) produce outputs within the analytic convergence bound
+//      (|diff| ≤ R^kWarmup · max_initial_diff ≈ 3e-7 · 2; tol=0.001 is 6700×).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("setShape runtime switch: no stale state, all enum members dispatchable (T014/US2)") {
+    const Shape kAllShapes[] = {
+        Shape::tanh, Shape::arctan, Shape::cubicSoft, Shape::algebraic,
+        Shape::hardClip, Shape::softKnee, Shape::chebyshev, Shape::biasedAsym,
+        Shape::diodeCurve, Shape::sineFold, Shape::triangleFold
+    };
+
+    SUBCASE("A: every Shape enum member is dispatchable — output finite and bounded") {
+        // Drive=1.0, inputs in [-0.9, 0.9] keep chebyshev(u,2)=2u²-1 in [-1,1].
+        // All other shapes are bounded over all finite u (biasedAsym range ≈ [-1.5, 0.6]).
+        for (Shape s : kAllShapes) {
+            Waveshaper ws;
+            ws.init(kSampleRate);
+            ws.setShape(s);
+            ws.setDrive(1.0f);
+            ws.setBias(0.0f);
+            ws.setGainCompensation(false);
+
+            const float inputs[] = {-0.9f, -0.5f, 0.0f, 0.5f, 0.9f};
+            for (float x : inputs) {
+                const float out = ws.process(x);
+                CHECK_MESSAGE(std::isfinite(out),
+                    "shape=", static_cast<int>(s), " x=", x);
+                CHECK_MESSAGE(std::abs(out) <= 3.0f,
+                    "shape=", static_cast<int>(s), " x=", x);
+            }
+        }
+    }
+
+    SUBCASE("B: setShape+reset immediately applies new shape (DC-transparent at n=0)") {
+        // After setShape(tanh) + reset(), dcXPrev_=dcYPrev_=0.
+        // At n=0: dcBlock(y) = y - 0 + R*0 = y (transparent).
+        // Therefore process(x) = tanh(drive*x+bias) exactly.
+        // Use x=2 so hardClip(2)=1.0 and tanh(2)≈0.964 are clearly distinct.
+
+        constexpr float kX = 2.0f;  // hardClip(2)=1.0, tanh(2)≈0.9640
+
+        // Reference: fresh tanh shaper at n=0
+        Waveshaper ref;
+        ref.init(kSampleRate);
+        ref.setShape(Shape::tanh);
+        ref.setDrive(1.0f);
+        ref.setBias(0.0f);
+        ref.setGainCompensation(false);
+        const float refOut = ref.process(kX);  // = tanh(2.0) ≈ 0.9640
+
+        // Test shaper: start with hardClip, accumulate DC history, switch, reset.
+        Waveshaper ws;
+        ws.init(kSampleRate);
+        ws.setShape(Shape::hardClip);
+        ws.setDrive(1.0f);
+        ws.setBias(0.0f);
+        ws.setGainCompensation(false);
+        for (int i = 0; i < 200; ++i) {
+            ws.process(0.5f * std::sin(2.0f * kPi * 440.0f * static_cast<float>(i) / kSampleRate));
+        }
+
+        ws.setShape(Shape::tanh);
+        ws.reset();  // clears DC state only; shape=tanh preserved (FR-009)
+
+        const float wsOut = ws.process(kX);  // DC-transparent at n=0 post-reset
+
+        // After setShape(tanh)+reset: output must match fresh tanh shaper exactly.
+        CHECK(wsOut == doctest::Approx(refOut).epsilon(1.0e-5f));
+        // Verify it is NOT hardClip's output (hardClip(2)=1.0, tanh(2)≈0.964 != 1.0).
+        CHECK(wsOut != doctest::Approx(1.0f).epsilon(1.0e-4f));
+    }
+
+    SUBCASE("C: DC-block state converges after shape switch — no prior-shape residue") {
+        // ws: hardClip for 500 samples → setShape(tanh) → kWarmup more samples.
+        // ref: always tanh, zero initial DC state → kWarmup samples (same inputs).
+        // After kWarmup=3000 >> tau=200 both DC states have converged:
+        //   |ws_dc − ref_dc| ≤ R^3000 · max_initial_diff ≈ e^-15 · 2 ≈ 6e-7.
+        // Tolerance 0.001 is ≈ 1700× the analytic bound.
+        constexpr int   kWarmup = 3000;
+        constexpr int   kCheck  = 100;
+        constexpr float kAmp    = 0.3f;
+        constexpr float kFreq   = 440.0f;
+
+        Waveshaper ws;
+        ws.init(kSampleRate);
+        ws.setShape(Shape::hardClip);
+        ws.setDrive(1.0f);
+        ws.setBias(0.0f);
+        ws.setGainCompensation(false);
+        for (int i = 0; i < 500; ++i) {
+            const float t = static_cast<float>(i) / kSampleRate;
+            ws.process(kAmp * std::sin(2.0f * kPi * kFreq * t));
+        }
+        ws.setShape(Shape::tanh);  // switch mid-stream
+
+        Waveshaper ref;
+        ref.init(kSampleRate);
+        ref.setShape(Shape::tanh);
+        ref.setDrive(1.0f);
+        ref.setBias(0.0f);
+        ref.setGainCompensation(false);
+
+        // Both process the SAME kWarmup inputs (starting from sample offset 500).
+        for (int i = 0; i < kWarmup; ++i) {
+            const float t = static_cast<float>(500 + i) / kSampleRate;
+            const float x = kAmp * std::sin(2.0f * kPi * kFreq * t);
+            ws.process(x);
+            ref.process(x);
+        }
+
+        // After convergence: output difference bounded by R^3000 * max_initial_diff.
+        constexpr float kTol = 0.001f;
+        for (int i = 0; i < kCheck; ++i) {
+            const float t      = static_cast<float>(500 + kWarmup + i) / kSampleRate;
+            const float x      = kAmp * std::sin(2.0f * kPi * kFreq * t);
+            const float wsOut  = ws.process(x);
+            const float refOut = ref.process(x);
+            CHECK(std::abs(wsOut - refOut) < kTol);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TEST 7: RT-safety — Waveshaper::process() allocates zero bytes on the heap
 //         (FR-011, FR-020; T011; research.md Decision 7)
 //
 // The audio path (process()) MUST be allocation-free: no heap alloc, no locks,

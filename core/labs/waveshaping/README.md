@@ -59,6 +59,26 @@ enum. Intended inhabitants (T009, T013):
 - **Contracts** — `enum class Shape` and `enum class Evaluation` for runtime
   dispatch.
 
+#### Diode-curve altitude boundary (FR-004 / research.md Decision 6)
+
+`diodeCurve` is a **memoryless transfer curve** — a single-valued, time-invariant
+`float → float` closed form in `namespace acfx::shape`. It is explicitly **not**
+a circuit-solved diode clipper.
+
+The stateful circuit primitive — which numerically integrates the diode I–V
+characteristic and solves the nonlinear circuit equations at each sample — belongs
+to the `phase-circuit-modeling` project's `diode-clippers` item (FR-004,
+`specs/waveshapers/research.md` Decision 6). The two are different concepts at
+different altitudes:
+
+- **This shape** (`diodeCurve`): gives the *form* of a diode-like soft-asymmetric
+  transfer. Memoryless, allocation-free, no circuit state.
+- **Circuit primitive** (`phase-circuit-modeling/diode-clippers`): gives the
+  *physics* of a diode-loaded circuit via numerical integration. Stateful.
+
+They are not duplicates — they operate at different design altitudes and are
+deliberately kept in separate projects.
+
 ### `waveshaper.h`
 
 The stateful wrapper `Waveshaper` applying a selected shape with gain staging,

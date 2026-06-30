@@ -81,28 +81,93 @@ public:
 
 private:
     // -----------------------------------------------------------------------
+    // Default parameters for parameterized shapes.
+    //
+    // The wrapper API (waveshaper-api.md) does not expose per-shape setters
+    // (e.g. setChebyshevOrder, setFoldGain); those are documented future
+    // extensions.  Until then, each parameterized shape uses a named constant
+    // baked into the dispatch.
+    // -----------------------------------------------------------------------
+
+    // chebyshev default order: T_2(u) = 2u²−1.
+    // T_2 is the first order that genuinely "targets" a harmonic (T_1 is
+    // trivially linear).  Bounded to [−1,1] for |u| ≤ 1.
+    static constexpr int kDefaultChebyshevOrder = 2;
+
+    // sineFold / triangleFold default fold depth.
+    // At foldGain=1, sineFold maps u=1 → sin(π/2) = 1 (first fold at |u|=1);
+    // triangleFold is a full-range triangle wave on [−1,1].
+    static constexpr float kDefaultFoldGain = 1.0f;
+
+    // biasedAsym: wrapper-local asymmetric form.  NOT a pure acfx::shape::*
+    // function (research.md Decision 1); the pure namespace contains only
+    // parameterless or gain-parameterized shapes.
+    //
+    // Closed form:  tanh(u + kBiasedAsymOffset) − kBiasedAsymDcCorr
+    //   kBiasedAsymDcCorr = tanh(kBiasedAsymOffset) ensures f(0) = 0.
+    //
+    // Asymmetry: the positive and negative halves saturate at different rates
+    // (slope ≈ sech²(0.5) ≈ 0.786 at origin), producing even+odd harmonics on
+    // a symmetric input without requiring the user to set an external bias.
+    //
+    // Range: (−1 − tanh(0.5), 1 − tanh(0.5)) ≈ (−1.462, 0.538); bounded but
+    // NOT symmetrically ±1.  kBiasedAsymDcCorr is the exact float literal for
+    // tanh(0.5), baked here for RT-safety (no std:: call on the audio path).
+    static constexpr float kBiasedAsymOffset = 0.5f;
+    static constexpr float kBiasedAsymDcCorr = 0.46211715726f; // = tanh(0.5f)
+
+    // -----------------------------------------------------------------------
     // Memoryless shape dispatch — selects a pure acfx::shape::* function.
     //
-    // US1 (T009) implements only tanh, cubicSoft, and hardClip; the remaining
-    // catalog entries (arctan, algebraic, softKnee, chebyshev, biasedAsym,
-    // diodeCurve, sineFold, triangleFold) are declared but not yet defined —
-    // CALLING them would fail to link. The full catalog dispatch is wired in
-    // T014 (US2). Until then the switch CALLS only the three implemented shapes
-    // and routes the not-yet-wired enum members to tanhShape via the default.
-    // This is a temporary stub for unimplemented branches (each carries an
-    // explicit TODO(T014)), not a runtime data fallback: every shape a US1
-    // caller can exercise (tanh, hardClip; cubicSoft) is dispatched exactly.
+    // Complete switch over all 11 Shape enum members; every value gets a
+    // deliberate, correct mapping.  No silent fallback: if a new Shape
+    // member is added without a matching case, -Wswitch surfaces it.
+    //
+    // RT-safe: noexcept, no heap allocation, no locks, bounded switch.
     // -----------------------------------------------------------------------
     float shapeDispatch(float u) const noexcept {
         switch (shape_) {
-            case Shape::tanh:      return shape::tanhShape(u);
-            case Shape::cubicSoft: return shape::cubicSoftClip(u);
-            case Shape::hardClip:  return shape::hardClip(u);
-            // TODO(T014): wire arctan, algebraic, softKnee, chebyshev,
-            //   biasedAsym, diodeCurve, sineFold, triangleFold once their
-            //   acfx::shape::* bodies (T009 remainder) are defined.
-            default:               return shape::tanhShape(u);
+            case Shape::tanh:
+                return shape::tanhShape(u);
+            case Shape::arctan:
+                return shape::arctanShape(u);
+            case Shape::cubicSoft:
+                return shape::cubicSoftClip(u);
+            case Shape::algebraic:
+                return shape::algebraic(u);
+            case Shape::hardClip:
+                return shape::hardClip(u);
+            case Shape::softKnee:
+                return shape::softKnee(u);
+            case Shape::chebyshev:
+                // kDefaultChebyshevOrder baked in; per-shape order setter is
+                // a documented future extension (waveshaper-api.md).
+                return shape::chebyshev(u, kDefaultChebyshevOrder);
+            case Shape::biasedAsym:
+                // Operating-point-shifted tanh, DC-corrected so f(0)=0.
+                // Wrapper-local; no acfx::shape::biasedAsym exists.
+                // See kBiasedAsymOffset / kBiasedAsymDcCorr above.
+                return shape::tanhShape(u + kBiasedAsymOffset) - kBiasedAsymDcCorr;
+            case Shape::diodeCurve:
+                // MEMORYLESS transfer curve (research.md Decision 6 / FR-004).
+                // Distinct from the stateful, circuit-solved diode clipper that
+                // phase-circuit-modeling's diode-clippers item owns.
+                // See core/labs/waveshaping/README.md for the altitude boundary.
+                return shape::diodeCurve(u);
+            case Shape::sineFold:
+                // kDefaultFoldGain baked in; per-shape foldGain setter is
+                // a documented future extension (waveshaper-api.md).
+                return shape::sineFold(u, kDefaultFoldGain);
+            case Shape::triangleFold:
+                // kDefaultFoldGain baked in; per-shape foldGain setter is
+                // a documented future extension (waveshaper-api.md).
+                return shape::triangleFold(u, kDefaultFoldGain);
         }
+        // Unreachable for valid (in-range) enum values; the switch above is
+        // exhaustive.  If execution reaches here the enum was out-of-range
+        // (e.g. corrupted memory).  Route to tanhShape: deterministic, bounded,
+        // and explicitly documented — not a silent data fallback.
+        return shape::tanhShape(u);
     }
 
     // -----------------------------------------------------------------------
