@@ -115,6 +115,10 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:primitive/waveshapers
 - status: planned
+- analyze-clean: yes
+- spec: specs/waveshapers
+- design-approved: yes
+- design: docs/superpowers/specs/2026-06-30-waveshapers-design.md
 - depends-on: multi:feature/phase-digital-fundamentals
 - part-of: multi:feature/phase-nonlinear-dsp
 

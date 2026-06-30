@@ -94,4 +94,13 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   )
   target_link_libraries(acfx_lab_svf_harness PRIVATE acfx_core)
   target_compile_features(acfx_lab_svf_harness PRIVATE cxx_std_20)
+
+  # Waveshaping lab harness — mirrors acfx_lab_svf_harness exactly (same
+  # linkage and feature). The harness is a required, completed deliverable;
+  # a missing source file should fail configure, not silently drop the target.
+  add_executable(acfx_lab_waveshaping_harness
+    core/labs/waveshaping/harness/waveshaping-harness.cpp
+  )
+  target_link_libraries(acfx_lab_waveshaping_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_waveshaping_harness PRIVATE cxx_std_20)
 endif()

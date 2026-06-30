@@ -2,6 +2,73 @@
 
 ---
 
+## 2026-06-30: Design + define waveshapers → runnable spec
+
+**Goal:** Pick up the `design:primitive/waveshapers` roadmap item — the first nonlinear primitive of
+`phase-nonlinear-dsp` — and drive it through the stack-control front door from a blank design to a
+runnable, analyze-clean Spec Kit spec. First concept intended to walk the Theory→Lab→Primitive
+graduation greenfield (SVF only proved the retroactive migration).
+
+**Accomplished:**
+- **Designed the primitive** via `/stack-control:design` (brainstorming backend, house-rules
+  injected). Six operator forks settled, all toward capture-everything: altitude = **lab +
+  graduated primitive**; interface = **pure `acfx::shape::*` fns + enum-selected stateful
+  `Waveshaper` wrapper**; anti-aliasing = **memoryless core + opt-in ADAA, oversampling orthogonal
+  sibling**; **asymmetric shapes + DC-block** included; **memoryless diode curve** here (distinct
+  altitude from the circuit-solved diode-clipper later); evaluation = **closed-form + LUT as peers**.
+- **Incorporated a third-party review** before `/define` — its main concern (ADAA too stateful for
+  a memoryless core) plus five clarifications, all folded in: memoryless contract pinned as fixed
+  with ADAA strictly layered; bias defined as a fixed post-drive offset (`shape(drive·x + bias)`);
+  DC-blocker pinned to the wrapper; closed-form named the LUT's ground-truth reference; the
+  oversampled comparison demoted to contingent. Operator approved; `design-to-spec` gate 7/7.
+- **Defined the spec** through the native chain — specify → plan → tasks → analyze — each backend
+  drive bracketed by the front-door capability marker. Produced spec.md (23 FR / 7 SC / 5
+  prioritized user stories), plan.md (Constitution Check PASS, 11/11), research.md (8 mechanism
+  decisions), data-model.md, contracts/waveshaper-api.md, quickstart.md, and **tasks.md (27 tasks,
+  US1–US5 + polish, test-first)**.
+- **Analyze clean** (0 CRITICAL / 0 HIGH, 100% requirement→task coverage); set the `spec:` pointer
+  and recorded `design-approved` + `analyze-clean`, advancing the node
+  `designing → specifying → implementing`. Spec is execute-ready; operator chose to **pause before
+  implementation** at the runnable-spec milestone.
+
+**Didn't Work:**
+- `check-prerequisites.sh` (analyze prereq) hard-failed again on the descriptive branch name
+  `phase-nonlinear-dsp` — the recurring numeric-prefix gate vs Commandment 3 (TF-09 / deskwork#511).
+  Proceeded via the `feature.json`-resolved spec dir; ran analyze read-only by hand.
+- The `after_specify` agent-context hook skipped: PyYAML is absent in this environment's python3, so
+  `update-agent-context.sh` cannot parse its config. Updated the CLAUDE.md SPECKIT marker manually
+  instead (pointer now `specs/waveshapers/plan.md`).
+
+**Course Corrections:**
+- Used the descriptive spec dir `specs/waveshapers` over the template's `NNN-` default, matching the
+  existing `specs/` convention and Commandment 3 — even though `init-options.json` says
+  `branch_numbering: sequential`.
+- Skipped interactive `/speckit-clarify` per the operator's explicit "drive straight to tasks.md"
+  choice: the approved design + incorporated review already resolved every fork, and the residual
+  unknowns are deliberately-parked open questions (per-shape tolerances, ADAA order, LUT scheme).
+
+**Insights:**
+- The **memoryless/stateful contract split** was the load-bearing design decision — the external
+  reviewer zeroed in on exactly it, and pinning "the base `Shape` contract is and stays memoryless;
+  ADAA/DC-block/drive/bias live only in the wrapper" is what kept the primitive clean. Worth carrying
+  into the oversampling + saturation siblings.
+- Capturing the full transfer-function catalog while letting the **first graduated cut** be a
+  planning/tasks decision (US1 = tanh/hardClip/cubicSoft, US2 = the rest) honored capture-over-YAGNI
+  without bloating the MVP — the spec delivers the whole catalog across US1+US2; only order is fixed.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 8
+  - roadmap(waveshapers): record analyze-clean; spec runnable, phase=implementing
+  - tasks(waveshapers): 27 tasks across US1-US5; analyze-clean (0 critical/high)
+  - plan(waveshapers): impl plan + research/data-model/contracts/quickstart; constitution PASS
+  - define(waveshapers): author Spec Kit spec from approved design; set spec pointer
+  - design(waveshapers): operator-approved; design-to-spec gate 7/7 met
+  - design(waveshapers): incorporate external review before /define
+  - design(waveshapers): record nonlinear memoryless primitive design
+  - chore(roadmap): close phase-digital-fundamentals and all shipped children
+- Files changed: 12
+- Backlog touched: (none)
+
 ## 2026-06-30: Design + define three-layer-structure → execute-ready
 
 **Goal:** Take up the `design:gap/three-layer-structure` roadmap item and drive it through the

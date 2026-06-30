@@ -64,6 +64,23 @@ Time-varying control signal generators.
 Consumers: `core/effects/modulated-delay/`.
 Tests: `tests/core/lfo-test.cpp`.
 
+### `nonlinear/`
+
+Waveshapers, saturators, and distortion kernels. Graduated from `core/labs/waveshaping/` (T024).
+
+| Primitive | Description |
+|---|---|
+| `nonlinear/waveshaper-shapes.h` | Memoryless transfer-function catalog (`namespace acfx::shape`): 10 pure `float->float` shapes (tanhShape, arctanShape, cubicSoftClip, algebraic, hardClip, softKnee, chebyshev, diodeCurve, sineFold, triangleFold), their antiderivatives (one per covered shape), `Shape`/`Evaluation` enums, and the `hasAntiderivative()` predicate. `Shape::biasedAsym` is a Shape enum member realized in the wrapper (no pure `acfx::shape::biasedAsym` function exists) and has no antiderivative; `hasAntiderivative(Shape::biasedAsym)` returns false. |
+| `nonlinear/waveshaper.h` | Stateful `Waveshaper` wrapper: drive/bias/DC-block/gain-comp staging around the memoryless catalog; supports `closedForm` and `lut` evaluation backends; RT-safe. |
+| `nonlinear/waveshaper-lut.h` | `WaveshaperLut` fixed-size table (512 points, linear interpolation, edge-clamp); built in `init()`, never in `process()`; error bound `kMaxDeviation = 1e-3`. |
+| `nonlinear/adaa-waveshaper.h` | `ADAAWaveshaper` first-order antiderivative anti-aliasing variant; refuses uncovered shapes with a descriptive error; same drive/bias/DC-block/gain-comp staging as `Waveshaper`. |
+
+Consumers: none yet — the saturation/distortion effects in later phases will consume these.
+Tests: `tests/core/waveshaper-test.cpp`, `waveshaper-harmonics-test.cpp`, `waveshaper-shapes-test.cpp`, `waveshaper-lut-test.cpp`, `waveshaper-adaa-test.cpp`, `waveshaper-antiderivatives-test.cpp`.
+Lab: `core/labs/waveshaping/` (persists as README + harness driving the graduated primitive).
+
+**Diode-curve altitude boundary (research.md Decision 6)**: `diodeCurve` is a memoryless transfer curve — a pure `float → float` closed form in `namespace acfx::shape`, explicitly distinct from the stateful circuit-solved diode clipper in `phase-circuit-modeling`'s `diode-clippers` item (FR-004). See `core/labs/waveshaping/README.md` for the complete altitude boundary explanation.
+
 ---
 
 ## Prospectus Families (documented only -- no folder on disk yet)
@@ -75,11 +92,6 @@ together in one atomic commit.
 
 A reviewer reading this document can determine where any planned concept
 family is intended to land (SC-007).
-
-### `nonlinear/`
-
-Waveshapers, saturators, and distortion kernels. Intended inhabitants:
-soft-clippers, hard-clippers, polynomial waveshapers, tanh approximations.
 
 ### `dynamics/`
 

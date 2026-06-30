@@ -23,6 +23,17 @@ add_executable(acfx_core_tests
   # into this JUCE-free test target directly (contracts/source-config.md).
   "${CMAKE_SOURCE_DIR}/adapters/workbench/workbench-settings.cpp"
   support/allocation-sentinel.cpp
+  # ---------------------------------------------------------------------------
+  # Waveshaper test suites (waveshapers feature): the six suites below are the
+  # actual authored set (T007/T008 wrapper+harmonics, T012 shapes, T019
+  # antiderivatives, T015 LUT, T018 ADAA).
+  # ---------------------------------------------------------------------------
+  core/waveshaper-test.cpp
+  core/waveshaper-harmonics-test.cpp
+  core/waveshaper-shapes-test.cpp
+  core/waveshaper-antiderivatives-test.cpp
+  core/waveshaper-lut-test.cpp
+  core/waveshaper-adaa-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
