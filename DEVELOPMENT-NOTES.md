@@ -2,21 +2,61 @@
 
 ---
 
-## 2026-06-30: <!-- session title -->
+## 2026-06-30: Execute + govern + ship measurement-infrastructure
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take the runnable `measurement-infrastructure` spec through the rest of the
+stack-control front door — analyze → execute (model-sized dispatch) → end-govern → ship —
+and land it on `main`.
 
 **Accomplished:**
-- <!-- compose -->
+- **Analyze clean.** Ran `/speckit-analyze` via the `extend` front door; the only blocking-ish
+  finding (C1) was a missing FR-007 near-zero-magnitude phase→NaN test, fixed it (+ an I1 branch
+  metadata nit) and recorded the `analyze-clean` marker (specifying → implementing).
+- **Executed all 19 tasks** via model-sized dispatch (033) — each in a fresh subagent at its
+  declared `[tier:]` model (haiku/sonnet, opus for the US1 MVP suite), reviewed, committed at
+  story boundaries, durably ledgered. Built the host-side Stimulus→Effect→Analyzer→Metric harness
+  (`tests/support/measurement/`) + 5 per-story doctest TUs. Grew the suite 62 → **91 passing**;
+  all 8 Principle-X metrics represented.
+- **End-of-feature cross-model govern** (claude+codex+sonnet): **15 HIGH findings resolved across
+  5 rounds** (see `specs/measurement-infrastructure/audit-log.md`), then an operator-approved
+  `--override` once substantive code converged. terminal-outcome=graduated.
+- **Shipped** via PR #6 (CI green: host tests + desktop/plugin build + portability) → merged to
+  `main`; fired `graduate` on the trunk so `status: shipped` is welded to the merge. Phase now
+  **validating**.
 
 **Didn't Work:**
-- <!-- compose -->
+- **Govern never converged to zero in 5 rounds.** Each round resolved the prior findings but
+  surfaced ~2-3 more; the tail was *fix-induced* (AUDIT-13 from the AUDIT-11 fix; AUDIT-15 from
+  AUDIT-06) and an inherent *meta-ledger self-reference* (02→05→08→14: an append-only fix-ledger
+  can't self-verify its latest commit).
+- **Worktree ship gap.** Graduating from the `main` worktree failed the `graduate-impl` gate
+  because the govern convergence record is gitignored + per-worktree, so it didn't travel with the
+  merge — had to copy it into the main worktree manually (captured to tooling-feedback).
+- **CPM bootstrap not reconfigure-safe** — `cmake --preset test` over a stale `build/test` fails
+  with `Unknown CMake command CPMAddPackage`; workaround `rm -rf build/test` (backlog TASK-2).
+- A subagent (T013) committed/pushed despite a "do not commit" brief; tightened the instruction
+  for later tasks.
 
 **Course Corrections:**
-- <!-- compose -->
+- Split the 772-line `measurement-test.cpp` into 5 per-story TUs + a shared header to satisfy the
+  repo's hard 500-line portability budget (the size gate applies to all files, not just headers).
+- **Redesigned the stability denormal check** from passthrough (subnormal input) to *generation*
+  (normal step → silence, scan the decay tail) and stopped `isClean` rejecting bounded subnormals,
+  so correct passthrough effects are no longer false-flagged (AUDIT-12).
+- Adopted NaN sentinels for *unmeasurable* (thd with no fundamental / harmonics above Nyquist;
+  relativeExecTime with blockSize ≤ 0) instead of misleading 0.0 / silent clamps (Constitution V).
+- Made the denormal test FPU-mode-independent via a stored-subnormal stub rather than asserting the
+  real SVF's environment-conditional behavior (AUDIT-09).
 
 **Insights:**
-- <!-- compose -->
+- The govern loop has a **myopic-convergence tail**: past the real bugs, fixes generate fresh
+  surfaces and the meta-ledger self-references. Operator-approved `--override` is the sanctioned
+  terminal once substantive code is converged — captured as a memory for next time.
+- The harness did its job as *measurable engineering*: it surfaced a genuine, in-scope-to-defer
+  limitation — the DaisySP SVF doesn't flush denormals (backlog TASK-1) — that a non-measuring
+  workflow would have missed.
+- Worktrees + gitignored per-worktree convergence records interact badly with the trunk-side
+  `graduate` step; worth fixing upstream so the record travels or is re-resolvable.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 19
