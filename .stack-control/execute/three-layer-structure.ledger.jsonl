@@ -1,0 +1,31 @@
+{"id":"T001","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"baseline GREEN 92/92 tests; required CPM_SOURCE_CACHE=external/.cpm-cache for offline configure"}
+{"id":"T002","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"portability gate exit 0; 4 checks pass"}
+{"id":"T003","tierLabel":"balanced","model":"sonnet","commitRange":null,"reviewClean":true,"note":"core/primitives/README.md 166 lines; 3 inhabited + 7 prospectus; create-on-inhabitant rule explicit"}
+{"id":"T004","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"git mv svf-primitive.h -> filters/ (R, history preserved)"}
+{"id":"T005","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"svf-effect.h include -> primitives/filters/svf-primitive.h"}
+{"id":"T006","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"modulated-delay-effect.h svf include updated; delay/lfo untouched"}
+{"id":"T007","tierLabel":"balanced","model":"sonnet","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"SVF lab README graduated-state; 4 required sections; 135 lines"}
+{"id":"T008","tierLabel":"balanced","model":"sonnet","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"host-only svf-harness.cpp 171 lines; dsp+primitives+stdlib only; real API; builds+runs"}
+{"id":"T009","tierLabel":"balanced","model":"sonnet","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"acfx_lab_svf_harness target guarded ACFX_BUILD_TESTS OR DESKTOP; absent from MCU"}
+{"id":"T010","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"GREEN 92/92 unchanged; harness builds+runs stability PASS exit 0"}
+{"id":"T011","tierLabel":"fast","model":"haiku","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"US1 committed+pushed (controller boundary commit)"}
+{"id":"T012","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"git mv delay-line.h -> delays/"}
+{"id":"T013","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"git mv lfo.h -> modulation/"}
+{"id":"T014","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"wow-flutter.h delay+lfo includes updated"}
+{"id":"T015","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"modulated-delay-effect.h delay+lfo includes; svf untouched"}
+{"id":"T016","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"delay-line-test.cpp include updated"}
+{"id":"T017","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"lfo-test.cpp include updated"}
+{"id":"T018","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"README categories already inhabited (no change needed)"}
+{"id":"T019","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"GREEN 92/92; flat-header scan empty (SC-003)"}
+{"id":"T020","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"US2 committed+pushed (controller boundary)"}
+{"id":"T021","tierLabel":"balanced","model":"sonnet","commitRange":"c48283c..6733854","reviewClean":true,"note":"C-1 lab-harness isolation added"}
+{"id":"T022","tierLabel":"balanced","model":"sonnet","commitRange":"c48283c..6733854","reviewClean":true,"note":"C-2 primitives-never-include-effects added"}
+{"id":"T023","tierLabel":"balanced","model":"sonnet","commitRange":"c48283c..6733854","reviewClean":true,"note":"C-4 check-2 harness exemption; kernels still covered"}
+{"id":"T024","tierLabel":"balanced","model":"sonnet","commitRange":"c48283c..6733854","reviewClean":true,"note":"C-3 MCU-harness backstop added"}
+{"id":"T025","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"controller-verified gate EXIT=0 on conformant tree (all 7 checks pass)"}
+{"id":"T026","tierLabel":"balanced","model":"sonnet","commitRange":null,"reviewClean":true,"note":"controller-verified probes -> EXIT=1 naming C-1 + C-2; reverted clean; gate back to EXIT=0"}
+{"id":"T027","tierLabel":"fast","model":"haiku","commitRange":"c48283c..6733854","reviewClean":true,"note":"US3 committed+pushed (controller boundary)"}
+{"id":"T028","tierLabel":"balanced","model":"sonnet","commitRange":null,"reviewClean":true,"note":"quickstart A-D PASS; E skipped (no complete ARM C++ toolchain, gated); tree clean"}
+{"id":"T029","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"file-size budget OK; harness 171 / lab README 135 / taxonomy README 166"}
+{"id":"T030","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"CI runs core-tests + portability-gate; zero git hooks (Commandment 2)"}
+{"id":"T031","tierLabel":"fast","model":"haiku","commitRange":"pending","reviewClean":true,"note":"tasks.md all 31 marked complete; branch finalized for govern"}

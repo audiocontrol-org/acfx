@@ -15,9 +15,9 @@
 #include "dsp/process-context.h"
 #include "dsp/span.h"
 #include "effects/modulated-delay/wow-flutter.h"
-#include "primitives/delay-line.h"
-#include "primitives/lfo.h"
-#include "primitives/svf-primitive.h"
+#include "primitives/delays/delay-line.h"
+#include "primitives/modulation/lfo.h"
+#include "primitives/filters/svf-primitive.h"
 
 // A delay effect with a State-Variable Filter in the feedback loop plus three
 // independent modulation LFOs (US2) and a wow & flutter stage on the input

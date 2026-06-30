@@ -82,3 +82,16 @@ if(ACFX_BUILD_TESTS)
   add_subdirectory(host/processor-node)
   add_subdirectory(tests)
 endif()
+
+# ---------------------------------------------------------------------------
+# Lab harnesses — host-only diagnostic executables. Built under any host
+# configuration (test or desktop). Never built under MCU configurations
+# (daisy / teensy) because they have their own toolchains and no stdio.
+# ---------------------------------------------------------------------------
+if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
+  add_executable(acfx_lab_svf_harness
+    core/labs/state-variable-filter/harness/svf-harness.cpp
+  )
+  target_link_libraries(acfx_lab_svf_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_svf_harness PRIVATE cxx_std_20)
+endif()

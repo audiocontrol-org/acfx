@@ -8,6 +8,9 @@
 #   3. No JUCE / ProcessorNode in the MCU (daisy/teensy) dependency surface — SC-007
 #   4. One-source-many-targets: no per-target #ifdef forks of the effect, and every
 #      adapter links the same acfx_core — SC-001 / SC-005 (Scenario E)
+#   C-1. Lab-harness isolation: no portable source includes a harness path — FR-005/SC-005
+#   C-2. Dependency direction: core/primitives never includes core/effects — FR-015
+#   C-3. MCU-harness backstop: no harness path in daisy/teensy build inputs — FR-005/SC-005
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -25,12 +28,19 @@ while IFS= read -r f; do
 done < <(find core host adapters tests -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
 [ "$fail" -eq 0 ] && note "  OK: all source files within budget"
 
-note "== 2. No platform headers in core/ (Constitution IV) =="
-if grep -rEn 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' core/ ; then
-  note "  FAIL: platform header in core/"
+note "== 2. No platform headers in core/ (Constitution IV; C-4: harness paths exempt) =="
+_c4_fail=0
+while IFS= read -r f; do
+  if grep -EHn 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+    _c4_fail=1
+  fi
+done < <(find core -type f \( -name '*.h' -o -name '*.cpp' \) \
+           -not -path 'core/labs/*/harness/*' 2>/dev/null)
+if [ "$_c4_fail" -eq 1 ]; then
+  note "  FAIL: platform header in core/ (non-harness)"
   fail=1
 else
-  note "  OK: core/ is platform-independent"
+  note "  OK: core/ (non-harness) is platform-independent"
 fi
 
 note "== 3. No JUCE / ProcessorNode in MCU adapters (SC-007) =="
@@ -68,6 +78,38 @@ for adapter in workbench plugin daisy teensy; do
   fi
 done
 [ "$fail" -eq 0 ] && note "  OK: every adapter links the same acfx_core"
+
+note "== C-1. Lab-harness isolation (FR-005/SC-005) =="
+_c1_fail=0
+while IFS= read -r f; do
+  if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+    note "  FAIL $f: portable source includes a harness path"
+    _c1_fail=1
+    fail=1
+  fi
+done < <(
+  find core/dsp core/primitives core/effects \
+       -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null
+  find core/labs -type f \( -name '*.h' -o -name '*.cpp' \) \
+       -not -path '*/harness/*' 2>/dev/null
+)
+[ "$_c1_fail" -eq 0 ] && note "  OK: no portable source includes a harness path"
+
+note "== C-2. Primitives never include effects (FR-015) =="
+if grep -rEn '#include.*effects/' core/primitives/ 2>/dev/null; then
+  note "  FAIL: core/primitives/ includes an effects/ path"
+  fail=1
+else
+  note "  OK: core/primitives/ has no includes of effects/"
+fi
+
+note "== C-3. No harness in MCU build inputs (FR-005/SC-005) =="
+if grep -rEn 'labs/[^/]*/harness/' adapters/daisy adapters/teensy 2>/dev/null; then
+  note "  FAIL: MCU adapter references a labs harness path"
+  fail=1
+else
+  note "  OK: daisy + teensy reference no labs harness paths"
+fi
 
 if [ "$fail" -eq 0 ]; then
   note ""

@@ -2,6 +2,61 @@
 
 ---
 
+## 2026-06-30: Design + define three-layer-structure → execute-ready
+
+**Goal:** Take up the `design:gap/three-layer-structure` roadmap item and drive it through the
+stack-control front door from a blank design to a runnable, analyze-clean spec — establishing the
+`labs/ → primitives/ → effects/` three-layer DSP core that Constitution Principle IX declares but
+that does not yet exist on disk.
+
+**Accomplished:**
+- **Designed the structure** via `/stack-control:design` (brainstorming backend, house-rules
+  injected). Five operator forks settled: lab shape = **C-hybrid** (portable RT-safe kernel +
+  host-only harness); taxonomy = **establish-now + migrate existing**; enforcement = **extend the
+  portability gate** (lab-harness isolation + dependency direction); location = `core/labs/`;
+  worked example = **SVF migrated end-to-end**. Design record written, operator-approved,
+  `design-to-spec` gate 7/7.
+- **Defined the spec** through the full native chain — specify → clarify → plan → tasks → analyze —
+  each backend drive bracketed by the front-door capability marker. Produced spec.md (21 FR / 7 SC
+  / 3 prioritized user stories), plan.md, research.md (6 mechanism decisions), data-model.md, two
+  contracts (layering-rules, lab-folder), quickstart.md, and **tasks.md (31 tasks, 6 phases)**.
+- **Analyze clean** (0 CRITICAL/HIGH, 100% actionable-requirement coverage); linked the `spec:`
+  pointer and recorded `analyze-clean`, advancing the node `designing → specifying → implementing`.
+  Node is now execute-ready (`tasks-complete` is the only remaining `implementing` exit criterion).
+
+**Didn't Work:**
+- `check-prerequisites.sh` (analyze prereq) hard-failed on the descriptive branch name
+  `three-layer-structure` — the recurring numeric-prefix gate that conflicts with Commandment 3
+  (already TF-09 / deskwork#511). Proceeded via the `feature.json`-resolved spec dir; no new
+  friction filed.
+
+**Course Corrections:**
+- Used the descriptive spec dir `specs/three-layer-structure` over the template's `NNN-` default,
+  matching the existing `specs/` convention and Commandment 3 (no numeric prefixes).
+- Assessed `/speckit-clarify` as a no-op rather than forcing questions: the approved design already
+  resolved every fork through structured Q&A, and the two Partial taxonomy areas are *deliberately*
+  parked open-questions — clarifying them now would contradict the operator's defer decision.
+
+**Insights:**
+- The design→define handoff is clean when capture-over-YAGNI is honored: the five open-questions
+  (primitive manifest, harness output contract, taxonomy boundaries, shared viz tooling, graduation
+  provenance) rode through as *parked* rather than being cut or smuggled into scope.
+- Sequencing the MVP as **SVF end-to-end** (US1) makes the three-layer structure copyable — every
+  downstream phase gets one real lab → graduated primitive → effect to imitate, and the
+  `#include`/build implications surface on day one rather than at the first new concept.
+- Implementation has not started — this session is design + spec only; `/stack-control:execute`
+  (model-sized dispatch of the 31 tasks + auto-govern) is the next, separately-authorized step.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 5
+  - workflow(three-layer-structure): link spec + record analyze-clean
+  - tasks(three-layer-structure): 31 tasks across 6 phases, runnable
+  - plan(three-layer-structure): plan + design artifacts
+  - spec(three-layer-structure): author spec from approved design record
+  - design(three-layer-structure): establish labs/->primitives/->effects/ core structure
+- Files changed: 13
+- Backlog touched: (none)
+
 ## 2026-06-30: Execute + govern + ship measurement-infrastructure
 
 **Goal:** Take the runnable `measurement-infrastructure` spec through the rest of the

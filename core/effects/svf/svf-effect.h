@@ -12,7 +12,7 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
-#include "primitives/svf-primitive.h"
+#include "primitives/filters/svf-primitive.h"
 
 // The State-Variable Filter effect — the one effect proving the cross-platform
 // spine. Satisfies the Effect contract (no base class, no vtable in the hot
