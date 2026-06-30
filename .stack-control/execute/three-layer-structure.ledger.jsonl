@@ -25,3 +25,7 @@
 {"id":"T025","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"controller-verified gate EXIT=0 on conformant tree (all 7 checks pass)"}
 {"id":"T026","tierLabel":"balanced","model":"sonnet","commitRange":null,"reviewClean":true,"note":"controller-verified probes -> EXIT=1 naming C-1 + C-2; reverted clean; gate back to EXIT=0"}
 {"id":"T027","tierLabel":"fast","model":"haiku","commitRange":"c48283c..6733854","reviewClean":true,"note":"US3 committed+pushed (controller boundary)"}
+{"id":"T028","tierLabel":"balanced","model":"sonnet","commitRange":null,"reviewClean":true,"note":"quickstart A-D PASS; E skipped (no complete ARM C++ toolchain, gated); tree clean"}
+{"id":"T029","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"file-size budget OK; harness 171 / lab README 135 / taxonomy README 166"}
+{"id":"T030","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"CI runs core-tests + portability-gate; zero git hooks (Commandment 2)"}
+{"id":"T031","tierLabel":"fast","model":"haiku","commitRange":"pending","reviewClean":true,"note":"tasks.md all 31 marked complete; branch finalized for govern"}
