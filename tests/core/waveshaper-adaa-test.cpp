@@ -238,3 +238,46 @@ TEST_CASE("base Waveshaper and acfx::shape::* produce known analytic values post
         CHECK(shape::hardClip(-0.7f) == doctest::Approx(-shape::hardClip(0.7f)).epsilon(1.0e-7));
     }
 }
+
+// PR#8 review (blocking): ADAAWaveshaper::setShape() must re-pair the cached
+// antiderivative FPrev_ with the NEW shape. Before the fix, setShape only
+// updated shape_, leaving FPrev_ holding the OLD shape's F(uPrev_); the next
+// process() then computed (F_new(u) - F_old(uPrev_))/du, mixing two distinct
+// antiderivatives. The bug is visible for a shape whose F(0) != 0 — e.g.
+// algebraicAntideriv(0) = sqrt(1) = 1.0 — switched into after a default-tanh
+// init (tanhAntideriv(0) = 0).
+TEST_CASE("ADAAWaveshaper::setShape re-pairs ADAA history (no stale antiderivative)") {
+    // Reference: algebraic selected BEFORE init, so init()'s reset() seeds
+    // FPrev_ = algebraicAntideriv(0) = 1.0 correctly.
+    ADAAWaveshaper ref;
+    ref.setShape(Shape::algebraic);
+    ref.setAdaaOrder(AdaaOrder::first);
+    ref.init(kSampleRate);
+    ref.setDrive(1.0f);
+    ref.setBias(0.0f);
+    ref.setGainCompensation(false);
+
+    // Subject: default-tanh init (FPrev_ = 0), THEN switch to algebraic. After
+    // the fix, setShape re-pairs FPrev_ = algebraicAntideriv(uPrev_=0) = 1.0, so
+    // the first sample must match the reference exactly.
+    ADAAWaveshaper subj;
+    subj.setAdaaOrder(AdaaOrder::first);
+    subj.init(kSampleRate);             // shape_ = tanh, FPrev_ = 0
+    subj.setDrive(1.0f);
+    subj.setBias(0.0f);
+    subj.setGainCompensation(false);
+    subj.setShape(Shape::algebraic);    // must re-pair FPrev_ to the new shape
+
+    // Same input through both; |du| = |0.5| > kEps, so the difference-quotient
+    // branch (not the midpoint fallback) is exercised.
+    const float in = 0.5f;
+    const float refOut  = ref.process(in);
+    const float subjOut = subj.process(in);
+    CHECK(subjOut == doctest::Approx(refOut).epsilon(1.0e-6));
+
+    // Guard: the reference itself is the real ADAA average, not the stale-F value
+    // 2*algebraicAntideriv(0.5) (= the buggy result). algebraicAntideriv(0.5) =
+    // sqrt(1.25) ~= 1.118034; correct ADAA first sample = (1.118034 - 1)/0.5
+    // ~= 0.236068; the stale-F bug would give ~= 2.236068.
+    CHECK(refOut == doctest::Approx(0.236068f).epsilon(1.0e-4));
+}

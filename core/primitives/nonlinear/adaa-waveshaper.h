@@ -62,6 +62,16 @@ public:
                 + shapeName(shape));
         }
         shape_ = shape;
+        // Re-pair the cached antiderivative with the NEW shape at the existing
+        // history point. Without this, FPrev_ would still hold the OLD shape's
+        // F(uPrev_), and the next process() would compute
+        // (F_new(u) − F_old(uPrev_))/du — mixing two distinct antiderivatives
+        // (wrong whenever F_new(uPrev_) ≠ F_old(uPrev_), e.g. algebraic with
+        // F(0)=1). We re-evaluate at the CURRENT uPrev_ (rather than resetting
+        // history to 0) so the ADAA averaging window still tracks the real input
+        // trajectory — consistent with how Waveshaper preserves running state
+        // across setShape.
+        FPrev_ = antiderivAt(uPrev_);
     }
 
     // Select the ADAA order.  Only AdaaOrder::first is implemented (Decision 5).
