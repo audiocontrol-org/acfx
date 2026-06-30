@@ -35,7 +35,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - spec: specs/workbench-audio-config
 
 ## impl:feature/modulated-delay
-- status: shipped
+- status: closed
+- validated: yes
 - part-of: multi:feature/phase-digital-fundamentals
 - spec: specs/modulated-delay
 
@@ -50,7 +51,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - ref: docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md
 
 ## multi:feature/phase-digital-fundamentals
-- status: in-flight
+- status: closed
+- validated: yes
 - part-of: multi:feature/progressive-dsp-platform
 
 ## multi:feature/phase-nonlinear-dsp
@@ -94,7 +96,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/progressive-dsp-platform
 
 ## design:feature/measurement-infrastructure
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/measurement-infrastructure
 - design-approved: yes
@@ -102,7 +105,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-digital-fundamentals
 
 ## design:gap/three-layer-structure
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/three-layer-structure
 - design-approved: yes
