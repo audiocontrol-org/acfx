@@ -3,15 +3,27 @@
 #include <algorithm>
 #include <cstdint>
 #include "labs/waveshaping/waveshaper-shapes.h"
+#include "labs/waveshaping/waveshaper-lut.h"
 
 // Stateful waveshaper wrapper — applies drive/bias, a selected memoryless shape,
 // a wrapper-owned DC-blocker, and optional gain compensation.
 //
 // Signal chain (research.md Decision 2):
 //   u = drive * x + bias
-//   y = shape(u)          ← pure, memoryless; dispatched in T010
+//   y = shape(u)          ← memoryless; shapeValue() selects the backend
 //   y = dcBlock(y)        ← one-pole HP; state lives here (FR-008)
 //   y = gainCompFactor * y  (if gainComp_ is true)
+//
+// Evaluation backends (Evaluation enum, FR-011):
+//   closedForm — calls shapeValue(u) directly (exact, always available)
+//   lut        — looks up from WaveshaperLut built during init()
+//
+// Rebuild-on-init semantics (FR-011, waveshaper-api.md):
+//   The LUT is built inside init() — never inside process().  If setShape() or
+//   setEvaluation() is called after init(), the change takes effect on the NEXT
+//   init() call.  This is the CONTRACT: switching to Evaluation::lut or changing
+//   the Shape requires a re-init() to refresh the table.  process() never rebuilds
+//   the table; this ensures process() remains RT-safe (no heavy work on audio path).
 //
 // Pre-graduation location: core/labs/waveshaping/
 // Post-graduation target:  core/primitives/nonlinear/   (T024)
@@ -20,17 +32,25 @@ namespace acfx {
 
 class Waveshaper {
 public:
-    // Prepare for a sample rate. Builds LUT if evaluation_ == lut (T017/US3).
-    // Clears DC-block state (xPrev, yPrev → 0).  Recomputes the gain-comp factor.
-    // RT-note: not on the audio path; LUT build (US3) will be the only heavy
-    // work and lives here, never in process().
+    // Prepare for a sample rate. Clears DC-block state (xPrev, yPrev → 0).
+    // Recomputes the gain-comp factor.  Builds the LUT if evaluation_ == lut
+    // (FR-011).  This is the ONLY place where the LUT is built — never inside
+    // process().  Shape or evaluation changes after init() take effect on the
+    // next init() call (rebuild-on-init semantics; see file header comment).
+    //
+    // RT-note: not on the audio path.  LUT build (WaveshaperLut::build) is the
+    // only non-trivial work and lives here, never in process().
     void init(float sampleRate) noexcept {
         sampleRate_ = sampleRate;
         dcXPrev_    = 0.0f;
         dcYPrev_    = 0.0f;
         updateGainCompFactor();
-        // TODO(T017/US3): if evaluation_ == Evaluation::lut, build the table
-        // here. closedForm is the only backend implemented in US1.
+        if (evaluation_ == Evaluation::lut) {
+            // Capture *this by reference so shapeValue sees the current shape_.
+            // build() samples shapeValue at kTableSize points; safe to call here
+            // because init() is not on the real-time audio path.
+            lut_.build([this](float u) noexcept { return shapeValue(u); });
+        }
     }
 
     // Select which transfer function to apply.
@@ -63,18 +83,26 @@ public:
 
     // Process one sample through the full signal chain (research.md Decision 2):
     //   u = drive * x + bias
-    //   y = shape(u)            ← memoryless dispatch (shapeDispatch)
+    //   y = shapeValue(u)       ← closedForm path, OR
+    //     = lut_.evaluate(u)    ← lut path (built in init())
     //   y = dcBlock(y)          ← wrapper-owned one-pole HP (FR-008)
     //   y = gainCompFactor * y  ← only when gainComp_ is on (FR-010)
     //
-    // RT-safe: noexcept, no heap allocation, no locks, bounded work — the shape
-    // dispatch is a bounded switch (FR-020).
+    // Backend selection: a single predictable branch on evaluation_ at the top
+    // of process().  This is the lowest-overhead correct implementation; the
+    // branch target is constant for the lifetime of a stream and will be
+    // predicted accurately by hardware branch predictors.  Do NOT rebuild the
+    // LUT here — LUT build belongs in init() (rebuild-on-init semantics).
+    //
+    // RT-safe: noexcept, no heap allocation, no locks, bounded work (FR-020).
     float process(float x) noexcept {
         const float u = drive_ * x + bias_;
-        float y = shapeDispatch(u);
+        float y = (evaluation_ == Evaluation::lut)
+                      ? lut_.evaluate(u)
+                      : shapeValue(u);
         y = dcBlock(y);
         if (gainComp_) {
-            y *= gainCompFactor_;  // factor finalized in T011 (unity for now)
+            y *= gainCompFactor_;
         }
         return y;
     }
@@ -117,15 +145,18 @@ private:
     static constexpr float kBiasedAsymDcCorr = 0.46211715726f; // = tanh(0.5f)
 
     // -----------------------------------------------------------------------
-    // Memoryless shape dispatch — selects a pure acfx::shape::* function.
+    // shapeValue() — evaluate the current shape at u (closed-form, no LUT).
+    //
+    // Reused both as the closedForm backend in process() and as the function
+    // sampled by WaveshaperLut::build() during init() to fill the LUT table.
     //
     // Complete switch over all 11 Shape enum members; every value gets a
-    // deliberate, correct mapping.  No silent fallback: if a new Shape
-    // member is added without a matching case, -Wswitch surfaces it.
+    // deliberate, correct mapping.  No silent fallback: if a new Shape member
+    // is added without a matching case, -Wswitch surfaces it.
     //
     // RT-safe: noexcept, no heap allocation, no locks, bounded switch.
     // -----------------------------------------------------------------------
-    float shapeDispatch(float u) const noexcept {
+    float shapeValue(float u) const noexcept {
         switch (shape_) {
             case Shape::tanh:
                 return shape::tanhShape(u);
@@ -240,10 +271,18 @@ private:
     float      sampleRate_ = 48000.0f;
 
     // -----------------------------------------------------------------------
-    // LUT — optional, built in init() (FR-011)
-    // TODO(T017/US3): declare fixed-size table storage once the LUT design
-    //   (table size, domain, interpolation scheme) is finalised in US3.
+    // LUT — fixed-size, built in init() when evaluation_ == Evaluation::lut.
+    //
+    // WaveshaperLut is a value member (std::array<float, 512> internally),
+    // so no heap allocation results from its presence here.  The table is
+    // populated by lut_.build([this](float u){ return shapeValue(u); }) in
+    // init(); process() reads it via lut_.evaluate(u) on the lut path.
+    //
+    // The lut_ member is default-constructed to zeroed table_ entries.
+    // An un-init()'d lut_ returns 0 from evaluate(), which is a silent
+    // misfire — callers MUST call init() before process() (standard contract).
     // -----------------------------------------------------------------------
+    WaveshaperLut lut_;
 };
 
 } // namespace acfx

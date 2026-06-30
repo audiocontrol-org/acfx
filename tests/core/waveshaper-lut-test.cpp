@@ -65,8 +65,9 @@
 #include <cmath>
 #include <cstddef>
 
-#include "labs/waveshaping/waveshaper-lut.h"    // does NOT exist yet — compile RED
+#include "labs/waveshaping/waveshaper-lut.h"
 #include "labs/waveshaping/waveshaper-shapes.h"
+#include "labs/waveshaping/waveshaper.h"
 #include "support/allocation-sentinel.h"
 
 using namespace acfx;
@@ -235,4 +236,108 @@ TEST_CASE("WaveshaperLut::evaluate is allocation-free (RT-safety SC-004/FR-011)"
     CHECK_MESSAGE(allocs == 0,
         "WaveshaperLut::evaluate allocated ", allocs,
         " time(s) — must be zero for RT-safety");
+}
+
+// ===========================================================================
+// GROUP 4 — T017/US3 wrapper-level integration tests
+//
+// These tests verify that Evaluation::lut is correctly wired into
+// Waveshaper::process() — i.e. the LUT table built in init() is used by
+// process() when evaluation_ == Evaluation::lut.
+//
+// T017 requirement: "select backend without per-sample branching cost where
+// avoidable" — a single predictable branch on evaluation_ in process() is
+// acceptable.  Build happens in init(), never in process().
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// TEST 4A — LUT-mode process() output matches closedForm-mode within 2*kMaxDeviation
+//
+// Bound derivation (analytic):
+//   Let e[n] = shape_lut(u[n]) - shape_cf(u[n]) be the per-sample LUT error.
+//   Both Waveshaper instances run the same DC-blocker H(z):
+//     H(z) = (1 - z^{-1}) / (1 - R*z^{-1}),  R = kDcR = 0.995
+//   The output difference y_lut[n] - y_cf[n] = (H * e)[n].
+//
+//   L-inf bound:  ||H*e||_inf <= ||h||_1 * ||e||_inf
+//   Impulse response: h[0]=1, h[n]=-R^{n-1}*(1-R) for n>=1.
+//   ||h||_1 = 1 + (1-R)*sum_{n=1}^inf R^{n-1} = 1 + (1-R)/(1-R) = 2.
+//
+//   Therefore: |y_lut[n] - y_cf[n]| <= 2 * kMaxDeviation  (for all n >= 0,
+//   for both DC-blockers starting at zero, regardless of input frequency).
+//
+// Shape: tanh, drive=1, bias=0, gainComp=off.
+// Sweep: 2000-sample sine at 100 Hz (gently varying, well inside LUT domain).
+// Both instances init()'d from zero state; outputs compared sample-by-sample.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("T017: Waveshaper lut-mode output matches closedForm within 2*kMaxDeviation") {
+    constexpr float kSampleRate = 48000.0f;
+    constexpr float kFreqHz     = 100.0f;   // 100 Hz: slowly-varying u, smooth LUT error
+    constexpr float kAmplitude  = 0.5f;     // well inside tanh's active range
+    constexpr int   kNumSamples = 2000;
+
+    Waveshaper lutWs;
+    lutWs.setShape(Shape::tanh);
+    lutWs.setEvaluation(Evaluation::lut);
+    lutWs.setDrive(1.0f);
+    lutWs.setBias(0.0f);
+    lutWs.setGainCompensation(false);
+    lutWs.init(kSampleRate);   // LUT is built here (FR-011); never in process()
+
+    Waveshaper cfWs;
+    cfWs.setShape(Shape::tanh);
+    cfWs.setEvaluation(Evaluation::closedForm);
+    cfWs.setDrive(1.0f);
+    cfWs.setBias(0.0f);
+    cfWs.setGainCompensation(false);
+    cfWs.init(kSampleRate);
+
+    // Analytic bound: DC-blocker L1-norm of impulse response = 2, so the
+    // output difference is bounded by 2*kMaxDeviation at every sample.
+    const float kOutputBound = 2.0f * WaveshaperLut::kMaxDeviation;
+
+    for (int i = 0; i < kNumSamples; ++i) {
+        const float t   = static_cast<float>(i) / kSampleRate;
+        const float x   = kAmplitude * std::sin(2.0f * kPi * kFreqHz * t);
+        const float yL  = lutWs.process(x);
+        const float yCF = cfWs.process(x);
+        const float dev = std::abs(yL - yCF);
+        CHECK_MESSAGE(dev <= kOutputBound,
+            "sample=", i, " lut=", yL, " cf=", yCF,
+            " deviation=", dev, " bound=", kOutputBound);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TEST 4B — Waveshaper::process() with Evaluation::lut is allocation-free
+//
+// The LUT is built in init() (outside the measured region); process() must
+// not allocate on every call.  AllocationSentinel traps any heap allocation
+// on the calling thread.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("T017: Waveshaper lut-mode process() is allocation-free (RT-safety FR-020)") {
+    constexpr float kSampleRate = 48000.0f;
+    constexpr int   kNumSamples = 500;
+
+    Waveshaper ws;
+    ws.setShape(Shape::tanh);
+    ws.setEvaluation(Evaluation::lut);
+    ws.setDrive(1.5f);
+    ws.setBias(0.0f);
+    ws.setGainCompensation(false);
+    ws.init(kSampleRate);   // LUT built here — outside the measured region
+
+    AllocationSentinel::reset();   // arm the sentinel after init()
+    for (int i = 0; i < kNumSamples; ++i) {
+        const float x = 0.3f * std::sin(2.0f * kPi * 1000.0f
+                                         * static_cast<float>(i) / kSampleRate);
+        (void)ws.process(x);
+    }
+    const std::size_t allocs = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocs == 0,
+        "Waveshaper lut-mode process() allocated ", allocs,
+        " time(s) — must be zero for RT-safety (FR-020)");
 }
