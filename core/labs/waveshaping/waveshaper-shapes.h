@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace acfx {
@@ -40,19 +42,31 @@ enum class Evaluation : std::uint8_t {
 namespace shape {
 
 // Hyperbolic tangent soft-saturation; symmetric, bounded to (−1, 1).
-float tanhShape(float u) noexcept;
+// Closed form: tanh(u).  Odd, monotone, f(0)=0, range(-1,1).
+inline float tanhShape(float u) noexcept { return std::tanh(u); }
 
 // Arctangent soft-saturation; symmetric, bounded to (−π/2, π/2) then normalised.
 float arctanShape(float u) noexcept;
 
 // Cubic soft-clip: piecewise linear-cubic with knee at |u|=1; symmetric.
-float cubicSoftClip(float u) noexcept;
+// Closed form:
+//   |u| <= 1 : f(u) = u - u^3/3
+//   u  >  1  : f(u) = +2/3
+//   u  < -1  : f(u) = -2/3
+// Odd, f(0)=0, slope 1 at 0, C1-continuous at |u|=1
+// (f(1)=2/3, f'(1)=0 = slope of the hard-limit region), bounded for all finite inputs.
+inline float cubicSoftClip(float u) noexcept {
+    if (u > 1.0f)  return  2.0f / 3.0f;
+    if (u < -1.0f) return -2.0f / 3.0f;
+    return u - (u * u * u) / 3.0f;
+}
 
 // Algebraic saturation: u / sqrt(1 + u*u); symmetric, bounded to (−1, 1).
 float algebraic(float u) noexcept;
 
 // Hard clip: clamp(u, −1, 1); symmetric, bounded.
-float hardClip(float u) noexcept;
+// Closed form: std::clamp(u, -1, 1).  Odd, exact ±1 saturation, f(0)=0.
+inline float hardClip(float u) noexcept { return std::clamp(u, -1.0f, 1.0f); }
 
 // Soft knee: piecewise, C1-continuous at the knee; symmetric.
 float softKnee(float u) noexcept;
