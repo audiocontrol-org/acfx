@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include "labs/waveshaping/waveshaper-shapes.h"
 
@@ -20,13 +21,14 @@ namespace acfx {
 class Waveshaper {
 public:
     // Prepare for a sample rate. Builds LUT if evaluation_ == lut (T017/US3).
-    // Clears DC-block state (xPrev, yPrev → 0).
+    // Clears DC-block state (xPrev, yPrev → 0).  Recomputes the gain-comp factor.
     // RT-note: not on the audio path; LUT build (US3) will be the only heavy
     // work and lives here, never in process().
     void init(float sampleRate) noexcept {
         sampleRate_ = sampleRate;
         dcXPrev_    = 0.0f;
         dcYPrev_    = 0.0f;
+        updateGainCompFactor();
         // TODO(T017/US3): if evaluation_ == Evaluation::lut, build the table
         // here. closedForm is the only backend implemented in US1.
     }
@@ -39,7 +41,11 @@ public:
     void setEvaluation(Evaluation evaluation) noexcept { evaluation_ = evaluation; }
 
     // Pre-gain applied to the input before bias: u = drive * x + bias.
-    void setDrive(float drive) noexcept { drive_ = drive; }
+    // Recomputes gainCompFactor_ (off the audio path).
+    void setDrive(float drive) noexcept {
+        drive_ = drive;
+        updateGainCompFactor();
+    }
 
     // Fixed DC offset applied after drive (FR-007).
     // Bias-induced DC is removed by the wrapper's DC-blocker.
@@ -129,12 +135,35 @@ private:
     // -----------------------------------------------------------------------
     // Gain compensation — wrapper-owned (FR-010)
     //
-    // gainCompFactor_: makeup factor applied as the last stage of the chain.
-    // Computation law (derived from shape + drive) is finalized in T011.
-    // Scaffolded here; factor defaults to unity.
+    // Law (T011, research.md Decision 2):  DRIVE-COMPENSATION
+    //   gainCompFactor = 1 / max(drive, kGainCompEps)
+    //
+    // Rationale: the common waveshaping curves have small-signal slope ≈ 1
+    // at the origin (tanh'(0) = 1, hardClip'(0) = 1, etc.).  For a
+    // low-level input x the signal chain computes:
+    //   u = drive * x,  y = shape(u) ≈ u = drive * x
+    // Multiplying by 1/drive restores y ≈ x ("unity makeup").
+    //
+    // With drive = 4 and kAmplitude = 0.05 (the direction test values):
+    //   gainComp OFF:  output RMS ≈ drive * inputRms  (amplified 4×)
+    //   gainComp ON:   output RMS ≈ inputRms          (returned to unity)
+    //
+    // Divide-by-zero guard: kGainCompEps (1e-6f) clamps the divisor.  A
+    // drive of 0 silences the input and has no meaningful makeup; this
+    // guard is documented behaviour, not a silent data fallback.
+    //
+    // updateGainCompFactor() is called from setDrive() and init() — never
+    // from process() — so the audio path sees only a cached float multiply.
     // -----------------------------------------------------------------------
+    static constexpr float kGainCompEps = 1.0e-6f;
+
     bool  gainComp_       = false;
-    float gainCompFactor_ = 1.0f;  // TODO(T011): compute from shape + drive
+    float gainCompFactor_ = 1.0f;
+
+    void updateGainCompFactor() noexcept {
+        const float d   = (drive_ > kGainCompEps) ? drive_ : kGainCompEps;
+        gainCompFactor_ = 1.0f / d;
+    }
 
     // -----------------------------------------------------------------------
     // Signal-chain parameters

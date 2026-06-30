@@ -5,6 +5,7 @@
 
 #include "labs/waveshaping/waveshaper.h"
 #include "core/measurement-support.h"
+#include "support/allocation-sentinel.h"
 
 // T007 -- Waveshaper wrapper: signal-chain ordering, silence, DC removal,
 // gain compensation direction, and reset invariants.
@@ -18,6 +19,7 @@
 // committing.
 
 using namespace acfx;
+using acfx::test::AllocationSentinel;
 
 namespace {
 
@@ -255,5 +257,59 @@ TEST_CASE("reset clears DC-block state and preserves shape/drive/bias parameters
         const float outFresh = fresh.process(x);
         const float outWs    = ws.process(x);
         REQUIRE(outWs == outFresh);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TEST 6: RT-safety — Waveshaper::process() allocates zero bytes on the heap
+//         (FR-011, FR-020; T011; research.md Decision 7)
+//
+// The audio path (process()) MUST be allocation-free: no heap alloc, no locks,
+// bounded work.  The allocation sentinel intercepts global operator new/delete
+// on the calling thread.  Any allocation inside process() increments the count.
+//
+// Shapes exercised: tanh, hardClip, cubicSoft (the full US1 catalog).
+// gainComp ON and OFF are both tested to confirm the multiply branch is also
+// allocation-free.  100 samples per shape/config suffices to confirm the path.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Waveshaper::process is allocation-free on the audio path (RT-safety)") {
+    struct Config {
+        Shape shape;
+        bool  gainComp;
+        float drive;
+    };
+
+    const Config configs[] = {
+        {Shape::tanh,      false, 2.0f},
+        {Shape::tanh,      true,  2.0f},
+        {Shape::hardClip,  false, 1.5f},
+        {Shape::hardClip,  true,  1.5f},
+        {Shape::cubicSoft, false, 1.0f},
+        {Shape::cubicSoft, true,  1.0f},
+    };
+
+    for (const auto& cfg : configs) {
+        Waveshaper ws;
+        ws.init(kSampleRate);
+        ws.setShape(cfg.shape);
+        ws.setEvaluation(Evaluation::closedForm);
+        ws.setDrive(cfg.drive);
+        ws.setBias(0.1f);
+        ws.setGainCompensation(cfg.gainComp);
+
+        AllocationSentinel::reset();
+        for (int i = 0; i < 100; ++i) {
+            const float t = static_cast<float>(i) / kSampleRate;
+            const float x = 0.2f * std::sin(2.0f * kPi * 1000.0f * t);
+            (void)ws.process(x);
+        }
+        const std::size_t allocs = AllocationSentinel::allocations();
+
+        CHECK_MESSAGE(allocs == 0,
+            "shape=", static_cast<int>(cfg.shape),
+            " gainComp=", cfg.gainComp,
+            " drive=", cfg.drive,
+            " allocated=", allocs);
     }
 }
