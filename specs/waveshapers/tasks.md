@@ -48,9 +48,9 @@ the full catalog is delivered across US1+US2; only the order is decided here.
 
 **Purpose**: directories, build wiring, and the lab skeleton everything else builds on.
 
-- [ ] T001 [tier:fast] Create the lab directory `core/labs/waveshaping/` (with `harness/`) and the empty primitive category `core/primitives/nonlinear/`; record `nonlinear/` in the primitive taxonomy doc (`core/primitives/README.md`).
-- [ ] T002 [tier:balanced] Wire CMake (`cmake/acfx-effect-targets.cmake` / `CMakeLists.txt` as appropriate) to register the new `tests/core/waveshaper-*-test.cpp` doctest suites and a host-only harness target `acfx_lab_waveshaping_harness`.
-- [ ] T003 [P] [tier:fast] Author the `core/labs/waveshaping/README.md` skeleton: theory placeholder + walkthrough outline naming `core/primitives/nonlinear/` as the graduation target (filled in T022).
+- [x] T001 [tier:fast] Create the lab directory `core/labs/waveshaping/` (with `harness/`) and the empty primitive category `core/primitives/nonlinear/`; record `nonlinear/` in the primitive taxonomy doc (`core/primitives/README.md`).
+- [x] T002 [tier:balanced] Wire CMake (`cmake/acfx-effect-targets.cmake` / `CMakeLists.txt` as appropriate) to register the new `tests/core/waveshaper-*-test.cpp` doctest suites and a host-only harness target `acfx_lab_waveshaping_harness`.
+- [x] T003 [P] [tier:fast] Author the `core/labs/waveshaping/README.md` skeleton: theory placeholder + walkthrough outline naming `core/primitives/nonlinear/` as the graduation target (filled in T022).
 
 ---
 
@@ -61,9 +61,9 @@ gain-comp), and the shared test helpers all stories depend on.
 
 **⚠️ No user-story work begins until this phase is complete.**
 
-- [ ] T004 [tier:balanced] Define the memoryless contract surface in `core/labs/waveshaping/waveshaper-shapes.h`: `enum class Shape`, `enum class Evaluation`, and the `acfx::shape::*` pure-function declarations (no bodies yet) per `contracts/waveshaper-api.md` — pure `float→float`, no state, no DC-block.
-- [ ] T005 [P] [tier:balanced] Implement the one-pole DC-blocker and the gain-compensation factor as wrapper-owned helpers in `core/labs/waveshaping/waveshaper.h` (declarations + state members; bodies wired in US1). DC-blocker MUST NOT live in `acfx::shape::*` (FR-008).
-- [ ] T006 [P] [tier:powerful] Extend `tests/core/measurement-support.h` with waveshaper helpers reused across stories: pure-tone harmonic-signature capture (Goertzel/THD), inharmonic-energy (aliasing) measure, and a DC-offset measure — analytic-bound assertion style (no fabricated numbers).
+- [x] T004 [tier:balanced] Define the memoryless contract surface in `core/labs/waveshaping/waveshaper-shapes.h`: `enum class Shape`, `enum class Evaluation`, and the `acfx::shape::*` pure-function declarations (no bodies yet) per `contracts/waveshaper-api.md` — pure `float→float`, no state, no DC-block.
+- [x] T005 [P] [tier:balanced] Implement the one-pole DC-blocker and the gain-compensation factor as wrapper-owned helpers in `core/labs/waveshaping/waveshaper.h` (declarations + state members; bodies wired in US1). DC-blocker MUST NOT live in `acfx::shape::*` (FR-008).
+- [x] T006 [P] [tier:powerful] Extend `tests/core/measurement-support.h` with waveshaper helpers reused across stories: pure-tone harmonic-signature capture (Goertzel/THD), inharmonic-energy (aliasing) measure, and a DC-offset measure — analytic-bound assertion style (no fabricated numbers).
 
 ---
 
@@ -75,11 +75,11 @@ DC-free output.
 **Independent test**: drive a sine through the wrapper; assert the harmonic series matches the
 analytic prediction within tolerance and the output is DC-free (US1 acceptance scenarios).
 
-- [ ] T007 [US1] [tier:balanced] Write `tests/core/waveshaper-test.cpp`: signal-chain order (`drive·x+bias → shape → dcBlock → gainComp`), silence-in→silence-out, asymmetric-bias DC-free output, gain-compensation-toward-unity, no-stale-state-on-reset (FR-007/008/009, SC-002/005).
-- [ ] T008 [US1] [tier:balanced] Write `tests/core/waveshaper-harmonics-test.cpp` (US1 slice): odd-only harmonics for a symmetric shape and even+odd for a biased shape, via the T006 helpers (SC-001/002).
-- [ ] T009 [US1] [tier:balanced] Implement the first-cut closed-form shapes in `waveshaper-shapes.h`: `tanhShape`, `hardClip`, `cubicSoftClip` (bounded for all finite inputs).
-- [ ] T010 [US1] [tier:powerful] Implement `Waveshaper` in `core/labs/waveshaping/waveshaper.h`: `init/setShape/setEvaluation(closedForm)/setDrive/setBias/setGainCompensation/reset/process`, RT-safe (`noexcept`, no alloc/lock), with the T005 DC-blocker.
-- [ ] T011 [US1] [tier:balanced] Implement the default gain-compensation law (per research.md Decision; document which law) and make T007/T008 pass; assert RT-safety via the allocation sentinel.
+- [x] T007 [US1] [tier:balanced] Write `tests/core/waveshaper-test.cpp`: signal-chain order (`drive·x+bias → shape → dcBlock → gainComp`), silence-in→silence-out, asymmetric-bias DC-free output, gain-compensation-toward-unity, no-stale-state-on-reset (FR-007/008/009, SC-002/005).
+- [x] T008 [US1] [tier:balanced] Write `tests/core/waveshaper-harmonics-test.cpp` (US1 slice): odd-only harmonics for a symmetric shape and even+odd for a biased shape, via the T006 helpers (SC-001/002).
+- [x] T009 [US1] [tier:balanced] Implement the first-cut closed-form shapes in `waveshaper-shapes.h`: `tanhShape`, `hardClip`, `cubicSoftClip` (bounded for all finite inputs).
+- [x] T010 [US1] [tier:powerful] Implement `Waveshaper` in `core/labs/waveshaping/waveshaper.h`: `init/setShape/setEvaluation(closedForm)/setDrive/setBias/setGainCompensation/reset/process`, RT-safe (`noexcept`, no alloc/lock), with the T005 DC-blocker.
+- [x] T011 [US1] [tier:balanced] Implement the default gain-compensation law (per research.md Decision; document which law) and make T007/T008 pass; assert RT-safety via the allocation sentinel.
 
 **Checkpoint**: US1 is an independently demonstrable MVP — a usable nonlinear primitive.
 
@@ -92,9 +92,9 @@ analytic prediction within tolerance and the output is DC-free (US1 acceptance s
 **Independent test**: each pure shape matches its closed-form definition across the input domain;
 runtime shape switching carries no stale state (US2 acceptance scenarios).
 
-- [ ] T012 [US2] [tier:balanced] Write `tests/core/waveshaper-shapes-test.cpp`: per-shape analytic correctness (range, symmetry class, monotonicity, anchor points from research.md Decision 1) for every catalog member.
-- [ ] T013 [US2] [tier:powerful] Implement the remaining catalog shapes in `waveshaper-shapes.h`: `arctanShape`, `algebraic`, `softKnee`, `chebyshev(n)`, `biasedAsym`, `diodeCurve`, `sineFold`, `triangleFold` (split into a second header if the size budget nears 500 lines — FR-023).
-- [ ] T014 [US2] [tier:balanced] Wire all catalog members into the `Shape` enum dispatch in `Waveshaper`; add the runtime-switch no-stale-state assertion and document the `diodeCurve` boundary (memoryless curve ≠ circuit-solved diode-clipper, FR-004) in the README + header comment.
+- [x] T012 [US2] [tier:balanced] Write `tests/core/waveshaper-shapes-test.cpp`: per-shape analytic correctness (range, symmetry class, monotonicity, anchor points from research.md Decision 1) for every catalog member.
+- [x] T013 [US2] [tier:powerful] Implement the remaining catalog shapes in `waveshaper-shapes.h`: `arctanShape`, `algebraic`, `softKnee`, `chebyshev(n)`, `biasedAsym`, `diodeCurve`, `sineFold`, `triangleFold` (split into a second header if the size budget nears 500 lines — FR-023).
+- [x] T014 [US2] [tier:balanced] Wire all catalog members into the `Shape` enum dispatch in `Waveshaper`; add the runtime-switch no-stale-state assertion and document the `diodeCurve` boundary (memoryless curve ≠ circuit-solved diode-clipper, FR-004) in the README + header comment.
 
 **Checkpoint**: US1 + US2 deliver the full catalog and the runtime-selectable wrapper.
 
@@ -107,9 +107,9 @@ runtime shape switching carries no stale state (US2 acceptance scenarios).
 **Independent test**: max LUT-vs-closed-form deviation ≤ named bound at the stated resolution; table
 built in `init()`, never in `process()` (US3 acceptance scenarios).
 
-- [ ] T015 [US3] [tier:balanced] Write `tests/core/waveshaper-lut-test.cpp`: per-shape max deviation from closed-form (the reference) ≤ named interpolation-error bound at a stated resolution; assert no per-sample allocation (allocation sentinel) (SC-004, FR-011/012).
-- [ ] T016 [US3] [tier:balanced] Implement LUT support in `core/labs/waveshaping/waveshaper-lut.h`: fixed-size table built in `init()`, linear interpolation, edge-clamp out-of-domain policy (defined, bounded — not a silent fallback).
-- [ ] T017 [US3] [tier:balanced] Wire `Evaluation::lut` into `Waveshaper::process` (select backend without per-sample branching cost where avoidable) and make T015 pass.
+- [x] T015 [US3] [tier:balanced] Write `tests/core/waveshaper-lut-test.cpp`: per-shape max deviation from closed-form (the reference) ≤ named interpolation-error bound at a stated resolution; assert no per-sample allocation (allocation sentinel) (SC-004, FR-011/012).
+- [x] T016 [US3] [tier:balanced] Implement LUT support in `core/labs/waveshaping/waveshaper-lut.h`: fixed-size table built in `init()`, linear interpolation, edge-clamp out-of-domain policy (defined, bounded — not a silent fallback).
+- [x] T017 [US3] [tier:balanced] Wire `Evaluation::lut` into `Waveshaper::process` (select backend without per-sample branching cost where avoidable) and make T015 pass.
 
 ---
 
@@ -121,9 +121,9 @@ memoryless contract.
 **Independent test**: ADAA inharmonic energy lower than naive by ≥ named margin for a covered
 aggressive shape; an uncovered shape raises a descriptive error (US4 acceptance scenarios).
 
-- [ ] T018 [US4] [tier:balanced] Write `tests/core/waveshaper-adaa-test.cpp`: high-frequency stimulus, naive-vs-ADAA inharmonic-energy comparison (≥ named margin, SC-003); assert selecting an antiderivative-less shape raises a descriptive error (naive-only, Constitution V); assert the base `Shape`/`Waveshaper` are unchanged.
-- [ ] T019 [US4] [tier:powerful] Implement antiderivatives in `waveshaper-shapes.h` for the covered shapes (e.g. `tanhAntideriv = log(cosh)`, `hardClipAntideriv`, ...); flag uncovered shapes explicitly.
-- [ ] T020 [US4] [tier:powerful] Implement `ADAAWaveshaper` in `core/labs/waveshaping/adaa-waveshaper.h`: first-order `(F(u)−F(uPrev))/(u−uPrev)` with the small-denominator midpoint fallback, same drive/bias/DC-block/gain-comp staging, history reset; refuse uncovered shapes. (Second-order ADAA left as the documented Open Question.)
+- [x] T018 [US4] [tier:balanced] Write `tests/core/waveshaper-adaa-test.cpp`: high-frequency stimulus, naive-vs-ADAA inharmonic-energy comparison (≥ named margin, SC-003); assert selecting an antiderivative-less shape raises a descriptive error (naive-only, Constitution V); assert the base `Shape`/`Waveshaper` are unchanged.
+- [x] T019 [US4] [tier:powerful] Implement antiderivatives in `waveshaper-shapes.h` for the covered shapes (e.g. `tanhAntideriv = log(cosh)`, `hardClipAntideriv`, ...); flag uncovered shapes explicitly.
+- [x] T020 [US4] [tier:powerful] Implement `ADAAWaveshaper` in `core/labs/waveshaping/adaa-waveshaper.h`: first-order `(F(u)−F(uPrev))/(u−uPrev)` with the small-denominator midpoint fallback, same drive/bias/DC-block/gain-comp staging, history reset; refuse uncovered shapes. (Second-order ADAA left as the documented Open Question.)
 
 ---
 
@@ -136,18 +136,18 @@ the portability gate covers the new locations.
 host-side; the graduated primitive is the relocated lab kernel; the gate passes (US5 acceptance
 scenarios).
 
-- [ ] T021 [US5] [tier:balanced] Implement `core/labs/waveshaping/harness/waveshaping-harness.cpp`: drive each shape, emit per-shape harmonic signatures and the naive-vs-ADAA aliasing comparison via the measurement infra (oversampled arm contingent only — FR-018); host-only target.
-- [ ] T022 [US5] [tier:balanced] Complete `core/labs/waveshaping/README.md`: theory + walkthrough + the measured evidence, naming the graduation target.
-- [ ] T023 [US5] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/labs/waveshaping/**` and `core/primitives/nonlinear/**` for harness-isolation (C-1/C-3), dependency-direction (C-2), platform-independence, and file-size (FR-022); run it green.
-- [ ] T024 [US5] [tier:balanced] Graduate: `git mv` the kernel headers (`waveshaper-shapes.h`, `waveshaper.h`, `adaa-waveshaper.h`, `waveshaper-lut.h`) from `core/labs/waveshaping/` into `core/primitives/nonlinear/`; update `#include` paths in tests + harness; confirm the lab persists as README + harness now driving the graduated primitive; full suite + gate green (SC-007).
+- [x] T021 [US5] [tier:balanced] Implement `core/labs/waveshaping/harness/waveshaping-harness.cpp`: drive each shape, emit per-shape harmonic signatures and the naive-vs-ADAA aliasing comparison via the measurement infra (oversampled arm contingent only — FR-018); host-only target.
+- [x] T022 [US5] [tier:balanced] Complete `core/labs/waveshaping/README.md`: theory + walkthrough + the measured evidence, naming the graduation target.
+- [x] T023 [US5] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/labs/waveshaping/**` and `core/primitives/nonlinear/**` for harness-isolation (C-1/C-3), dependency-direction (C-2), platform-independence, and file-size (FR-022); run it green.
+- [x] T024 [US5] [tier:balanced] Graduate: `git mv` the kernel headers (`waveshaper-shapes.h`, `waveshaper.h`, `adaa-waveshaper.h`, `waveshaper-lut.h`) from `core/labs/waveshaping/` into `core/primitives/nonlinear/`; update `#include` paths in tests + harness; confirm the lab persists as README + harness now driving the graduated primitive; full suite + gate green (SC-007).
 
 ---
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T025 [P] [tier:fast] (Open question) Optional CSV harmonic-spectrum dump from the harness for cross-lab comparison; gate it behind a flag so the default run stays assertion-only.
-- [ ] T026 [P] [tier:fast] Finalize the taxonomy/README cross-references (effect-consumes-primitive convention note) and the diode-altitude boundary statement.
-- [ ] T027 [tier:balanced] Verify the full `ctest --preset test` suite, `scripts/check-portability.sh`, and the `daisy`/`teensy` cross-compiles are green (SC-006); confirm zero unpushed commits.
+- [x] T025 [P] [tier:fast] (Open question) Optional CSV harmonic-spectrum dump from the harness for cross-lab comparison; gate it behind a flag so the default run stays assertion-only.
+- [x] T026 [P] [tier:fast] Finalize the taxonomy/README cross-references (effect-consumes-primitive convention note) and the diode-altitude boundary statement.
+- [~] T027 [tier:balanced] Verify the full `ctest --preset test` suite, `scripts/check-portability.sh`, and the `daisy`/`teensy` cross-compiles are green (SC-006); confirm zero unpushed commits.
 
 ---
 
