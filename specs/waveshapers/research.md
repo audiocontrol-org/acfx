@@ -16,15 +16,23 @@ documented closed-form definition and the analytic harmonic fact the suite asser
 |---|---|---|---|
 | tanh | `tanh(u)` | odd | monotone, range (−1,1), `f(0)=0`, odd `f(−u)=−f(u)` |
 | arctan | `(2/π)·atan(u)` | odd | monotone, range (−1,1), odd |
-| cubic soft-clip | `u−u³/3` clamped, hard limit beyond `|u|≥... ` | odd | `f(0)=0`, slope 1 at 0, odd |
+| cubic soft-clip | `u − u³/3` for `\|u\|≤1`; `±2/3` for `\|u\|>1` | odd | `f(0)=0`, slope 1 at 0, C¹ at `\|u\|=1`, saturates at ±2/3 (NOT ±1) |
 | algebraic | `u/√(1+u²)` | odd | monotone, range (−1,1), odd |
 | hard-clip | `clamp(u,−1,1)` | odd | exact ±1 saturation, odd |
 | polynomial soft-knee | piecewise (linear core, smooth knee) | odd | continuity + C¹ at knee |
-| Chebyshev-N | `T_N(u)` on `[−1,1]` | targets Nth harmonic | a unit sine maps to (predominantly) the Nth harmonic |
+| Chebyshev-N | `chebyshev(u, n) = T_n(u)` on `[−1,1]` (explicit `n`) | targets Nth harmonic | a unit sine maps to (predominantly) the Nth harmonic |
 | biased/asymmetric | symmetric base + asymmetry (via wrapper bias and/or dual-curve) | even+odd | even harmonics present; DC handled by wrapper |
-| diode-style | asymmetric exp/`tanh`-approx, e.g. `sign·(1−e^{−|·|})`-type | even+odd | monotone, asymmetric; documented as a *curve* (see Decision 6) |
-| sine-fold | `sin(k·u)` style folding | rich, fold-dependent | bounded; harmonic count grows with fold depth |
-| triangle-fold | reflective folding into `[−1,1]` | rich, fold-dependent | bounded; piecewise-linear folds |
+| diode-style | `tanh(u)` for `u≥0`; `0.2·tanh(u)` for `u<0` | asymmetric (even+odd + DC) | monotone non-decreasing, NOT odd, bounded; documented as a *curve* (see Decision 6) |
+| sine-fold | `sineFold(u, foldGain) = sin(foldGain·u·π/2)` (explicit `foldGain`) | rich, fold-dependent | bounded; harmonic count grows with fold depth |
+| triangle-fold | `triangleFold(u, foldGain) = (2/π)·asin(sin(foldGain·u·π/2))` (explicit `foldGain`) | rich, fold-dependent | bounded; piecewise-linear folds |
+
+> **Parameterized-shape dispatch (A4).** The pure functions take their defining
+> parameter explicitly — `chebyshev(u, n)`, `sineFold(u, foldGain)`,
+> `triangleFold(u, foldGain)`. The stateful `Waveshaper` (and `ADAAWaveshaper`)
+> dispatch exposes no per-shape parameter setter, so it bakes in documented
+> **defaults**: `chebyshev` order `n = 2` (`kDefaultChebyshevOrder`) and fold depth
+> `foldGain = 1.0` (`kDefaultFoldGain`). Per-shape setters are a documented future
+> extension (see `contracts/waveshaper-api.md`).
 
 **Rationale**: Pure functions are independently unit-testable against closed-form
 truths (the `svf-reference` analytic-bound philosophy) and teachable in the lab.
@@ -82,9 +90,12 @@ table scheme per shape is an Open Question).
 ## Decision 5 — ADAA variant (anti-aliasing), strictly layered
 
 **Decision**: A separate `ADAAWaveshaper` implementing first-order antiderivative
-anti-aliasing `y[n] = (F(u[n]) − F(u[n−1])) / (u[n] − u[n−1])` (with the standard
-small-`|u[n]−u[n−1]|` fallback to the direct `shape` midpoint to avoid the
-0/0 singularity), where `F` is a shape's antiderivative. Second-order ADAA is captured
+anti-aliasing `y[n] = (F(u[n]) − F(u[n−1])) / (u[n] − u[n−1])`, where `F` is a
+shape's antiderivative. **Small-denominator fallback:** when
+`|u[n]−u[n−1]| < kEps` the difference quotient degenerates to 0/0; the variant
+evaluates the `shape` at the midpoint `(u[n]+u[n−1])/2` (the exact limit of the
+quotient), avoiding the singularity — a defined numerical guard, not a silent
+fallback. Second-order ADAA is captured
 as an Open Question. The base memoryless contract and `Waveshaper` are unchanged; ADAA
 wraps them. Shapes without an analytic antiderivative are documented **naive-only** and
 the variant refuses them with a descriptive error rather than silently mis-shaping

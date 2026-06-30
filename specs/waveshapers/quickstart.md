@@ -7,8 +7,11 @@ presets (CPM-pinned deps). Offline sandbox: `export CPM_SOURCE_CACHE=external/.c
 ## Prerequisites
 
 - The repo builds today: `cmake --preset test` succeeds on the branch.
-- The shipped measurement infrastructure (Goertzel/THD analyzer, sine stimulus,
-  allocation sentinel, analytic-bound helpers) is present under `tests/`.
+- The **base** measurement infrastructure (Goertzel/THD analyzer, sine stimulus,
+  allocation sentinel, analytic-bound helpers) is already shipped under `tests/`.
+  The **waveshaper-specific** measurement helpers (harmonic-signature, aliasing, and
+  DC helpers) are NOT pre-existing — they are added by this feature (task T006) on
+  top of that base.
 
 ## Build + run the host test suite
 
@@ -46,19 +49,26 @@ Expected: the new waveshaper doctest suites pass alongside the existing suites.
    variant; asserts the ADAA variant's inharmonic energy is lower by ≥ the named margin
    for a covered aggressive shape; asserts an uncovered shape raises a descriptive error.
 
-6. **Real-time safety (SC-005)** — the allocation sentinel confirms zero heap allocation
+6. **Antiderivative ↔ shape pairing (US4 / SC-003)** — `waveshaper-antiderivatives-test.cpp`
+   asserts each antiderivative `F` is the true antiderivative of its shape (`F' = shape`,
+   verified against finite differences / closed-form anchors) and that `hasAntiderivative()`
+   reports exactly the covered set — the analytic foundation ADAA relies on.
+
+7. **Real-time safety (SC-005)** — the allocation sentinel confirms zero heap allocation
    / no locks on `process()`; stress inputs produce no NaN/Inf/denormal.
 
 ## Run the lab harness (host-only)
 
 ```bash
 cmake --build --preset test --target acfx_lab_waveshaping_harness   # host-only target
-./build/.../acfx_lab_waveshaping_harness                            # exact path per preset
+./build/test/acfx_lab_waveshaping_harness                            # human-readable report
+./build/test/acfx_lab_waveshaping_harness --csv                      # machine-readable CSV dump
 ```
 
-Expected: per-shape harmonic evidence and the naive-vs-ADAA aliasing comparison
-(optionally a CSV harmonic-spectrum dump — Open Question). The harness is never linked
-into portable core or an MCU target.
+Expected: per-shape harmonic evidence and the naive-vs-ADAA aliasing comparison. The
+`--csv` flag emits a machine-readable CSV harmonic-spectrum dump (implemented in task
+T025; no longer an Open Question). The harness is never linked into portable core or an
+MCU target.
 
 ## Portability / layering gate
 

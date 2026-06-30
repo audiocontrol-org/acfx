@@ -108,21 +108,22 @@ core/
 ├── dsp/                                 # shared substrate (unchanged)
 ├── labs/
 │   ├── state-variable-filter/           # existing (the retroactive precedent)
-│   └── waveshaping/                      # NEW — first greenfield lab
+│   └── waveshaping/                      # NEW — first greenfield lab (persists post-graduation)
 │       ├── README.md                     # theory + walkthrough; names graduation target
-│       ├── waveshaping-kernel.h          # RT-safe kernel: shapes + Waveshaper + ADAA + LUT
-│       │                                 #   (split across headers if it nears the size budget)
 │       └── harness/                       # host-only: harmonic evidence, aliasing comparison
-│           └── waveshaping-harness.cpp
+│           └── waveshaping-harness.cpp    #   (kernel headers GRADUATED out; see below)
 └── primitives/
     ├── filters/  delays/  modulation/    # existing categories
-    └── nonlinear/                         # NEW category — graduation target
-        └── (kernel headers git mv'd here at graduation; e.g.
-             waveshaper-shapes.h, waveshaper.h, adaa-waveshaper.h, waveshaper-lut.h)
+    └── nonlinear/                         # NEW category — graduation target (kernel now lives here)
+        ├── waveshaper-shapes.h            # pure shapes + antiderivatives + hasAntiderivative()
+        ├── waveshaper.h                   # stateful Waveshaper wrapper (drive→bias→shape→DC→gainComp)
+        ├── waveshaper-lut.h               # fixed-size LUT support unit
+        └── adaa-waveshaper.h              # first-order ADAA variant (strictly layered)
 
 tests/core/
 ├── (existing measurement-*-test.cpp, lfo-test.cpp, ...)
 ├── waveshaper-shapes-test.cpp            # pure transfer-function analytic correctness (US2)
+├── waveshaper-antiderivatives-test.cpp   # antiderivative ↔ shape pairing (F'=shape) for ADAA (US4)
 ├── waveshaper-test.cpp                    # wrapper signal chain, DC-block, gain-comp (US1)
 ├── waveshaper-lut-test.cpp                # LUT-vs-closed-form interpolation bound (US3)
 ├── waveshaper-adaa-test.cpp               # naive-vs-ADAA aliasing reduction (US4)
@@ -133,13 +134,16 @@ scripts/check-portability.sh               # EXTEND: cover core/labs/waveshaping
 ```
 
 **Structure Decision**: Single C++ core with the established three-layer taxonomy.
-Pre-graduation, the kernel (shapes + `Waveshaper` + `ADAAWaveshaper` + LUT support)
-lives under `core/labs/waveshaping/` and is driven by the host-only harness and the
-doctest suites. At graduation the kernel headers are `git mv`'d into
-`core/primitives/nonlinear/` (refined in place, not re-derived), `#include` paths in
-tests/harness update, and the lab persists as README + harness now driving the
-graduated primitive. The kernel is split into multiple headers (shapes / wrapper /
-ADAA / LUT) to honor the ~300–500-line module budget (VII, FR-023).
+The kernel is split into **four** headers — `waveshaper-shapes.h` (pure shapes +
+antiderivatives + `hasAntiderivative()`), `waveshaper.h` (the stateful `Waveshaper`
+wrapper), `waveshaper-lut.h` (LUT support), and `adaa-waveshaper.h` (the
+`ADAAWaveshaper` variant) — to honor the ~300–500-line module budget (VII, FR-023).
+The kernel has been **graduated**: those four headers now live under
+`core/primitives/nonlinear/` (`git mv`'d from the lab, refined in place, not
+re-derived), with `#include` paths in the tests and harness updated accordingly.
+`core/labs/waveshaping/` persists as the living lab — README theory plus the
+host-only harness — now driving the graduated primitive rather than holding the
+kernel itself.
 
 ## Complexity Tracking
 
