@@ -33,6 +33,7 @@ add_executable(acfx_core_tests
   #   core/waveshaper-integration-test.cpp
   # ---------------------------------------------------------------------------
   core/waveshaper-test.cpp
+  core/waveshaper-harmonics-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
