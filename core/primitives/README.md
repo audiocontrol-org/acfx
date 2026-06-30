@@ -78,8 +78,7 @@ family is intended to land (SC-007).
 
 ### `nonlinear/`
 
-Waveshapers, saturators, and distortion kernels. Intended inhabitants:
-soft-clippers, hard-clippers, polynomial waveshapers, tanh approximations.
+Waveshapers, saturators, and distortion kernels. Active lab: `core/labs/waveshaping/` (kernel will graduate to primitives/nonlinear/). Intended inhabitants: soft-clippers, hard-clippers, polynomial waveshapers, tanh approximations, ADAA variants.
 
 ### `dynamics/`
 
