@@ -70,7 +70,7 @@ Waveshapers, saturators, and distortion kernels. Graduated from `core/labs/waves
 
 | Primitive | Description |
 |---|---|
-| `nonlinear/waveshaper-shapes.h` | Memoryless transfer-function catalog (`namespace acfx::shape`): 11 pure `float->float` shapes, their antiderivatives, `Shape`/`Evaluation` enums, and the `hasAntiderivative()` predicate. |
+| `nonlinear/waveshaper-shapes.h` | Memoryless transfer-function catalog (`namespace acfx::shape`): 10 pure `float->float` shapes (tanhShape, arctanShape, cubicSoftClip, algebraic, hardClip, softKnee, chebyshev, diodeCurve, sineFold, triangleFold), their antiderivatives (one per covered shape), `Shape`/`Evaluation` enums, and the `hasAntiderivative()` predicate. `Shape::biasedAsym` is a Shape enum member realized in the wrapper (no pure `acfx::shape::biasedAsym` function exists) and has no antiderivative; `hasAntiderivative(Shape::biasedAsym)` returns false. |
 | `nonlinear/waveshaper.h` | Stateful `Waveshaper` wrapper: drive/bias/DC-block/gain-comp staging around the memoryless catalog; supports `closedForm` and `lut` evaluation backends; RT-safe. |
 | `nonlinear/waveshaper-lut.h` | `WaveshaperLut` fixed-size table (512 points, linear interpolation, edge-clamp); built in `init()`, never in `process()`; error bound `kMaxDeviation = 1e-3`. |
 | `nonlinear/adaa-waveshaper.h` | `ADAAWaveshaper` first-order antiderivative anti-aliasing variant; refuses uncovered shapes with a descriptive error; same drive/bias/DC-block/gain-comp staging as `Waveshaper`. |

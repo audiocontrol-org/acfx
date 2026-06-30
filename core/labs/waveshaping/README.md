@@ -217,7 +217,7 @@ cmake --build --preset test -j8
 The test suite (`tests/core/waveshaper-*.cpp`) asserts closed-form analytic facts:
 
 - Symmetric shapes (`f(-u) = -f(u)`) measure zero at even harmonic bins.
-- Anchor values — `tanh(0) = 0`, `arctan(1) = π/4`, `hardClip(2) = 1` — are
+- Anchor values — `tanh(0) = 0`, `arctanShape(1) = 0.5`, `hardClip(2) = 1` — are
   exact within float precision, not approximate thresholds.
 - LUT deviation from closed-form is bounded by `kMaxDeviation = 1e-3`.
 - ADAA reduces inharmonic energy by a named minimum margin (currently > 3 dB;

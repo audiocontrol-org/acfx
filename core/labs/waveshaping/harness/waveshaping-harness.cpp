@@ -132,7 +132,11 @@ static void printHarmonicSignature(const HarmonicSignature& sig)
 {
     std::printf("  %-14s |", sig.shapeName);
     for (int h = 0; h < kNumHarm; ++h) {
-        if (sig.magnitudes[h] == 0.0 && h > 0) {  // Nyquist cutoff marker
+        // B3: test the actual above-Nyquist condition rather than comparing
+        // a measured magnitude to 0.0 with ==, which conflates "above Nyquist"
+        // with "measured exactly zero".
+        const double freq = kFundHz * static_cast<double>(h + 1);
+        if (freq >= kSampleRateD * 0.5) {
             std::printf("   ------  |");
         } else {
             std::printf("   %6.4f  |", sig.magnitudes[h]);
@@ -256,11 +260,30 @@ static void runAliasingComparison()
     std::printf("\n");
     if (naive.inharmonicPower > 1.0e-12) {
         const double ratio = adaa.inharmonicPower / naive.inharmonicPower;
-        const double dBred = 10.0 * std::log10(1.0 / (ratio + 1.0e-300));
-        std::printf("  ADAA/naive inharmonic ratio: %.4f  (%.1f dB reduction)\n",
-                    ratio, dBred);
-        std::printf("  [ADAA reduces aliased energy by > %.0f dB for this stimulus]\n",
-                    dBred < 3.0 ? 0.0 : dBred);
+        if (ratio >= 1.0) {
+            // B1: ADAA did not reduce inharmonic power — report regression honestly.
+            std::printf("  ADAA/naive inharmonic ratio: %.4f  (no reduction -- ADAA regressed)\n",
+                        ratio);
+            std::printf("  naive inharmonic: %.6f  ADAA inharmonic: %.6f\n",
+                        naive.inharmonicPower, adaa.inharmonicPower);
+        } else {
+            // B2: cap reported dB to avoid absurd ~3000 dB when ADAA inharmonic
+            // power is near zero (ratio << 1 makes 1/ratio extremely large).
+            const bool nearZero = (ratio < 1.0e-6);
+            const double dBred  = nearZero ? 60.0 : 10.0 * std::log10(1.0 / ratio);
+            if (nearZero) {
+                std::printf("  ADAA/naive inharmonic ratio: %.4e  (>%.0f dB reduction)\n",
+                            ratio, dBred);
+            } else {
+                std::printf("  ADAA/naive inharmonic ratio: %.4f  (%.1f dB reduction)\n",
+                            ratio, dBred);
+            }
+            // B4: floor the bound so the stated claim is always <= the measured
+            // reduction (rounding to nearest can state a bound ABOVE what was measured).
+            const double claimedBound = std::floor(dBred < 3.0 ? 0.0 : dBred);
+            std::printf("  [ADAA reduces aliased energy by > %.0f dB for this stimulus]\n",
+                        claimedBound);
+        }
     } else {
         std::printf("  Naive inharmonic power negligible; no meaningful comparison.\n");
     }
