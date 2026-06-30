@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **three-layer-structure**.
+Active Spec Kit feature: **waveshapers**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/three-layer-structure/plan.md` (spec: `specs/three-layer-structure/spec.md`).
+current plan at `specs/waveshapers/plan.md` (spec: `specs/waveshapers/spec.md`).
 <!-- SPECKIT END -->
