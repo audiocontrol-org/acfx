@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-06-30: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 5
+  - workflow(three-layer-structure): link spec + record analyze-clean
+  - tasks(three-layer-structure): 31 tasks across 6 phases, runnable
+  - plan(three-layer-structure): plan + design artifacts
+  - spec(three-layer-structure): author spec from approved design record
+  - design(three-layer-structure): establish labs/->primitives/->effects/ core structure
+- Files changed: 13
+- Backlog touched: (none)
+
 ## 2026-06-30: Execute + govern + ship measurement-infrastructure
 
 **Goal:** Take the runnable `measurement-infrastructure` spec through the rest of the
