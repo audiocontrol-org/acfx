@@ -2,7 +2,7 @@
 title: Waveshapers — Nonlinear Memoryless Primitive — Design Record
 date: 2026-06-30
 roadmap-item: design:primitive/waveshapers
-status: awaiting-operator-approval
+status: approved
 ---
 
 # Waveshapers — Nonlinear Memoryless Primitive
