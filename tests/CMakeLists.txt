@@ -35,6 +35,7 @@ add_executable(acfx_core_tests
   core/waveshaper-test.cpp
   core/waveshaper-harmonics-test.cpp
   core/waveshaper-shapes-test.cpp
+  core/waveshaper-antiderivatives-test.cpp
   core/waveshaper-lut-test.cpp
   core/waveshaper-adaa-test.cpp
 )
