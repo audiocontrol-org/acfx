@@ -1,0 +1,11 @@
+{"id":"T001","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"baseline GREEN 92/92 tests; required CPM_SOURCE_CACHE=external/.cpm-cache for offline configure"}
+{"id":"T002","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"portability gate exit 0; 4 checks pass"}
+{"id":"T003","tierLabel":"balanced","model":"sonnet","commitRange":null,"reviewClean":true,"note":"core/primitives/README.md 166 lines; 3 inhabited + 7 prospectus; create-on-inhabitant rule explicit"}
+{"id":"T004","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"git mv svf-primitive.h -> filters/ (R, history preserved)"}
+{"id":"T005","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"svf-effect.h include -> primitives/filters/svf-primitive.h"}
+{"id":"T006","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"modulated-delay-effect.h svf include updated; delay/lfo untouched"}
+{"id":"T007","tierLabel":"balanced","model":"sonnet","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"SVF lab README graduated-state; 4 required sections; 135 lines"}
+{"id":"T008","tierLabel":"balanced","model":"sonnet","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"host-only svf-harness.cpp 171 lines; dsp+primitives+stdlib only; real API; builds+runs"}
+{"id":"T009","tierLabel":"balanced","model":"sonnet","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"acfx_lab_svf_harness target guarded ACFX_BUILD_TESTS OR DESKTOP; absent from MCU"}
+{"id":"T010","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"GREEN 92/92 unchanged; harness builds+runs stability PASS exit 0"}
+{"id":"T011","tierLabel":"fast","model":"haiku","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"US1 committed+pushed (controller boundary commit)"}
