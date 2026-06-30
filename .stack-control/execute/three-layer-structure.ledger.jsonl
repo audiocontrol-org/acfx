@@ -9,3 +9,12 @@
 {"id":"T009","tierLabel":"balanced","model":"sonnet","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"acfx_lab_svf_harness target guarded ACFX_BUILD_TESTS OR DESKTOP; absent from MCU"}
 {"id":"T010","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"GREEN 92/92 unchanged; harness builds+runs stability PASS exit 0"}
 {"id":"T011","tierLabel":"fast","model":"haiku","commitRange":"4c95762..54de6eb","reviewClean":true,"note":"US1 committed+pushed (controller boundary commit)"}
+{"id":"T012","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"git mv delay-line.h -> delays/"}
+{"id":"T013","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"git mv lfo.h -> modulation/"}
+{"id":"T014","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"wow-flutter.h delay+lfo includes updated"}
+{"id":"T015","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"modulated-delay-effect.h delay+lfo includes; svf untouched"}
+{"id":"T016","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"delay-line-test.cpp include updated"}
+{"id":"T017","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"lfo-test.cpp include updated"}
+{"id":"T018","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"README categories already inhabited (no change needed)"}
+{"id":"T019","tierLabel":"fast","model":"haiku","commitRange":null,"reviewClean":true,"note":"GREEN 92/92; flat-header scan empty (SC-003)"}
+{"id":"T020","tierLabel":"fast","model":"haiku","commitRange":"a4f8893..09a8c68","reviewClean":true,"note":"US2 committed+pushed (controller boundary)"}
