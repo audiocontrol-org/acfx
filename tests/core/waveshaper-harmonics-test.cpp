@@ -12,10 +12,17 @@
 //   Every harmonic k*f0 for k=1..6 lands on an exact Goertzel bin.
 //   Leakage is negligible; Parseval identity is exact over the window.
 //
-// Drive choice:
-//   drive=2.0 saturates tanh peaks (tanh(2.0) ~= 0.964), generating
-//   measurable odd harmonics (~5-10% of fundamental) while keeping even
-//   harmonics below noise for bias=0.
+// Drive choice (per shape class — only tanh is tested here):
+//   tanh (odd soft-clipper): drive=2.0 saturates peaks (tanh(2.0) ~= 0.964),
+//     generating measurable odd harmonics (~5-10% of fundamental) while
+//     keeping even harmonics below noise for bias=0.  This file covers tanh
+//     exclusively, so kDrive=2.0 is appropriate for every test case here.
+//   Chebyshev: requires |u| <= 1.0 for T_n to stay in its natural [-1,1]
+//     domain; harmonic tests for chebyshev would use drive <= 1.0.
+//   Asymmetric (diodeCurve): bounded for any drive; forward branch behaves
+//     like tanh, so drive=2.0 would be adequate, but these are not tested here.
+//   Folding (sineFold/triangleFold): fold depth is controlled by foldGain,
+//     not drive; harmonic tests would sweep foldGain rather than drive.
 //
 // Tolerances (named, analytic-direction -- no fabricated magic numbers):
 //   kOddPresentFloor  = 0.01    odd harmonics >= 1% of fundamental

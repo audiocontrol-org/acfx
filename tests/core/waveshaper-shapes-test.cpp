@@ -196,10 +196,35 @@ TEST_CASE("hardClip: f(0)=0, odd, exact pass-through and exact saturation") {
 }
 
 // ===========================================================================
-// softKnee: piecewise (linear core, smooth knee).  Odd, C0+C1 at knee.
-// No closed-form anchor (implementation-defined knee location); assertions
-// are structural: odd, bounded, monotone, C1-continuous numerically.
+// softKnee: piecewise (linear core, smooth knee).  Odd, C1-continuous.
+// Closed form (on |u|, sign-restored):
+//   |u| <= 0.5            : f = u                         (linear core)
+//   0.5 < |u| < 1.5       : f = -0.5*s^2 + s + 0.5,  s = |u|-0.5 (knee)
+//   |u| >= 1.5            : f = ±1                        (flat limit)
+// Unique Hermite segment: value/slope (0.5,1) at |u|=0.5; (1,0) at |u|=1.5.
 // ===========================================================================
+
+TEST_CASE("softKnee: piecewise closed-form values — linear core, knee, flat") {
+    // Linear core (|u| <= 0.5): f = u (identity).
+    CHECK(softKnee(0.0f)  == doctest::Approx(0.0f).epsilon(kEps));
+    CHECK(softKnee(0.25f) == doctest::Approx(0.25f).epsilon(kEps));
+    CHECK(softKnee(0.5f)  == doctest::Approx(0.5f).epsilon(kEps));  // inclusive boundary
+
+    // Knee region (0.5 < |u| < 1.5), s = |u| - 0.5, f = -0.5*s^2 + s + 0.5.
+    // u=0.75: s=0.25 → f = -0.5*0.0625 + 0.25 + 0.5 = -0.03125 + 0.75 = 0.71875
+    CHECK(softKnee(0.75f) == doctest::Approx(0.71875f).epsilon(kEps));
+    // u=1.0:  s=0.5  → f = -0.5*0.25   + 0.5 + 0.5 = -0.125   + 1.0  = 0.875
+    CHECK(softKnee(1.0f)  == doctest::Approx(0.875f).epsilon(kEps));
+
+    // Flat limit (|u| >= 1.5): f = ±1.
+    CHECK(softKnee(1.5f)  == doctest::Approx(1.0f).epsilon(kEps));  // inclusive boundary
+    CHECK(softKnee(2.0f)  == doctest::Approx(1.0f).epsilon(kEps));
+
+    // Odd symmetry: f(-u) = -f(u) across all three piecewise regions.
+    CHECK(softKnee(-0.25f) == doctest::Approx(-0.25f).epsilon(kEps));
+    CHECK(softKnee(-1.0f)  == doctest::Approx(-0.875f).epsilon(kEps));
+    CHECK(softKnee(-2.0f)  == doctest::Approx(-1.0f).epsilon(kEps));
+}
 
 TEST_CASE("softKnee: f(0)=0, odd symmetry, bounded to +-1") {
     CHECK(softKnee(0.0f) == doctest::Approx(0.0f).epsilon(kEps));
@@ -272,34 +297,52 @@ TEST_CASE("chebyshev n=3: closed-form anchors from T_3(u) = 4u^3 - 3u") {
     CHECK(chebyshev(-1.0f, 3) == doctest::Approx(-1.0f).epsilon(kEps));
 }
 
-TEST_CASE("chebyshev: T_n(1)=1 and T_n(-1)=(-1)^n for n=1,2,3") {
-    CHECK(chebyshev( 1.0f, 1) == doctest::Approx( 1.0f).epsilon(kEps));
-    CHECK(chebyshev( 1.0f, 2) == doctest::Approx( 1.0f).epsilon(kEps));
-    CHECK(chebyshev( 1.0f, 3) == doctest::Approx( 1.0f).epsilon(kEps));
-    CHECK(chebyshev(-1.0f, 1) == doctest::Approx(-1.0f).epsilon(kEps));  // (-1)^1
-    CHECK(chebyshev(-1.0f, 2) == doctest::Approx( 1.0f).epsilon(kEps));  // (-1)^2
-    CHECK(chebyshev(-1.0f, 3) == doctest::Approx(-1.0f).epsilon(kEps));  // (-1)^3
+TEST_CASE("chebyshev: T_n(1)=1 and T_n(-1)=(-1)^n for n=1..5") {
+    // T_n(1) = 1 for all n >= 0.  T_n(-1) = (-1)^n.
+    for (int n = 1; n <= 5; ++n) {
+        CHECK(chebyshev( 1.0f, n) == doctest::Approx(1.0f).epsilon(kEps));
+        const float expected_neg1 = (n % 2 == 0) ? 1.0f : -1.0f;
+        CHECK(chebyshev(-1.0f, n) == doctest::Approx(expected_neg1).epsilon(kEps));
+    }
 }
 
-TEST_CASE("chebyshev: recurrence T_{n+1}(u) = 2u*T_n(u) - T_{n-1}(u) at u=0.7") {
-    // T_1(0.7) = 0.7
-    // T_2(0.7) = 2*0.49 - 1 = -0.02
-    // T_3(0.7) = 2*0.7*(-0.02) - 0.7 = -0.028 - 0.7 = -0.728
-    //          = 4*(0.343) - 3*(0.7)  = 1.372 - 2.1 = -0.728  (closed form check)
+TEST_CASE("chebyshev: closed-form anchor values at u=0.7 for n=1,2,3") {
+    // Independent closed-form checks; the implementation uses a recurrence so
+    // comparing against the polynomial formulas tests correctness without being
+    // tautological.  T_1=u, T_2=2u^2-1, T_3=4u^3-3u.
     const float u  = 0.7f;
-    const float t1 = chebyshev(u, 1);
-    const float t2 = chebyshev(u, 2);
-    const float t3 = chebyshev(u, 3);
-    CHECK(t1 == doctest::Approx(0.7f).epsilon(kEps));
-    CHECK(t2 == doctest::Approx(-0.02f).epsilon(kEps));
-    CHECK(t3 == doctest::Approx(-0.728f).epsilon(kEps));
-    // Recurrence identity: T_3(u) = 2*u*T_2(u) - T_1(u)
-    CHECK(t3 == doctest::Approx(2.0f * u * t2 - t1).epsilon(kEps));
+    CHECK(chebyshev(u, 1) == doctest::Approx(0.7f).epsilon(kEps));    // T_1 = u
+    CHECK(chebyshev(u, 2) == doctest::Approx(-0.02f).epsilon(kEps));  // 2*0.49-1
+    CHECK(chebyshev(u, 3) == doctest::Approx(-0.728f).epsilon(kEps)); // 4*0.343-3*0.7
+}
+
+TEST_CASE("chebyshev n=4: independent closed-form from T_4(u) = 8u^4 - 8u^2 + 1") {
+    // T_4(0.5) = 8*(0.5)^4 - 8*(0.5)^2 + 1 = 0.5 - 2.0 + 1 = -0.5
+    CHECK(chebyshev(0.5f, 4) == doctest::Approx(-0.5f).epsilon(kEps));
+    // T_4(1) = 1;  T_4(-1) = (-1)^4 = 1
+    CHECK(chebyshev( 1.0f, 4) == doctest::Approx( 1.0f).epsilon(kEps));
+    CHECK(chebyshev(-1.0f, 4) == doctest::Approx( 1.0f).epsilon(kEps));
+    // Cosine identity T_n(cos θ) = cos(nθ): T_4(cos(pi/4)) = cos(pi) = -1.
+    // cos(pi/4) = sqrt(2)/2 — algebraically exact.
+    const float cos_pi4 = std::sqrt(2.0f) / 2.0f;
+    CHECK(chebyshev(cos_pi4, 4) == doctest::Approx(-1.0f).epsilon(kEps));
+}
+
+TEST_CASE("chebyshev n=5: independent closed-form from T_5(u) = 16u^5 - 20u^3 + 5u") {
+    // T_5(0.5) = 16*(0.5)^5 - 20*(0.5)^3 + 5*0.5 = 0.5 - 2.5 + 2.5 = 0.5
+    CHECK(chebyshev(0.5f, 5) == doctest::Approx(0.5f).epsilon(kEps));
+    // T_5(1) = 1;  T_5(-1) = (-1)^5 = -1
+    CHECK(chebyshev( 1.0f, 5) == doctest::Approx( 1.0f).epsilon(kEps));
+    CHECK(chebyshev(-1.0f, 5) == doctest::Approx(-1.0f).epsilon(kEps));
+    // Cosine identity: T_5(cos(pi/10)) = cos(5*pi/10) = cos(pi/2) = 0.
+    const float cos_pi10 = std::cos(kPi / 10.0f);
+    CHECK(chebyshev(cos_pi10, 5) == doctest::Approx(0.0f).epsilon(kEps));
 }
 
 // ===========================================================================
 // diodeCurve: asymmetric memoryless curve — NOT a circuit model (Decision 6).
 // Monotone, asymmetric (f(-u) != -f(u)), bounded.
+// Closed form: u>=0 → tanh(u); u<0 → 0.2·tanh(u).
 // ===========================================================================
 
 TEST_CASE("diodeCurve: asymmetric (not odd), monotone, bounded") {
@@ -320,6 +363,30 @@ TEST_CASE("diodeCurve: asymmetric (not odd), monotone, bounded") {
         CHECK(std::abs(cur) <= 2.0f);       // generous finite bound
         CHECK(cur >= prev - kEps);          // non-decreasing
         prev = cur;
+    }
+}
+
+TEST_CASE("diodeCurve: closed-form point values — forward tanh, reverse 0.2*tanh") {
+    // Exact closed form: u>=0 → tanh(u); u<0 → 0.2·tanh(u).
+    // Zero: both branches agree at u=0.
+    CHECK(diodeCurve(0.0f) == doctest::Approx(0.0f).epsilon(kEps));
+
+    // Forward branch (u > 0): diodeCurve(u) == tanh(u)
+    // tanh(1.0) ≈ 0.76159;  tanh(2.0) ≈ 0.96403.
+    CHECK(diodeCurve(1.0f) == doctest::Approx(std::tanh(1.0f)).epsilon(kEps));
+    CHECK(diodeCurve(2.0f) == doctest::Approx(std::tanh(2.0f)).epsilon(kEps));
+
+    // Reverse branch (u < 0): diodeCurve(u) == 0.2*tanh(u)
+    // 0.2*tanh(-1.0) ≈ -0.15232;  0.2*tanh(-2.0) ≈ -0.19281.
+    CHECK(diodeCurve(-1.0f) == doctest::Approx(0.2f * std::tanh(-1.0f)).epsilon(kEps));
+    CHECK(diodeCurve(-2.0f) == doctest::Approx(0.2f * std::tanh(-2.0f)).epsilon(kEps));
+
+    // Asymmetry ratio: diodeCurve(-x)/diodeCurve(x) = 0.2*tanh(-x)/tanh(x) = -0.2
+    // (tanh is odd, so the ratio is exactly -0.2 for all x > 0).
+    const float xs[] = {0.5f, 1.0f, 2.0f};
+    for (float x : xs) {
+        const float ratio = diodeCurve(-x) / diodeCurve(x);
+        CHECK(ratio == doctest::Approx(-0.2f).epsilon(kEps));
     }
 }
 
