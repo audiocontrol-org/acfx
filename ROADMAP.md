@@ -103,6 +103,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:gap/three-layer-structure
 - status: planned
+- design: docs/superpowers/specs/2026-06-29-three-layer-structure-design.md
 - part-of: multi:feature/phase-digital-fundamentals
 
 ## design:primitive/waveshapers
