@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **saturation**.
+Active Spec Kit feature: **oversampling**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/saturation/plan.md` (spec: `specs/saturation/spec.md`).
+current plan at `specs/oversampling/plan.md` (spec: `specs/oversampling/spec.md`).
 <!-- SPECKIT END -->
