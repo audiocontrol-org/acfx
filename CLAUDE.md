@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **oversampling**.
+Active Spec Kit feature: **harmonic-analysis**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/oversampling/plan.md` (spec: `specs/oversampling/spec.md`).
+current plan at `specs/harmonic-analysis/plan.md` (spec: `specs/harmonic-analysis/spec.md`).
 <!-- SPECKIT END -->
