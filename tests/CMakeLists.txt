@@ -52,6 +52,8 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   core/oversampler-transparency-test.cpp
   core/oversampler-aliasing-test.cpp
+  core/oversampler-response-test.cpp
+  core/oversampler-latency-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
