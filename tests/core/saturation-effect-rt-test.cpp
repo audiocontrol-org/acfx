@@ -257,6 +257,92 @@ TEST_CASE("SaturationEffect::process allocates nothing when voicing/quality chan
 }
 
 // ---------------------------------------------------------------------------
+// TEST 3c: RT-safe quality switching -- naive -> adaa -> oversampled -> back
+// at block boundaries produces no NaN/Inf and stays bounded (FR-021)
+//
+// TEST 3b above already proves the in-process() voicing/quality reconfigure
+// path is allocation-free. This test covers the OTHER RT-safety half FR-021
+// calls out: now that `oversampled` is a real, user-selectable third quality
+// path (Oversampler<4> + a parallel-dual-path naive/adaa/oversampled shaper
+// trio, per SaturationCore::setQuality()'s "No-stale-state note", saturation-
+// core.h), switching AMONG all three at a block boundary -- including
+// switching BACK to a quality whose shaper has been sitting inactive across
+// several blocks -- must never produce NaN/Inf or an unbounded output, i.e.
+// no stale internal state (a DC-blocker, an ADAA history point, an
+// Oversampler half-band filter's delay line left over from a previous
+// active period) corrupts the resumed path beyond an ordinary, bounded
+// switch-on transient.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("SaturationEffect: switching quality naive->adaa->oversampled->naive at block "
+          "boundaries stays finite and bounded, no stale-state corruption (FR-021)") {
+    constexpr int   kBlockSize = 32;
+    constexpr float kDriveDb   = 18.0f;  // well past the knee, matches TEST 2's stimulus level
+    constexpr float kBiasVal   = 0.2f;   // nonzero: exercises the DC-blocker/asymmetry state too
+
+    // Generous sanity bound, matching saturation-core-test.cpp TEST 1's
+    // kBoundedOutput convention: the composed shape is bounded to +-1, the
+    // pre/post-emphasis and tone-tilt SVF stages are low-resonance, and
+    // mix/output are unity here -- 8x kAmplitude is far above any legitimate
+    // composed amplitude and only catches a genuinely diverging/corrupted
+    // switch, not ordinary transient ringing.
+    constexpr float kBoundedOutput = 8.0f;
+
+    // Cycle through every quality, INCLUDING repeats and a switch back to an
+    // already-visited quality (oversampled -> naive, and naive -> adaa a
+    // second time), so the "resume a long-inactive shaper" case is covered,
+    // not just "first-touch" of each quality.
+    constexpr SaturationQuality kSequence[] = {
+        SaturationQuality::naive,       SaturationQuality::adaa, SaturationQuality::oversampled,
+        SaturationQuality::naive,       SaturationQuality::adaa, SaturationQuality::oversampled,
+        SaturationQuality::naive};
+
+    SaturationEffect fx;
+    fx.prepare(ProcessContext{kSampleRateD, kBlockSize, 1});
+    fx.setParameter(ParamId{SaturationEffect::kVoicing},
+                     normFor(SaturationEffect::kVoicing,
+                             static_cast<float>(static_cast<int>(SaturationVoicing::softClip))));
+    fx.setParameter(ParamId{SaturationEffect::kDrive}, normFor(SaturationEffect::kDrive, kDriveDb));
+    fx.setParameter(ParamId{SaturationEffect::kBias}, normFor(SaturationEffect::kBias, kBiasVal));
+    fx.setParameter(ParamId{SaturationEffect::kTone}, normFor(SaturationEffect::kTone, 0.0f));
+    fx.setParameter(ParamId{SaturationEffect::kOutput}, normFor(SaturationEffect::kOutput, 0.0f));
+    // Fully wet (mix=1): the wired oversampled path is NOT dry/wet-latency-
+    // compensated (saturation-core.h process()'s KNOWN LIMITATION comment on
+    // the oversampled branch) -- this test checks finite/bounded output, not
+    // mix alignment, so it deliberately stays fully wet like the aliasing
+    // suite does.
+    fx.setParameter(ParamId{SaturationEffect::kMix}, normFor(SaturationEffect::kMix, 1.0f));
+
+    int sampleIndex = 0;
+    for (SaturationQuality quality : kSequence) {
+        // Publish the quality switch "from a non-audio thread"; applyPending()
+        // consumes it at the top of the NEXT process() call below, on the
+        // audio thread, exactly at this block boundary.
+        fx.setParameter(ParamId{SaturationEffect::kQuality},
+                         normFor(SaturationEffect::kQuality,
+                                 static_cast<float>(static_cast<int>(quality))));
+
+        std::vector<float> buf(static_cast<std::size_t>(kBlockSize));
+        for (int i = 0; i < kBlockSize; ++i) {
+            const float t = static_cast<float>(sampleIndex) / kSampleRateF;
+            buf[static_cast<std::size_t>(i)] =
+                kAmplitude * std::sin(2.0f * kPi * static_cast<float>(kFundamentalHz) * t);
+            ++sampleIndex;
+        }
+
+        float* chans[1] = {buf.data()};
+        AudioBlock block(chans, 1, kBlockSize);
+        fx.process(block); // applies the quality switch, then processes this block with it
+
+        for (std::size_t n = 0; n < buf.size(); ++n) {
+            INFO("quality=", static_cast<int>(quality), " sample=", n, " value=", buf[n]);
+            CHECK(std::isfinite(buf[n]));
+            CHECK(std::abs(buf[n]) <= kBoundedOutput);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TEST 4: Mix dry/wet blend law (FR-012, Acceptance Scenario 3, SC-003)
 //
 // Sweeps kMix and asserts, at every setting, that the effect's output

@@ -71,15 +71,28 @@ TEST_CASE("SaturationEffect voicing and quality descriptors are discrete with co
     const auto& qualityDesc = SaturationEffect::kParams[SaturationEffect::kQuality];
     CHECK(isValidDescriptor(qualityDesc));
     CHECK(qualityDesc.kind == ParamKind::discrete);
-    REQUIRE(qualityDesc.discreteCount == 2);
-    REQUIRE(qualityDesc.choices.size() == 2);
+    // FR-015 closed (design:primitive/oversampling wired `oversampled` to the
+    // real Oversampler<4> primitive): the quality surface is now a 3-choice
+    // {naive, adaa, oversampled} discrete parameter, up from the interim
+    // 2-choice {naive, adaa} surface -- 'oversampled' IS user-selectable.
+    REQUIRE(qualityDesc.discreteCount == 3);
+    REQUIRE(qualityDesc.choices.size() == 3);
     // Same anti-tautology treatment as the voicing labels above: compare
-    // against a hardcoded {"naive","adaa"} rather than kQualityLabels itself.
-    constexpr std::array<std::string_view, 2> kExpectedQuality = {{"naive", "adaa"}};
-    for (std::size_t i = 0; i < 2; ++i) {
+    // against a hardcoded {"naive","adaa","oversampled"} rather than
+    // kQualityLabels itself.
+    constexpr std::array<std::string_view, 3> kExpectedQuality = {{"naive", "adaa", "oversampled"}};
+    for (std::size_t i = 0; i < 3; ++i) {
         CHECK(SaturationEffect::kQualityLabels[i] == kExpectedQuality[i]);
         CHECK(qualityDesc.choices[i] == kExpectedQuality[i]);
     }
+    // Bucket index 2 (the discrete parameter's raw plain-value bucket)
+    // resolves to the "oversampled" label -- SaturationEffect::toQuality's
+    // switch(case 2: return SaturationQuality::oversampled) mirrors this same
+    // kQualityLabels ordering (saturation-effect.h), and
+    // SaturationQuality::oversampled == 2 (saturation-voicings.h enum), so
+    // choices[2] IS the label a normalized value denormalizing to bucket 2
+    // resolves to.
+    CHECK(qualityDesc.choices[2] == "oversampled");
 }
 
 TEST_CASE("SaturationEffect continuous parameters have sane, documented ranges (FR-009)") {
