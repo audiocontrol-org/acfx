@@ -217,10 +217,14 @@ tier, and that it is exposed as a selectable quality option.
   allocation sentinel — rather than introducing parallel measurement tooling.
 - **FR-023**: All named tolerances and margins (passband ripple, stopband rejection, aliasing
   reduction margin, latency equality) MUST be explicit, documented constants, not magic numbers.
+- **FR-024**: The halfband filter coefficients MUST be reproducible and reviewable, not
+  hand-waved: checked-in `constexpr` tables accompanied by EITHER a committed generator that
+  emits them OR a derivation note, in both cases recording the exact design parameters
+  (transition band, stopband target, passband-ripple target) used to produce them.
 
 #### Deferred scope — captured, not cut (capture-over-YAGNI)
 
-- **FR-024**: The following MUST be recorded as documented, deliberately-unwired future scope
+- **FR-025**: The following MUST be recorded as documented, deliberately-unwired future scope
   (built by neither this feature nor silently dropped; the operator's later scoping pass decides
   each): a block-processing API variant; multiple filter-quality tap-count tiers; an IIR allpass
   "fast" tier; a runtime-selectable factor bounded by a compile-time maximum; arbitrary /
@@ -271,14 +275,15 @@ tier, and that it is exposed as a selectable quality option.
 - **Saturation wiring is in scope for this feature** (US4 / FR-017…FR-021). The approved design
   recommends shipping the primitive proven end-to-end via its first client; the operator's later
   scoping pass may split it into a thin follow-up, but the default captured here includes it.
-- **Default saturation factor**: the saturation `oversampled` tier uses **4×** as its default,
-  a common transparency/CPU balance on desktop; the exact default (2× vs 4×) is a tuning-pass
-  decision recorded as an open question, not a design blocker.
+- **Default saturation factor is a planning decision, not a spec assertion**: the factor a client
+  uses is a client/planning choice; the saturation client's chosen default lives in the plan
+  (`research.md` Decision 7 selects **4×**) and may be revisited by a later tuning pass. The spec
+  deliberately does not fix a default (FR-003 requires only that 2×/4×/8× are supported).
 - **Single filter-quality tier now**: one linear-phase halfband coefficient table (one stopband/
-  ripple spec) is built now; multiple tap-count quality tiers are deferred (FR-024).
-- **Coefficient provenance**: the halfband coefficients are produced by a committed, documented
-  offline generator (or an equivalently-documented static table) so the values are reproducible
-  and reviewable, not hand-waved. The exact mechanism is an open question (below).
+  ripple spec) is built now; multiple tap-count quality tiers are deferred (FR-025).
+- **Coefficient provenance is resolved in the plan**: FR-024 requires reproducible, reviewable
+  coefficients; the plan (`research.md` Decision 5) chooses the mechanism — a committed offline
+  generator emitting checked-in `constexpr` tables with the design parameters recorded inline.
 - **Per-target tuning is a later pass**: exact tap counts / stopband targets per platform
   (desktop vs Daisy vs Teensy) are a tuning concern; this feature fixes named tolerances that the
   tuning pass may tighten, not a per-target matrix.
@@ -290,11 +295,14 @@ tier, and that it is exposed as a selectable quality option.
 
 ## Open Questions
 
-- **Default factor for saturation's oversampled tier** — 2× (embedded-friendly) vs 4×
-  (desktop-transparent)? *(tuning pass)*
+- **Tuning may revisit the plan's default factor** — the plan selects 4× for the saturation
+  client (`research.md` Decision 7); a later tuning pass may prefer 2× (embedded-friendly) vs 4×
+  (desktop-transparent). Not a spec blocker. *(tuning pass)*
 - **FIR tap counts / stopband spec per target** — one table for all targets, or desktop-vs-Daisy-
   vs-Teensy variants under the deferred quality-tier scope? *(tuning / per-target budget)*
-- **Halfband coefficient provenance** — a committed offline generator script that emits the
-  `constexpr` table, vs a hand-authored-but-documented static table? *(implementation policy)*
 - **Saturation-wiring scope boundary** — confirm US4/FR-017…FR-021 ship in this feature (design
   recommendation, current assumption) vs a thin follow-up item. *(operator scoping pass)*
+
+*(Resolved during planning — was open at design time: halfband coefficient provenance is now
+FR-024 + `research.md` Decision 5, a committed offline generator emitting checked-in `constexpr`
+tables.)*

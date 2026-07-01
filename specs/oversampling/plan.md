@@ -86,7 +86,7 @@ only — oversampling (XI).
 one coefficient table), one lab (README + harness), the first-client saturation wiring
 (closing FR-015), the measurement-reuse test suite, and one portability-gate extension.
 Per-target tap-count tuning, additional quality tiers, the IIR "fast" tier, a runtime factor,
-non-power-of-two ratios, and further clients are captured-but-deferred (spec FR-024) — planning
+non-power-of-two ratios, and further clients are captured-but-deferred (spec FR-025) — planning
 sequencing / later-pass decisions, not scope cuts.
 
 ## Constitution Check
@@ -105,7 +105,7 @@ sequencing / later-pass decisions, not scope cuts.
 | VIII. Test core host-side | PASS | doctest suites + lab harness validate transparency, aliasing reduction, stopband/ripple, latency equality, cascade correctness, and the no-alloc invariant host-side. |
 | IX. Progressive layered architecture | PASS | Theory → Lab → **Primitive** graduation (stage 3); the primitive composes a caller nonlinearity + its own halfband stages, invents no effect; lab persists as living documentation. |
 | X. Measurable engineering | PASS | Frequency/stopband response, group-delay/latency, aliasing (THD-inharmonic) reduction, and no-allocation are the acceptance evidence (SC-001..008). |
-| XI. One concept at a time | PASS | Oversampling is the single new idea; the IIR "fast" tier, quality tiers, runtime factor, non-power-of-two ratios, and further clients are explicitly deferred (spec FR-024). |
+| XI. One concept at a time | PASS | Oversampling is the single new idea; the IIR "fast" tier, quality tiers, runtime factor, non-power-of-two ratios, and further clients are explicitly deferred (spec FR-025). |
 
 **Result: PASS — no violations.** Complexity Tracking is empty.
 
@@ -145,6 +145,8 @@ core/
 │   ├── saturation/                      # existing
 │   └── oversampling/                    # NEW — the concept's laboratory (persists post-graduation)
 │       ├── README.md                     # theory: sampling/aliasing, halfband FIR, polyphase, latency
+│       ├── tools/                         # host-only, OFF any build/audio path (FR-024 reproducibility)
+│       │   └── gen-halfband.*             #   committed generator that emits the constexpr coeff table
 │       └── harness/                       # host-only: transparency + aliasing-reduction evidence, sweeps
 │           └── oversampling-harness.cpp
 └── effects/

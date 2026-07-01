@@ -53,8 +53,8 @@ Single C++ core: primitive under `core/primitives/oversampling/`, lab under
 **Purpose**: The halfband coefficients + stages + shared measurement helper that every user story
 builds on. ⚠️ No user story can proceed until this phase is complete.
 
-- [ ] T003 Author the offline halfband-coefficient generator (host-only, NOT on any build/audio path) in `core/labs/oversampling/tools/gen-halfband.*` with documented design parameters per research.md Decision 6 (transition band, ≥ 80 dB stopband, ≤ 0.1 dB passband ripple).
-- [ ] T004 Generate and author `core/primitives/oversampling/halfband-coefficients.h`: `static constexpr` symmetric (linear-phase) halfband FIR taps + tap count, with an inline provenance comment recording the generator invocation and design parameters (research.md Decision 5; contract "Coefficients").
+- [ ] T003 Author the offline halfband-coefficient generator (host-only, NOT on any build/audio path) in `core/labs/oversampling/tools/gen-halfband.*` with documented design parameters per research.md Decision 6 (transition band, ≥ 80 dB stopband, ≤ 0.1 dB passband ripple) (FR-024 reproducibility).
+- [ ] T004 Generate and author `core/primitives/oversampling/halfband-coefficients.h`: `static constexpr` symmetric (linear-phase) halfband FIR taps + tap count, with an inline provenance comment recording the generator invocation and design parameters (FR-024; research.md Decision 5; contract "Coefficients").
 - [ ] T005 Implement `HalfbandUpsampler` (1→2) and `HalfbandDownsampler` (2→1) in `core/primitives/oversampling/halfband-stage.h`: polyphase halfband FIR, fixed-size `std::array` delay lines, `init()/reset()`, per-stage `static constexpr latency()`; no heap (data-model "Halfband*", contract "HalfbandUpsampler/Downsampler").
 - [ ] T006 [P] Factor the aliasing measurement into a shared helper under `tests/support/measurement/` (extract `aliasingMeasure` currently in `tests/core/saturation-aliasing-test.cpp`) so both the saturation and oversampler suites use one implementation (research.md Decision 8, FR-022); update the saturation test include.
 

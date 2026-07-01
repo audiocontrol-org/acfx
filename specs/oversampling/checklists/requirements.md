@@ -36,5 +36,5 @@
   *requirements* (each is testable once the constant is chosen).
 - Four open questions are recorded in the spec; all have reasonable documented defaults
   (Assumptions), so none block planning — they are tuning/scoping decisions for later passes.
-- Capture-over-YAGNI honored: deferred scope is recorded as FR-024 (documented, unwired), not cut.
+- Capture-over-YAGNI honored: deferred scope is recorded as FR-025 (documented, unwired), not cut.
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.

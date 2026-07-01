@@ -22,7 +22,7 @@ and alternatives, and pins down the previously-open implementation policies so n
 - **Alternatives considered**:
   - *IIR polyphase allpass halfband* (HIIR / de Soras): cheaper still, but nonlinear phase +
     frequency-dependent latency make it a worse *first, transparent, provable* primitive. Retained
-    as a future "fast" tier (spec FR-024).
+    as a future "fast" tier (spec FR-025).
   - *Cascaded biquad lowpass* (reuse DaisySP): simplest, but gentle rolloff leaves residual images
     near Nyquist without many stages.
 
@@ -38,7 +38,7 @@ and alternatives, and pins down the previously-open implementation policies so n
   for naive/adaa.
 - **Alternatives considered**: *Runtime-selectable factor bounded by a compile-time MAX* — more
   flexible, but larger footprint (buffers sized for MAX) + a runtime stage-count branch, with no
-  current client needing live morphing. Deferred (spec FR-024).
+  current client needing live morphing. Deferred (spec FR-025).
 
 ## Decision 3 — Per-sample wrap API with a caller-supplied `noexcept` nonlinearity
 
@@ -51,7 +51,7 @@ and alternatives, and pins down the previously-open implementation policies so n
   with no virtual dispatch on the hot path (Principle VI). A `static_assert` on `noexcept(...)`
   documents and enforces the contract at compile time (no `any`/cast — Principle VII).
 - **Alternatives considered**: A block API (`processBlock(in[], out[], n, eval)`) — deferred as a
-  future variant (spec FR-024); the per-sample form composes into a block trivially and is the
+  future variant (spec FR-025); the per-sample form composes into a block trivially and is the
   minimal correct surface now.
 
 ## Decision 4 — Rate + latency contract: `oversampledRate()` and integer `latencySamples()`
@@ -99,7 +99,7 @@ and alternatives, and pins down the previously-open implementation policies so n
   *value* to tuning (not the *requirement*) is deliberate deferral, not ambiguity. 80 dB / 0.1 dB
   are conventional transparent-oversampler targets and a safe floor for a first primitive.
 - **Alternatives considered**: Per-target (desktop/Daisy/Teensy) tolerance matrix — deferred with
-  the multi-quality-tier scope (spec FR-024); one table/one spec now.
+  the multi-quality-tier scope (spec FR-025); one table/one spec now.
 
 ## Decision 7 — First-client wiring (closes saturation FR-015)
 
@@ -135,6 +135,6 @@ and alternatives, and pins down the previously-open implementation policies so n
 
 - Default saturation factor 2× vs 4× → **default 4×** (Decision 7); revisit in tuning.
 - Per-target tap-count/stopband matrix → **one 80 dB table now** (Decision 6); deferred tiers per
-  spec FR-024.
+  spec FR-025.
 - Coefficient provenance → **committed offline generator** (Decision 5).
 - Saturation-wiring scope boundary → **in this feature** (Decision 7), operator may split later.
