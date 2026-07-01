@@ -79,7 +79,12 @@ struct VoicingConfig {
 // softClip's emphasis pair is deliberately near-flat/gentle (wide-open lowpass
 // pre, matching post) so the voicing is dominated by the shape itself rather than
 // tonal coloration, consistent with "soft clip" being the least-colored voicing.
-// The exact cutoff/resonance numbers are the tuning-pass OPEN QUESTION.
+// The exact cutoff/resonance numbers are the tuning-pass OPEN QUESTION (see
+// core/labs/saturation/README.md "Voicing: shape plus emphasis curves" for the
+// documented character of each voicing); they were iterated against the
+// mutual-distinguishability check in tests/core/saturation-voicings-test.cpp
+// (every pairwise spectral distance across harmonics 1-6 of a 1 kHz fundamental
+// is >= kVoicingDistinctMargin = 0.02), not derived from a reference measurement.
 // ---------------------------------------------------------------------------
 constexpr VoicingConfig voicingConfig(SaturationVoicing v) noexcept {
     switch (v) {
@@ -99,12 +104,24 @@ constexpr VoicingConfig voicingConfig(SaturationVoicing v) noexcept {
         // highs before the nonlinearity, then a lower-cutoff lowpass POST that
         // rolls off highs (the tape HF-loss signature). Net: predominantly
         // low-order odd harmonics, the DARKEST of the four voicings.
-        // NOTE: exact cutoffs/resonances are the tuning-pass OPEN QUESTION
-        // (data-model.md / design open questions) — not yet measured vs SC-001.
+        //
+        // Post cutoff is deliberately pulled DOWN to 4.2 kHz (was 8 kHz): the
+        // mutual-distinguishability check (saturation-voicings-test.cpp) measures
+        // harmonics 1-6 of a 1 kHz fundamental (i.e. up to 6 kHz). An 8 kHz post
+        // cutoff sits ABOVE that entire measured band, so the SVF's 12 dB/oct
+        // rolloff barely touches harmonics 1-6 at low resonance -- the HF-loss
+        // signature was real but effectively inaudible to the metric, leaving
+        // tape's ratios too close to softClip's (both odd-only, similar-shaped
+        // curves). Pulling the post cutoff to 4.2 kHz puts the 5th/6th harmonics
+        // (5-6 kHz) solidly past the corner and the 4th (4 kHz) right at it, so
+        // the HF loss lands WITHIN the measured band -- a musically honest tape
+        // darkening, not a metric-chasing nudge. NOTE: exact cutoffs/resonances
+        // remain the tuning-pass OPEN QUESTION (data-model.md / design open
+        // questions); see README.md for the measured pairwise distances.
         return VoicingConfig{
             Shape::tanh,
-            EmphasisConfig{SvfMode::lowpass, 14000.0f, 0.1f},  // pre: trim extreme HF
-            EmphasisConfig{SvfMode::lowpass, 8000.0f, 0.1f}    // post: tape HF loss
+            EmphasisConfig{SvfMode::lowpass, 9000.0f, 0.1f},   // pre: trim extreme HF
+            EmphasisConfig{SvfMode::lowpass, 4200.0f, 0.15f}   // post: tape HF loss (within measured band)
         };
 
     case SaturationVoicing::console:

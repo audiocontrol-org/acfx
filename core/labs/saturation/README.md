@@ -30,9 +30,47 @@ the spectral and harmonic distinctness (tape vs console vs tube character).
 
 ### Voicing: shape plus emphasis curves
 
-Placeholder: the four voicings (Soft Clip, Tape, Console, Tube Preamp) each fix
-a nonlinear shape (from the waveshaper primitive) and a pair of emphasis filter
-curves. Bias remains a user control, not baked.
+The four voicings (`saturation-voicings.h::voicingConfig`) each fix a
+`Shape` (from the waveshaper primitive) plus a pre-emphasis and
+post-de-emphasis `SvfPrimitive` curve pair. Bias remains a separate USER
+control (`SaturationCore::setBias`), never baked into the table (design
+Decision 5, FR-007) — every voicing is exercised at the same drive/bias so
+the difference measured below is attributable to shape + emphasis alone.
+
+- **Soft Clip** — `Shape::softKnee`, near-flat wide lowpass pre/post
+  (18 kHz, res 0.1 on both). The least-colored voicing: character comes
+  almost entirely from the shape's harder knee (odd harmonics only), not
+  from tonal shaping, since the emphasis pair is deliberately transparent
+  at audio frequencies.
+- **Tape** — `Shape::tanh` (a softer, more rounded odd-only saturator than
+  softKnee) through a lowpass pre (9 kHz, res 0.1) that trims extreme highs
+  ahead of the nonlinearity, then a **lower**-cutoff lowpass post (4.2 kHz,
+  res 0.15) that is the tape HF-loss signature. The post cutoff is
+  deliberately pulled down into the measured harmonic band (the 4th-6th
+  harmonics of a 1 kHz fundamental land at 4-6 kHz) so the HF loss is
+  audible/measurable rather than sitting above the content it is supposed
+  to darken — an earlier 8 kHz post cutoff left tape's ratios too close to
+  softClip's because the rolloff barely touched anything below Nyquist/6.
+  Net: the darkest of the four voicings, dominated by low-order odd
+  harmonics with real top-end attenuation.
+- **Console** — `Shape::arctan`, the mildest-curvature shape in the
+  catalog (lowest THD at a given drive). A gentle highpass pre (120 Hz,
+  res 0.1) cleans sub/rumble ("glue"), and a near-flat, slightly resonant
+  lowpass post (15 kHz, res 0.2) adds subtle top-end presence without
+  darkening. The brightest/cleanest voicing.
+- **Tube Preamp** — `Shape::diodeCurve`, the only sign-asymmetric shape in
+  the voicing set that still has an analytic antiderivative (ADAA-safe),
+  so it is the only voicing with a genuine even-harmonic + DC signature. A
+  low-mid lowpass pre (5 kHz, res 0.2) pushes the body of the signal into
+  the asymmetry (warmth), and a resonant lowpass post (3.5 kHz, res 0.5)
+  adds a presence bump near its cutoff while rolling off the top.
+
+The exact cutoff/resonance numbers above are the tuning-pass OPEN QUESTION
+(data-model.md / design open questions): they were chosen and iterated
+against the mutual-distinguishability check in
+`tests/core/saturation-voicings-test.cpp` (every pairwise spectral distance
+>= 0.02 across harmonics 1-6 of a 1 kHz fundamental), not derived from a
+reference tape/console/tube measurement.
 
 ### Anti-aliasing: naive versus ADAA
 
