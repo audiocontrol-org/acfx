@@ -23,6 +23,11 @@
 // truth (SC-006 / FR-003); a lock-free atomic cross-thread parameter handoff. The
 // wrapper owns per-channel SaturationCore state and is allocation-free in process().
 //
+// BOUNDARY (FR-024): This effect is the STATIC-CHARACTER composed saturation;
+// program-dependent/dynamic behavior (envelope-tracking drive, dynamic bias,
+// tape-style compression) is the separate design:feature/program-dependent-saturation
+// item (Phase-3 dynamic-systems), NOT built here.
+//
 // Thread-ownership boundary (identical to SvfEffect):
 //   - setParameter() may be called from ANY thread (a UI loop, a MIDI callback,
 //     an MCU main loop). It only publishes a lock-free atomic pending value; the

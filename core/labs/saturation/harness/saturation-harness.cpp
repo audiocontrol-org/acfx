@@ -161,8 +161,10 @@ void printHarmonicSignature(const char* name, const meastest::HarmonicSignature&
     std::printf("\n");
 }
 
-// Dumps a harmonic signature in CSV format:
-// voicing,harmonic_index,frequency_hz,magnitude
+// Dumps a harmonic signature in CSV format. Emitted one row per harmonic per voicing.
+// CSV columns: voicing (string, e.g. "softClip"), harmonic_index (int 1-6),
+// frequency_hz (double, fundamental × harmonic_index), magnitude (double, Goertzel
+// absolute amplitude). Out-of-band harmonics (>= Nyquist) are omitted.
 void printHarmonicSignatureCSV(const char* name, const meastest::HarmonicSignature& sig) {
     for (int h = 1; h <= kNumHarm; ++h) {
         const double freq = kFundHz * static_cast<double>(h);

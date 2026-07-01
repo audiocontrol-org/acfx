@@ -282,6 +282,8 @@ harness reuses the shipped Goertzel/THD analyzer and sine stimulus to produce:
   the `naive` and `adaa` quality paths and the resulting inharmonic-energy
   reduction, mirroring the waveshaping lab's naive-vs-ADAA table.
 
+The harness's `--csv` flag emits per-voicing harmonic spectra in machine-readable format with columns: voicing, harmonic_index, frequency_hz, magnitude.
+
 Drive→THD monotonicity, the gain-compensation unity-at-low-signal band, and the
 `mix` dry/wet balance are asserted by the doctest suites
 (`tests/core/saturation-harmonics-test.cpp`, `saturation-effect-test.cpp` — see

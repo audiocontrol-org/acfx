@@ -28,6 +28,16 @@ effect itself; never pre-create it.
 
 ---
 
+## Effect-Composes-Primitive Convention
+
+Each inhabited effect folder documents the primitives it composes from `core/primitives/`.
+This documentation lives at the end of each effect's section, labeled "Composed Primitive(s)"
+and/or "Composed Primitives", naming the exact headers that the effect uses. This convention
+ensures a reader can trace the dependency graph: effects are the sentences built from primitives,
+the vocabulary.
+
+---
+
 ## Inhabited Effects
 
 These folders **exist on disk** because each contains at least one production

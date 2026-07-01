@@ -47,6 +47,12 @@ Composing the shipped Waveshaper/ADAAWaveshaper + SvfPrimitive — rather than
 hand-rolling a bespoke saturation DSP block — is the whole point of the effects
 layer: primitives are the vocabulary, effects are the sentences.
 
+## Boundary (FR-024)
+
+This effect is the **static-character** composed saturation; program-dependent/dynamic
+behavior (envelope-tracking drive, dynamic bias, tape-style compression) is the separate
+`design:feature/program-dependent-saturation` item (Phase-3 dynamic-systems), not built here.
+
 ## Parameter surface
 
 Exposed via the `saturation-effect.h` constexpr `kParams` table (drive, voicing,
