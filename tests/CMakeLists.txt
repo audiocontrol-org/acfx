@@ -34,6 +34,12 @@ add_executable(acfx_core_tests
   core/waveshaper-antiderivatives-test.cpp
   core/waveshaper-lut-test.cpp
   core/waveshaper-adaa-test.cpp
+  # ---------------------------------------------------------------------------
+  # Saturation test suites (saturation feature): appended by their authoring
+  # tasks (T007 core, T011 voicings, T014 effect, T008 harmonics, T017
+  # aliasing). No sources are listed here yet — each task adds its own
+  # core/saturation-*-test.cpp line when that file is created.
+  # ---------------------------------------------------------------------------
 )
 
 # tests/ as an include root so test files write #include "support/...".
