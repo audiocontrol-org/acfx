@@ -6,6 +6,7 @@
 #include "dsp/param-id.h"
 #include "dsp/process-context.h"
 #include "effects/svf/svf-effect.h"
+#include "labs/saturation/saturation-core.h"
 #include "processor-node/processor-node.h"
 #include "support/allocation-sentinel.h"
 
@@ -56,4 +57,45 @@ TEST_CASE("EffectNode<SvfEffect>::processBlock allocates nothing") {
     const std::size_t allocations = AllocationSentinel::allocations();
 
     CHECK_MESSAGE(allocations == 0, "EffectNode processBlock allocated ", allocations);
+}
+
+// T010 — the no-heap-allocation-in-process() invariant for SaturationCore
+// (FR-018/FR-020, spec.md SC-005). Mirrors the SvfEffect case above: prepare()
+// and voicing/quality selection reconfigure filter coefficients (and, for
+// ADAAWaveshaper::setShape, are a documented control-thread-only call that may
+// throw) so they run OUTSIDE the sentinel scope. Only the true audio-path
+// calls — process() and the lightweight scalar setters (setDrive/setBias/
+// setTone/setMix/setOutput, all noexcept and allocation-free per
+// saturation-core.h/waveshaper.h/adaa-waveshaper.h/svf-primitive.h) — run
+// INSIDE the sentinel, across all four voicings and both quality modes.
+TEST_CASE("SaturationCore::process allocates nothing across voicings and quality modes") {
+    constexpr SaturationVoicing kVoicings[] = {
+        SaturationVoicing::softClip, SaturationVoicing::tape,
+        SaturationVoicing::console, SaturationVoicing::tubePreamp};
+    constexpr SaturationQuality kQualities[] = {SaturationQuality::naive, SaturationQuality::adaa};
+
+    for (SaturationVoicing voicing : kVoicings) {
+        for (SaturationQuality quality : kQualities) {
+            SaturationCore core;
+            core.prepare(48000.0f);   // control thread: filter/table setup, may allocate
+            core.setVoicing(voicing); // control thread: reconfigures shapers + emphasis SVFs
+            core.setQuality(quality); // control thread: selects naive/adaa path
+
+            AllocationSentinel::reset();
+            for (int i = 0; i < 200; ++i) {
+                const float x = (i % 2 == 0) ? 0.3f : -0.3f;
+                (void)core.process(x);
+                // audio-thread-callable scalar parameter setters (FR-018/020)
+                core.setDrive(1.0f + 0.01f * static_cast<float>(i % 5));
+                core.setBias(0.05f * static_cast<float>((i % 3) - 1));
+                core.setTone(0.01f * static_cast<float>((i % 7) - 3));
+                core.setMix(0.5f + 0.001f * static_cast<float>(i % 2));
+                core.setOutput(1.0f - 0.001f * static_cast<float>(i % 2));
+            }
+            const std::size_t allocations = AllocationSentinel::allocations();
+
+            CHECK_MESSAGE(allocations == 0, "voicing=", static_cast<int>(voicing),
+                          " quality=", static_cast<int>(quality), " allocated ", allocations);
+        }
+    }
 }
