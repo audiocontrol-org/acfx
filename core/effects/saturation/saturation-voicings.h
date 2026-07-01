@@ -31,16 +31,16 @@ enum class SaturationVoicing : std::uint8_t {
 
 // ---------------------------------------------------------------------------
 // SaturationQuality — anti-aliasing selection (saturation-api.md "Enums").
-// `oversampled` is RESERVED: documented but UNWIRED (FR-015). It carries no
-// dependency on the oversampling sibling; selecting it must fall back to a
-// defined, bounded behavior in the core (never a partial/aliased path). It is
-// deliberately absent from SaturationEffect::kQualityLabels (not yet
-// user-selectable).
+// `oversampled` is WIRED to the real oversampling primitive
+// (design:primitive/oversampling, FR-015 closed): SaturationCore runs the
+// nonlinearity through an Oversampler<4> (saturation-core.h), not a
+// fallback mapping. Effect-layer user-selectability is tracked in
+// saturation-effect.h, not here.
 // ---------------------------------------------------------------------------
 enum class SaturationQuality : std::uint8_t {
     naive = 0,
     adaa = 1,
-    oversampled = 2  // RESERVED — unwired seam (FR-015); do not implement here.
+    oversampled = 2  // WIRED — Oversampler<4>-backed (FR-015); see saturation-core.h process().
 };
 
 // ---------------------------------------------------------------------------

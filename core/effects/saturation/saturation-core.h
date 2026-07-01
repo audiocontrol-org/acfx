@@ -7,6 +7,7 @@
 #include "primitives/filters/svf-primitive.h"
 #include "primitives/nonlinear/adaa-waveshaper.h"
 #include "primitives/nonlinear/waveshaper.h"
+#include "primitives/oversampling/oversampler.h"
 
 // SaturationCore — the RT-safe composition kernel (T004): the SURFACE only.
 // This header declares the class's composed members and method signatures;
@@ -16,14 +17,17 @@
 // a stable, normative shape before the chain is implemented
 // (specs/saturation/contracts/saturation-api.md "SaturationCore").
 //
-// Composition (no new DSP primitive — FR-001): three SvfPrimitive instances
-// (pre-emphasis, post-de-emphasis, tone-tilt), plus a Waveshaper (naive) and
-// an ADAAWaveshaper (adaa); `quality_` selects which one drives the nonlinear
-// stage at process() time (data-model.md "SaturationCore — Composed
-// sub-units"). Platform-independent: no host-framework or embedded-vendor
-// headers (Constitution IV). RT-safe by construction — every member is a value (no
-// heap allocation), and coefficient/table work is destined for prepare(),
-// never process() (Constitution VI).
+// Composition (FR-001, plus the oversampling sibling wired in for FR-015):
+// three SvfPrimitive instances (pre-emphasis, post-de-emphasis, tone-tilt),
+// plus a Waveshaper (naive), an ADAAWaveshaper (adaa), and an
+// Oversampler<4> driving a second Waveshaper (oversampled — a naive shaper
+// run at 4x, since oversampling itself supplies the anti-aliasing);
+// `quality_` selects which backend drives the nonlinear stage at process()
+// time (data-model.md "SaturationCore — Composed sub-units"). Platform-
+// independent: no host-framework or embedded-vendor headers (Constitution
+// IV). RT-safe by construction — every member is a value (no heap
+// allocation), and coefficient/table work is destined for prepare(), never
+// process() (Constitution VI).
 
 namespace acfx {
 
@@ -39,6 +43,12 @@ public:
         toneTilt_.init(sampleRate);
         naiveShaper_.init(sampleRate);
         adaaShaper_.init(sampleRate);
+        oversampler_.init(sampleRate);
+        // oversampledShaper_ runs INSIDE the oversampler at the oversampled
+        // rate (Factor x sampleRate), so its rate-dependent state (the
+        // DC-blocker) must be prepared at oversampler_.oversampledRate(),
+        // not the base sampleRate used by naiveShaper_/adaaShaper_.
+        oversampledShaper_.init(oversampler_.oversampledRate());
         // Bake the current voicing (shapes + gain-comp + emphasis curves) and
         // push the current scalar parameters into the composed sub-units.
         configureShapers();
@@ -60,6 +70,8 @@ public:
         toneTilt_.reset();
         naiveShaper_.reset();
         adaaShaper_.reset();
+        oversampler_.reset();
+        oversampledShaper_.reset();
         applyEmphasisCoeffs();
         applyToneTilt();
     }
@@ -77,30 +89,34 @@ public:
         applyEmphasisCoeffs();
     }
 
-    // Select the naive/adaa nonlinear evaluation path. SaturationQuality::
-    // oversampled is a reserved, unwired seam (FR-015); see process() for the
-    // defined, bounded interim mapping.
+    // Select the naive/adaa/oversampled nonlinear evaluation path.
+    // SaturationQuality::oversampled is now WIRED to the real Oversampler<4>
+    // primitive (FR-015 closed by design:primitive/oversampling); see
+    // process() for the realized oversampled chain and its documented
+    // latency characteristic.
     //
     // No-stale-state note (T018): this setter ONLY swaps which composed
-    // shaper process() reads from — it never touches naiveShaper_'s or
-    // adaaShaper_'s internal state. That is safe because:
-    //   1. Both shapers are ALWAYS kept parameter-identical: setDrive()/
-    //      setBias()/configureShapers() (voicing changes) push to BOTH
-    //      naiveShaper_ and adaaShaper_ unconditionally (applyDrive(),
-    //      applyBias(), configureShapers() below), regardless of which one
-    //      is currently selected. So a switch never lands on a shaper still
-    //      configured with an old drive/bias/shape.
+    // shaper process() reads from — it never touches naiveShaper_'s,
+    // adaaShaper_'s, or oversampledShaper_'s internal state. That is safe
+    // because:
+    //   1. All three shapers are ALWAYS kept parameter-identical:
+    //      setDrive()/setBias()/configureShapers() (voicing changes) push to
+    //      naiveShaper_, adaaShaper_, AND oversampledShaper_ unconditionally
+    //      (applyDrive(), applyBias(), configureShapers() below), regardless
+    //      of which one is currently selected. So a switch never lands on a
+    //      shaper still configured with an old drive/bias/shape.
     //   2. ADAAWaveshaper::setShape() re-pairs its cached antiderivative
     //      (FPrev_) with the NEW shape at the existing history point
     //      (adaa-waveshaper.h) even while adaaShaper_ is the INACTIVE path,
     //      so a later switch back to adaa never mixes F(uPrev_) from a
     //      stale shape with the new shape's difference quotient.
     //   3. The INACTIVE shaper's own running history (Waveshaper's DC-
-    //      blocker xPrev_/yPrev_; ADAAWaveshaper's uPrev_/FPrev_ and DC-
+    //      blocker xPrev_/yPrev_, for both naiveShaper_ and
+    //      oversampledShaper_; ADAAWaveshaper's uPrev_/FPrev_ and DC-
     //      blocker) intentionally free-runs at its last value while
     //      inactive — this is the expected parallel-dual-path design (only
     //      the active shaper's process() runs per sample), not corruption:
-    //      it cannot produce NaN/Inf (both shapers' process() are noexcept
+    //      it cannot produce NaN/Inf (all shapers' process() are noexcept
     //      over finite input), and at worst it costs one transient sample
     //      on switch-back, same as any other bypass-style toggle. Verified
     //      by inspection; no fix needed.
@@ -158,19 +174,34 @@ public:
             wet = adaaShaper_.process(wet);
             break;
         case SaturationQuality::oversampled:
-            // RESERVED seam (FR-015 / design doc Decision 4): oversampled is
-            // reserved for the oversampling sibling
-            // (design:primitive/oversampling); until it lands, it
-            // deliberately maps to the ADAA path -- a defined, bounded,
-            // non-aliased interim, NOT a silent fallback (Constitution V).
-            // It is not user-selectable (excluded from
-            // SaturationEffect::kQualityLabels, saturation-effect.h), so
-            // this branch is reachable only via direct SaturationCore use
-            // (e.g. tests exercising the reserved enum value directly).
-            // ADAAWaveshaper::process() is noexcept and total over finite
-            // input, so this mapping can never yield NaN/Inf or a
-            // half-configured path.
-            wet = adaaShaper_.process(wet);
+            // WIRED (FR-015, closed by design:primitive/oversampling): run
+            // the nonlinearity at Factor=4 through the real Oversampler
+            // primitive rather than mapping to the ADAA path. The chain is
+            // pre-emphasis(base) -> Oversampler<4>{ oversampledShaper_ @ 4x
+            // } -> post-de-emphasis(base), matching the design's naive-
+            // shaper-under-oversampling approach (a cheap naive shaper is
+            // correct here because the Oversampler's half-band cascade -- not
+            // the shaper -- is what suppresses aliasing). The lambda is
+            // noexcept (Oversampler<Factor>::process() static_asserts this)
+            // and introduces no heap allocation or locks, so this stays
+            // RT-safe. Effect-layer user-selectability of this quality
+            // (SaturationEffect::kQualityLabels) is tracked in
+            // saturation-effect.h, not here; this branch is reachable via
+            // any SaturationCore::setQuality(oversampled) call regardless.
+            //
+            // KNOWN LIMITATION (documented, not silently surprising): unlike
+            // the naive/adaa tiers, this path introduces wet-path processing
+            // latency equal to oversampler_.latencySamples() (67 samples at
+            // Factor=4, see oversampler.h). The dry/wet `mix` combination
+            // below is NOT delay-compensated for this -- selecting
+            // oversampled quality with mix < 1 combines a delayed wet signal
+            // with an undelayed dry signal. Dry-path PDC / host latency
+            // reporting to correct this is deliberately OUT OF SCOPE for
+            // this primitive-wiring change (captured-deferred scope per spec
+            // FR-025 / plugin PDC); do not build a delay-compensation system
+            // here.
+            wet = oversampler_.process(
+                wet, [&](float s) noexcept { return oversampledShaper_.process(s); });
             break;
         }
         // No `default:` -- the switch is exhaustive over the closed
@@ -199,10 +230,11 @@ private:
     // this: reset() must reproduce exactly what prepare()+setters established).
     // -------------------------------------------------------------------
 
-    // Bake the current voicing's nonlinear shape into BOTH shapers and enable
-    // their internal gain-compensation (FR-004): SaturationCore exposes no
-    // gain-comp setter — it is ON by construction so composed loudness stays
-    // bounded as drive rises (saturation-harmonics-test.cpp TEST 2).
+    // Bake the current voicing's nonlinear shape into ALL THREE shapers
+    // (naive, adaa, oversampled) and enable their internal gain-compensation
+    // (FR-004): SaturationCore exposes no gain-comp setter — it is ON by
+    // construction so composed loudness stays bounded as drive rises
+    // (saturation-harmonics-test.cpp TEST 2).
     void configureShapers() noexcept {
         const VoicingConfig cfg = voicingConfig(voicing_);
         naiveShaper_.setShape(cfg.shape);
@@ -225,8 +257,15 @@ private:
         // antiderivative-less shape (e.g. Shape::biasedAsym) will fail THAT
         // test, not throw out of process() at runtime.
         adaaShaper_.setShape(cfg.shape);
+        // oversampledShaper_ is a plain Waveshaper (same type as
+        // naiveShaper_), so it takes the same setShape()/
+        // setGainCompensation() calls — kept parameter-identical to the
+        // other two shapers per the no-stale-state discipline (setQuality()
+        // above).
+        oversampledShaper_.setShape(cfg.shape);
         naiveShaper_.setGainCompensation(true);
         adaaShaper_.setGainCompensation(true);
+        oversampledShaper_.setGainCompensation(true);
     }
 
     // (Re)apply the pre-/post-emphasis SVF coefficients from the current
@@ -294,11 +333,13 @@ private:
     void applyDrive() noexcept {
         naiveShaper_.setDrive(driveGain_);
         adaaShaper_.setDrive(driveGain_);
+        oversampledShaper_.setDrive(driveGain_);
     }
 
     void applyBias() noexcept {
         naiveShaper_.setBias(bias_);
         adaaShaper_.setBias(bias_);
+        oversampledShaper_.setBias(bias_);
     }
 
     // Tone-tilt tuning constants (open question — simple defensible values).
@@ -310,15 +351,20 @@ private:
 
     // -------------------------------------------------------------------
     // Composed sub-units (data-model.md "SaturationCore — Composed
-    // sub-units"). Three SvfPrimitive stages plus both nonlinear-stage
-    // backends; quality_ (below) selects naiveShaper_ vs adaaShaper_ at
-    // process() time.
+    // sub-units"). Three SvfPrimitive stages plus THREE nonlinear-stage
+    // backends; quality_ (below) selects naiveShaper_ vs adaaShaper_ vs
+    // (oversampler_ + oversampledShaper_) at process() time. oversampledShaper_
+    // is a plain Waveshaper (same type as naiveShaper_, not ADAAWaveshaper) —
+    // oversampling supplies the anti-aliasing, so a cheap naive shaper run
+    // inside the Oversampler is the correct, non-redundant choice (FR-015).
     // -------------------------------------------------------------------
     SvfPrimitive preEmphasis_;
     SvfPrimitive postDeEmphasis_;
     SvfPrimitive toneTilt_;
     Waveshaper naiveShaper_;
     ADAAWaveshaper adaaShaper_;
+    Oversampler<4> oversampler_;
+    Waveshaper oversampledShaper_;
 
     // -------------------------------------------------------------------
     // Applied parameter state (data-model.md "SaturationCore — Applied
