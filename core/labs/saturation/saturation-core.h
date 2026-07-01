@@ -20,8 +20,8 @@
 // (pre-emphasis, post-de-emphasis, tone-tilt), plus a Waveshaper (naive) and
 // an ADAAWaveshaper (adaa); `quality_` selects which one drives the nonlinear
 // stage at process() time (data-model.md "SaturationCore — Composed
-// sub-units"). Platform-independent: no JUCE / libDaisy / Teensy headers
-// (Constitution IV). RT-safe by construction — every member is a value (no
+// sub-units"). Platform-independent: no host-framework or embedded-vendor
+// headers (Constitution IV). RT-safe by construction — every member is a value (no
 // heap allocation), and coefficient/table work is destined for prepare(),
 // never process() (Constitution VI).
 

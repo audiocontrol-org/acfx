@@ -30,12 +30,6 @@
 // publish), FR-011 (prepare/reset/process/setParameter, no base class/
 // vtable), FR-012 (mix blend law); spec.md User Story 3 Acceptance Scenarios
 // 1-3, SC-005.
-//
-// EXPECTED RED until T015/T016 land: SaturationEffect is not yet declared/
-// implemented, so this TU will fail to compile until then. Once it lands,
-// this file is the runtime-mirror of SaturationEffect::kParams's compile-
-// time static_assert plus the cross-thread/no-allocation/mix-law/bias
-// assertions FR-010/FR-012/SC-005 require.
 
 using namespace acfx;
 using acfx::test::AllocationSentinel;
