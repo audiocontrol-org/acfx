@@ -23,10 +23,13 @@ test tasks are first-class here, not optional.
 implementation and testing. The primitive is authored directly under
 `core/primitives/oversampling/`; `core/labs/oversampling/` is its theory+harness companion.
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `[ID] [P?] [Story] [tier:label] Description`
 
 - **[P]**: Can run in parallel (different files, no dependency on an incomplete task)
 - **[Story]**: US1..US4 (user-story phases only)
+- **[tier:label]**: model-sized-dispatch tier (033) — `fast`/`balanced`/`powerful` resolve via
+  `.stack-control/config.yaml` `tier_map` (fast=haiku mechanical, balanced=sonnet standard,
+  powerful=opus subtle DSP correctness)
 - Every task names exact file path(s)
 
 ## Path Conventions
@@ -41,8 +44,8 @@ Single C++ core: primitive under `core/primitives/oversampling/`, lab under
 
 **Purpose**: Create the directory skeletons and make the portability gate ready before code lands.
 
-- [ ] T001 Create the primitive + lab directory skeletons: `core/primitives/oversampling/` (with a placeholder `README.md`) and `core/labs/oversampling/{,harness/,tools/}` (with a placeholder `README.md`), per plan.md Project Structure.
-- [ ] T002 [P] Extend `scripts/check-portability.sh` to cover `core/primitives/oversampling/**` (platform-free) and `core/labs/oversampling/**` (kernel headers platform-free + harness-free), following the existing `core/effects/saturation` gate block; must pass vacuously while the trees are empty.
+- [ ] T001 [tier:fast] Create the primitive + lab directory skeletons: `core/primitives/oversampling/` (with a placeholder `README.md`) and `core/labs/oversampling/{,harness/,tools/}` (with a placeholder `README.md`), per plan.md Project Structure.
+- [ ] T002 [P] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/primitives/oversampling/**` (platform-free) and `core/labs/oversampling/**` (kernel headers platform-free + harness-free), following the existing `core/effects/saturation` gate block; must pass vacuously while the trees are empty.
 
 **Checkpoint**: Directories exist; the gate recognizes the new trees.
 
@@ -53,10 +56,10 @@ Single C++ core: primitive under `core/primitives/oversampling/`, lab under
 **Purpose**: The halfband coefficients + stages + shared measurement helper that every user story
 builds on. ⚠️ No user story can proceed until this phase is complete.
 
-- [ ] T003 Author the offline halfband-coefficient generator (host-only, NOT on any build/audio path) in `core/labs/oversampling/tools/gen-halfband.*` with documented design parameters per research.md Decision 6 (transition band, ≥ 80 dB stopband, ≤ 0.1 dB passband ripple) (FR-024 reproducibility).
-- [ ] T004 Generate and author `core/primitives/oversampling/halfband-coefficients.h`: `static constexpr` symmetric (linear-phase) halfband FIR taps + tap count, with an inline provenance comment recording the generator invocation and design parameters (FR-024; research.md Decision 5; contract "Coefficients").
-- [ ] T005 Implement `HalfbandUpsampler` (1→2) and `HalfbandDownsampler` (2→1) in `core/primitives/oversampling/halfband-stage.h`: polyphase halfband FIR, fixed-size `std::array` delay lines, `init()/reset()`, per-stage `static constexpr latency()`; no heap (data-model "Halfband*", contract "HalfbandUpsampler/Downsampler").
-- [ ] T006 [P] Factor the aliasing measurement into a shared helper under `tests/support/measurement/` (extract `aliasingMeasure` currently in `tests/core/saturation-aliasing-test.cpp`) so both the saturation and oversampler suites use one implementation (research.md Decision 8, FR-022); update the saturation test include.
+- [ ] T003 [tier:powerful] Author the offline halfband-coefficient generator (host-only, NOT on any build/audio path) in `core/labs/oversampling/tools/gen-halfband.*` with documented design parameters per research.md Decision 6 (transition band, ≥ 80 dB stopband, ≤ 0.1 dB passband ripple) (FR-024 reproducibility).
+- [ ] T004 [tier:balanced] Generate and author `core/primitives/oversampling/halfband-coefficients.h`: `static constexpr` symmetric (linear-phase) halfband FIR taps + tap count, with an inline provenance comment recording the generator invocation and design parameters (FR-024; research.md Decision 5; contract "Coefficients").
+- [ ] T005 [tier:powerful] Implement `HalfbandUpsampler` (1→2) and `HalfbandDownsampler` (2→1) in `core/primitives/oversampling/halfband-stage.h`: polyphase halfband FIR, fixed-size `std::array` delay lines, `init()/reset()`, per-stage `static constexpr latency()`; no heap (data-model "Halfband*", contract "HalfbandUpsampler/Downsampler").
+- [ ] T006 [P] [tier:balanced] Factor the aliasing measurement into a shared helper under `tests/support/measurement/` (extract `aliasingMeasure` currently in `tests/core/saturation-aliasing-test.cpp`) so both the saturation and oversampler suites use one implementation (research.md Decision 8, FR-022); update the saturation test include.
 
 **Checkpoint**: Coefficients + stages compile and are measurement-ready; the shared aliasing helper exists.
 
@@ -71,11 +74,11 @@ suppresses aliasing.
 latency) within passband ripple; a driven nonlinearity shows lower inharmonic energy than the
 naive path.
 
-- [ ] T007 [P] [US1] Author `tests/core/oversampler-transparency-test.cpp`: identity `eval` round-trip ≈ input delayed by `latencySamples()` within the named passband-ripple tolerance; silence-in → silence-out (no NaN/Inf/denormal); `reset()` restores fresh behavior (FR-007/011/016, SC-001).
-- [ ] T008 [P] [US1] Author `tests/core/oversampler-aliasing-test.cpp`: wrap a hard nonlinearity producing supra-Nyquist harmonics on a high-fundamental sine; assert oversampled inharmonic power is below the base-rate (naive) path by ≥ the named margin, using the shared `aliasingMeasure` (FR-008, SC-002).
-- [ ] T009 [US1] Implement `Oversampler<int Factor>` in `core/primitives/oversampling/oversampler.h`: `static_assert` Factor ∈ {2,4,8}; compose the `log2(Factor)` up/down stage cascade with a fixed-size scratch; `init(sampleRate)`, `reset()`, `oversampledRate()`, and the templated `process(float x, Eval&&)` wrap-and-decimate (invoking `eval` exactly `Factor`× per call); a `static_assert` that `eval` is `noexcept` (contract "Oversampler", data-model "Oversampler").
-- [ ] T010 [US1] Implement `latencySamples()` in `oversampler.h` by summing the cascade's per-stage `latency()` converted to base-rate samples (needed by the transparency test's delay alignment) (FR-006).
-- [ ] T011 [US1] Make T007 + T008 pass at the MVP factor; fix any transparency/aliasing gaps.
+- [ ] T007 [P] [US1] [tier:balanced] Author `tests/core/oversampler-transparency-test.cpp`: identity `eval` round-trip ≈ input delayed by `latencySamples()` within the named passband-ripple tolerance; silence-in → silence-out (no NaN/Inf/denormal); `reset()` restores fresh behavior (FR-007/011/016, SC-001).
+- [ ] T008 [P] [US1] [tier:balanced] Author `tests/core/oversampler-aliasing-test.cpp`: wrap a hard nonlinearity producing supra-Nyquist harmonics on a high-fundamental sine; assert oversampled inharmonic power is below the base-rate (naive) path by ≥ the named margin, using the shared `aliasingMeasure` (FR-008, SC-002).
+- [ ] T009 [US1] [tier:powerful] Implement `Oversampler<int Factor>` in `core/primitives/oversampling/oversampler.h`: `static_assert` Factor ∈ {2,4,8}; compose the `log2(Factor)` up/down stage cascade with a fixed-size scratch; `init(sampleRate)`, `reset()`, `oversampledRate()`, and the templated `process(float x, Eval&&)` wrap-and-decimate (invoking `eval` exactly `Factor`× per call); a `static_assert` that `eval` is `noexcept` (contract "Oversampler", data-model "Oversampler").
+- [ ] T010 [US1] [tier:balanced] Implement `latencySamples()` in `oversampler.h` by summing the cascade's per-stage `latency()` converted to base-rate samples (needed by the transparency test's delay alignment) (FR-006).
+- [ ] T011 [US1] [tier:balanced] Make T007 + T008 pass at the MVP factor; fix any transparency/aliasing gaps.
 
 **Checkpoint**: MVP — a transparent, alias-suppressing oversampler works and is measured.
 
@@ -88,9 +91,9 @@ naive path.
 **Independent Test**: For each factor, transparency + anti-aliasing pass; a higher factor never
 worsens residual aliasing.
 
-- [ ] T012 [P] [US2] Author `tests/core/oversampler-response-test.cpp`: assert halfband stopband rejection ≥ and passband ripple ≤ the named tolerances against analytic FIR truth, using the `svf-reference` assertion pattern (FR-009, SC-003).
-- [ ] T013 [US2] Parameterize `oversampler-transparency-test.cpp` and `oversampler-aliasing-test.cpp` over Factor ∈ {2,4,8}; assert each factor passes and that residual aliasing is monotone-or-better with factor (FR-003/010, SC-007).
-- [ ] T014 [US2] Verify/adjust the `Oversampler` cascade wiring so 4× = two stages and 8× = three stages produce correct results (fine→coarse up, reverse down); no code path assumes a single stage (data-model "Oversampler").
+- [ ] T012 [P] [US2] [tier:balanced] Author `tests/core/oversampler-response-test.cpp`: assert halfband stopband rejection ≥ and passband ripple ≤ the named tolerances against analytic FIR truth, using the `svf-reference` assertion pattern (FR-009, SC-003).
+- [ ] T013 [US2] [tier:balanced] Parameterize `oversampler-transparency-test.cpp` and `oversampler-aliasing-test.cpp` over Factor ∈ {2,4,8}; assert each factor passes and that residual aliasing is monotone-or-better with factor (FR-003/010, SC-007).
+- [ ] T014 [US2] [tier:powerful] Verify/adjust the `Oversampler` cascade wiring so 4× = two stages and 8× = three stages produce correct results (fine→coarse up, reverse down); no code path assumes a single stage (data-model "Oversampler").
 
 **Checkpoint**: All supported factors validated.
 
@@ -102,8 +105,8 @@ worsens residual aliasing.
 
 **Independent Test**: Measured impulse/reference group delay == reported latency for each factor.
 
-- [ ] T015 [P] [US3] Author `tests/core/oversampler-latency-test.cpp`: measure group delay (impulse or known reference) for each factor and assert it equals `latencySamples()` to the sample; assert latency-aligned identity output matches input within ripple (consistency with US1) (FR-012, SC-004).
-- [ ] T016 [US3] Reconcile any off-by-one between the analytic per-stage `latency()` sum and the measured group delay; document the latency derivation in a comment in `oversampler.h`.
+- [ ] T015 [P] [US3] [tier:balanced] Author `tests/core/oversampler-latency-test.cpp`: measure group delay (impulse or known reference) for each factor and assert it equals `latencySamples()` to the sample; assert latency-aligned identity output matches input within ripple (consistency with US1) (FR-012, SC-004).
+- [ ] T016 [US3] [tier:balanced] Reconcile any off-by-one between the analytic per-stage `latency()` sum and the measured group delay; document the latency derivation in a comment in `oversampler.h`.
 
 **Checkpoint**: Latency reporting is exact and documented.
 
@@ -117,11 +120,11 @@ worsens residual aliasing.
 **Independent Test**: Saturation `oversampled` shows measurably lower inharmonic energy than
 `naive` and is a selectable quality option.
 
-- [ ] T017 [US4] In `core/effects/saturation/saturation-core.h`: add an `Oversampler<4>` member and an `oversampledShaper_` (`Waveshaper`); in `prepare()` prepare `oversampledShaper_` at `oversampler_.oversampledRate()`; extend `applyDrive()/applyBias()/configureShapers()` fan-out to keep it parameter-identical (research.md Decision 7, data-model client entity, FR-018).
-- [ ] T018 [US4] In `saturation-core.h` `process()`: replace the interim ADAA mapping in the `oversampled` case with the real path — pre-emphasis (base) → `oversampler_.process(wet, [&](float s){ return oversampledShaper_.process(s); })` → post-de-emphasis (base) (FR-017).
-- [ ] T019 [US4] In `core/effects/saturation/saturation-effect.h`: add `oversampled` to `kQualityLabels` and the discrete bucket→enum mapping so it is user-selectable (FR-019).
-- [ ] T020 [US4] De-reserve the FR-015 seam comments in `saturation-core.h` and `core/effects/saturation/saturation-voicings.h` (the tier is now wired, not reserved), keeping them accurate.
-- [ ] T021 [US4] Modify `tests/core/saturation-aliasing-test.cpp`: replace the `oversampled == adaa` assertion with `oversampled` inharmonic power < `naive` by ≥ the named margin; add an RT-safe runtime quality-switch check (naive↔adaa↔oversampled) asserting no stale-state artifact / NaN-Inf beyond a bounded transient (FR-020/021, SC-006).
+- [ ] T017 [US4] [tier:balanced] In `core/effects/saturation/saturation-core.h`: add an `Oversampler<4>` member and an `oversampledShaper_` (`Waveshaper`); in `prepare()` prepare `oversampledShaper_` at `oversampler_.oversampledRate()`; extend `applyDrive()/applyBias()/configureShapers()` fan-out to keep it parameter-identical (research.md Decision 7, data-model client entity, FR-018).
+- [ ] T018 [US4] [tier:balanced] In `saturation-core.h` `process()`: replace the interim ADAA mapping in the `oversampled` case with the real path — pre-emphasis (base) → `oversampler_.process(wet, [&](float s){ return oversampledShaper_.process(s); })` → post-de-emphasis (base) (FR-017).
+- [ ] T019 [US4] [tier:fast] In `core/effects/saturation/saturation-effect.h`: add `oversampled` to `kQualityLabels` and the discrete bucket→enum mapping so it is user-selectable (FR-019).
+- [ ] T020 [US4] [tier:fast] De-reserve the FR-015 seam comments in `saturation-core.h` and `core/effects/saturation/saturation-voicings.h` (the tier is now wired, not reserved), keeping them accurate.
+- [ ] T021 [US4] [tier:balanced] Modify `tests/core/saturation-aliasing-test.cpp`: replace the `oversampled == adaa` assertion with `oversampled` inharmonic power < `naive` by ≥ the named margin; add an RT-safe runtime quality-switch check (naive↔adaa↔oversampled) asserting no stale-state artifact / NaN-Inf beyond a bounded transient (FR-020/021, SC-006).
 
 **Checkpoint**: The primitive is proven end-to-end through a real effect; saturation FR-015 closed.
 
@@ -131,10 +134,10 @@ worsens residual aliasing.
 
 **Purpose**: RT-safety proof, lab documentation, and the green-gate confirmation.
 
-- [ ] T022 [P] Extend `tests/core/no-allocation-test.cpp`: wrap `Oversampler::process()` for each factor in the allocation sentinel; assert zero heap allocations and no locks (FR-013, SC-005).
-- [ ] T023 [P] Author `core/labs/oversampling/harness/oversampling-harness.cpp` (host-only): render transparency + aliasing-reduction evidence (spectra/sweeps) by `#include`ing and driving the primitive; ensure it is excluded from the portability kernel-header scan.
-- [ ] T024 [P] Author `core/labs/oversampling/README.md` (theory: sampling/aliasing, linear-phase halfband FIR, polyphase decomposition, group-delay/latency) and `core/primitives/oversampling/README.md` (building blocks used + the caller RT-safety/`noexcept` contract).
-- [ ] T025 Run `scripts/check-portability.sh` and the full `ctest --preset test`; confirm all gates + suites are green (quickstart.md).
+- [ ] T022 [P] [tier:balanced] Extend `tests/core/no-allocation-test.cpp`: wrap `Oversampler::process()` for each factor in the allocation sentinel; assert zero heap allocations and no locks (FR-013, SC-005).
+- [ ] T023 [P] [tier:balanced] Author `core/labs/oversampling/harness/oversampling-harness.cpp` (host-only): render transparency + aliasing-reduction evidence (spectra/sweeps) by `#include`ing and driving the primitive; ensure it is excluded from the portability kernel-header scan.
+- [ ] T024 [P] [tier:fast] Author `core/labs/oversampling/README.md` (theory: sampling/aliasing, linear-phase halfband FIR, polyphase decomposition, group-delay/latency) and `core/primitives/oversampling/README.md` (building blocks used + the caller RT-safety/`noexcept` contract).
+- [ ] T025 [tier:fast] Run `scripts/check-portability.sh` and the full `ctest --preset test`; confirm all gates + suites are green (quickstart.md).
 
 ---
 
