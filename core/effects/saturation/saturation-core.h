@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 
@@ -49,6 +51,9 @@ public:
         // DC-blocker) must be prepared at oversampler_.oversampledRate(),
         // not the base sampleRate used by naiveShaper_/adaaShaper_.
         oversampledShaper_.init(oversampler_.oversampledRate());
+        // Clear the dry-path mix-alignment ring (base rate).
+        dryMixRing_.fill(0.0f);
+        dryMixWrite_ = 0;
         // Bake the current voicing (shapes + gain-comp + emphasis curves) and
         // push the current scalar parameters into the composed sub-units.
         configureShapers();
@@ -72,6 +77,8 @@ public:
         adaaShaper_.reset();
         oversampler_.reset();
         oversampledShaper_.reset();
+        dryMixRing_.fill(0.0f);
+        dryMixWrite_ = 0;
         applyEmphasisCoeffs();
         applyToneTilt();
     }
@@ -189,17 +196,16 @@ public:
             // saturation-effect.h, not here; this branch is reachable via
             // any SaturationCore::setQuality(oversampled) call regardless.
             //
-            // KNOWN LIMITATION (documented, not silently surprising): unlike
-            // the naive/adaa tiers, this path introduces wet-path processing
-            // latency equal to oversampler_.latencySamples() (67 samples at
-            // Factor=4, see oversampler.h). The dry/wet `mix` combination
-            // below is NOT delay-compensated for this -- selecting
-            // oversampled quality with mix < 1 combines a delayed wet signal
-            // with an undelayed dry signal. Dry-path PDC / host latency
-            // reporting to correct this is deliberately OUT OF SCOPE for
-            // this primitive-wiring change (captured-deferred scope per spec
-            // FR-025 / plugin PDC); do not build a delay-compensation system
-            // here.
+            // Wet-path latency + mix alignment: unlike the naive/adaa tiers,
+            // this path introduces wet-path processing latency equal to
+            // oversampler_.groupDelaySamples() (67.5 samples at Factor=4). The
+            // dry/wet `mix` stage below IS delay-compensated for this -- the dry
+            // term is delayed by the SAME exact fractional amount (see the mix
+            // stage), so mix < 1 blends time-aligned signals (no comb filtering).
+            // What remains deliberately OUT OF SCOPE here (captured-deferred per
+            // spec FR-025 / plugin PDC) is reporting the effect's oversampled-mode
+            // latency OUTWARD to a host for cross-plugin delay compensation; the
+            // internal wet/dry alignment is handled.
             wet = oversampler_.process(
                 wet, [&](float s) noexcept { return oversampledShaper_.process(s); });
             break;
@@ -217,7 +223,18 @@ public:
         // documented in applyToneTilt().
         if (toneAmount_ != 0.0f)
             wet = toneTilt_.process(wet);
-        float y = mix_ * wet + (1.0f - mix_) * x;
+        // Dry/wet mix, time-aligned. The oversampled tier delays the wet path by
+        // oversampler_.groupDelaySamples(); delay the dry term by the SAME exact
+        // (fractional) amount so mix<1 blends aligned signals rather than comb-
+        // filtering (PR#10 review). naive/adaa have zero wet-path latency, so their
+        // dry delay is 0 and readFractional(0) returns the just-written x unchanged
+        // (their mix behavior is byte-for-byte what it was before this line).
+        dryMixWrite(x);
+        const float dryDelaySamples = (quality_ == SaturationQuality::oversampled)
+                                          ? oversampler_.groupDelaySamples()
+                                          : 0.0f;
+        const float dry = dryMixRead(dryDelaySamples);
+        float y = mix_ * wet + (1.0f - mix_) * dry;
         y *= outputGain_;
         return y;
     }
@@ -365,6 +382,41 @@ private:
     ADAAWaveshaper adaaShaper_;
     Oversampler<4> oversampler_;
     Waveshaper oversampledShaper_;
+
+    // Dry-path delay for dry/wet mix alignment (PR#10 review): the oversampled
+    // tier delays the wet path by oversampler_.groupDelaySamples() (67.5 @ Factor
+    // 4); the dry term of the mix is delayed by the SAME exact (fractional) amount
+    // so mix<1 blends time-aligned signals instead of comb-filtering. naive/adaa
+    // are zero-latency (dry delay 0 -> the just-written x, unchanged).
+    //
+    // Implemented as a SELF-CONTAINED ring buffer (a plain std::array + index, no
+    // pointers) rather than the pointer-binding DelayLine primitive: SaturationCore
+    // must stay trivially copyable (tests capture a configured core BY VALUE into a
+    // closure), and a member DelayLine bound to a sibling storage member would
+    // dangle its pointer on copy. Fixed-size => no heap (Constitution VI). Capacity
+    // exceeds the max group delay (67.5) + the fractional read's 2-sample reach.
+    static constexpr int kDryMixDelayCap = 128;
+    std::array<float, static_cast<std::size_t>(kDryMixDelayCap)> dryMixRing_{};
+    int dryMixWrite_ = 0;
+
+    // Push x into the dry-delay ring (advance write head, wrap).
+    void dryMixWrite(float x) noexcept {
+        dryMixRing_[static_cast<std::size_t>(dryMixWrite_)] = x;
+        dryMixWrite_ = (dryMixWrite_ + 1) % kDryMixDelayCap;
+    }
+
+    // Read the dry ring delayed by `d` samples (fractional, linear-interpolated).
+    // d is clamped into [0, cap-1]; d==0 returns the most-recently-written sample.
+    float dryMixRead(float d) const noexcept {
+        const float clamped =
+            std::min(std::max(d, 0.0f), static_cast<float>(kDryMixDelayCap - 1));
+        const int i = static_cast<int>(clamped);
+        const float f = clamped - static_cast<float>(i);
+        const int newer = (dryMixWrite_ - 1 - i + 2 * kDryMixDelayCap) % kDryMixDelayCap;
+        const int older = (dryMixWrite_ - 2 - i + 2 * kDryMixDelayCap) % kDryMixDelayCap;
+        return (1.0f - f) * dryMixRing_[static_cast<std::size_t>(newer)]
+             + f * dryMixRing_[static_cast<std::size_t>(older)];
+    }
 
     // -------------------------------------------------------------------
     // Applied parameter state (data-model.md "SaturationCore — Applied

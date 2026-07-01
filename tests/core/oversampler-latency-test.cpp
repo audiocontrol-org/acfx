@@ -283,3 +283,35 @@ void checkLatencyAlignedSineMatchesInput() {
 TEST_CASE("Oversampler<2>: latency-aligned low-in-band sine matches input (FR-007/FR-012)") {
     checkLatencyAlignedSineMatchesInput();
 }
+
+// ---------------------------------------------------------------------------
+// PR#10 REVIEW FIX LOCK-IN: groupDelaySamples() exactness (feeds
+// SaturationCore's dry/wet mix-alignment delay compensation directly — see
+// saturation-core.h process() and saturation-core-test.cpp's mix-alignment
+// TEST_CASEs). Unlike the measured-group-delay checks above, this is a DIRECT
+// exactness check on the analytic constant itself: 90*(1-1/Factor) is an
+// EXACT rational for Factor in {2,4,8} (45, 67.5, 78.75) that is exactly
+// representable in IEEE-754 float (all three have <=2 significant binary
+// fraction bits), so bit-exact `==` is the correct assertion here — no
+// tolerance needed, and a tolerance would mask a real off-by-a-fraction
+// regression in the analytic formula. latencySamples() must match the
+// documented round-half-down rounding of that exact value.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Oversampler<Factor>: groupDelaySamples() is the exact analytic group delay, "
+          "and latencySamples() is its round-half-down rounding (PR#10 review fix)") {
+    Oversampler<2> osc2;
+    osc2.init(kSampleRate);
+    CHECK(osc2.groupDelaySamples() == 45.0f);
+    CHECK(osc2.latencySamples() == 45);
+
+    Oversampler<4> osc4;
+    osc4.init(kSampleRate);
+    CHECK(osc4.groupDelaySamples() == 67.5f);
+    CHECK(osc4.latencySamples() == 67); // half-integer tie, rounds DOWN
+
+    Oversampler<8> osc8;
+    osc8.init(kSampleRate);
+    CHECK(osc8.groupDelaySamples() == 78.75f);
+    CHECK(osc8.latencySamples() == 79); // 78.75 rounds to nearest whole sample
+}

@@ -78,15 +78,26 @@ public:
         return sampleRate_ * static_cast<float>(Factor);
     }
 
-    // Integer processing latency (group delay) referred to the BASE rate, for
-    // host PDC and wet/dry alignment. Constant for a given Factor.
+    // The EXACT linear-phase group delay referred to the BASE rate, in samples:
+    //   90 * (1 - 1/Factor)  =  2 * kCenter * (Factor - 1) / Factor.
+    // Integer for Factor 2 (45); FRACTIONAL for Factor 4 (67.5) and 8 (78.75) —
+    // the composite of stages running at different rates has a genuinely
+    // sub-sample group delay. Callers needing sub-sample-accurate alignment
+    // (e.g. an internal dry/wet delay match, saturation-core.h) use this.
+    float groupDelaySamples() const noexcept {
+        return static_cast<float>(2 * halfband_detail::kCenter * (Factor - 1))
+             / static_cast<float>(Factor);
+    }
+
+    // The INTEGER host-PDC latency: groupDelaySamples() rounded to the nearest
+    // whole sample (ties toward the lower index). This is what a host / integer-
+    // sample delay-compensation scheme uses — hosts compensate in whole samples,
+    // so a rounded integer is the correct reported latency; the exact (possibly
+    // fractional) delay is groupDelaySamples() above. For Factor 4 the true delay
+    // is 67.5 and the linear-phase impulse energy splits equally between samples
+    // 67 and 68, so the measured (first-max) peak is 67. Round-half-down =
+    // floor((2*numer + Factor - 1) / (2*Factor)).
     int latencySamples() const noexcept {
-        // Analytic composite group delay = 90 * (1 - 1/Factor) base samples
-        //   = 2 * kCenter * (Factor - 1) / Factor.
-        // Round to nearest, ties toward the LOWER index: for Factor == 4 the
-        // delay is exactly 67.5 and the linear-phase impulse energy splits
-        // equally between samples 67 and 68, so the measured (first-max) peak
-        // is 67. Round-half-down = floor((2*numer + Factor - 1) / (2*Factor)).
         constexpr int numer = 2 * halfband_detail::kCenter * (Factor - 1);
         return (2 * numer + Factor - 1) / (2 * Factor);
     }

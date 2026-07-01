@@ -29,8 +29,15 @@ public:
     // == sampleRate (from init) * Factor.
     float oversampledRate() const noexcept;
 
-    // Integer processing latency (group delay) referred to the BASE rate, for
-    // host PDC and wet/dry alignment. Constant for a given Factor + rate.
+    // Exact linear-phase group delay referred to the BASE rate, in samples.
+    // Integer for Factor 2 (45); FRACTIONAL for Factor 4 (67.5) and 8 (78.75).
+    // Use for sub-sample-accurate alignment (e.g. a parallel dry-path delay).
+    float groupDelaySamples() const noexcept;
+
+    // Integer host-PDC latency: groupDelaySamples() rounded to the nearest whole
+    // sample (ties toward the lower index). This is the value a host / integer-
+    // sample delay-compensation scheme uses; the exact (possibly fractional)
+    // delay is groupDelaySamples() above.
     int latencySamples() const noexcept;
 
     // Process one input sample:

@@ -181,8 +181,13 @@ tier, and that it is exposed as a selectable quality option.
   lower factor on the same stimulus (monotone-or-better).
 - **FR-011**: `reset()` MUST clear all filter state without discarding the primitive's
   configuration; a subsequent `process()` MUST behave as freshly prepared.
-- **FR-012**: The reported latency MUST equal the measured group delay to the sample, for every
-  supported factor.
+- **FR-012**: The primitive MUST expose its group delay in two forms: an **integer host-PDC
+  latency** (`latencySamples()`) — the nearest whole sample to the true group delay, for hosts
+  that delay-compensate in whole samples — and the **exact group delay** (`groupDelaySamples()`),
+  which is fractional for factors whose composite delay is not a whole number (4× = 67.5, 8× =
+  78.75). The integer latency MUST equal the measured impulse group delay within the half-sample
+  rounding (exact for integer-delay factors); the exact value MUST match the true linear-phase
+  group delay, so a caller can align a parallel dry path sub-sample-accurately.
 
 #### Real-time safety & platform independence
 
@@ -258,8 +263,9 @@ tier, and that it is exposed as a selectable quality option.
   path.
 - **SC-003**: The band-limiting filters meet the named stopband rejection with passband ripple
   within the named bound (verified against analytic FIR truth).
-- **SC-004**: Reported latency equals measured group delay exactly (integer samples) for every
-  supported factor.
+- **SC-004**: `latencySamples()` equals the measured impulse group delay to within the half-sample
+  rounding (exact for integer-delay factors); `groupDelaySamples()` equals the exact (fractional)
+  linear-phase group delay, for every supported factor.
 - **SC-005**: `process()` performs zero heap allocations and takes no locks, verified by the
   allocation sentinel, for every supported factor.
 - **SC-006**: The saturation `oversampled` tier produces measurably lower inharmonic energy than
