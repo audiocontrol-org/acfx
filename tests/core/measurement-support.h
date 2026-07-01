@@ -17,6 +17,7 @@
 #include "dsp/param-id.h"
 #include "dsp/parameter.h"
 #include "dsp/span.h"
+#include "support/measurement/aliasing.h"   // AliasingMeasure, aliasingMeasure (T006)
 #include "support/measurement/analyzers.h"  // GoertzelAnalyzer, captureCallable
 #include "support/measurement/metrics.h"    // thd (single-bin THD)
 #include "support/measurement/stimulus.h"   // SineGenerator
@@ -169,77 +170,19 @@ inline HarmonicSignature harmonicSignature(Fn&& fn,
 // ---------------------------------------------------------------------------
 // AliasingMeasure  (helper 2 — inharmonic / aliased-energy measure)
 //
-// Quantifies output energy that is NOT part of the input's harmonic series —
-// i.e. the aliased/folded content a naive (non-bandlimited) nonlinearity
-// produces when a high-frequency tone's harmonics exceed Nyquist and fold back
-// onto non-harmonic frequencies.
-//
-// METHOD (power-domain residual; "everything not at an integer multiple of
-// the fundamental"):
-//   totalPower    = mean-square of the whole output      = (1/N) * sum(x[n]^2)
-//                   (Parseval: equals the summed power of all DFT bins)
-//   harmonicPower = DC power  (mean^2, the k=0 bin)
-//                 + sum over every in-band harmonic k>=1 (k*fundamental <
-//                   Nyquist) of (A_k^2 / 2), where A_k is the GoertzelAnalyzer
-//                   amplitude at k*fundamental and A^2/2 is a sinusoid's power.
-//   inharmonicPower = totalPower - harmonicPower
-//
-// Whatever remains after removing DC and the true f0-harmonic series is the
-// aliased/folded residual (plus any broadband noise).  With the integer-cycle
-// window contract above, all energy — including each folded image — sits
-// exactly on a DFT bin, so Parseval is exact and the subtraction is clean.
-// (A folded image can, in rare arithmetic coincidences, land exactly on an
-// f0-multiple and be miscounted as harmonic; this is negligible for the
-// naive-vs-ADAA comparison and affects both arms equally.)
+// T006: the measure itself (struct + span-based aliasingMeasure) now lives in
+// the SHARED header support/measurement/aliasing.h (namespace acfx::measure)
+// so the saturation suites and the oversampler suites (US1/US4) consume ONE
+// implementation (research.md Decision 8, FR-022). Re-exposed here via
+// using-declarations so existing `meastest::AliasingMeasure` /
+// `meastest::aliasingMeasure` call sites are unaffected.
 //
 // Supports US4: assert ADAA.inharmonicPower <= naive.inharmonicPower * margin.
-// Returns POWER (mean-square, per-sample) so the value is independent of the
-// window length N; the US4 comparison is a ratio, so units cancel either way.
+// See support/measurement/aliasing.h for the full method/window-contract
+// documentation.
 // ---------------------------------------------------------------------------
-struct AliasingMeasure {
-    double totalPower;       // mean-square of the whole output
-    double harmonicPower;    // power at DC + the in-band f0-harmonic series
-    double inharmonicPower;  // totalPower - harmonicPower (>= 0): aliased residual
-};
-
-inline AliasingMeasure aliasingMeasure(acfx::span<const float> out,
-                                       double fundamentalHz,
-                                       double sampleRate) {
-    const std::size_t N = out.size();
-    if (N == 0)
-        return AliasingMeasure{0.0, 0.0, 0.0};
-
-    double sumSq = 0.0;
-    double sum   = 0.0;
-    for (std::size_t n = 0; n < N; ++n) {
-        const double x = static_cast<double>(out[n]);
-        sumSq += x * x;
-        sum   += x;
-    }
-    const double totalPower = sumSq / static_cast<double>(N);
-    const double dc         = sum   / static_cast<double>(N);
-
-    double harmonicPower = dc * dc;  // k = 0 (DC) bin power
-    const double nyquist = sampleRate / 2.0;
-    for (int k = 1; static_cast<double>(k) * fundamentalHz < nyquist; ++k) {
-        const double freqHz = static_cast<double>(k) * fundamentalHz;
-        const double aK =
-            acfx::measure::GoertzelAnalyzer{freqHz, sampleRate}
-                .analyze(out)
-                .magnitude;
-        harmonicPower += 0.5 * aK * aK;  // sinusoid power = A^2 / 2
-    }
-
-    // Energy is physically non-negative; clamp a tiny negative from floating-
-    // point round-off in the subtraction (occurs when there is essentially no
-    // aliasing and totalPower ~= harmonicPower).  Numerical hygiene, not a
-    // fallback masking missing functionality.
-    double inharmonic = totalPower - harmonicPower;
-    if (inharmonic < 0.0)
-        inharmonic = 0.0;
-
-    return AliasingMeasure{totalPower, harmonicPower, inharmonic};
-}
+using acfx::measure::AliasingMeasure;
+using acfx::measure::aliasingMeasure;
 
 // Driving convenience: capture a sine through `fn`, then measure aliasing.
 template <class Fn>

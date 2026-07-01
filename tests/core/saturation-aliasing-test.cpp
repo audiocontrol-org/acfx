@@ -12,6 +12,7 @@
 #include "effects/saturation/saturation-effect.h"
 #include "effects/saturation/saturation-voicings.h"
 #include "core/measurement-support.h"
+#include "support/measurement/aliasing.h"  // shared AliasingMeasure/aliasingMeasure (T006)
 
 // T017 -- User Story 4 suite: the `quality` control's aliasing behavior at the
 // SaturationCore/SaturationEffect level (FR-013/014/015, SC-004). The
