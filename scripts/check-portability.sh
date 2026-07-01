@@ -4,17 +4,20 @@
 # (Constitution II). Run locally and in CI. Exits non-zero on any violation.
 #
 #   1. File-size budget (~300-500 lines; hard-fail above 500) — Constitution VII
-#      Coverage: find core host adapters tests — sweeps core/labs/waveshaping/** and
-#      core/primitives/nonlinear/** (once it exists) generically. FR-022.
+#      Coverage: find core host adapters tests — sweeps core/labs/waveshaping/**,
+#      core/primitives/nonlinear/**, core/labs/saturation/**, and core/effects/saturation/**
+#      (once populated) generically. FR-022.
 #   2. No platform headers in core/ — Constitution IV
 #      Coverage: find core -not -path core/labs/*/harness/* — sweeps core/labs/waveshaping/*.h
-#      (kernel headers) and core/primitives/nonlinear/** generically. FR-022.
+#      (kernel headers), core/primitives/nonlinear/**, core/labs/saturation/**, and
+#      core/effects/saturation/** generically. FR-022.
 #   3. No JUCE / ProcessorNode in the MCU (daisy/teensy) dependency surface — SC-007
 #   4. One-source-many-targets: no per-target #ifdef forks of the effect, and every
 #      adapter links the same acfx_core — SC-001 / SC-005 (Scenario E)
 #   C-1. Lab-harness isolation: no portable source includes a harness path — FR-005/SC-005
-#      Coverage: find core/labs (non-harness) sweeps core/labs/waveshaping/*.h explicitly;
-#      find core/primitives covers core/primitives/nonlinear/** once populated. FR-022.
+#      Coverage: find core/labs (non-harness) sweeps core/labs/waveshaping/*.h and
+#      core/labs/saturation/*.h explicitly; find core/primitives and core/effects covers
+#      core/primitives/nonlinear/** and core/effects/saturation/** once populated. FR-022.
 #   C-2. Dependency direction: core/primitives never includes core/effects — FR-015
 #      Coverage: grep core/primitives/ covers core/primitives/nonlinear/** once populated. FR-022.
 #   C-3. MCU-harness backstop: no harness path in daisy/teensy build inputs — FR-005/SC-005
@@ -23,6 +26,11 @@
 #   C-NL. core/primitives/nonlinear/ (when present) is gate-ready: platform-free,
 #      effects-free, harness-free — explicit named coverage per FR-022 (T023); passes
 #      vacuously when the directory is absent or empty (T024 creates it)
+#   C-SAT. Saturation lab kernel headers (core/labs/saturation/*.h, non-harness) are
+#      harness-free and platform-free — explicit named coverage per FR-021/022 (T020)
+#   C-SFX. core/effects/saturation/ (the graduation target, T022) is gate-ready:
+#      platform-free, harness-free — explicit named coverage per FR-021/022 (T020); passes
+#      vacuously when the directory is absent or empty (currently pre-graduation)
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -164,6 +172,44 @@ else
     fi
   done <<< "$_cnl_files"
   [ "$_cnl_fail" -eq 0 ] && note "  OK: core/primitives/nonlinear/ is platform-free, effects-free, and harness-free"
+fi
+
+note "== C-SAT. Saturation lab kernel headers: harness-free + platform-free (FR-021/022) =="
+_csat_fail=0
+while IFS= read -r f; do
+  if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+    note "  FAIL $f: saturation lab kernel header includes a harness path"
+    _csat_fail=1
+    fail=1
+  fi
+  if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+    note "  FAIL $f: saturation lab kernel header includes a platform header"
+    _csat_fail=1
+    fail=1
+  fi
+done < <(find core/labs/saturation -type f -name '*.h' \
+          -not -path '*/harness/*' 2>/dev/null)
+[ "$_csat_fail" -eq 0 ] && note "  OK: saturation lab kernel headers are harness-free and platform-free"
+
+note "== C-SFX. core/effects/saturation: gate-ready when present (FR-021/022) =="
+_csfx_files=$(find core/effects/saturation -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_csfx_files" ]; then
+  note "  OK (vacuous): core/effects/saturation/ absent or empty — gate ready for T022"
+else
+  _csfx_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: saturation effect includes a platform header"
+      _csfx_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: saturation effect includes a harness path"
+      _csfx_fail=1
+      fail=1
+    fi
+  done <<< "$_csfx_files"
+  [ "$_csfx_fail" -eq 0 ] && note "  OK: core/effects/saturation/ is platform-free and harness-free"
 fi
 
 if [ "$fail" -eq 0 ]; then

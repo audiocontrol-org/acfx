@@ -18,7 +18,10 @@
 #include "dsp/parameter.h"
 #include "dsp/span.h"
 #include "support/measurement/analyzers.h"  // GoertzelAnalyzer, captureCallable
+#include "support/measurement/metrics.h"    // thd (single-bin THD)
 #include "support/measurement/stimulus.h"   // SineGenerator
+
+#include <algorithm> // std::min
 
 namespace acfx::meastest {
 
@@ -284,6 +287,176 @@ inline double dcOffset(Fn&& fn,
         captureSineResponse(std::forward<Fn>(fn),
                             fundamentalHz, sampleRate, numSamples, amplitude);
     return dcOffset(acfx::span<const float>(out));
+}
+
+// ===========================================================================
+// SATURATION measurement helpers
+//
+// The SaturationEffect / SaturationCore validation suites (FR-016, FR-017,
+// SC-001..SC-005) reuse the measurement primitives above rather than adding a
+// second spectral engine.  Three of the five signatures the saturation suites
+// need already ship above and are consumed AS-IS (no saturation-specific
+// duplicate is introduced):
+//
+//   (a) per-voicing harmonic-signature capture  -> harmonicSignature(...)
+//       Drive an identical sine through each voicing's processing callable and
+//       compare the returned per-harmonic magnitudes (SC-001, US2).
+//   (c) inharmonic / aliased-energy measure      -> aliasingMeasure(...)
+//       The naive-vs-ADAA comparison (SC-004, US4) asserts
+//       adaa.inharmonicPower <= naive.inharmonicPower * margin, exactly as the
+//       waveshaper ADAA suite already does.
+//   (e) DC-offset measure                        -> dcOffset(...)
+//       The biased-setting DC-free assertion (SC-005, US3) drives a biased
+//       voicing and asserts the composed DC-blocker holds dcOffset near zero.
+//
+// The two remaining signatures — a drive->THD series and a mix dry/wet balance
+// measure — are the saturation-specific composites added below.  Both are thin
+// wrappers over the shipped captureSineResponse + acfx::measure::thd and over
+// plain buffer arithmetic; neither invents a new tolerance (helpers MEASURE,
+// tests assert against named bounds).
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// DriveThdSeries  (helper (b) — drive -> THD series)
+//
+// Measures total harmonic distortion as a function of drive so the suite can
+// assert drive->THD MONOTONICITY (FR-017, SC-002): rising drive raises measured
+// distortion.  `makeProcessor(drive)` returns a per-sample callable float(float)
+// configured at that drive (e.g. a lambda closing over a Waveshaper /
+// SaturationCore whose drive has been set).  For each drive a fresh sine is
+// captured through that callable and reduced to a single THD reading via the
+// shipped acfx::measure::thd (which itself returns NaN when THD is unmeasurable
+// — no fabricated 0.0).  Returns the (drive, thd) pairs; the test asserts the
+// thd sequence is non-decreasing within its named tolerance.
+//
+// Window contract: obey the integer-cycle window (header note) so every harmonic
+// bin is leakage-free.
+// ---------------------------------------------------------------------------
+struct DriveThdPoint {
+    double drive;  // the drive value applied for this measurement
+    double thd;    // measured THD at that drive (NaN when unmeasurable — thd() convention)
+};
+
+template <class MakeProcessor>
+inline std::vector<DriveThdPoint> driveThdSeries(MakeProcessor&& makeProcessor,
+                                                 acfx::span<const double> driveValues,
+                                                 double fundamentalHz,
+                                                 double sampleRate,
+                                                 std::size_t numSamples,
+                                                 int harmonics = 5,
+                                                 float amplitude = 1.0f) {
+    std::vector<DriveThdPoint> series;
+    series.reserve(driveValues.size());
+    for (std::size_t i = 0; i < driveValues.size(); ++i) {
+        const double drive = driveValues[i];
+        const std::vector<float> out =
+            captureSineResponse(makeProcessor(drive),
+                                fundamentalHz, sampleRate, numSamples, amplitude);
+        const double t = acfx::measure::thd(acfx::span<const float>(out),
+                                            fundamentalHz, sampleRate, harmonics);
+        series.push_back(DriveThdPoint{drive, t});
+    }
+    return series;
+}
+
+// ---------------------------------------------------------------------------
+// relativeRmsError  (mix building block)
+//
+// Root-mean-square of (measured - reference) normalised by the RMS of
+// reference: sqrt( sum (m-r)^2 / sum r^2 ).  A scale-independent "how far is
+// `measured` from `reference`" figure.  0 means identical; ~1 means the error
+// is as large as the reference itself.
+//
+// Directly supports the mix EXTREMES of SC-003:
+//   * fully-dry:  relativeRmsError(out, dryInput) -> ~0 (wet path contributes
+//     nothing, so the output reproduces the input).
+//   * fully-wet:  relativeRmsError(out, wetPath)  -> ~0 (only the saturated path
+//     survives).
+//
+// Returns NaN when the reference is effectively silent (ratio undefined),
+// mirroring the shipped thd()/phaseRad() unmeasurable convention rather than a
+// fabricated 0.0.  Compares over the common prefix when lengths differ.
+// ---------------------------------------------------------------------------
+inline double relativeRmsError(acfx::span<const float> measured,
+                               acfx::span<const float> reference) noexcept {
+    const std::size_t N = std::min(measured.size(), reference.size());
+    if (N == 0)
+        return std::numeric_limits<double>::quiet_NaN();
+    double sumDiffSq = 0.0;
+    double sumRefSq  = 0.0;
+    for (std::size_t n = 0; n < N; ++n) {
+        const double r = static_cast<double>(reference[n]);
+        const double d = static_cast<double>(measured[n]) - r;
+        sumDiffSq += d * d;
+        sumRefSq  += r * r;
+    }
+    constexpr double kEpsilon = 1.0e-24;
+    if (sumRefSq < kEpsilon)
+        return std::numeric_limits<double>::quiet_NaN();
+    return std::sqrt(sumDiffSq / sumRefSq);
+}
+
+// ---------------------------------------------------------------------------
+// MixBalance  (helper (d) — mix dry/wet balance measure)
+//
+// Quantifies how faithfully a blended output realises the documented LINEAR
+// dry/wet law y = mix*wet + (1-mix)*dry (data-model SaturationCore signal
+// chain; FR-012).  Given the dry input, the fully-wet path, the actually-
+// blended output, and the mix value in [0,1], it returns:
+//   dryRms/wetRms/outRms — RMS levels of each buffer (informative; lets the
+//     test assert the blended level sits between the dry and wet extremes), and
+//   blendResidual — relativeRmsError(out, mix*wet + (1-mix)*dry): ~0 when the
+//     blend obeys the linear law across the range (SC-003 intermediate settings,
+//     US3 blend-law assertion).
+//
+// The predicted-blend buffer is allocated here (offline test code, never an
+// audio path).  Buffers are compared over their common prefix.
+// ---------------------------------------------------------------------------
+struct MixBalance {
+    double dryRms;         // RMS of the dry input
+    double wetRms;         // RMS of the fully-wet (saturated) path
+    double outRms;         // RMS of the actual blended output
+    double blendResidual;  // relative RMS error of out vs the linear-law blend
+};
+
+// RMS level of a buffer (mix building block; not a nested `detail` namespace so
+// this header can coexist with acfx::measure::detail under `using namespace`).
+inline double rmsLevel(acfx::span<const float> buf) noexcept {
+    const std::size_t N = buf.size();
+    if (N == 0)
+        return 0.0;
+    double sumSq = 0.0;
+    for (std::size_t n = 0; n < N; ++n) {
+        const double x = static_cast<double>(buf[n]);
+        sumSq += x * x;
+    }
+    return std::sqrt(sumSq / static_cast<double>(N));
+}
+
+inline MixBalance mixBalance(acfx::span<const float> dry,
+                             acfx::span<const float> wet,
+                             acfx::span<const float> out,
+                             double mix) {
+    const std::size_t N =
+        std::min(dry.size(), std::min(wet.size(), out.size()));
+
+    std::vector<float> predicted(N, 0.0f);
+    for (std::size_t n = 0; n < N; ++n) {
+        const double blended = mix * static_cast<double>(wet[n])
+                             + (1.0 - mix) * static_cast<double>(dry[n]);
+        predicted[n] = static_cast<float>(blended);
+    }
+
+    const acfx::span<const float> dryN{dry.data(), N};
+    const acfx::span<const float> wetN{wet.data(), N};
+    const acfx::span<const float> outN{out.data(), N};
+
+    return MixBalance{
+        rmsLevel(dryN),
+        rmsLevel(wetN),
+        rmsLevel(outN),
+        relativeRmsError(outN, acfx::span<const float>(predicted)),
+    };
 }
 
 } // namespace acfx::meastest

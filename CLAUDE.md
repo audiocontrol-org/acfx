@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **waveshapers**.
+Active Spec Kit feature: **saturation**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/waveshapers/plan.md` (spec: `specs/waveshapers/spec.md`).
+current plan at `specs/saturation/plan.md` (spec: `specs/saturation/spec.md`).
 <!-- SPECKIT END -->

@@ -2,6 +2,123 @@
 
 ---
 
+## 2026-07-01: Saturation — design → define → execute → govern(override) → ship
+
+**Goal:** Drive `design:feature/saturation` end-to-end through the stack-control
+front door — from the ready roadmap frontier to a merge-ready production effect:
+design record, runnable Spec Kit spec, 25-task implementation, governance, and PR.
+
+**Accomplished:**
+- Delivered the saturation production effect — the **first lab→effect graduation**.
+  `SaturationEffect` composes the shipped `Waveshaper` (+ADAA) between two
+  `SvfPrimitive` emphasis stages, with 4 voicings, a `quality` control (naive/adaa +
+  reserved oversampled→adaa), lock-free atomic parameter handoff, and a dry/wet mix.
+  **184/184 host tests, portability gate green**, RT-safety proven by the sentinel.
+- Ran all 25 spec tasks via tier-sized subagents (haiku/sonnet/opus per `[tier:]`),
+  test-first, reviewed, committed+pushed, and ledgered.
+- Design→define→execute front doors clean (compass on-course each step; analyze-clean).
+- Governed via operator-approved `govern --override` plus a full 8-angle `/code-review`
+  as the compensating control; opened PR #9 (`saturation`→`main`), awaiting operator
+  CI-green + merge.
+
+**Didn't Work:**
+- The cross-model **govern barrage could not complete in the sandbox** — killed
+  ~5-7 min before reconciliation; the sonnet fleet lane times out each chunk (degraded
+  2/3, floor of 2 still met). No convergence record auto-written.
+- govern's **24576-byte per-file audit envelope** FATALed early on `spec.md` and the
+  effect test — required trimming/splitting purely for the envelope, not code quality.
+
+**Course Corrections:**
+- Split `saturation-effect-test.cpp` (descriptor + RT files) and tightened `spec.md`
+  prose to fit the audit envelope.
+- Terminal via operator-approved `--override` + `/code-review` stop-gap (recorded the
+  sandbox runtime ceiling to memory for next time).
+- Adversarial fixes during the run: T001's empty-`.gitkeep` self-contradiction; the
+  softClip/tape distinctness convergence (fixed with real tape HF-loss, not a margin
+  nudge); biasedAsym→diodeCurve for ADAA throw-safety.
+
+**Insights:**
+- The compensating code review **caught a real correctness defect the incomplete
+  barrage missed**: unclamped emphasis cutoffs silently collapsing to `sr/3`
+  (sample-rate-dependent voicing drift) — fixed with `SvfEffect`-style clamping.
+- Two saturation tests were false-confidence (tautological voicing-label check,
+  vacuous cross-thread assertion) — the review made them real.
+- No runtime bugs in the implementation itself; findings were doc-staleness, test
+  hygiene, and the one config-vs-applied filter clamp — a good signal for the
+  test-first, per-task-reviewed dispatch discipline.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 67
+  - fix(saturation): resolve code-review findings — clamp emphasis cutoffs (sr-safe), true tone=0 passthrough, de-vacuous 2 tests, de-stale RT comments
+  - test(saturation): resolve govern findings — de-stale voicing comments, relabel settling tolerance, expand FR-008 to all 12 voicing-switch pairs
+  - docs(saturation): resolve govern audit findings — define oversampled->adaa mapping, disambiguate output trim vs auto-makeup, CSV contract resolved, effect-test-split + T025 caveats
+  - test(saturation): split effect test into descriptor + RT files under govern envelope (184/184, no assertion change)
+  - docs(saturation): tighten spec prose under govern fleet envelope (no requirement change)
+  - chore(saturation): mark tasks complete (T001-T024 [x], T025 [~] cross-compile env-blocked) — implementation done 184/184
+  - docs(saturation): finalize harness --csv contract + FR-024 boundary + effect-composes-primitive convention (T023,T024)
+  - refactor(saturation): graduate composition kernel lab->effects/saturation — first lab->effect graduation, US5 GREEN 184/184 (T022)
+  - feat(saturation): lab harness + portability gate coverage (C-SAT/C-SFX) — US5 evidence, gate green (T019,T020)
+  - docs(saturation): complete lab README — theory, walkthrough, composition, evidence (T021)
+  - feat+test(saturation): quality control naive/adaa + reserved oversampled fallback — US4 GREEN 184/184 (T017,T018)
+  - test(saturation): lock ADAA-safe voicing invariant + prove in-process param path alloc-free — US3 done 181/181 (T016)
+  - feat(saturation): SaturationEffect wrapper — param table + lock-free atomic handoff, US3 179/179 (T014,T015)
+  - feat(saturation): tune tape for genuine distinctness + document voicings — US2 GREEN 172/172 (T013)
+  - test+feat(saturation): US2 voicing configs + distinctness suite (RED: softClip/tape 0.0185<0.02, T013 tunes tape) (T011,T012)
+  - test(saturation): allocation-sentinel proof for SaturationCore::process — US1 MVP complete 167/167 (T010)
+  - feat(saturation): implement SaturationCore signal chain — US1 GREEN 166/166 (T009)
+  - test(saturation): US1 core + harmonics suites (RED — awaits T009/T010 impl)
+  - feat(saturation): SaturationCore composition-kernel surface (T004)
+  - test(saturation): add driveThdSeries + mixBalance helpers, reuse shipped harmonic/aliasing/DC measures (T006)
+  - feat(saturation): voicing/quality enums + VoicingConfig surface (T005)
+  - build(saturation): CMake placeholder for saturation test suites; baseline green 158/158 (T002)
+  - docs(saturation): lab README skeleton, names effects/saturation graduation target (T003)
+  - chore(saturation): drop empty .gitkeep dirs — honor no-empty-dir taxonomy rule (T001 review)
+  - chore(saturation): scaffold lab + effect dirs; record effects taxonomy (T001)
+  - roadmap(saturation): record analyze-clean marker
+  - roadmap(saturation): link spec pointer to specs/saturation
+  - spec(saturation): author runnable Spec Kit spec via /stack-control:define
+  - design(saturation): record operator design-approved marker
+  - design(saturation): design record for the composed production effect
+  - chore(roadmap): close design:primitive/waveshapers (shipped, validated)
+  - Merge pull request #8 from audiocontrol-org/phase-nonlinear-dsp
+  - backlog(waveshapers): capture two non-blocking PR#8 review follow-ups
+  - fix(waveshapers): ADAAWaveshaper::setShape re-pairs ADAA history (PR#8 review)
+  - docs(waveshapers): govern round-2 hygiene — test traceability + stale comment + name disambiguation
+  - chore(waveshapers): govern fix D1 — scrub deferral/TODO wording from execution ledger
+  - test(waveshapers): govern fixes C1-C4 — tighten diode/softKnee/chebyshev assertions + drive rationale
+  - fix(waveshapers): govern fixes B1-B7 -- honest harness output, drop stale CMake EXISTS guard, README accuracy
+  - docs(waveshapers): govern fixes A1-A9 — reconcile research/plan/quickstart with implementation
+  - tasks(waveshapers): mark T001-T026 complete, T027 operator-acceptance; execution ledger
+  - docs(waveshapers): T026 finalize taxonomy cross-references + diode-altitude boundary
+  - feat(waveshapers): T025 optional --csv harmonic-spectrum dump in harness
+  - feat(waveshapers): T024 graduate kernel headers to core/primitives/nonlinear/ (US5)
+  - build(waveshapers): T023 extend portability gate to waveshaping lab + nonlinear primitive locations
+  - docs(waveshapers): T022 complete lab README — theory, walkthrough, measured evidence
+  - feat(waveshapers): T021 host-only waveshaping harness (harmonics + naive-vs-ADAA aliasing)
+  - feat(waveshapers): T020 first-order ADAAWaveshaper (US4 green)
+  - feat(waveshapers): T019 antiderivatives for covered shapes + coverage predicate
+  - test(waveshapers): T018 ADAA aliasing-reduction + uncovered-error + base-unchanged tests (RED)
+  - feat(waveshapers): T017 wire Evaluation::lut into Waveshaper::process (US3 green)
+  - feat(waveshapers): T016 WaveshaperLut fixed-size table + linear interp + edge-clamp
+  - test(waveshapers): T015 LUT deviation + edge-clamp + no-alloc tests (RED: waveshaper-lut.h pending)
+  - feat(waveshapers): T014 full catalog enum dispatch + no-stale-state test + diode boundary doc
+  - feat(waveshapers): T013 remaining catalog shapes (arctan/algebraic/softKnee/chebyshev/diode/folds)
+  - test(waveshapers): T012 per-shape analytic correctness tests (RED: 7 shapes pending)
+  - feat(waveshapers): T011 gain-compensation law + RT-safety sentinel (US1 green)
+  - feat(waveshapers): T010 RT-safe Waveshaper wrapper process()+staging
+  - feat(waveshapers): T009 first-cut shapes tanh/hardClip/cubicSoftClip
+  - test(waveshapers): T008 US1 harmonic-signature tests (RED: impl pending)
+  - test(waveshapers): T007 Waveshaper wrapper tests (RED: impl pending)
+  - test(waveshapers): T006 harmonic-signature/aliasing/DC measurement helpers
+  - feat(waveshapers): T005 wrapper DC-blocker + gain-comp scaffolding
+  - feat(waveshapers): T004 memoryless shape contract surface (declarations)
+  - build(waveshapers): T002 CMake wiring for waveshaper tests + harness target
+  - docs(waveshapers): T003 lab README skeleton
+  - docs(waveshapers): T001 record waveshaping lab + nonlinear graduation target in taxonomy
+  - tasks(waveshapers): add [tier:] model-sized-dispatch tags to all 27 tasks
+- Files changed: 52
+- Backlog touched: TASK-3, TASK-4
+
 ## 2026-06-30: Design + define waveshapers → runnable spec
 
 **Goal:** Pick up the `design:primitive/waveshapers` roadmap item — the first nonlinear primitive of

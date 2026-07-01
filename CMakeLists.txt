@@ -103,4 +103,19 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   )
   target_link_libraries(acfx_lab_waveshaping_harness PRIVATE acfx_core)
   target_compile_features(acfx_lab_waveshaping_harness PRIVATE cxx_std_20)
+
+  # Saturation lab harness — same linkage as the two harnesses above, plus the
+  # tests/ include root: unlike the SVF/waveshaping harnesses (self-contained
+  # per the SVF-harness precedent), this harness drives its measurements
+  # through the SHARED measurement infrastructure
+  # (tests/core/measurement-support.h — meastest::harmonicSignature /
+  # meastest::aliasingMeasure) per spec.md US5's acceptance scenario 1. That
+  # header and its support/measurement/*.h dependencies are header-only, so
+  # only the include path is needed — no test-target linkage.
+  add_executable(acfx_lab_saturation_harness
+    core/labs/saturation/harness/saturation-harness.cpp
+  )
+  target_include_directories(acfx_lab_saturation_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+  target_link_libraries(acfx_lab_saturation_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_saturation_harness PRIVATE cxx_std_20)
 endif()
