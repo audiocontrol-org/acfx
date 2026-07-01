@@ -25,21 +25,19 @@
 
 ### User Story 1 - Apply a voiced saturation effect to audio (Priority: P1)
 
-An effect author runs an audio signal through the saturation effect and, with control over
-input drive, output makeup, and a dry/wet blend, obtains a musically saturated signal whose
-harmonic character comes from a nonlinear stage placed between frequency-shaping filters. The
-effect is built entirely by composing already-shipped primitives (the nonlinear waveshaper and
-the state-variable filter); it introduces no new nonlinearity or filter of its own.
+An effect author runs audio through the saturation effect with control over input drive, output
+makeup, and a dry/wet blend, obtaining a musically saturated signal whose harmonic character
+comes from a nonlinear stage between frequency-shaping filters. It is built entirely by composing
+already-shipped primitives (the nonlinear waveshaper and the state-variable filter) — no new
+nonlinearity or filter of its own.
 
-**Why this priority**: This is the irreducible core of the feature — a working composed
-saturation processor with gain-staging and a dry/wet blend. Every other story builds on it; on
-its own it already delivers a usable production effect that a host or the workbench can drive.
+**Why this priority**: The irreducible core — a working composed saturation processor with
+gain-staging and a dry/wet blend that every other story builds on and that already delivers a
+usable production effect on its own.
 
-**Independent Test**: Drive a known sine tone through the effect at a fixed drive with a chosen
-voicing and assert, via the existing harmonic (THD) measurement, that the produced harmonic
-series reflects the nonlinear stage within a named tolerance, that increasing drive increases
-measured distortion monotonically, and that a fully-dry blend reproduces the input within
-tolerance.
+**Independent Test**: Drive a sine tone through the effect at a fixed drive/voicing and assert,
+via the existing THD measurement, that the harmonic series reflects the nonlinear stage within
+tolerance, distortion rises monotonically with drive, and a fully-dry blend reproduces the input.
 
 **Acceptance Scenarios**:
 
@@ -66,15 +64,14 @@ where each voicing fixes a nonlinear shape plus a pre-emphasis and post-de-empha
 curve, giving each a distinct spectral and harmonic fingerprint. The author switches voicing at
 runtime to change character without rebuilding.
 
-**Why this priority**: The breadth of voicings is the substance of "saturation"; a single
-character would make the effect barely more than the primitive it wraps. Each voicing's
-pre/post emphasis is precisely what distinguishes tape from console from tube. Co-equal P1 with
-Story 1 because the effect is only meaningful against a set of voicings.
+**Why this priority**: The breadth of voicings is the substance of "saturation" (a single
+character is barely more than the primitive), and per-voicing pre/post emphasis is what
+distinguishes tape from console from tube. Co-equal P1 — the effect is only meaningful against a
+set of voicings.
 
-**Independent Test**: For each voicing, drive an identical stimulus through the effect and
-assert the measured harmonic + spectral signature differs from the other voicings by at least a
-named margin and matches that voicing's documented signature within tolerance — with no
-residual state from the previously-selected voicing.
+**Independent Test**: For each voicing, drive an identical stimulus and assert its harmonic +
+spectral signature differs from the others by at least a named margin and matches its documented
+signature within tolerance, with no residual state from the previous voicing.
 
 **Acceptance Scenarios**:
 
@@ -98,15 +95,13 @@ harmonic dial), a **mix** dry/wet blend for parallel saturation, and an **output
 Every control is adjustable from a non-audio thread (a UI, a MIDI callback, an MCU main loop)
 without glitching or racing the audio processing.
 
-**Why this priority**: These controls are what make the effect musically usable rather than a
-fixed transform, and the thread-safe parameter handoff is the production-effect contract the
-codebase already establishes. P2 because Stories 1–2 define the effect's identity; this story
-completes its expressive surface and its host-integration contract.
+**Why this priority**: These controls make the effect musically usable, and the thread-safe
+parameter handoff is the established production-effect contract. P2 — Stories 1–2 define the
+identity; this completes the expressive surface and host-integration contract.
 
-**Independent Test**: Publish parameter edits from a non-audio thread while the effect
-processes, and assert the audio thread applies them at block boundaries with no allocation, no
-lock, and no torn/`NaN` values; assert `mix` blends dry/wet as specified and `bias` introduces
-the expected even-harmonic content.
+**Independent Test**: Publish parameter edits from a non-audio thread while processing; assert
+the audio thread applies them at block boundaries with no allocation, lock, or torn/`NaN` value,
+that `mix` blends dry/wet as specified, and `bias` introduces the expected even harmonics.
 
 **Acceptance Scenarios**:
 
@@ -134,12 +129,12 @@ the effect's parameter surface. A future oversampled quality tier is reserved bu
 active.
 
 **Why this priority**: Nonlinear saturation aliases, and anti-aliasing materially improves
-audible quality for aggressive settings. P2 because the naive path is independently complete and
-the ADAA path is strictly additive; the oversampled tier is deferred to the sibling primitive.
+aggressive settings. P2 — the naive path is independently complete, ADAA is strictly additive,
+and the oversampled tier is deferred to the sibling primitive.
 
-**Independent Test**: Process a high-frequency tone (whose harmonics exceed Nyquist) through the
-effect in naive versus ADAA quality; assert the ADAA mode exhibits measurably lower aliased
-(inharmonic) energy by at least a named margin, with an identical parameter surface.
+**Independent Test**: Process a high-frequency tone (harmonics beyond Nyquist) in naive vs ADAA
+quality; assert ADAA shows measurably lower aliased (inharmonic) energy by at least a named
+margin, with an identical parameter surface.
 
 **Acceptance Scenarios**:
 
@@ -157,20 +152,18 @@ effect in naive versus ADAA quality; assert the ADAA mode exhibits measurably lo
 
 ### User Story 5 - Learn the composition from the saturation laboratory (Priority: P2)
 
-A learner opens the `saturation` laboratory and finds the theory + walkthrough (how gain-
-staging, per-voicing pre/post emphasis, voicing, and naive-vs-ADAA anti-aliasing compose into a
-musical effect), an RT-safe composition kernel, and a host-only harness producing objective
-harmonic evidence — the first concept to walk the Theory→Lab→**Effect** graduation, relocating
-its kernel into the effects layer.
+A learner opens the `saturation` laboratory and finds the theory + walkthrough (how gain-staging,
+per-voicing emphasis, voicing, and naive-vs-ADAA anti-aliasing compose into a musical effect), an
+RT-safe composition kernel, and a host-only harness producing objective harmonic evidence — the
+first concept to walk the Theory→Lab→**Effect** graduation, relocating its kernel into effects.
 
-**Why this priority**: The progressive-curriculum mission (Constitution Principle IX) requires
-the lab + graduation, and this is the first greenfield exercise of the pattern's final
-Production-Effect stage. P2 because the effect can be validated before the lab prose is final,
-but graduation is the proof the pattern reaches stage four.
+**Why this priority**: The progressive-curriculum mission (Principle IX) requires the lab +
+graduation, and this is the first greenfield exercise of the pattern's final Production-Effect
+stage. P2 — the effect validates before the lab prose is final, but graduation proves stage four.
 
 **Independent Test**: From the lab harness alone, regenerate the per-voicing harmonic evidence
-and the naive-vs-ADAA aliasing comparison, and confirm the kernel it drives is the same code
-that, post-graduation, lives in the effects layer.
+and naive-vs-ADAA comparison, and confirm its kernel is the same code that, post-graduation,
+lives in the effects layer.
 
 **Acceptance Scenarios**:
 
@@ -189,23 +182,20 @@ that, post-graduation, lives in the effects layer.
 
 ### Edge Cases
 
-- **Extreme drive** pushing the input far outside the nominal range: output stays bounded (no
-  NaN/Inf), and the nonlinear stage's clipping/fold behavior matches the selected voicing's
-  definition.
-- **Fully-dry and fully-wet extremes** of the `mix` control: dry reproduces the input within
-  tolerance; wet passes only the saturated path; the blend gain law is defined at both extremes.
-- **DC / near-DC input** with an asymmetric (biased) setting: the wet path introduces no DC
-  offset to the output beyond tolerance (the composed waveshaper's DC-blocker handles it).
-- **Denormal-prone decays** (signal trailing to silence): no denormal stalls; output settles to
-  clean silence.
-- **Voicing switch mid-stream**: no stale filter or DC state carried from the prior voicing; any
-  audible change is the inherent voicing difference only.
-- **Quality switch mid-stream** (naive ↔ ADAA): bounded, no NaN/Inf; any latency difference
-  between the paths is defined and documented (relevant to dry/wet phase alignment).
-- **Selecting the reserved oversampled tier** before the sibling lands: a defined, bounded
-  fallback (documented), never a partial or silently-aliased path.
-- **Channel count / block size** variation: per-channel state is correct up to the supported
-  channel maximum; processing is allocation-free regardless of block size.
+- **Extreme drive** far outside the nominal range: output stays bounded (no NaN/Inf), clipping/
+  fold behavior matches the selected voicing.
+- **Fully-dry / fully-wet `mix` extremes**: dry reproduces the input; wet is only the saturated
+  path; the blend gain law is defined at both extremes.
+- **DC / near-DC input** with a biased setting: no DC offset reaches the output beyond tolerance
+  (the composed waveshaper's DC-blocker handles it).
+- **Denormal-prone decays** to silence: no denormal stalls; output settles to clean silence.
+- **Voicing switch mid-stream**: no stale filter/DC state from the prior voicing.
+- **Quality switch mid-stream** (naive ↔ ADAA): bounded, no NaN/Inf; any path latency difference
+  is defined and documented (dry/wet phase alignment).
+- **Reserved oversampled tier** before the sibling lands: a defined, bounded, documented fallback,
+  never a partial/silently-aliased path.
+- **Channel count / block size** variation: per-channel state correct up to the channel maximum;
+  process is allocation-free at any block size.
 
 ## Requirements *(mandatory)*
 
@@ -310,21 +300,20 @@ that, post-graduation, lives in the effects layer.
 
 ### Key Entities
 
-- **Saturation effect**: a per-channel, runtime-configurable production effect composing a
-  nonlinear waveshaping stage between pre/post-emphasis filters, with a dry/wet blend and makeup
-  trim.
-- **Voicing**: a named character (Soft Clip / Tape / Console / Tube Preamp) fixing a nonlinear
-  shape plus pre/post-emphasis curves; the unit the harness produces a signature for.
-- **Composition kernel**: the RT-safe DSP core (the lab kernel that graduates into the effects
-  layer), independent of host-thread/parameter-plumbing concerns.
-- **Effect-contract wrapper**: the parameter descriptor table (single source of parameter truth)
-  plus the thread-safe parameter handoff and prepare/reset/process surface added at the effect
-  layer.
+(Detailed in `data-model.md`.)
+
+- **Saturation effect**: per-channel production effect composing a waveshaping stage between
+  pre/post-emphasis filters, with a dry/wet blend and makeup trim.
+- **Voicing**: a named character (Soft Clip / Tape / Console / Tube Preamp) fixing a shape + pre/
+  post-emphasis curves.
+- **Composition kernel**: the RT-safe DSP core (the lab kernel that graduates into effects),
+  independent of host-thread/parameter concerns.
+- **Effect-contract wrapper**: the parameter descriptor table + thread-safe handoff + prepare/
+  reset/process surface, added at the effect layer.
 - **Quality mode**: the anti-aliasing selection (naive / ADAA now; oversampled reserved-unwired).
-- **Saturation laboratory**: theory + walkthrough + RT-safe composition kernel + host-only
-  harness; the origin of the graduated effect.
-- **Harmonic evidence**: per-voicing harmonic signatures and the naive-vs-ADAA aliasing
-  comparison, derived from the shared measurement infrastructure.
+- **Saturation laboratory**: theory + kernel + host-only harness; origin of the graduated effect.
+- **Harmonic evidence**: per-voicing signatures + the naive-vs-ADAA comparison from the shared
+  measurement infrastructure.
 
 ## Success Criteria *(mandatory)*
 
