@@ -135,6 +135,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:primitive/oversampling
 - status: planned
+- design-approved: yes
+- design: docs/superpowers/specs/2026-07-01-oversampling-design.md
 - depends-on: multi:feature/phase-digital-fundamentals
 - part-of: multi:feature/phase-nonlinear-dsp
 
