@@ -1,0 +1,25 @@
+{"id":"T001","tierLabel":"fast","model":"haiku","commitRange":"3bd08d9..305fc15","reviewClean":true}
+{"id":"T002","tierLabel":"balanced","model":"sonnet","commitRange":"3bd08d9..305fc15","reviewClean":true}
+{"id":"T003","tierLabel":"powerful","model":"opus","commitRange":"305fc15..fd8b38f","reviewClean":true}
+{"id":"T004","tierLabel":"balanced","model":"sonnet","commitRange":"305fc15..fd8b38f","reviewClean":true}
+{"id":"T005","tierLabel":"powerful","model":"opus","commitRange":"fd8b38f..e1f7c64","reviewClean":true}
+{"id":"T006","tierLabel":"balanced","model":"sonnet","commitRange":"e1f7c64..427adfb","reviewClean":true}
+{"id":"T007","tierLabel":"balanced","model":"sonnet","commitRange":"9aad0c3..a3d7154","reviewClean":true}
+{"id":"T008","tierLabel":"balanced","model":"sonnet","commitRange":"9aad0c3..a3d7154","reviewClean":true}
+{"id":"T009","tierLabel":"powerful","model":"opus","commitRange":"427adfb..9aad0c3","reviewClean":true}
+{"id":"T010","tierLabel":"balanced","model":"sonnet","commitRange":"427adfb..9aad0c3","reviewClean":true}
+{"id":"T011","tierLabel":"balanced","model":"sonnet","commitRange":"9aad0c3..a3d7154","reviewClean":true}
+{"id":"T012","tierLabel":"balanced","model":"sonnet","commitRange":"a3d7154..e36dd7b","reviewClean":true}
+{"id":"T013","tierLabel":"balanced","model":"sonnet","commitRange":"a3d7154..e36dd7b","reviewClean":true,"note":"factor coverage satisfied by T007/T008 per-factor+monotone cases"}
+{"id":"T014","tierLabel":"powerful","model":"opus","commitRange":"a3d7154..e36dd7b","reviewClean":true,"note":"cascade verified generic (kStages=log2(Factor)) by controller review + passing 2/4/8 tests"}
+{"id":"T015","tierLabel":"balanced","model":"sonnet","commitRange":"a3d7154..e36dd7b","reviewClean":true}
+{"id":"T016","tierLabel":"balanced","model":"sonnet","commitRange":"a3d7154..e36dd7b","reviewClean":true,"note":"latency reconciled in T009 (measured==reported 45/67/79)"}
+{"id":"T017","tierLabel":"balanced","model":"sonnet","commitRange":"e36dd7b..9419ade","reviewClean":true}
+{"id":"T018","tierLabel":"balanced","model":"sonnet","commitRange":"e36dd7b..9419ade","reviewClean":true}
+{"id":"T019","tierLabel":"fast","model":"haiku","commitRange":"e36dd7b..9419ade","reviewClean":true}
+{"id":"T020","tierLabel":"fast","model":"haiku","commitRange":"e36dd7b..9419ade","reviewClean":true}
+{"id":"T021","tierLabel":"balanced","model":"sonnet","commitRange":"9419ade..c2ba7dc","reviewClean":true}
+{"id":"T022","tierLabel":"balanced","model":"sonnet","commitRange":"c2ba7dc..202707c","reviewClean":true}
+{"id":"T023","tierLabel":"balanced","model":"sonnet","commitRange":"a6256ed..3084cc7","reviewClean":true}
+{"id":"T024","tierLabel":"fast","model":"haiku","commitRange":"202707c..a6256ed","reviewClean":true}
+{"id":"T025","tierLabel":"fast","model":"haiku","commitRange":"3084cc7..3084cc7","reviewClean":true,"note":"controller final gate: 205/205 ctest + portability green"}

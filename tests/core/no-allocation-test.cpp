@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <vector>
 
 #include "dsp/audio-block.h"
@@ -7,6 +8,7 @@
 #include "dsp/process-context.h"
 #include "effects/svf/svf-effect.h"
 #include "effects/saturation/saturation-core.h"
+#include "primitives/oversampling/oversampler.h"
 #include "processor-node/processor-node.h"
 #include "support/allocation-sentinel.h"
 
@@ -98,4 +100,39 @@ TEST_CASE("SaturationCore::process allocates nothing across voicings and quality
                           " quality=", static_cast<int>(quality), " allocated ", allocations);
         }
     }
+}
+
+namespace {
+
+// T022 — the no-heap-allocation-in-process() invariant for Oversampler<Factor>
+// (FR-013, SC-005). construct+init() (which clears the half-band delay
+// lines) runs OUTSIDE the sentinel scope; only Oversampler::process() itself
+// is asserted allocation-free, driven with both an identity eval and a real
+// nonlinearity (tanh) eval, matching the SvfEffect/SaturationCore pattern
+// above. Factor is a template parameter (Oversampler<2/4/8> are distinct
+// types), so this helper is instantiated once per supported factor below.
+template <int Factor>
+void checkOversamplerProcessAllocationFree() {
+    Oversampler<Factor> os;
+    os.init(48000.0f); // control thread: clears delay lines, outside the sentinel
+
+    constexpr int kBlockSamples = 256;
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < kBlockSamples; ++i) {
+        const float x = std::sin(0.05f * static_cast<float>(i));
+        (void)os.process(x, [](float s) noexcept { return s; });                // (a) identity eval
+        (void)os.process(x, [](float s) noexcept { return std::tanh(s); });      // (b) real nonlinearity
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "Factor=", Factor, " allocated ", allocations);
+}
+
+} // namespace
+
+TEST_CASE("Oversampler<Factor>::process allocates nothing across supported factors") {
+    checkOversamplerProcessAllocationFree<2>();
+    checkOversamplerProcessAllocationFree<4>();
+    checkOversamplerProcessAllocationFree<8>();
 }

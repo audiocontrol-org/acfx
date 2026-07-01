@@ -248,6 +248,122 @@ TEST_CASE("asymmetric bias: composed DC-blocker drives steady-state output mean 
 // in the chain is a deterministic function of (parameters, state, input).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// TEST 7/8: Dry/wet mix time-alignment (PR#10 review fix lock-in)
+//
+// saturation-core.h's process() now delay-compensates the dry term of the
+// mix (`y = mix*wet + (1-mix)*dry`): in the `oversampled` tier the dry term
+// is delayed by oversampler_.groupDelaySamples() (67.5 base-rate samples at
+// Factor=4) to match the wet path's oversampling group delay, eliminating
+// comb filtering at mix<1. naive/adaa carry zero wet-path latency, so their
+// dry delay is (and must remain) 0.
+//
+// Isolating the dry path: at mix=0, y = 0*wet + 1*dry, so wet's value is
+// multiplied away entirely (whatever it is, finite or not) and the output IS
+// the delayed dry signal, exactly (up to the ring's linear-interpolation
+// arithmetic) -- no need to reason about the shaper/emphasis chain at all.
+// Feeding a unit impulse then makes the delay directly observable: the
+// impulse's energy appears at the delayed sample index/indices.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Feed a unit impulse (1.0f then kNumSamples-1 zeros) through `core` and
+// return the captured output.
+std::vector<float> captureImpulseResponse(SaturationCore& core, std::size_t kNumSamples) {
+    std::vector<float> out(kNumSamples, 0.0f);
+    for (std::size_t n = 0; n < kNumSamples; ++n) {
+        const float x = (n == 0) ? 1.0f : 0.0f;
+        out[n] = core.process(x);
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("mix alignment: oversampled tier's dry path is delayed by the wet-path group delay "
+          "(PR#10 review fix)") {
+    // Impulse-response capture length: comfortably beyond the Factor=4 group
+    // delay (67.5 samples) plus the dry-mix ring's 2-sample fractional-read
+    // reach (see saturation-core.h's dryMixRead), so the entire nonzero
+    // dry-path response lands inside the window.
+    constexpr std::size_t kNumSamples = 200;
+
+    // The dry ring delays by a FRACTIONAL amount (67.5 samples) via linear
+    // interpolation between the two adjacent integer-delay taps (67, 68), so
+    // in exact arithmetic a unit impulse splits EXACTLY 50/50 between output
+    // indices 67 and 68 (see saturation-core.h dryMixRead's (1-f)/f blend at
+    // f=0.5) -- any deviation beyond float round-off would indicate the
+    // dry-delay amount itself is wrong, not just its interpolation.
+    constexpr float kHalfSplitTolerance = 1.0e-5f;
+
+    // The two delayed-tap samples together must reproduce the full unit
+    // impulse (linear interpolation conserves amplitude: (1-f)*1 + f*1 == 1
+    // when both taps see the same impulse magnitude); same float-round-off
+    // rationale as kHalfSplitTolerance above.
+    constexpr float kEnergySumTolerance = 1.0e-5f;
+
+    // Every OTHER sample (before the delay, and after the two-tap arrival)
+    // must be exactly the ring's cleared initial state (0.0f): the ring is
+    // zero-filled by prepare() and the impulse is a single nonzero sample, so
+    // there is no float round-off to tolerate here -- this is a strict
+    // bit-exact check, not a "near zero" bound.
+    constexpr float kSilenceTolerance = 0.0f;
+
+    SaturationCore core;
+    core.prepare(kSampleRate);
+    core.setVoicing(SaturationVoicing::softClip);
+    core.setQuality(SaturationQuality::oversampled);
+    core.setDrive(2.0f);
+    core.setBias(0.0f);
+    core.setTone(0.0f);
+    core.setMix(0.0f); // fully dry: wet contributes exactly 0 regardless of its value
+    core.setOutput(1.0f);
+
+    const std::vector<float> out = captureImpulseResponse(core, kNumSamples);
+
+    for (std::size_t n = 0; n < out.size(); ++n) {
+        INFO("n=" << n << " out[n]=" << out[n]);
+        if (n == 67 || n == 68) continue; // checked separately below
+        CHECK(std::abs(out[n]) <= kSilenceTolerance);
+    }
+
+    INFO("out[67]=" << out[67] << " out[68]=" << out[68]);
+    CHECK(std::abs(out[67] - 0.5f) <= kHalfSplitTolerance);
+    CHECK(std::abs(out[68] - 0.5f) <= kHalfSplitTolerance);
+    CHECK(std::abs((out[67] + out[68]) - 1.0f) <= kEnergySumTolerance);
+}
+
+TEST_CASE("mix alignment: naive tier's dry path carries zero delay, unchanged by the fix "
+          "(PR#10 review fix contrast)") {
+    constexpr std::size_t kNumSamples = 200;
+
+    // naive/adaa carry zero wet-path oversampling latency, so dryDelaySamples
+    // stays 0 and dryMixRead(0) returns the just-written sample unchanged
+    // (saturation-core.h: "dry delay 0 -> the just-written x, unchanged") --
+    // no interpolation occurs, so this is a strict bit-exact check.
+    constexpr float kZeroDelayTolerance = 0.0f;
+
+    SaturationCore core;
+    core.prepare(kSampleRate);
+    core.setVoicing(SaturationVoicing::softClip);
+    core.setQuality(SaturationQuality::naive);
+    core.setDrive(2.0f);
+    core.setBias(0.0f);
+    core.setTone(0.0f);
+    core.setMix(0.0f); // fully dry
+    core.setOutput(1.0f);
+
+    const std::vector<float> out = captureImpulseResponse(core, kNumSamples);
+
+    INFO("out[0]=" << out[0]);
+    CHECK(std::abs(out[0] - 1.0f) <= kZeroDelayTolerance);
+    for (std::size_t n = 1; n < out.size(); ++n) {
+        INFO("n=" << n << " out[n]=" << out[n]);
+        CHECK(std::abs(out[n]) <= kZeroDelayTolerance);
+    }
+}
+
 TEST_CASE("reset clears composed filter/DC-blocker state and preserves parameters") {
     constexpr float kDrive = 1.5f;
     constexpr float kBias  = 0.1f;

@@ -67,10 +67,9 @@ public:
     static constexpr std::array<std::string_view, 4> kVoicingLabels = {
         {"softClip", "tape", "console", "tubePreamp"}};
 
-    // Option labels for the discrete quality parameter. 'oversampled' is
-    // intentionally NOT user-selectable yet (FR-015) — the reserved seam is absent
-    // here even though SaturationQuality declares it.
-    static constexpr std::array<std::string_view, 2> kQualityLabels = {{"naive", "adaa"}};
+    // Option labels for the discrete quality parameter (FR-015 closed: oversampled
+    // is now user-selectable).
+    static constexpr std::array<std::string_view, 3> kQualityLabels = {{"naive", "adaa", "oversampled"}};
 
     // The single source of parameter truth (SC-006). Shapes are normative; ranges
     // are the tuning-pass OPEN QUESTION (see the header note above):
@@ -80,7 +79,7 @@ public:
     //   mix:     linear dry/wet, 0..1 (1 = fully wet)
     //   output:  dB makeup trim, -24..+24 dB (0 dB = unity)
     //   bias:    linear asymmetry, -1..+1 (0 = symmetric)
-    //   quality: discrete {naive, adaa}
+    //   quality: discrete {naive, adaa, oversampled}
     static constexpr std::array<ParameterDescriptor, 7> kParams = {{
         {ParamId{kDrive}, "drive", ParamUnit::decibels, 0.0f, 48.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
@@ -94,8 +93,8 @@ public:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kBias}, "bias", ParamUnit::none, -1.0f, 1.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kQuality}, "quality", ParamUnit::none, 0.0f, 1.0f, 1.0f,
-         ParamSkew::linear, ParamKind::discrete, 2, kQualityLabels},
+        {ParamId{kQuality}, "quality", ParamUnit::none, 0.0f, 2.0f, 1.0f,
+         ParamSkew::linear, ParamKind::discrete, 3, kQualityLabels},
     }};
 
     SaturationEffect() noexcept {
@@ -196,10 +195,12 @@ private:
         }
     }
 
-    // Discrete bucket index -> quality enum (kQualityLabels order; 'oversampled'
-    // is not user-selectable, so it is never produced here).
+    // Discrete bucket index -> quality enum (kQualityLabels order; FR-015 closed:
+    // 'oversampled' is now user-selectable).
     static SaturationQuality toQuality(float index) noexcept {
         switch (static_cast<int>(index)) {
+        case 2:
+            return SaturationQuality::oversampled;
         case 1:
             return SaturationQuality::adaa;
         case 0:

@@ -31,6 +31,12 @@
 #   C-SFX. core/effects/saturation/ (the graduation target, T022) is gate-ready:
 #      platform-free, harness-free — explicit named coverage per FR-021/022 (T020); passes
 #      vacuously when the directory is absent or empty (currently pre-graduation)
+#   C-OS-PRIM. core/primitives/oversampling/ (when present) is gate-ready: platform-free,
+#      harness-free — explicit named coverage per FR-022 (T002); passes vacuously when the
+#      directory is absent or empty or contains only placeholder files
+#   C-OS-LAB. Oversampling lab kernel headers (core/labs/oversampling/*.h, non-harness) are
+#      platform-free — explicit named coverage per FR-022 (T002); passes vacuously when the
+#      directory is absent, empty, or contains no non-harness kernel headers
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -210,6 +216,43 @@ else
     fi
   done <<< "$_csfx_files"
   [ "$_csfx_fail" -eq 0 ] && note "  OK: core/effects/saturation/ is platform-free and harness-free"
+fi
+
+note "== C-OS-PRIM. core/primitives/oversampling: gate-ready when present (FR-022/T002) =="
+_cosprim_files=$(find core/primitives/oversampling -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_cosprim_files" ]; then
+  note "  OK (vacuous): core/primitives/oversampling/ absent or empty — gate ready"
+else
+  _cosprim_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: oversampling primitive includes a platform header"
+      _cosprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: oversampling primitive includes a harness path"
+      _cosprim_fail=1
+      fail=1
+    fi
+  done <<< "$_cosprim_files"
+  [ "$_cosprim_fail" -eq 0 ] && note "  OK: core/primitives/oversampling/ is platform-free and harness-free"
+fi
+
+note "== C-OS-LAB. Oversampling lab kernel headers: platform-free (FR-022/T002) =="
+_coslab_files=$(find core/labs/oversampling -type f -name '*.h' -not -path '*/harness/*' 2>/dev/null)
+if [ -z "$_coslab_files" ]; then
+  note "  OK (vacuous): core/labs/oversampling/ has no non-harness kernel headers — gate ready"
+else
+  _coslab_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: oversampling lab kernel header includes a platform header"
+      _coslab_fail=1
+      fail=1
+    fi
+  done <<< "$_coslab_files"
+  [ "$_coslab_fail" -eq 0 ] && note "  OK: oversampling lab kernel headers are platform-free"
 fi
 
 if [ "$fail" -eq 0 ]; then

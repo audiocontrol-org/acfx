@@ -45,6 +45,15 @@ add_executable(acfx_core_tests
   core/saturation-effect-test.cpp
   core/saturation-effect-rt-test.cpp
   core/saturation-aliasing-test.cpp
+  # ---------------------------------------------------------------------------
+  # Oversampling primitive test suites (oversampling feature): appended by their
+  # authoring tasks. T007 transparency, T008 aliasing (+ T012 response, T015
+  # latency added by their tasks).
+  # ---------------------------------------------------------------------------
+  core/oversampler-transparency-test.cpp
+  core/oversampler-aliasing-test.cpp
+  core/oversampler-response-test.cpp
+  core/oversampler-latency-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
