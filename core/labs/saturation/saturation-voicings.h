@@ -10,10 +10,12 @@
 // This header declares the enums, the plain aggregate config, and the constexpr
 // selector; it carries no state and performs no allocation (Constitution VI).
 //
-// Only `softClip` is tuned here (real-ish, still open-question numbers — the
-// tuning pass is deferred). `tape`, `console`, and `tubePreamp` are documented
-// PLACEHOLDERs so the switch below stays exhaustive and the header compiles;
-// T012 replaces them with real numbers.
+// All four voicings carry real, DOCUMENTED configs chosen so the set is
+// measurably DISTINCT in harmonic + spectral character (US2 / FR-005/006): a
+// distinct `Shape` per voicing plus a distinct pre-/post-emphasis pair. The
+// EXACT numbers (cutoffs, resonances) remain the tuning-pass OPEN QUESTION
+// (data-model.md / design open questions) — validated later by the harmonic
+// harness; the qualitative character of each voicing is fixed here.
 
 namespace acfx {
 
@@ -68,14 +70,16 @@ struct VoicingConfig {
 // saturation-api.md kVoicingLabels order). Exhaustive switch over
 // SaturationVoicing; every branch returns a constexpr VoicingConfig.
 //
-// softClip: tuned real-ish (open question — exact numbers are the tuning
-//   pass). Shape::softKnee is a bounded, C1-continuous soft-clip curve
-//   (see waveshaper-shapes.h); the emphasis pair is near-flat/gentle (wide-open
-//   lowpass pre, matching post) so the voicing is dominated by the shape itself
-//   rather than tonal coloration, consistent with "soft clip" being the
-//   least-colored voicing.
-// tape / console / tubePreamp: PLACEHOLDER — TODO(T012): tuning pass. Present
-//   only so this switch is exhaustive and the header compiles standalone.
+// Each branch pairs a DISTINCT Shape with a DISTINCT emphasis curve so the four
+// voicings separate in both harmonic content (shape) and spectrum (emphasis):
+//   softClip   — softKnee  + near-flat wide LP/LP     (clean, odd, uncolored)
+//   tape       — tanh      + LP pre / darker LP post   (dark, low-order odd)
+//   console    — arctan    + HP pre / gentle LP post   (clean/bright, lowest THD)
+//   tubePreamp — diodeCurve+ low-mid LP / resonant LP  (warm, even harmonics)
+// softClip's emphasis pair is deliberately near-flat/gentle (wide-open lowpass
+// pre, matching post) so the voicing is dominated by the shape itself rather than
+// tonal coloration, consistent with "soft clip" being the least-colored voicing.
+// The exact cutoff/resonance numbers are the tuning-pass OPEN QUESTION.
 // ---------------------------------------------------------------------------
 constexpr VoicingConfig voicingConfig(SaturationVoicing v) noexcept {
     switch (v) {
@@ -89,30 +93,50 @@ constexpr VoicingConfig voicingConfig(SaturationVoicing v) noexcept {
         };
 
     case SaturationVoicing::tape:
-        // TODO(T012): tuning pass — placeholder. Values are not yet meaningful;
-        // present only so this switch is exhaustive.
+        // TAPE — gentle saturation with tape-style HF loss. Character: a smooth,
+        // symmetric tanh shape (odd harmonics, no even content; softer/darker than
+        // softKnee's harder knee) driven through a lowpass PRE that trims extreme
+        // highs before the nonlinearity, then a lower-cutoff lowpass POST that
+        // rolls off highs (the tape HF-loss signature). Net: predominantly
+        // low-order odd harmonics, the DARKEST of the four voicings.
+        // NOTE: exact cutoffs/resonances are the tuning-pass OPEN QUESTION
+        // (data-model.md / design open questions) — not yet measured vs SC-001.
         return VoicingConfig{
             Shape::tanh,
-            EmphasisConfig{SvfMode::lowpass, 12000.0f, 0.1f},
-            EmphasisConfig{SvfMode::lowpass, 12000.0f, 0.1f}
+            EmphasisConfig{SvfMode::lowpass, 14000.0f, 0.1f},  // pre: trim extreme HF
+            EmphasisConfig{SvfMode::lowpass, 8000.0f, 0.1f}    // post: tape HF loss
         };
 
     case SaturationVoicing::console:
-        // TODO(T012): tuning pass — placeholder. Values are not yet meaningful;
-        // present only so this switch is exhaustive.
+        // CONSOLE — subtle broadband "glue", the least aggressive of the four.
+        // Character: arctan is the mildest/gentlest-curvature shape in the catalog
+        // (lowest odd-harmonic amplitudes at a given drive — see the harmonic
+        // table in core/labs/waveshaping/README.md), so it has the LOWEST THD.
+        // A gentle highpass PRE removes sub/rumble before the shaper (broadband
+        // "glue" that cleans the low end), and a near-flat, slightly resonant
+        // lowpass POST gives a subtle top-end presence without darkening — the
+        // brightest/cleanest voicing.
+        // NOTE: exact cutoffs/resonances are the tuning-pass OPEN QUESTION.
         return VoicingConfig{
-            Shape::algebraic,
-            EmphasisConfig{SvfMode::lowpass, 15000.0f, 0.1f},
-            EmphasisConfig{SvfMode::lowpass, 15000.0f, 0.1f}
+            Shape::arctan,
+            EmphasisConfig{SvfMode::highpass, 120.0f, 0.1f},   // pre: clean sub/rumble
+            EmphasisConfig{SvfMode::lowpass, 15000.0f, 0.2f}   // post: gentle presence
         };
 
     case SaturationVoicing::tubePreamp:
-        // TODO(T012): tuning pass — placeholder. Values are not yet meaningful;
-        // present only so this switch is exhaustive.
+        // TUBE PREAMP — warm, ASYMMETRIC even-harmonic character. Shape::diodeCurve
+        // is the only sign-asymmetric shape here that still has an analytic
+        // antiderivative (so it is ADAA-safe, unlike biasedAsym): it injects EVEN
+        // harmonics + DC that the three odd shapes above cannot (see the harmonic
+        // table — diodeCurve shows non-zero 2f0/4f0). A low-mid lowpass PRE pushes
+        // the body of the signal into the asymmetry (warmth), and a resonant
+        // lowpass POST creates a gentle presence bump near its cutoff while rolling
+        // off the top. Net: the only voicing with a strong even-harmonic signature.
+        // NOTE: exact cutoffs/resonances are the tuning-pass OPEN QUESTION.
         return VoicingConfig{
             Shape::diodeCurve,
-            EmphasisConfig{SvfMode::lowpass, 10000.0f, 0.1f},
-            EmphasisConfig{SvfMode::lowpass, 10000.0f, 0.1f}
+            EmphasisConfig{SvfMode::lowpass, 5000.0f, 0.2f},   // pre: low-mid warmth
+            EmphasisConfig{SvfMode::lowpass, 3500.0f, 0.5f}    // post: presence bump
         };
     }
     // Unreachable for the closed enum above; documented defensive fallback

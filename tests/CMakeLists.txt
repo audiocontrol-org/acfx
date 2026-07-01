@@ -41,6 +41,7 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   core/saturation-core-test.cpp
   core/saturation-harmonics-test.cpp
+  core/saturation-voicings-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
