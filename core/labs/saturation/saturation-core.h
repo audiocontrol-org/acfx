@@ -74,9 +74,33 @@ public:
         applyEmphasisCoeffs();
     }
 
-    // Select the naive/adaa nonlinear evaluation path (SaturationQuality::
-    // oversampled is a reserved, unwired seam — FR-015; it falls back to the
-    // adaa path here, a defined bounded behavior, never a partial/aliased one).
+    // Select the naive/adaa nonlinear evaluation path. SaturationQuality::
+    // oversampled is a reserved, unwired seam (FR-015); see process() for the
+    // defined, bounded interim mapping.
+    //
+    // No-stale-state note (T018): this setter ONLY swaps which composed
+    // shaper process() reads from — it never touches naiveShaper_'s or
+    // adaaShaper_'s internal state. That is safe because:
+    //   1. Both shapers are ALWAYS kept parameter-identical: setDrive()/
+    //      setBias()/configureShapers() (voicing changes) push to BOTH
+    //      naiveShaper_ and adaaShaper_ unconditionally (applyDrive(),
+    //      applyBias(), configureShapers() below), regardless of which one
+    //      is currently selected. So a switch never lands on a shaper still
+    //      configured with an old drive/bias/shape.
+    //   2. ADAAWaveshaper::setShape() re-pairs its cached antiderivative
+    //      (FPrev_) with the NEW shape at the existing history point
+    //      (adaa-waveshaper.h) even while adaaShaper_ is the INACTIVE path,
+    //      so a later switch back to adaa never mixes F(uPrev_) from a
+    //      stale shape with the new shape's difference quotient.
+    //   3. The INACTIVE shaper's own running history (Waveshaper's DC-
+    //      blocker xPrev_/yPrev_; ADAAWaveshaper's uPrev_/FPrev_ and DC-
+    //      blocker) intentionally free-runs at its last value while
+    //      inactive — this is the expected parallel-dual-path design (only
+    //      the active shaper's process() runs per sample), not corruption:
+    //      it cannot produce NaN/Inf (both shapers' process() are noexcept
+    //      over finite input), and at worst it costs one transient sample
+    //      on switch-back, same as any other bypass-style toggle. Verified
+    //      by inspection; no fix needed.
     void setQuality(SaturationQuality quality) noexcept { quality_ = quality; }
 
     // Pre-gain applied ahead of the nonlinearity (linear gain, not dB). Pushed
@@ -123,9 +147,33 @@ public:
     // RT-safe: noexcept, no heap allocation, no locks, bounded work.
     float process(float x) noexcept {
         float wet = preEmphasis_.process(x);
-        wet = (quality_ == SaturationQuality::naive)
-                  ? naiveShaper_.process(wet)
-                  : adaaShaper_.process(wet);
+        switch (quality_) {
+        case SaturationQuality::naive:
+            wet = naiveShaper_.process(wet);
+            break;
+        case SaturationQuality::adaa:
+            wet = adaaShaper_.process(wet);
+            break;
+        case SaturationQuality::oversampled:
+            // RESERVED seam (FR-015 / design doc Decision 4): oversampled is
+            // reserved for the oversampling sibling
+            // (design:primitive/oversampling); until it lands, it
+            // deliberately maps to the ADAA path -- a defined, bounded,
+            // non-aliased interim, NOT a silent fallback (Constitution V).
+            // It is not user-selectable (excluded from
+            // SaturationEffect::kQualityLabels, saturation-effect.h), so
+            // this branch is reachable only via direct SaturationCore use
+            // (e.g. tests exercising the reserved enum value directly).
+            // ADAAWaveshaper::process() is noexcept and total over finite
+            // input, so this mapping can never yield NaN/Inf or a
+            // half-configured path.
+            wet = adaaShaper_.process(wet);
+            break;
+        }
+        // No `default:` -- the switch is exhaustive over the closed
+        // SaturationQuality enum; -Wswitch catches a future enumerator added
+        // without a matching case here (mirrors shapeValue()'s convention in
+        // waveshaper.h).
         wet = postDeEmphasis_.process(wet);
         wet = toneTilt_.process(wet);
         float y = mix_ * wet + (1.0f - mix_) * x;
