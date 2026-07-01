@@ -25,8 +25,8 @@
 // target). Compile with -std=c++20. May allocate, loop, printf. Never
 // included by portable code (C-1 gate in scripts/check-portability.sh).
 
-#include "labs/saturation/saturation-core.h"
-#include "labs/saturation/saturation-voicings.h"
+#include "effects/saturation/saturation-core.h"
+#include "effects/saturation/saturation-voicings.h"
 #include "core/measurement-support.h"
 
 #include <array>
@@ -287,7 +287,7 @@ int main(int argc, char* argv[]) {
         std::printf("  odd harmonics (3f0, 5f0) non-zero, even harmonics (2f0, 4f0, 6f0) ~0.\n");
         std::printf("  tubePreamp (diodeCurve) is the only asymmetric voicing: it shows\n");
         std::printf("  non-zero even harmonics (2f0, 4f0) in addition to odd content.\n");
-        std::printf("  See core/labs/saturation/saturation-voicings.h for each voicing's\n");
+        std::printf("  See core/effects/saturation/saturation-voicings.h for each voicing's\n");
         std::printf("  documented shape + pre-/post-emphasis rationale.\n");
 
         runAliasingComparison();

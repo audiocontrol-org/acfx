@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstdint>
 
-#include "labs/saturation/saturation-voicings.h"
+#include "effects/saturation/saturation-voicings.h"
 #include "primitives/filters/svf-primitive.h"
 #include "primitives/nonlinear/adaa-waveshaper.h"
 #include "primitives/nonlinear/waveshaper.h"

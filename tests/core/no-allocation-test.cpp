@@ -6,7 +6,7 @@
 #include "dsp/param-id.h"
 #include "dsp/process-context.h"
 #include "effects/svf/svf-effect.h"
-#include "labs/saturation/saturation-core.h"
+#include "effects/saturation/saturation-core.h"
 #include "processor-node/processor-node.h"
 #include "support/allocation-sentinel.h"
 

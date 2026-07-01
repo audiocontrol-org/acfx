@@ -80,7 +80,8 @@ struct VoicingConfig {
 // pre, matching post) so the voicing is dominated by the shape itself rather than
 // tonal coloration, consistent with "soft clip" being the least-colored voicing.
 // The exact cutoff/resonance numbers are the tuning-pass OPEN QUESTION (see
-// core/labs/saturation/README.md "Voicing: shape plus emphasis curves" for the
+// core/labs/saturation/README.md "Voicing: shape plus emphasis curves" (the lab
+// persists as theory + harness) for the
 // documented character of each voicing); they were iterated against the
 // mutual-distinguishability check in tests/core/saturation-voicings-test.cpp
 // (every pairwise spectral distance across harmonics 1-6 of a 1 kHz fundamental

@@ -8,9 +8,9 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
-#include "labs/saturation/saturation-core.h"
-#include "labs/saturation/saturation-effect.h"
-#include "labs/saturation/saturation-voicings.h"
+#include "effects/saturation/saturation-core.h"
+#include "effects/saturation/saturation-effect.h"
+#include "effects/saturation/saturation-voicings.h"
 #include "core/measurement-support.h"
 
 // T017 -- User Story 4 suite: the `quality` control's aliasing behavior at the
@@ -25,8 +25,8 @@
 // RESERVED `oversampled` tier's defined, bounded fallback (FR-015).
 //
 // References: specs/saturation/spec.md FR-013/FR-014/FR-015, SC-004, User
-// Story 4 acceptance scenarios; core/labs/saturation/saturation-core.h
-// (setQuality/process); core/labs/saturation/saturation-effect.h
+// Story 4 acceptance scenarios; core/effects/saturation/saturation-core.h
+// (setQuality/process); core/effects/saturation/saturation-effect.h
 // (kQualityLabels); tests/core/waveshaper-adaa-test.cpp (the primitive-level
 // reference this file's stimulus/structure is lifted from).
 

@@ -10,15 +10,15 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
-#include "labs/saturation/saturation-core.h"    // SaturationVoicing / SaturationQuality
-#include "labs/saturation/saturation-effect.h"  // SaturationEffect (T015/T016)
+#include "effects/saturation/saturation-core.h"    // SaturationVoicing / SaturationQuality
+#include "effects/saturation/saturation-effect.h"  // SaturationEffect (T015/T016)
 #include "core/measurement-support.h"
 #include "support/allocation-sentinel.h"
 
 // T014 -- User Story 3 suite: SaturationEffect (the host-facing Effect
 // contract wrapping SaturationCore). Written TEST-FIRST against
 // specs/saturation/contracts/saturation-api.md's "SaturationEffect" section
-// while the header itself (core/labs/saturation/saturation-effect.h) is
+// while the header itself (core/effects/saturation/saturation-effect.h) is
 // authored in parallel by T015/T016 from the SAME contract. This file
 // mirrors the shipped SvfEffect idiom (core/effects/svf/svf-effect.h,
 // tests/core/svf-test.cpp, tests/core/no-allocation-test.cpp) exactly:

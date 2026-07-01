@@ -13,8 +13,8 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
-#include "labs/saturation/saturation-core.h"
-#include "labs/saturation/saturation-voicings.h"
+#include "effects/saturation/saturation-core.h"
+#include "effects/saturation/saturation-voicings.h"
 
 // SaturationEffect — the host-facing wrapper that adds the Effect contract on top
 // of the shipped SaturationCore kernel (US3). Mirrors the shipped

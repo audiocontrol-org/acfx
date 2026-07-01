@@ -65,7 +65,7 @@
 #include <functional>
 #include <vector>
 
-#include "labs/saturation/saturation-core.h"
+#include "effects/saturation/saturation-core.h"
 #include "core/measurement-support.h"
 
 using namespace acfx;

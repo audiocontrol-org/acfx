@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "labs/saturation/saturation-core.h"
+#include "effects/saturation/saturation-core.h"
 #include "core/measurement-support.h"
 
 // T011 -- User Story 2 voicing suite: per-voicing harmonic+spectral signature,

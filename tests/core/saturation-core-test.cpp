@@ -3,7 +3,7 @@
 #include <cmath>
 #include <vector>
 
-#include "labs/saturation/saturation-core.h"
+#include "effects/saturation/saturation-core.h"
 #include "core/measurement-support.h"
 
 // T007 -- SaturationCore composition kernel: signal-chain order, mix extremes,
@@ -17,7 +17,7 @@
 //
 // Expected RED state: SaturationCore::prepare/reset/setVoicing/setQuality/
 // setDrive/setBias/setTone/setMix/setOutput are DECLARED in
-// core/labs/saturation/saturation-core.h (T004) but their bodies are not yet
+// core/effects/saturation/saturation-core.h (T004) but their bodies are not yet
 // implemented (T009/T010/T018 pending); process() is a passthrough stub.  A
 // syntax-only compile of THIS translation unit is expected to succeed (no
 // bodies are required to resolve declarations); linking a test binary that
