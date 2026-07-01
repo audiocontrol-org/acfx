@@ -37,9 +37,10 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   # Saturation test suites (saturation feature): appended by their authoring
   # tasks (T007 core, T011 voicings, T014 effect, T008 harmonics, T017
-  # aliasing). No sources are listed here yet — each task adds its own
-  # core/saturation-*-test.cpp line when that file is created.
+  # aliasing). Each task adds its own core/saturation-*-test.cpp line below.
   # ---------------------------------------------------------------------------
+  core/saturation-core-test.cpp
+  core/saturation-harmonics-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
