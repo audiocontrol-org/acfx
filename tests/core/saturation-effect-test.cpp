@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <string_view>
 
 #include "dsp/parameter.h"
 #include "dsp/span.h"
@@ -54,16 +55,31 @@ TEST_CASE("SaturationEffect voicing and quality descriptors are discrete with co
     CHECK(voicingDesc.kind == ParamKind::discrete);
     REQUIRE(voicingDesc.discreteCount == 4);
     REQUIRE(voicingDesc.choices.size() == 4);
-    for (std::size_t i = 0; i < 4; ++i)
-        CHECK(voicingDesc.choices[i] == SaturationEffect::kVoicingLabels[i]);
+    // Compare against a HARDCODED expected label list (not kVoicingLabels
+    // itself -- kParams embeds kVoicingLabels as `choices`, so choices[i] ==
+    // kVoicingLabels[i] is tautological). Asserting BOTH kVoicingLabels and the
+    // descriptor's choices against this fixed list actually catches a mislabel
+    // or a reorder of kVoicingLabels / the SaturationVoicing enum (mirrors the
+    // quality-label check below hardcoding {"naive","adaa"}).
+    constexpr std::array<std::string_view, 4> kExpectedVoicing = {
+        {"softClip", "tape", "console", "tubePreamp"}};
+    for (std::size_t i = 0; i < 4; ++i) {
+        CHECK(SaturationEffect::kVoicingLabels[i] == kExpectedVoicing[i]);
+        CHECK(voicingDesc.choices[i] == kExpectedVoicing[i]);
+    }
 
     const auto& qualityDesc = SaturationEffect::kParams[SaturationEffect::kQuality];
     CHECK(isValidDescriptor(qualityDesc));
     CHECK(qualityDesc.kind == ParamKind::discrete);
     REQUIRE(qualityDesc.discreteCount == 2);
     REQUIRE(qualityDesc.choices.size() == 2);
-    for (std::size_t i = 0; i < 2; ++i)
-        CHECK(qualityDesc.choices[i] == SaturationEffect::kQualityLabels[i]);
+    // Same anti-tautology treatment as the voicing labels above: compare
+    // against a hardcoded {"naive","adaa"} rather than kQualityLabels itself.
+    constexpr std::array<std::string_view, 2> kExpectedQuality = {{"naive", "adaa"}};
+    for (std::size_t i = 0; i < 2; ++i) {
+        CHECK(SaturationEffect::kQualityLabels[i] == kExpectedQuality[i]);
+        CHECK(qualityDesc.choices[i] == kExpectedQuality[i]);
+    }
 }
 
 TEST_CASE("SaturationEffect continuous parameters have sane, documented ranges (FR-009)") {

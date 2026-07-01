@@ -109,23 +109,34 @@ TEST_CASE("cross-thread parameter handoff: setParameter published before process
     const double dryErr = meastest::relativeRmsError(span<const float>(blockA), span<const float>(in));
     CHECK(dryErr < kDryTolerance);
 
+    // Snapshot block A's ALREADY-PRODUCED output BEFORE any later publish or
+    // later process() call. This is the ground truth the property below is
+    // checked against.
+    const std::vector<float> blockASnapshot = blockA;
+
     // Publish a mix=1 (fully wet) edit "from a non-audio thread". No
     // process() call has consumed it yet.
     fx.setParameter(ParamId{SaturationEffect::kMix}, normFor(SaturationEffect::kMix, 1.0f));
 
-    // Block A's ALREADY-PROCESSED output is untouched by the pending edit --
-    // publishing never retroactively rewrites past output.
-    const double dryErrAfterPublish = meastest::relativeRmsError(span<const float>(blockA), span<const float>(in));
-    CHECK(dryErrAfterPublish == doctest::Approx(dryErr));
-
     // Block B: the NEXT process() call is where the pending mix edit is
-    // consumed -- its output now reflects the fully-wet path.
+    // consumed -- its output now reflects the fully-wet path. Processing this
+    // LATER block is exactly the event that could, if the wrapper were buggy,
+    // retroactively touch block A's buffer.
     std::vector<float> blockB = in;
     {
         float* chans[1] = {blockB.data()};
         AudioBlock block(chans, 1, kBlockSize);
         fx.process(block);
     }
+
+    // GENUINE past-output-immutability check: after the later publish AND the
+    // later process() call, block A's already-produced output is byte-for-byte
+    // what it was before -- the pending edit and the subsequent block never
+    // reached back into already-emitted output.
+    REQUIRE(blockA.size() == blockASnapshot.size());
+    for (std::size_t i = 0; i < blockA.size(); ++i)
+        CHECK(blockA[i] == doctest::Approx(blockASnapshot[i]));
+
     const double wetErr = meastest::relativeRmsError(span<const float>(blockB), span<const float>(in));
     CHECK(wetErr > kWetDivergenceThreshold);
 }

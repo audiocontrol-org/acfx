@@ -66,8 +66,11 @@ public:
 
     // Select the named voicing: bakes in shape[voicing] plus the pre-emphasis
     // and post-de-emphasis filter curves (voicingConfig() in
-    // saturation-voicings.h). Reconfiguring filter coefficients here is safe
-    // under the SvfEffect thread model (control thread, stream stopped).
+    // saturation-voicings.h). NOTE: this reconfigures filter coefficients + shapes,
+    // and SaturationEffect::applyPending() invokes it ON THE AUDIO THREAD inside
+    // process() (see configureShapers() below, and saturation-effect.h) — so the
+    // work here MUST stay RT-safe (allocation-free, lock-free, bounded). Do not
+    // add control-thread-only work (heap, locks, blocking) to this path.
     void setVoicing(SaturationVoicing voicing) noexcept {
         voicing_ = voicing;
         configureShapers();
@@ -175,7 +178,14 @@ public:
         // without a matching case here (mirrors shapeValue()'s convention in
         // waveshaper.h).
         wet = postDeEmphasis_.process(wet);
-        wet = toneTilt_.process(wet);
+        // Tone-tilt is a GENUINE passthrough at tone=0 (the default): the tilt
+        // filter is a true no-op there, so it is bypassed rather than run as a
+        // ~5 Hz highpass. Cheap branch, RT-safe (no alloc/lock), and it composes
+        // correctly with the mix/output stages below (bypass just leaves `wet`
+        // as the post-de-emphasis output). Non-zero tone runs the tilt filter as
+        // documented in applyToneTilt().
+        if (toneAmount_ != 0.0f)
+            wet = toneTilt_.process(wet);
         float y = mix_ * wet + (1.0f - mix_) * x;
         y *= outputGain_;
         return y;
@@ -206,9 +216,12 @@ private:
         // so this call must never actually throw. That safety rests entirely on
         // every SaturationVoicing's shape being ADAA-safe
         // (shape::hasAntiderivative(cfg.shape) == true for all four voicings,
-        // saturation-voicings.h). That invariant is asserted for every voicing
-        // in tests/core/saturation-voicings-test.cpp ("every voicing's shape has
-        // an antiderivative...") -- a future voicing added with an
+        // saturation-voicings.h). This is a RUNTIME-enforced invariant, NOT a
+        // compile-time one: shape::hasAntiderivative (waveshaper-shapes.h) is a
+        // plain `inline bool`, not `constexpr`, so it cannot be checked in a
+        // static_assert. The invariant is instead asserted for every voicing in
+        // tests/core/saturation-voicings-test.cpp ("every voicing's shape has an
+        // antiderivative...") -- a future voicing added with an
         // antiderivative-less shape (e.g. Shape::biasedAsym) will fail THAT
         // test, not throw out of process() at runtime.
         adaaShaper_.setShape(cfg.shape);
@@ -225,19 +238,41 @@ private:
         applyEmphasis(postDeEmphasis_, cfg.post);
     }
 
-    static void applyEmphasis(SvfPrimitive& svf, const EmphasisConfig& cfg) noexcept {
+    // DaisySP's Svf requires cutoff strictly below sampleRate/3; clamp into a
+    // safe band just under that bound (and never below a low floor), mirroring
+    // SvfEffect::clampedCutoff() (svf-effect.h). This makes the realized
+    // emphasis corner EXPLICIT and consistent across sample rates rather than
+    // relying on DaisySP's silent internal clamp — voicing cutoffs above the
+    // bound (e.g. softClip's 18 kHz pre/post, console's 15 kHz post) would
+    // otherwise collapse sample-rate-dependently at or below 48/54 kHz.
+    float clampedEmphasisFreq(float hz) const noexcept {
+        const float maxFreq = sampleRate_ * 0.32f;
+        if (hz > maxFreq)
+            hz = maxFreq;
+        if (hz < 20.0f)
+            hz = 20.0f;
+        return hz;
+    }
+
+    // Non-static (mirrors SvfEffect's per-instance clamp) so it can read
+    // sampleRate_ and clamp the emphasis cutoff before setFreq.
+    void applyEmphasis(SvfPrimitive& svf, const EmphasisConfig& cfg) noexcept {
         svf.setMode(cfg.mode);
-        svf.setFreq(cfg.cutoffHz);
+        svf.setFreq(clampedEmphasisFreq(cfg.cutoffHz));
         svf.setRes(cfg.resonance);
     }
 
     // Tone-tilt realization (the exact tone LAW is a carried open question —
-    // data-model.md; this is a simple, defensible tilt that is TRANSPARENT at
-    // tone=0, which is all the US1 tests exercise):
+    // data-model.md; this is a simple, defensible tilt):
+    //   tone == 0:            GENUINE passthrough — process() bypasses this
+    //                         filter entirely (see process()), so tone=0 is a
+    //                         true unity no-op, not a ~5 Hz highpass. These
+    //                         coefficients are still computed here for the
+    //                         tone>0 side and only take effect once tone != 0.
     //   tone <  0 (darker):   lowpass whose cutoff falls from ~open toward
     //                         kToneDarkHz as tone -> -1 (rolls off highs).
-    //   tone >= 0 (brighter): highpass whose cutoff rises from ~sub-audio
-    //                         (transparent) toward kToneBrightHz as tone -> +1
+    //   tone >  0 (brighter): highpass whose cutoff rises from just-above
+    //                         kToneFlatHpHz toward kToneBrightHz as tone -> +1
     //                         (thins the low end).
     // Cutoffs are interpolated on a log scale; resonance is held flat.
     void applyToneTilt() noexcept {
