@@ -125,6 +125,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:feature/saturation
 - status: planned
+- design-approved: yes
 - design: docs/superpowers/specs/2026-06-30-saturation-design.md
 - depends-on: multi:feature/phase-digital-fundamentals
 - part-of: multi:feature/phase-nonlinear-dsp
