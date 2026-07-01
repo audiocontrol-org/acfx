@@ -29,3 +29,7 @@
 - Worktree ship gap: the govern convergence record is gitignored and per-worktree, so graduating merging->validating from the main worktree failed the graduate-impl gate (record lived only in the feature worktree). Had to manually copy .stack-control/govern/convergence/<item>.json into the main worktree. Worktree-based ship needs the convergence record to travel or be re-resolvable across worktrees.
 - cmake --preset test reconfigure over an existing build/test fails with Unknown CMake command CPMAddPackage; workaround rm -rf build/test (CPM bootstrap not reconfigure-safe; also backlog TASK-2).
 - end-govern audit-barrage took 5 rounds without converging to zero HIGH; later rounds were fix-induced + an inherent meta-ledger self-reference; closed via operator-approved --override once substantive code converged.
+
+## session-end 2026-07-01
+- stackctl govern --mode implement barrage cannot complete in the CI-constrained sandbox: killed ~5-7min before reconciliation, the sonnet fleet lane times out each chunk (degraded 2/3, floor of 2 still met); no convergence record written. Terminal was operator --override + full /code-review as compensating control.
+- govern FATALs early (before the barrage) on any single diffed file over the 24576-byte per-file fleet envelope; forced trimming spec.md and splitting saturation-effect-test.cpp to satisfy the audit envelope, not for code-quality reasons. A hunk-split or higher envelope for non-code docs would avoid this.
