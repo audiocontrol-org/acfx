@@ -59,9 +59,9 @@ oversampling sibling.
 
 **Purpose**: directories, build wiring, and the lab skeleton everything else builds on.
 
-- [ ] T001 [tier:fast] Create the lab directory `core/labs/saturation/` (with `harness/`) and the empty effect target directory `core/effects/saturation/`; record `saturation` in the effects taxonomy doc (`core/effects/README.md` if present, else note it in the lab README).
-- [ ] T002 [tier:balanced] Wire CMake (`cmake/acfx-effect-targets.cmake` / `CMakeLists.txt` as appropriate) to register the new `tests/core/saturation-*-test.cpp` doctest suites and a host-only harness target `acfx_lab_saturation_harness`.
-- [ ] T003 [P] [tier:fast] Author the `core/labs/saturation/README.md` skeleton: theory placeholder + walkthrough outline (gain-staging, per-voicing pre/post emphasis, voicing, naive-vs-ADAA anti-aliasing) naming `core/effects/saturation/` as the graduation target (filled in T021).
+- [x] T001 [tier:fast] Create the lab directory `core/labs/saturation/` (with `harness/`) and the empty effect target directory `core/effects/saturation/`; record `saturation` in the effects taxonomy doc (`core/effects/README.md` if present, else note it in the lab README).
+- [x] T002 [tier:balanced] Wire CMake (`cmake/acfx-effect-targets.cmake` / `CMakeLists.txt` as appropriate) to register the new `tests/core/saturation-*-test.cpp` doctest suites and a host-only harness target `acfx_lab_saturation_harness`.
+- [x] T003 [P] [tier:fast] Author the `core/labs/saturation/README.md` skeleton: theory placeholder + walkthrough outline (gain-staging, per-voicing pre/post emphasis, voicing, naive-vs-ADAA anti-aliasing) naming `core/effects/saturation/` as the graduation target (filled in T021).
 
 ---
 
@@ -72,9 +72,9 @@ all stories depend on.
 
 **⚠️ No user-story work begins until this phase is complete.**
 
-- [ ] T004 [tier:balanced] Define the composition-kernel surface in `core/labs/saturation/saturation-core.h`: the `SaturationCore` class declaration per `contracts/saturation-api.md` (`prepare/reset/setVoicing/setQuality/setDrive/setBias/setTone/setMix/setOutput/process`) with its composed members declared (three `SvfPrimitive`, one `Waveshaper`/`ADAAWaveshaper`) — no bodies yet.
-- [ ] T005 [P] [tier:balanced] Define the voicing-table surface in `core/labs/saturation/saturation-voicings.h`: `enum class SaturationVoicing`, `enum class SaturationQuality` (incl. reserved `oversampled`), and a `VoicingConfig` struct (shape + pre/post-emphasis SVF params) with a `voicingConfig(SaturationVoicing)` selector (declarations + a first `softClip` entry stub).
-- [ ] T006 [P] [tier:powerful] Extend `tests/core/measurement-support.h` with saturation helpers reused across stories: per-voicing harmonic-signature capture (Goertzel/THD), drive→THD series, inharmonic-energy (aliasing) measure, mix dry/wet balance measure, and a DC-offset measure — analytic-bound assertion style (no fabricated numbers).
+- [x] T004 [tier:balanced] Define the composition-kernel surface in `core/labs/saturation/saturation-core.h`: the `SaturationCore` class declaration per `contracts/saturation-api.md` (`prepare/reset/setVoicing/setQuality/setDrive/setBias/setTone/setMix/setOutput/process`) with its composed members declared (three `SvfPrimitive`, one `Waveshaper`/`ADAAWaveshaper`) — no bodies yet.
+- [x] T005 [P] [tier:balanced] Define the voicing-table surface in `core/labs/saturation/saturation-voicings.h`: `enum class SaturationVoicing`, `enum class SaturationQuality` (incl. reserved `oversampled`), and a `VoicingConfig` struct (shape + pre/post-emphasis SVF params) with a `voicingConfig(SaturationVoicing)` selector (declarations + a first `softClip` entry stub).
+- [x] T006 [P] [tier:powerful] Extend `tests/core/measurement-support.h` with saturation helpers reused across stories: per-voicing harmonic-signature capture (Goertzel/THD), drive→THD series, inharmonic-energy (aliasing) measure, mix dry/wet balance measure, and a DC-offset measure — analytic-bound assertion style (no fabricated numbers).
 
 ---
 
@@ -88,10 +88,10 @@ the first voicing.
 fully-dry `mix` reproduces input, fully-wet is the saturated path, and the output is DC-free (US1
 acceptance scenarios).
 
-- [ ] T007 [US1] [tier:balanced] Write `tests/core/saturation-core-test.cpp`: signal-chain order (pre → shaper(`drive·x+bias`) → post → tone → `mix·wet+(1−mix)·x` → output), fully-dry reproduces input within tolerance, fully-wet is the wet path, silence-in→silence-out, asymmetric-bias DC-free output, no-stale-state-on-reset (FR-002/003/004, SC-003/005).
-- [ ] T008 [US1] [tier:balanced] Write `tests/core/saturation-harmonics-test.cpp` (US1 slice): rising `drive` raises measured THD monotonically for `softClip`, and gain-compensation holds output loudness within the named band, via the T006 helpers (SC-001/002).
-- [ ] T009 [US1] [tier:powerful] Implement `SaturationCore` in `core/labs/saturation/saturation-core.h`: the per-channel composition wiring the shipped `Waveshaper` (gainComp on) between two `SvfPrimitive` emphasis stages, plus the tone `SvfPrimitive`, the parallel dry/wet blend, and the output trim; RT-safe (`noexcept`, no alloc/lock); coefficients built in `prepare()`.
-- [ ] T010 [US1] [tier:balanced] Wire the first `softClip` voicing end-to-end (shape + placeholder-but-documented pre/post emphasis from T005) and the default mix/gain-staging so T007/T008 pass; assert RT-safety via the allocation sentinel.
+- [x] T007 [US1] [tier:balanced] Write `tests/core/saturation-core-test.cpp`: signal-chain order (pre → shaper(`drive·x+bias`) → post → tone → `mix·wet+(1−mix)·x` → output), fully-dry reproduces input within tolerance, fully-wet is the wet path, silence-in→silence-out, asymmetric-bias DC-free output, no-stale-state-on-reset (FR-002/003/004, SC-003/005).
+- [x] T008 [US1] [tier:balanced] Write `tests/core/saturation-harmonics-test.cpp` (US1 slice): rising `drive` raises measured THD monotonically for `softClip`, and gain-compensation holds output loudness within the named band, via the T006 helpers (SC-001/002).
+- [x] T009 [US1] [tier:powerful] Implement `SaturationCore` in `core/labs/saturation/saturation-core.h`: the per-channel composition wiring the shipped `Waveshaper` (gainComp on) between two `SvfPrimitive` emphasis stages, plus the tone `SvfPrimitive`, the parallel dry/wet blend, and the output trim; RT-safe (`noexcept`, no alloc/lock); coefficients built in `prepare()`.
+- [x] T010 [US1] [tier:balanced] Wire the first `softClip` voicing end-to-end (shape + placeholder-but-documented pre/post emphasis from T005) and the default mix/gain-staging so T007/T008 pass; assert RT-safety via the allocation sentinel.
 
 **Checkpoint**: US1 is an independently demonstrable MVP — a usable single-voicing saturation effect core.
 
@@ -106,9 +106,9 @@ pre/post-emphasis, runtime-selectable on the core; `bias` remains a user control
 mutually distinguishable by ≥ the named margin; a voicing switch carries no stale state (US2
 acceptance scenarios).
 
-- [ ] T011 [US2] [tier:balanced] Write `tests/core/saturation-voicings-test.cpp`: per-voicing harmonic + spectral signature within tolerance, mutual distinguishability by ≥ the named margin, runtime-switch no-stale-filter/DC-state, and the assertion that `bias` is NOT baked per-voicing (Decision 5) (SC-001, FR-006/007/008).
-- [ ] T012 [US2] [tier:powerful] Complete the voicing table in `core/labs/saturation/saturation-voicings.h`: the `tape`, `console`, `tubePreamp` entries (each a `Waveshaper` shape + pre-emphasis + post-de-emphasis SVF config), with the per-voicing numbers documented as the tuning pass (split a second file only if the size budget nears 500 lines — FR-023).
-- [ ] T013 [US2] [tier:balanced] Wire all four voicings into `SaturationCore::setVoicing` dispatch; ensure a voicing switch reconfigures the emphasis + shape with no stale state; document each voicing's character in the README (T021) and a header comment.
+- [x] T011 [US2] [tier:balanced] Write `tests/core/saturation-voicings-test.cpp`: per-voicing harmonic + spectral signature within tolerance, mutual distinguishability by ≥ the named margin, runtime-switch no-stale-filter/DC-state, and the assertion that `bias` is NOT baked per-voicing (Decision 5) (SC-001, FR-006/007/008).
+- [x] T012 [US2] [tier:powerful] Complete the voicing table in `core/labs/saturation/saturation-voicings.h`: the `tape`, `console`, `tubePreamp` entries (each a `Waveshaper` shape + pre-emphasis + post-de-emphasis SVF config), with the per-voicing numbers documented as the tuning pass (split a second file only if the size budget nears 500 lines — FR-023).
+- [x] T013 [US2] [tier:balanced] Wire all four voicings into `SaturationCore::setVoicing` dispatch; ensure a voicing switch reconfigures the emphasis + shape with no stale state; document each voicing's character in the README (T021) and a header comment.
 
 **Checkpoint**: US1 + US2 deliver the full voiced effect core.
 
@@ -124,9 +124,9 @@ drive/voicing/tone/mix/output/bias/quality with `prepare/reset/process(AudioBloc
 boundary with no alloc/lock; `mix` blends per the documented law; user `bias` yields even harmonics
 DC-free (US3 acceptance scenarios).
 
-- [ ] T014 [US3] [tier:balanced] Write `tests/core/saturation-effect-test.cpp`: cross-thread parameter publish → block-boundary apply with the allocation sentinel (no alloc/lock), `mix` dry/wet balance per the documented gain law, user-`bias` even-harmonic + DC-free assertions, and the compile-time descriptor-table invariants (FR-009/010/011/012, SC-005).
-- [ ] T015 [US3] [tier:powerful] Implement `SaturationEffect` in `core/labs/saturation/saturation-effect.h`: the `Param` enum + constexpr `kParams` `ParameterDescriptor` table (drive/voicing/tone/mix/output/bias/quality) with the compile-time `isValidDescriptor` static_assert, per-channel `SaturationCore` state, lock-free `pendingBits_/pendingDirty_` atomics, and `prepare/reset/process(AudioBlock&)/setParameter` — mirroring `core/effects/svf/svf-effect.h`.
-- [ ] T016 [US3] [tier:balanced] Wire `applyPending()` to denormalize each parameter and drive the matching `SaturationCore` setter (drive/voicing/tone/mix/output/bias/quality); confirm no direct core mutation in `setParameter` (audio-thread-only application) and make T014 pass.
+- [x] T014 [US3] [tier:balanced] Write `tests/core/saturation-effect-test.cpp`: cross-thread parameter publish → block-boundary apply with the allocation sentinel (no alloc/lock), `mix` dry/wet balance per the documented gain law, user-`bias` even-harmonic + DC-free assertions, and the compile-time descriptor-table invariants (FR-009/010/011/012, SC-005).
+- [x] T015 [US3] [tier:powerful] Implement `SaturationEffect` in `core/labs/saturation/saturation-effect.h`: the `Param` enum + constexpr `kParams` `ParameterDescriptor` table (drive/voicing/tone/mix/output/bias/quality) with the compile-time `isValidDescriptor` static_assert, per-channel `SaturationCore` state, lock-free `pendingBits_/pendingDirty_` atomics, and `prepare/reset/process(AudioBlock&)/setParameter` — mirroring `core/effects/svf/svf-effect.h`.
+- [x] T016 [US3] [tier:balanced] Wire `applyPending()` to denormalize each parameter and drive the matching `SaturationCore` setter (drive/voicing/tone/mix/output/bias/quality); confirm no direct core mutation in `setParameter` (audio-thread-only application) and make T014 pass.
 
 ---
 
@@ -140,8 +140,8 @@ unwired seam.
 surface is unchanged by the quality switch; the reserved `oversampled` selection yields the
 documented bounded fallback (US4 acceptance scenarios).
 
-- [ ] T017 [US4] [tier:balanced] Write `tests/core/saturation-aliasing-test.cpp`: high-frequency stimulus, naive-vs-ADAA inharmonic-energy comparison (≥ named margin, SC-004); assert the user parameter surface is identical across quality modes; assert selecting `oversampled` produces the defined bounded fallback (not a partial/aliased path, FR-015 / Constitution V).
-- [ ] T018 [US4] [tier:balanced] Implement `quality` in `SaturationCore`: switch the nonlinear stage between the naive `Waveshaper` and the `ADAAWaveshaper` per `SaturationQuality`, with no stale state across the switch; implement the reserved `oversampled` bounded fallback (documented — e.g. transparent bypass to `adaa` with a recorded note) and make T017 pass.
+- [x] T017 [US4] [tier:balanced] Write `tests/core/saturation-aliasing-test.cpp`: high-frequency stimulus, naive-vs-ADAA inharmonic-energy comparison (≥ named margin, SC-004); assert the user parameter surface is identical across quality modes; assert selecting `oversampled` produces the defined bounded fallback (not a partial/aliased path, FR-015 / Constitution V).
+- [x] T018 [US4] [tier:balanced] Implement `quality` in `SaturationCore`: switch the nonlinear stage between the naive `Waveshaper` and the `ADAAWaveshaper` per `SaturationQuality`, with no stale state across the switch; implement the reserved `oversampled` bounded fallback (documented — e.g. transparent bypass to `adaa` with a recorded note) and make T017 pass.
 
 ---
 
@@ -155,18 +155,18 @@ new locations.
 comparison host-side; the graduated effect is the relocated lab kernel; the gate passes (US5
 acceptance scenarios).
 
-- [ ] T019 [US5] [tier:balanced] Implement `core/labs/saturation/harness/saturation-harness.cpp`: drive each voicing, emit per-voicing harmonic signatures and the naive-vs-ADAA aliasing comparison via the measurement infra; host-only target (`acfx_lab_saturation_harness`).
-- [ ] T020 [US5] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/labs/saturation/**` and `core/effects/saturation/**` for harness-isolation, dependency-direction (effect composes primitives; nothing portable includes a harness), platform-independence, and file-size (FR-022); run it green.
-- [ ] T021 [US5] [tier:balanced] Complete `core/labs/saturation/README.md`: theory + walkthrough + the measured evidence + the composition rationale ("which primitives it uses, and why"), naming the graduation target.
-- [ ] T022 [US5] [tier:powerful] Graduate: `git mv` the three portable headers (`saturation-core.h`, `saturation-voicings.h`, `saturation-effect.h`) from `core/labs/saturation/` into `core/effects/saturation/`; add `core/effects/saturation/README.md` (composition rationale); update `#include` paths in tests + harness; confirm the lab persists as README + harness now driving the graduated effect; full suite + gate green (SC-006/007).
+- [x] T019 [US5] [tier:balanced] Implement `core/labs/saturation/harness/saturation-harness.cpp`: drive each voicing, emit per-voicing harmonic signatures and the naive-vs-ADAA aliasing comparison via the measurement infra; host-only target (`acfx_lab_saturation_harness`).
+- [x] T020 [US5] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/labs/saturation/**` and `core/effects/saturation/**` for harness-isolation, dependency-direction (effect composes primitives; nothing portable includes a harness), platform-independence, and file-size (FR-022); run it green.
+- [x] T021 [US5] [tier:balanced] Complete `core/labs/saturation/README.md`: theory + walkthrough + the measured evidence + the composition rationale ("which primitives it uses, and why"), naming the graduation target.
+- [x] T022 [US5] [tier:powerful] Graduate: `git mv` the three portable headers (`saturation-core.h`, `saturation-voicings.h`, `saturation-effect.h`) from `core/labs/saturation/` into `core/effects/saturation/`; add `core/effects/saturation/README.md` (composition rationale); update `#include` paths in tests + harness; confirm the lab persists as README + harness now driving the graduated effect; full suite + gate green (SC-006/007).
 
 ---
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T023 [P] [tier:fast] (Open question) Optional CSV harmonic-spectrum dump from the harness for cross-lab/effect comparison; gate it behind a `--csv` flag so the default run stays assertion-only.
-- [ ] T024 [P] [tier:fast] Finalize the taxonomy/README cross-references (effect-consumes-primitive convention note) and the program-dependent-saturation boundary statement (FR-024 — this effect is static-character; dynamic behavior is the separate item).
-- [ ] T025 [tier:balanced] Verify the full `ctest --preset test` suite, `scripts/check-portability.sh`, and the `daisy`/`teensy` cross-compiles are green (SC-006); confirm zero unpushed commits.
+- [x] T023 [P] [tier:fast] (Open question) Optional CSV harmonic-spectrum dump from the harness for cross-lab/effect comparison; gate it behind a `--csv` flag so the default run stays assertion-only.
+- [x] T024 [P] [tier:fast] Finalize the taxonomy/README cross-references (effect-consumes-primitive convention note) and the program-dependent-saturation boundary statement (FR-024 — this effect is static-character; dynamic behavior is the separate item).
+- [~] T025 [tier:balanced] Verify the full `ctest --preset test` suite, `scripts/check-portability.sh`, and the `daisy`/`teensy` cross-compiles are green (SC-006); confirm zero unpushed commits. — ctest 184/184 GREEN, portability gate GREEN, zero unpushed; `daisy`/`teensy` cross-compiles could not be exercised in this environment (cross toolchain `CMAKE_MAKE_PROGRAM`/newlib headers not configured), same limitation as the waveshapers predecessor — the structural platform-independence gate (the enforceable SC-006 proxy) passes.
 
 ---
 
