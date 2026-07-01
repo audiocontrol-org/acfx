@@ -67,8 +67,10 @@ calculus (recorded as an open decision, not resolved here).
 
 ## Solution space
 
-The design settled two structural forks in the brainstorm and deliberately
-**captured a third fork unresolved** (capture-over-YAGNI): the spectral engine.
+The design settled two structural forks in the brainstorm (nature; probe
+threading). A third — the spectral engine — was captured unresolved in the
+brainstorm per capture-over-YAGNI and then **resolved on review** as a hybrid; the
+false either/or framing that motivated deferring it is documented in Fork 3.
 
 ### Fork 1 — Nature / where the tooling lives and runs
 
@@ -95,7 +97,7 @@ The design settled two structural forks in the brainstorm and deliberately
   thread drains the ring, windows the samples, and runs the full engine
   (FFT/Goertzel-bank → THD/spectrum/IMD). This is the standard live-analyzer
   pattern and keeps *all* heavy math off the audio thread, which in turn lets the
-  engine allocate and use whichever spectral method Fork 3 picks.
+  engine allocate and run the FFT resolved in Fork 3.
 - **Rejected — Analysis inside `process()`.** Compute running THD/spectrum estimates
   incrementally in the audio callback. No cross-thread FIFO, but every metric must
   be incrementally computable under hard RT constraints — which rules out
@@ -103,24 +105,37 @@ The design settled two structural forks in the brainstorm and deliberately
   phase). Rejected: it caps the achievable analysis depth precisely where this item
   is trying to add depth.
 
-### Fork 3 — Spectral engine (CAPTURED UNRESOLVED — scoping pass decides)
+### Fork 3 — Spectral engine (RESOLVED — hybrid: FFT for breadth, Goertzel for exactness)
 
-Per capture-over-YAGNI, both alternatives are recorded here and the commit is
-deferred to `/speckit-clarify` + planning. FFT-forward is the **preferred** path
-for the live broadband display; Goertzel-bank is the conservative path that honors
-the Phase-8 deferral.
+This fork was captured unresolved in the brainstorm and **resolved on review**. The
+framing "FFT-forward **vs** Goertzel-bank" was a false either/or: the two methods
+are complementary, not competing, and the resolution keeps each where it is best.
 
-- **Alternative A — Pull an FFT forward into Phase 2.** Introduce a small,
-  self-contained windowed radix-2 FFT in the analysis layer (off-audio-thread +
-  offline). Enables a true broadband magnitude/phase spectrum, THD+N, twin-tone
-  IMD, and a live spectrum display. Amends the measurement-infra decision that
-  deferred a general FFT to Phase 8; Phase 8 (partitioned convolution) later reuses
-  or supersedes it. Preferred for the live display.
-- **Alternative B — Goertzel-bank, no general FFT.** Honor the Phase-8 deferral:
-  use a bank of Goertzel filters for arbitrary harmonic sets, targeted IMD product
-  bins, and THD+N via harmonic-sum-vs-total-power. Smaller and consistent with the
-  prior cross-phase decision, but yields no broadband sweep display — only the bins
-  you name. Conservative fallback.
+- **Chosen — Hybrid.** Introduce a small, self-contained **windowed radix-2 FFT**
+  in the host-side/off-thread analysis layer for everything that needs breadth: the
+  broadband magnitude **and phase** spectrum, THD+N, twin-tone IMD, and the live
+  workbench display — none of which can Goertzel a bin they do not know in advance.
+  **Retain the exact single-bin Goertzel** for known-bin regression tests, where an
+  integer-cycle window makes it leakage-free and exact against analytic tolerances
+  (the shipped `svf-reference` pattern) — the FFT does not replace it there. The FFT
+  lives only off the audio thread and offline; the RT boundary (Fork 2) is
+  untouched. **This amends** the measurement-infrastructure design's Decision A,
+  which deferred a general FFT to Phase 8 (Convolution) — see the amendment note in
+  Decisions §4 and Open questions §7. Phase 8 (partitioned convolution) later
+  reuses or supersedes this FFT; introducing it here is a forward seam, not a
+  commitment to build convolution.
+- **Rejected — Goertzel-bank only, no general FFT.** Honor the Phase-8 deferral
+  fully: a bank of Goertzel filters for arbitrary harmonic sets, targeted IMD
+  product bins, and THD+N via harmonic-sum-vs-total-power. Smaller and consistent
+  with the prior cross-phase decision, but yields **no broadband sweep display** —
+  only the bins you name — which guts the live-analyzer face this item exists to
+  add. Rejected: the breadth cases (live spectrum, harmonic phase, THD+N over
+  unknown content) are core to the gap, and a Goertzel-bank cannot serve them.
+- **Rejected — FFT-only, drop the exact Goertzel.** Route *all* analysis, including
+  known-bin regression tests, through the FFT. Rejected: it trades away the
+  leakage-free exactness the existing regression suites depend on (integer-cycle
+  Goertzel is exact where the FFT carries window leakage), for no benefit — the two
+  coexist cheaply.
 
 ### Architecture (consequence of Forks 1–2)
 
@@ -146,9 +161,16 @@ test number agree.
 3. **Engine is host-side/off-thread.** The analysis engine extends `acfx::measure`
    in `tests/support/measurement/`, may allocate, and is reused verbatim by the
    workbench live-readout thread. It is never pulled into the embedded audio path.
-4. **Spectral engine deferred.** FFT-forward vs Goertzel-bank is captured as Fork 3
-   and resolved in `/speckit-clarify` + planning, not here. FFT-forward is the
-   recorded preference for the live broadband display.
+4. **Spectral engine = hybrid (Fork 3, resolved).** A host-side/off-thread windowed
+   radix-2 **FFT** serves broadband spectrum + harmonic phase, THD+N, IMD, and the
+   live display; the **exact single-bin Goertzel is retained** for known-bin
+   regression tests. Both live off the audio thread. **Amendment note:** this
+   reverses the measurement-infrastructure design's Decision A (general FFT deferred
+   to Phase 8) for the harmonic-analysis scope only. Rationale: an off-thread
+   analysis lane removes the RT objection that motivated the deferral, and the live
+   broadband/phase/THD+N faces cannot be served without it. Phase 8 (partitioned
+   convolution) reuses or supersedes this FFT; the amendment is recorded back to the
+   measurement-infra design during `/define` (Open questions §7).
 5. **Consolidation is in scope.** Fold the three labs' self-contained Goertzel
    readouts and the `meastest::` harmonic helpers into the one shared toolkit, so
    future nonlinear effects reuse rather than re-derive.
@@ -173,8 +195,9 @@ test number agree.
 Captured per the capture-over-YAGNI house rule — parked for an explicit later
 scoping pass (`/speckit-clarify` / planning), **not** discarded:
 
-1. **Spectral engine (Fork 3).** FFT-forward or Goertzel-bank? Resolved in
-   clarify/planning; FFT-forward preferred for the live display.
+1. ~~**Spectral engine (Fork 3).**~~ **Resolved on review:** hybrid — off-thread FFT
+   for breadth (broadband spectrum, phase, THD+N, IMD, live display) + exact Goertzel
+   retained for known-bin regression tests (see Fork 3 / Decision 4).
 2. **Window function(s) and default transform sizes** for the offline engine and the
    live readout (Hann vs Blackman-Harris; size vs latency/resolution trade-off).
 3. **Does the live readout ship in the `plugin` adapter too, or workbench-only in
@@ -185,8 +208,11 @@ scoping pass (`/speckit-clarify` / planning), **not** discarded:
    noise floor; and the reference for SNR.
 6. **CSV/report surface** — extend the existing opt-in `report.h` CSV for the new
    metrics, and whether the live readout can dump a snapshot.
-7. **Reconciliation of the Phase-8 FFT deferral** if Fork 3 chooses FFT-forward —
-   an explicit amendment note back to the measurement-infrastructure design.
+7. **Reconciliation of the Phase-8 FFT deferral (Fork 3 resolved FFT-forward).**
+   Write the explicit amendment note back to the measurement-infrastructure design's
+   Decision A during `/define` — recording that harmonic-analysis introduces an
+   off-thread FFT in Phase 2 and that Phase 8's partitioned convolution reuses or
+   supersedes it. This is now an action item, not an open choice.
 
 ## Provenance
 
@@ -220,4 +246,7 @@ scoping pass (`/speckit-clarify` / planning), **not** discarded:
 - **Design method:** `superpowers:brainstorming` driven in-session via the
   `/stack-control:design` frontend (house rules: capture-over-YAGNI, anchored
   record, handoff to `/stack-control:define`). Forks 1 and 2 resolved interactively;
-  Fork 3 captured unresolved by operator direction.
+  Fork 3 captured unresolved by operator direction, then **resolved on a
+  third-party review pass** — the FFT-vs-Goertzel framing was corrected to a hybrid
+  (off-thread FFT for breadth + exact Goertzel retained for known-bin tests), which
+  amends the measurement-infra Phase-8 FFT deferral for this scope.
