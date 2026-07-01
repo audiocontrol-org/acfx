@@ -315,6 +315,64 @@ TEST_CASE("SaturationEffect::process allocates nothing across block sizes (FR-01
 }
 
 // ---------------------------------------------------------------------------
+// TEST 3b: No allocation when voicing/quality are changed IN-PROCESS (T016
+// hardening pass)
+//
+// TEST 3 above conservatively excludes voicing/quality edits from the
+// sentinel region because, at the SaturationCore level, setVoicing()/
+// setQuality() are documented control-thread-only calls. But
+// SaturationEffect::applyPending() (called at the top of every process())
+// applies ALL pending edits -- including voicing and quality -- on the AUDIO
+// thread; that in-process() reconfiguration path (SVF coefficient recompute
+// via setFreq/setMode/setRes, plus ADAAWaveshaper::setShape) is real and must
+// itself be proven allocation-free, not just throw-free (see the
+// hasAntiderivative invariant test in saturation-voicings-test.cpp for the
+// throw-safety half of this hardening pass). This test publishes a voicing
+// AND quality edit via setParameter() before every process() call, all
+// INSIDE the sentinel, cycling through every voicing across both quality
+// modes.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("SaturationEffect::process allocates nothing when voicing/quality change every block (T016)") {
+    constexpr SaturationVoicing kVoicings[] = {
+        SaturationVoicing::softClip, SaturationVoicing::tape,
+        SaturationVoicing::console, SaturationVoicing::tubePreamp};
+    constexpr SaturationQuality kQualities[] = {SaturationQuality::naive, SaturationQuality::adaa};
+    constexpr int kBlockSize = 64;
+
+    SaturationEffect fx;
+    fx.prepare(ProcessContext{kSampleRateD, kBlockSize, 1});
+
+    std::vector<float> buf(static_cast<std::size_t>(kBlockSize), 0.1f);
+    float* chans[1] = {buf.data()};
+
+    AllocationSentinel::reset();
+    int i = 0;
+    for (int rep = 0; rep < 25; ++rep) {
+        for (SaturationVoicing voicing : kVoicings) {
+            for (SaturationQuality quality : kQualities) {
+                // Publish from "off the audio thread" (a bare call here, same as
+                // the rest of this suite); applyPending() consumes both edits at
+                // the top of the NEXT process() call, on the audio thread.
+                fx.setParameter(ParamId{SaturationEffect::kVoicing},
+                                 normFor(SaturationEffect::kVoicing,
+                                         static_cast<float>(static_cast<int>(voicing))));
+                fx.setParameter(ParamId{SaturationEffect::kQuality},
+                                 normFor(SaturationEffect::kQuality,
+                                         static_cast<float>(static_cast<int>(quality))));
+
+                AudioBlock block(chans, 1, kBlockSize);
+                fx.process(block); // applies voicing+quality reconfiguration IN-PROCESS
+                ++i;
+            }
+        }
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "voicing/quality-in-process sweep (", i, " blocks) allocated ", allocations);
+}
+
+// ---------------------------------------------------------------------------
 // TEST 4: Mix dry/wet blend law (FR-012, Acceptance Scenario 3, SC-003)
 //
 // Sweeps kMix and asserts, at every setting, that the effect's output

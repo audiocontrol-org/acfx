@@ -151,6 +151,18 @@ private:
         // ADAAWaveshaper::setShape throws only for a shape with no analytic
         // antiderivative; every voicing shape has one, so this never throws in
         // practice (keeping this noexcept path well-defined).
+        //
+        // T016 INVARIANT (do not weaken without re-checking the caller):
+        // SaturationEffect::applyPending() calls setVoicing() (hence this
+        // function) INSIDE process() on the audio thread (saturation-effect.h),
+        // so this call must never actually throw. That safety rests entirely on
+        // every SaturationVoicing's shape being ADAA-safe
+        // (shape::hasAntiderivative(cfg.shape) == true for all four voicings,
+        // saturation-voicings.h). That invariant is asserted for every voicing
+        // in tests/core/saturation-voicings-test.cpp ("every voicing's shape has
+        // an antiderivative...") -- a future voicing added with an
+        // antiderivative-less shape (e.g. Shape::biasedAsym) will fail THAT
+        // test, not throw out of process() at runtime.
         adaaShaper_.setShape(cfg.shape);
         naiveShaper_.setGainCompensation(true);
         adaaShaper_.setGainCompensation(true);

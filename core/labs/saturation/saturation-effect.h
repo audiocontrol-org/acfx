@@ -217,6 +217,12 @@ private:
             applyDrive();
         }
         if (pendingDirty_[kVoicing].exchange(0u, std::memory_order_acquire)) {
+            // T016: this runs SaturationCore::setVoicing() -> configureShapers()
+            // -> ADAAWaveshaper::setShape() ON THE AUDIO THREAD (setShape is not
+            // noexcept -- it throws for a shape with no antiderivative). This is
+            // safe ONLY because every SaturationVoicing's shape is ADAA-safe, an
+            // invariant locked by tests/core/saturation-voicings-test.cpp and
+            // documented at SaturationCore::configureShapers() (saturation-core.h).
             voicing_ = toVoicing(denormalize(kParams[kVoicing], pendingValue(kVoicing)));
             applyVoicing();
         }

@@ -336,3 +336,31 @@ TEST_CASE("VoicingConfig structurally excludes bias (design Decision 5, FR-007)"
     (void)post;
     CHECK(true);
 }
+
+// ---------------------------------------------------------------------------
+// T016 -- ADAA throw-safety invariant (hardening the SaturationEffect
+// parameter-apply path, saturation-effect.h). SaturationEffect::applyPending()
+// applies voicing/quality changes INSIDE process() (the audio thread), which
+// calls SaturationCore::setVoicing() -> configureShapers() ->
+// ADAAWaveshaper::setShape() (adaa-waveshaper.h). setShape() is NOT noexcept:
+// it throws std::invalid_argument for a shape with no analytic antiderivative
+// (shape::hasAntiderivative() == false, e.g. Shape::biasedAsym). For the
+// in-process() voicing-switch path to be provably throw-free, EVERY voicing's
+// shape must be ADAA-safe (hasAntiderivative() == true). This test locks that
+// invariant at the source: if a future voicing is ever given an
+// antiderivative-less shape, THIS test fails at the unit level, rather than
+// the failure surfacing as a std::invalid_argument thrown out of
+// SaturationEffect::process() on the audio thread.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("every voicing's shape has an antiderivative (ADAA-safe, T016 in-process throw-safety invariant)") {
+    constexpr SaturationVoicing kVoicings[] = {
+        SaturationVoicing::softClip, SaturationVoicing::tape,
+        SaturationVoicing::console, SaturationVoicing::tubePreamp};
+
+    for (SaturationVoicing voicing : kVoicings) {
+        const VoicingConfig cfg = voicingConfig(voicing);
+        INFO("voicing=" << static_cast<int>(voicing) << " shape=" << static_cast<int>(cfg.shape));
+        CHECK(shape::hasAntiderivative(cfg.shape));
+    }
+}
