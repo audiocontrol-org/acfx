@@ -50,18 +50,21 @@ deferred to `/speckit-tasks`/tuning (the design's captured open questions).
 
 ## Decision 4 — Anti-aliasing via a `quality` control; oversampled is an unwired seam
 
-- **Decision**: `quality ∈ {naive, adaa}` now, delegating to the `Waveshaper`'s
-  evaluation (naive memoryless vs the `ADAAWaveshaper` variant). `quality::oversampled`
-  is reserved as a documented but **unwired** seam with a defined, bounded fallback
-  until `design:primitive/oversampling` ships. **No roadmap depends-on edge.**
+- **Decision**: `quality ∈ {naive, adaa}` is the user-selectable surface (`SaturationEffect::
+  kQualityLabels`). The reserved `SaturationQuality::oversampled` enum value resolves to the
+  ADAA evaluation path until `design:primitive/oversampling` ships — a defined, bounded,
+  non-aliased interim. It is excluded from `kQualityLabels`, so it is reachable only via the
+  internal enum (e.g. `SaturationCore` used directly), never through the normalized parameter
+  surface. **No roadmap depends-on edge.** Full signature in `contracts/saturation-api.md`.
 - **Rationale**: ADAA is shipped and independently complete; blocking saturation on the
   unbuilt oversampling sibling would re-shape the roadmap frontier for a purity gain the
   ADAA path substantially delivers. Reserving the seam captures intent without building
   throwaway resampling DSP (one-concept-at-a-time at the boundary).
 - **Alternatives considered**: depend-on oversampling and sequence it first (rejected —
   blocks a ready item); a throwaway in-effect resampler now (rejected — duplicates the
-  sibling's charter; captured as the seam instead). Constitution V: the reserved tier is
-  a **defined bounded behavior**, never a silent partial/aliased fallback.
+  sibling's charter; captured as the seam instead). Constitution V tension resolved: this is
+  a reserved-enum interim with an operator-approved defined behavior (maps to `adaa`), not a
+  silent runtime fallback of missing functionality.
 
 ## Decision 5 — Validation reuses the shipped measurement infrastructure
 
@@ -99,6 +102,8 @@ deferred to `/speckit-tasks`/tuning (the design's captured open questions).
 - `tone` control law (single tilt vs shelf pair; center-detent).
 - `mix` phase/gain law (equal-power vs linear; dry/wet delay matching against ADAA
   latency).
-- Effect-level makeup law atop the `Waveshaper` gain-comp.
+- Additional *automatic* effect-level makeup law atop the `Waveshaper`'s internal
+  gain-comp (the manual `output` trim is already shipped).
 - Additional/extreme voicings (e.g. wavefold-based) beyond the four named.
-- Harness standardized CSV harmonic-spectra output contract.
+- ~~Harness standardized CSV harmonic-spectra output contract~~ — resolved in T023
+  (`voicing,harmonic_index,frequency_hz,magnitude`; see `core/labs/saturation/README.md`).

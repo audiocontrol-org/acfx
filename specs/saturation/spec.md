@@ -145,8 +145,8 @@ margin, with an identical parameter surface.
    set of user parameters is unchanged — quality selects the internal anti-aliasing path only.
 3. **Given** the reserved oversampled quality tier, **When** the effect is inspected, **Then**
    it is present as a documented but **unwired** seam that adds no dependency on the (not-yet-
-   built) oversampling sibling; selecting it behaves as a defined, bounded no-op fallback rather
-   than a partial/aliased path.
+   built) oversampling sibling; selecting it resolves to the ADAA path — a defined, bounded,
+   non-aliased interim, not a partial/aliased path — and it is not user-selectable.
 
 ---
 
@@ -252,10 +252,12 @@ lives in the effects layer.
   anti-aliasing; switching quality MUST NOT change the user parameter surface.
 - **FR-014**: The ADAA mode MUST reduce aliased (inharmonic) energy relative to the naive mode
   for stimuli that drive the effect into aliasing, by at least a named margin.
-- **FR-015**: The effect MUST reserve an **oversampled** quality tier as a **documented but
-  unwired seam** that adds **no dependency** on the not-yet-built oversampling sibling; until the
-  sibling lands, selecting it MUST behave as a defined, bounded fallback (never a partial or
-  silently-aliased path). This feature MUST NOT build a reusable oversampling primitive.
+- **FR-015**: The effect MUST reserve an **oversampled** quality tier as a **documented, unwired
+  seam** with **no dependency** on the not-yet-built oversampling sibling. Until the sibling lands,
+  selecting it MUST resolve to the **ADAA evaluation path** (a defined, bounded, non-aliased
+  interim, never a partial/silently-aliased path), and it MUST NOT be user-selectable (excluded
+  from `kQualityLabels`) — a reserved-enum interim, not a parameter-surface fallback. This feature
+  MUST NOT build a reusable oversampling primitive.
 
 **Validation / measurement**
 
@@ -343,25 +345,20 @@ lives in the effects layer.
 
 ## Assumptions
 
-- The composed primitives — the nonlinear waveshaper (with drive/bias/shape/DC-block/gain-comp,
-  closed-form + LUT backends, and an ADAA variant) and the state-variable filter — are reused
-  **as-is**; this feature adds no new nonlinearity or filter primitive.
-- The shipped measurement infrastructure (single-bin/Goertzel harmonic analysis, sine stimulus,
-  allocation sentinel, analytic-bound assertion pattern) is reused as-is; this feature adds no new
-  general spectral engine.
-- "Named tolerance / named margin / named band" means an explicit threshold chosen per voicing/
-  metric during planning/clarification (the existing reference-bound philosophy), not a fabricated
-  exact figure.
-- The production-effect contract (single source-of-truth parameter descriptor table, lock-free
-  cross-thread parameter handoff, prepare/reset/process/setParameter, per-channel state) follows
-  the established effect precedent in the codebase.
+- The composed primitives (the nonlinear waveshaper with drive/bias/shape/DC-block/gain-comp +
+  ADAA, and the state-variable filter) and the shipped measurement infrastructure (Goertzel/THD,
+  sine stimulus, allocation sentinel, analytic-bound assertions) are reused **as-is** — no new
+  nonlinearity, filter, or spectral engine.
+- "Named tolerance / margin / band" means an explicit threshold chosen per voicing/metric during
+  planning (the reference-bound philosophy), not a fabricated figure.
+- The production-effect contract (descriptor table, lock-free cross-thread handoff, prepare/reset/
+  process/setParameter, per-channel state) follows the established effect precedent.
 - Embedded-target compilation is validated to the extent the existing build/CI exercises those
-  toolchains; full on-hardware measurement is a separate, later concern.
-- The per-voicing numeric tuning (emphasis curves, shape/drive/bias defaults) is a **planning**
+  toolchains; on-hardware measurement is a separate, later concern.
+- Per-voicing numeric tuning (emphasis curves, shape/drive/bias defaults) is a **planning**
   decision; the spec captures the four voicings without cutting them.
-- Oversampling machinery, program-dependent/dynamic saturation, multi-stage/cascaded topologies,
-  and deeper nonlinear-specific harmonic-analysis tooling are **out of scope** here (separate
-  roadmap items), per one-concept-at-a-time.
+- Oversampling machinery, program-dependent/dynamic saturation, multi-stage topologies, and deeper
+  harmonic-analysis tooling are **out of scope** (separate roadmap items), per one-concept-at-a-time.
 
 ## Open Questions *(carried from the design record — captured, not blockers)*
 
@@ -378,5 +375,5 @@ lives in the effects layer.
 - Effect-level makeup law: whether the effect adds its own makeup model atop the waveshaper's
   internal gain-compensation, or relies solely on it plus the user `output`.
 - Additional/extreme voicings (e.g. a wavefold-based character) beyond the four named ones.
-- Harness standardized output contract (e.g. CSV harmonic spectra) so nonlinear labs/effects are
-  comparable — shared with the open question recorded for the lab layer.
+- Harness CSV output contract — **resolved in T023**: `--csv` emits
+  `voicing,harmonic_index,frequency_hz,magnitude` (documented in the harness + lab README).

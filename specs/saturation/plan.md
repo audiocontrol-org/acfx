@@ -20,8 +20,10 @@
 Deliver the first Production Effect (stage 4 of the four-stage graduation model) of
 `phase-nonlinear-dsp`: a voiced saturation effect that **composes shipped primitives**
 — the `Waveshaper` (nonlinearity + optional ADAA) between two `SvfPrimitive`
-pre/post-emphasis filters, with a user tone tilt, a dry/wet parallel blend, and an
-output makeup trim. Four voicings (Soft Clip, Tape, Console, Tube Preamp) each fix a
+pre/post-emphasis filters, with a user tone tilt, a dry/wet parallel blend, and a
+manual `output` makeup trim (shipped; a separate open question is an additional
+*automatic* effect-level makeup law atop the waveshaper's own gain-comp — research.md).
+Four voicings (Soft Clip, Tape, Console, Tube Preamp) each fix a
 shape + pre/post-emphasis curve; `bias` stays a user control (design Decision 5).
 Anti-aliasing ships on the `Waveshaper`'s `naive`/`adaa` modes via a `quality`
 control, with an `oversampled` tier reserved as a **documented but unwired seam** — no
