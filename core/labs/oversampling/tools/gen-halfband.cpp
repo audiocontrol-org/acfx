@@ -40,7 +40,6 @@
 //   this in-process and refuses to declare success otherwise.
 // ============================================================================
 
-#include <array>
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -67,6 +66,12 @@ constexpr double kStopbandEdge = kCutoff + kTransitionWidth * 0.5;
 constexpr double kRequiredStopbandDb = 80.0;
 constexpr double kRequiredPassbandRippleDb = 0.1;
 
+// Pi as a portable constant. kPi is a POSIX/GNU extension, not standard C++
+// <cmath>; some hosts hide it under a strict -std=c++17 (__STRICT_ANSI__). This
+// file advertises stdlib-only C++17, so it defines its own constant rather than
+// relying on the extension (AUDIT-BARRAGE-codex-03).
+constexpr double kPi = 3.141592653589793238462643383279502884;
+
 // Zeroth-order modified Bessel function of the first kind, I0(x), by series.
 double besselI0(double x) {
   double sum = 1.0;
@@ -84,7 +89,7 @@ double besselI0(double x) {
 // Normalized sinc: sin(pi*x)/(pi*x), with the removable singularity at x==0.
 double sinc(double x) {
   if (x == 0.0) return 1.0;
-  const double px = M_PI * x;
+  const double px = kPi * x;
   return std::sin(px) / px;
 }
 
@@ -99,7 +104,7 @@ double kaiserBeta(double aDb) {
 // (normalized to the sample rate) via Kaiser's formula, then round the length
 // up to the nearest N = 4*k + 3 so it is a valid half-band length.
 int halfbandLength(double aDb, double df) {
-  const double dw = 2.0 * M_PI * df;          // transition width in rad/sample
+  const double dw = 2.0 * kPi * df;          // transition width in rad/sample
   const double order = (aDb - 8.0) / (2.285 * dw);
   int n = static_cast<int>(std::ceil(order)) + 1;   // taps = order + 1
   // Round up to N = 4k + 3  =>  (N-1)/2 is odd.
@@ -133,7 +138,7 @@ std::vector<double> designHalfband(int n, double beta) {
 
 // Magnitude response |H(f)| for normalized frequency f in [0, 0.5].
 double magnitudeAt(const std::vector<double>& h, double f) {
-  const double w = 2.0 * M_PI * f;
+  const double w = 2.0 * kPi * f;
   std::complex<double> acc{0.0, 0.0};
   for (size_t n = 0; n < h.size(); ++n) {
     acc += h[n] * std::exp(std::complex<double>(0.0, -w * static_cast<double>(n)));
@@ -233,7 +238,17 @@ std::string formatCoeffInitializer(const std::vector<double>& h) {
 int main() {
   const double beta = kaiserBeta(kStopbandTargetDb);
   const int n = halfbandLength(kStopbandTargetDb, kTransitionWidth);
-  const std::vector<double> h = designHalfband(n, beta);
+  const std::vector<double> hDesign = designHalfband(n, beta);
+
+  // Measure and emit the SAME values: the committed table is `static constexpr
+  // float`, so quantize the design (double) taps to float first and verify that
+  // exact float table. Reporting the double-precision design as provenance for a
+  // float table would overstate what the core actually compiles
+  // (AUDIT-BARRAGE-codex-02).
+  std::vector<double> h(hDesign.size());
+  for (size_t i = 0; i < hDesign.size(); ++i) {
+    h[i] = static_cast<double>(static_cast<float>(hDesign[i]));
+  }
 
   const Measurement meas = measure(h);
   std::string structureReport;
@@ -282,21 +297,32 @@ int main() {
   std::fputs("--------------------------------\n", stdout);
   std::fputs(coeffBlock.c_str(), stdout);
 
-  // Write the committed artifact (provenance for T004).
+  // Write the committed artifact (provenance for T004). Emitting this artifact IS
+  // this tool's contract, so a failure to open OR to fully write it is a hard
+  // failure reflected in the exit code — never a warning-with-success. Otherwise
+  // an unattended run from the wrong working directory could exit 0 while the
+  // artifact was never regenerated (AUDIT-BARRAGE-codex-01).
   const char* artifactPath = "core/labs/oversampling/tools/halfband-coeffs.generated.txt";
+  bool artifactOk = false;
   std::ofstream art(artifactPath);
   if (art) {
     art << summary << "\n";
     art << "namespace acfx {\n";
     art << coeffBlock;
     art << "}  // namespace acfx\n";
+    art.flush();
+    artifactOk = art.good();  // catches write/close errors, not just open
     art.close();
-    std::printf("\nWrote artifact: %s\n", artifactPath);
+    if (artifactOk) {
+      std::printf("\nWrote artifact: %s\n", artifactPath);
+    } else {
+      std::printf("\nERROR: failed while writing artifact: %s\n", artifactPath);
+    }
   } else {
-    std::printf("\nWARNING: could not open artifact for writing: %s\n"
+    std::printf("\nERROR: could not open artifact for writing: %s\n"
                 "  (run from the repository root so the relative path resolves)\n",
                 artifactPath);
   }
 
-  return pass ? 0 : 1;
+  return (pass && artifactOk) ? 0 : 1;
 }

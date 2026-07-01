@@ -17,7 +17,7 @@ Measured response (dense sweep, 20001 points over [0, 0.5])
 ----------------------------------------------------------
   stopband attenuation : 84.438 dB  (target >= 80.0)  [PASS]
   passband ripple      : 0.00101 dB  (target <= 0.10)  [PASS]
-  DC gain |H(0)|       : 1.000002477
+  DC gain |H(0)|       : 1.000002501
 
 Half-band structure check
 -------------------------
