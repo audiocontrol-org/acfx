@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,11 +31,11 @@
 
 ## Notes
 
-- **Three `[NEEDS CLARIFICATION]` markers remain by design (FR-022, FR-023, FR-024)** —
-  window function/transform size, the THD+N "noise" definition + SNR reference, and the
-  live-readout adapter reach. These are the design's still-open Open Questions §2–§6,
-  carried forward per the capture-over-YAGNI house rule to be resolved in `/speckit-clarify`,
-  not guessed here. They do not block planning; they are the clarify agenda.
+- **All clarification markers resolved in `/speckit-clarify` (Session 2026-07-01).** The three
+  former `[NEEDS CLARIFICATION]` items (FR-022/023/024) plus two adjacent decisions (FFT
+  size/cadence, non-pow2 FFT rule) are now recorded in the spec's Clarifications section and
+  integrated into FR-002, FR-014/016, FR-022–027, US5, and Assumptions. Design Open Question §6
+  (CSV report extension) is low-impact and deferred to planning (FR-017).
 - The spectral-engine fork is **resolved** (hybrid FFT + retained Goertzel) and is NOT a
   clarification item — see Assumptions.
 - Some named implementation homes (`core/primitives/analysis/`, `tests/support/measurement/`,

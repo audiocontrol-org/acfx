@@ -15,6 +15,16 @@
 
 **Input**: Approved design `docs/superpowers/specs/2026-07-01-harmonic-analysis-design.md` (Phase-2 Nonlinear-DSP sub-project of the Progressive Audio DSP program; roadmap node `design:gap/harmonic-analysis`, `part-of: multi:feature/phase-nonlinear-dsp`). Closes the "measurement gap" named and deferred by the waveshapers, saturation, and oversampling designs. Concrete deepening of Constitution Principle X (Measurable Engineering).
 
+## Clarifications
+
+### Session 2026-07-01
+
+- Q: FFT window function for the broadband analysis path (FR-022)? → A: Selectable window, default **4-term Blackman-Harris** (dynamic range for THD+N / noise floor / IMD); Hann and flat-top selectable. The retained integer-cycle Goertzel path stays rectangular/leakage-free.
+- Q: Default FFT transform size + live update cadence (FR-022 / design §4)? → A: **8192-point** default (~5.9 Hz/bin, ~170 ms @ 48 kHz); live readout uses **overlapping windows refreshing ~15–30 Hz** (~20 Hz nominal); ring capacity ≥ one window + margin.
+- Q: THD+N noise definition + SNR reference (FR-023)? → A: **Residual method** — THD+N = RMS(everything except the fundamental) / RMS(fundamental); notch the fundamental, all remaining energy (harmonics + noise) is the numerator. **SNR referenced to the fundamental level.** No separate noise model.
+- Q: Live readout adapter reach for this item (FR-024)? → A: **Workbench AND the plugin adapter** — both host adapters carry the live readout in this item (never the embedded audio path).
+- Q: Contract when an offline caller passes a non-power-of-two capture length to the radix-2 FFT? → A: **Reject with a descriptive error** (fail-loud; power-of-two required) — no silent zero-pad that would shift bin frequencies and add leakage.
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" is a **DSP author/contributor** validating and exploring nonlinear acfx effects. Today the shipped measurement infrastructure (`acfx::measure`, `tests/support/measurement/`) offers exactly one spectral method — **single-bin Goertzel on a known integer-cycle test tone** — and three labs (waveshaping, saturation, oversampling) each carry their own copy of that readout. This feature deepens harmonic characterization and gives it a live runtime face, over **one shared analysis engine** used identically by offline tests and the live workbench readout.
@@ -82,19 +92,20 @@ The three labs' **self-contained Goertzel harmonic readouts** (waveshaping, satu
 
 ---
 
-### User Story 5 - Live harmonic readout in the workbench (Priority: P3)
+### User Story 5 - Live harmonic readout in the workbench and plugin (Priority: P3)
 
-The author plays audio through an effect in the **workbench** and sees a **live** harmonic readout — a broadband spectrum plus a running THD figure — updating while a control is swept, without any heavy analysis math running on the audio callback. The audio thread only performs a bounded, lock-free copy of samples into a ring buffer; a separate analysis thread drains the ring and runs the **same** engine the offline tests use, so a live number and a test number agree.
+The author plays audio through an effect in the **workbench or the plugin** and sees a **live** harmonic readout — a broadband spectrum plus a running THD figure — updating while a control is swept, without any heavy analysis math running on the audio callback. The audio thread only performs a bounded, lock-free copy of samples into a ring buffer; a separate analysis thread drains the ring and runs the **same** engine the offline tests use, so a live number and a test number agree. Both hosts share one readout implementation; only the portable RT capture probe touches the audio path.
 
-**Why this priority**: The runtime face answers the author's need to *see and hear* harmonic behavior live. It is P3 because it depends on the shared engine (Stories 1–2) and the RT capture boundary being in place, and it exercises a host adapter rather than core measurement.
+**Why this priority**: The runtime face answers the author's need to *see and hear* harmonic behavior live. It is P3 because it depends on the shared engine (Stories 1–2) and the RT capture boundary being in place, and it exercises host adapters rather than core measurement.
 
-**Independent Test**: In the workbench, run a known nonlinearity and confirm the live spectrum + running-THD readout reflects the effect's harmonic signature, and that the audio path performs only a bounded lock-free copy (no allocation, no locks, no analysis math on the callback). Confirm a live-captured metric matches the offline engine's figure for the same stimulus within tolerance.
+**Independent Test**: In the workbench and in the plugin, run a known nonlinearity and confirm the live spectrum + running-THD readout reflects the effect's harmonic signature, and that the audio path performs only a bounded lock-free copy (no allocation, no locks, no analysis math on the callback). Confirm a live-captured metric matches the offline engine's figure for the same stimulus within tolerance.
 
 **Acceptance Scenarios**:
 
 1. **Given** an effect playing in the workbench, **When** the live readout runs, **Then** a broadband spectrum and a running THD figure update from the drained ring on the analysis thread while audio continues glitch-free.
-2. **Given** the RT capture probe, **When** the audio callback runs, **Then** it performs only a bounded lock-free ring push — no heap allocation, no locks, no analysis math.
-3. **Given** the same stimulus and effect, **When** measured live and measured offline, **Then** the two harmonic figures agree within named tolerance (one shared engine).
+2. **Given** an effect playing in the plugin, **When** the live readout runs, **Then** the same readout (shared implementation) updates identically, driven by the same portable capture probe.
+3. **Given** the RT capture probe, **When** the audio callback runs in either host, **Then** it performs only a bounded lock-free ring push — no heap allocation, no locks, no analysis math.
+4. **Given** the same stimulus and effect, **When** measured live and measured offline, **Then** the two harmonic figures agree within named tolerance (one shared engine).
 
 ---
 
@@ -113,7 +124,7 @@ The author plays audio through an effect in the **workbench** and sees a **live*
 **Offline analysis engine (host-side, `acfx::measure`)**
 
 - **FR-001**: The engine MUST compute a **full harmonic spectrum** at an arbitrary caller-specified harmonic count, reporting **per-harmonic magnitude and phase**.
-- **FR-002**: The engine MUST compute **THD+N** (total harmonic distortion plus noise, relative to the fundamental) and a **noise floor / SNR** figure.
+- **FR-002**: The engine MUST compute **THD+N** by the **residual method** — RMS(everything except the fundamental) / RMS(fundamental), i.e. notch the fundamental and take all remaining energy (harmonics + noise) as the numerator — and a **noise floor / SNR** figure with **SNR referenced to the fundamental level**.
 - **FR-003**: The engine MUST compute **intermodulation distortion (IMD)** from twin-tone stimuli, supporting the **SMPTE** (60 Hz + 7000 Hz) and **CCIF** (19 kHz + 20 kHz) pairs, and reporting **difference and sum** intermodulation products.
 - **FR-004**: The engine MUST compute an **aliasing-vs-frequency sweep** — inharmonic (folded) energy as a function of a swept tone's frequency — generalizing the existing single-tone integer-cycle inharmonic measure.
 - **FR-005**: The engine MUST provide **drive→THD and drive→harmonic series** as first-class reductions returning one metric (or per-harmonic curve) per drive point across a caller-specified range.
@@ -125,6 +136,9 @@ The author plays audio through an effect in the **workbench** and sees a **live*
 
 - **FR-009**: A **windowed radix-2 FFT** MUST exist in the host-side/off-thread analysis layer, serving the broadband magnitude+phase spectrum, THD+N, IMD, and the live display. It MUST NOT run on any audio-callback path.
 - **FR-010**: The FFT and the retained Goertzel MUST **coexist**: FFT for breadth (unknown/broadband content), Goertzel for exact known-bin regression checks. FFT MUST NOT replace Goertzel in the known-bin path.
+- **FR-025**: The FFT MUST support a **selectable window function, defaulting to 4-term Blackman-Harris**, with at least Hann and flat-top selectable; the retained integer-cycle Goertzel path stays rectangular/leakage-free (unwindowed).
+- **FR-026**: The FFT analyzer MUST **require a power-of-two transform length and reject a non-power-of-two capture with a descriptive error** — never silently zero-pad (which would shift bin frequencies and add leakage).
+- **FR-027**: The default FFT transform size MUST be **8192 points** (~5.9 Hz/bin at 48 kHz); the live readout MUST use **overlapping windows refreshing at ~15–30 Hz**, and the capture-probe ring MUST hold **at least one full window plus margin**.
 
 **RT capture probe (portable core, `core/primitives/analysis/`)**
 
@@ -132,11 +146,11 @@ The author plays audio through an effect in the **workbench** and sees a **live*
 - **FR-012**: The capture probe MUST be **platform-independent and embeddable** (no host-only or platform headers), consistent with the portable-core rule; the host-only analysis engine MUST NOT be reachable from it.
 - **FR-013**: The ring buffer MUST behave **deterministically under overrun/underrun** (drop/hold without blocking or allocating on the audio thread), and the condition MUST be observable to the consumer.
 
-**Live runtime readout (host adapter, `adapters/workbench/`)**
+**Live runtime readout (host adapters, `adapters/workbench/` and `adapters/plugin/`)**
 
-- **FR-014**: The workbench MUST provide a **live readout** — a broadband spectrum plus a running THD figure — computed on a separate analysis/UI thread that drains the capture-probe ring and runs the **same** offline analysis engine.
+- **FR-014**: The **workbench and the plugin** MUST each provide a **live readout** — a broadband spectrum plus a running THD figure — computed on a separate analysis/UI thread that drains the capture-probe ring and runs the **same** offline analysis engine. Both hosts MUST share one readout implementation; only the portable RT capture probe touches the audio path.
 - **FR-015**: A metric measured **live** and the **same** metric measured **offline** for an identical stimulus/effect MUST agree within a named tolerance (single-engine guarantee).
-- **FR-016**: The live readout MUST be **desktop-host only**; it MUST NOT be pulled into the embedded audio path.
+- **FR-016**: The live readout MUST run **only in host adapters** (workbench, plugin); it MUST NOT be pulled into the embedded (Daisy/Teensy) audio path. The analysis engine MUST NOT be reachable from portable core.
 
 **Cross-cutting**
 
@@ -146,11 +160,11 @@ The author plays audio through an effect in the **workbench** and sees a **live*
 - **FR-020**: The portability gate `scripts/check-portability.sh` (CI, never a git hook) MUST learn `core/primitives/analysis/**` so its harness-isolation, dependency-direction, platform-independence, and file-size checks cover the new category.
 - **FR-021**: All new units MUST honor Constitution Principles VI (RT safety on the audio path), IV (platform-independent core / thin adapters), VII (strict typing, ~300–500-line modules, no unchecked casts), X (measurable engineering), and XI (one concept at a time).
 
-*Deliberately open — routed to `/speckit-clarify`, captured not cut (design Open Questions §2–§6):*
+*Resolved in `/speckit-clarify` (Session 2026-07-01) — see Clarifications; these were design Open Questions §2–§5:*
 
-- **FR-022**: The engine MUST apply a defined **window function and default transform size(s)** for the FFT-based analyses. [NEEDS CLARIFICATION: window (Hann vs Blackman-Harris vs selectable) and default size(s) trading resolution against latency/update-rate — design Open Question §2/§4]
-- **FR-023**: **THD+N** MUST use a defined notion of "noise" and SNR reference. [NEEDS CLARIFICATION: "noise" = all energy not at a harmonic bin vs a modeled noise floor; and the SNR reference level — design Open Question §5]
-- **FR-024**: The live readout's adapter reach MUST be defined. [NEEDS CLARIFICATION: workbench-only in this item, or also the `plugin` adapter — design Open Question §3]
+- **FR-022**: The FFT window and default size are **resolved** — selectable window defaulting to Blackman-Harris (FR-025) and a 8192-point default with ~15–30 Hz overlapping live refresh (FR-027).
+- **FR-023**: **THD+N/SNR are resolved** — residual (notch-the-fundamental) method, SNR referenced to the fundamental (FR-002).
+- **FR-024**: The live readout ships in **both host adapters** — workbench and plugin (FR-014/FR-016).
 
 ### Key Entities
 
@@ -176,9 +190,9 @@ The author plays audio through an effect in the **workbench** and sees a **live*
 ## Assumptions
 
 - The shipped measurement infrastructure (`acfx::measure`: `stimulus.h`, `analyzers.h`, `metrics.h`, `aliasing.h`, `report.h`) and the `meastest::` helpers are the base this feature extends and consolidates; the `Effect` contract and per-sample-callable capture seam are reused as-is.
-- The spectral-engine choice is **decided** (hybrid FFT + retained Goertzel, per the approved design); it is not re-opened in clarification. What remains open is window/size, THD+N noise definition, and live-readout adapter reach (FR-022–FR-024).
+- The spectral-engine choice is **decided** (hybrid FFT + retained Goertzel, per the approved design). The `/speckit-clarify` pass (Session 2026-07-01) resolved the remaining open questions: FFT window/size (Blackman-Harris default, 8192-pt), THD+N/SNR (residual method), non-pow2 FFT rejection, and adapter reach (workbench + plugin). Design Open Question §6 (whether the opt-in CSV report gains the new metrics and a live-snapshot dump) is **low-impact and deferred to planning** (FR-017 keeps the CSV extendable and non-gating).
 - The runtime probe uses the standard live-analyzer pattern (audio thread copies; analysis off-thread) fixed by the design; the in-`process()` alternative is rejected and not revisited.
-- The workbench is the desktop host adapter that hosts the live readout; embedded targets (Daisy/Teensy) receive only the portable capture probe, never the analysis engine.
+- The workbench and the plugin are the host adapters that host the live readout; embedded targets (Daisy/Teensy) receive only the portable capture probe, never the analysis engine.
 - CI enforcement is via explicit commands and the portability gate, **never git hooks** (acfx Commandment II); the CSV report stays opt-in and non-gating.
 
 ## Dependencies
