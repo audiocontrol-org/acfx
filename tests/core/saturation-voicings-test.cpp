@@ -17,15 +17,13 @@
 // voicing switch carries no stale filter/DC state); spec.md User Story 2
 // Acceptance Scenarios 1-3; SC-001.
 //
-// TEST-FIRST NOTE (expected RED until T012): `tape`, `console`, and
-// `tubePreamp` in saturation-voicings.h are documented PLACEHOLDERs (real
-// numbers land in T012's tuning pass). TEST 1 (well-formedness), TEST 3
-// (runtime-switch hygiene) and TEST 4 (bias is a user control) exercise
-// mechanisms already implemented (T009/T010) and are expected to be GREEN
-// today. TEST 2 (mutual distinguishability) asserts the actual spectral
-// separation FR-006 requires between every voicing PAIR; because three of the
-// four voicings are still placeholders, TEST 2 is EXPECTED TO BE RED until
-// T012 lands real, deliberately-differentiated per-voicing configs.
+// STATUS (HEAD): all four voicings in saturation-voicings.h carry real,
+// tuned configs (T011/T012 landed the per-voicing shape+emphasis pairs;
+// T013 tuned `tape`'s post-emphasis to cross the distinctness margin against
+// `softClip`). Every TEST_CASE below -- including TEST 2 (mutual
+// distinguishability) -- exercises fully-implemented behavior and is a LIVE,
+// PASSING gate today. A future failure in any of them is a REGRESSION, not
+// expected test-first fallout.
 
 using namespace acfx;
 
@@ -205,9 +203,13 @@ TEST_CASE("per-voicing harmonic signature: every voicing yields a finite, well-f
 // unrealistically large tuning gap between voicings that are meant to share
 // a musical family (all are "saturation").
 //
-// EXPECTED RED until T012: tape/console/tubePreamp are still placeholder
-// configs (saturation-voicings.h). This assertion is the one that turns GREEN
-// once T012 lands deliberately-differentiated shape/emphasis pairs.
+// LIVE gate at HEAD: all four voicings carry tuned, deliberately-
+// differentiated shape/emphasis configs (saturation-voicings.h), and this
+// assertion passes for every pair -- including softClip-vs-tape, whose
+// margin was crossed by tuning `tape`'s post-emphasis lowpass down to
+// 4.2 kHz (bringing its HF-loss signature within the measured 1-6th-harmonic
+// band). A future failure here means a voicing config regressed into another
+// voicing's spectral neighborhood, not test-first fallout.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("mutual distinguishability: every voicing pair differs by at least the named margin (FR-006, SC-001)") {
@@ -240,45 +242,67 @@ TEST_CASE("mutual distinguishability: every voicing pair differs by at least the
 // cutoff, or DC-blocker history seeded by A's asymmetry) would show up as a
 // steady-state mismatch here. Transient-settling approach reused from
 // saturation-core-test.cpp TEST 5/6 (kTransientSamples ~= 10*tau).
+//
+// Covers EVERY ordered voicing pair (A -> B for all A != B: all 12 ordered
+// pairs among the four voicings), not just softClip -> tape: `tubePreamp` is
+// sign-asymmetric and seeds DC-blocker history unlike the three odd-only
+// shapes, so every X -> tubePreamp and tubePreamp -> X transition is a
+// distinct, higher-risk case that a single fixed pair would not exercise.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("runtime voicing switch: switching from A to B carries no stale filter/DC state (FR-008)") {
-    // Float-arithmetic floor: once both cores are driven by identical inputs
-    // with identical (post-switch) parameters, their outputs are a
-    // deterministic function of state + input; any survived difference above
-    // a few ULPs indicates residual state from the pre-switch voicing.
+    // Transient-settling margin, NOT a float-precision floor: at ~0.5 signal
+    // values a float ULP is ~6e-8, so 1e-4 is ~1000 ULPs -- far looser than
+    // arithmetic noise. This value is tied to kTransientSamples: any
+    // purely-transient residue from the pre-switch voicing (SVF/DC-blocker
+    // history decaying under the composed chain's slowest time constant) has
+    // decayed below 1e-4 well before the comparison window below. What this
+    // tolerance actually catches is a PERSISTENT steady-state divergence --
+    // e.g. an LTI stage left holding pre-switch coefficients/state that never
+    // forgets, so the residual would NOT decay away regardless of settling
+    // time. A purely-transient mismatch cannot survive this margin; a
+    // genuinely stale-state bug can and will.
     constexpr double kNoStaleStateTolerance = 1.0e-4;
 
-    // Core "switched": starts on softClip, is driven for a while, then
-    // switched to tape mid-stream.
-    SaturationCore switched;
-    configureCore(switched, SaturationVoicing::softClip, kDrive, kFixedBias, kFullWetMix);
-    for (int i = 0; i < 500; ++i) {
-        const float t = static_cast<float>(i) / kSampleRate;
-        (void)switched.process(0.3f * std::sin(2.0f * kPi * 440.0f * t));
-    }
-    switched.setVoicing(SaturationVoicing::tape);
+    for (SaturationVoicing from : kAllVoicings) {
+        for (SaturationVoicing to : kAllVoicings) {
+            if (from == to)
+                continue;
 
-    // Core "fresh": configured for tape from the start -- the ground truth
-    // for "no residual softClip character".
-    SaturationCore fresh;
-    configureCore(fresh, SaturationVoicing::tape, kDrive, kFixedBias, kFullWetMix);
+            INFO("from=" << voicingName(from) << " to=" << voicingName(to));
 
-    // Drive both with an IDENTICAL post-switch signal and let transients settle.
-    for (int i = 0; i < kTransientSamples; ++i) {
-        const float t = static_cast<float>(i) / kSampleRate;
-        const float x = kAmplitude * std::sin(2.0f * kPi * static_cast<float>(kFundamentalHz) * t);
-        (void)switched.process(x);
-        (void)fresh.process(x);
-    }
+            // Core "switched": starts on `from`, is driven for a while (dirtying
+            // its filter/DC-blocker state), then switched to `to` mid-stream.
+            SaturationCore switched;
+            configureCore(switched, from, kDrive, kFixedBias, kFullWetMix);
+            for (int i = 0; i < 500; ++i) {
+                const float t = static_cast<float>(i) / kSampleRate;
+                (void)switched.process(0.3f * std::sin(2.0f * kPi * 440.0f * t));
+            }
+            switched.setVoicing(to);
 
-    // Steady-state outputs must match sample-for-sample.
-    for (int i = 0; i < 200; ++i) {
-        const float t = static_cast<float>(kTransientSamples + i) / kSampleRate;
-        const float x = kAmplitude * std::sin(2.0f * kPi * static_cast<float>(kFundamentalHz) * t);
-        const float outSwitched = switched.process(x);
-        const float outFresh    = fresh.process(x);
-        CHECK(std::abs(outSwitched - outFresh) < kNoStaleStateTolerance);
+            // Core "fresh": configured for `to` from the start -- the ground
+            // truth for "no residual `from` character".
+            SaturationCore fresh;
+            configureCore(fresh, to, kDrive, kFixedBias, kFullWetMix);
+
+            // Drive both with an IDENTICAL post-switch signal and let transients settle.
+            for (int i = 0; i < kTransientSamples; ++i) {
+                const float t = static_cast<float>(i) / kSampleRate;
+                const float x = kAmplitude * std::sin(2.0f * kPi * static_cast<float>(kFundamentalHz) * t);
+                (void)switched.process(x);
+                (void)fresh.process(x);
+            }
+
+            // Steady-state outputs must match sample-for-sample.
+            for (int i = 0; i < 200; ++i) {
+                const float t = static_cast<float>(kTransientSamples + i) / kSampleRate;
+                const float x = kAmplitude * std::sin(2.0f * kPi * static_cast<float>(kFundamentalHz) * t);
+                const float outSwitched = switched.process(x);
+                const float outFresh    = fresh.process(x);
+                CHECK(std::abs(outSwitched - outFresh) < kNoStaleStateTolerance);
+            }
+        }
     }
 }
 
