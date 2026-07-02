@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **envelope-followers**.
+Active Spec Kit feature: **compressors**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/envelope-followers/plan.md` (spec: `specs/envelope-followers/spec.md`).
+current plan at `specs/compressors/plan.md` (spec: `specs/compressors/spec.md`).
 <!-- SPECKIT END -->
