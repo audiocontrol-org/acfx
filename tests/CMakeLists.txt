@@ -62,6 +62,7 @@ add_executable(acfx_core_tests
   # T010 thdn (THD+N residual method + noise-floor/SNR; no-fundamental NaN; FR-002/008).
   # T012 goertzel parity (retained exact known-bin Goertzel path; FR-007/010).
   # T014 imd (twin-tone SMPTE+CCIF difference/sum products; FR-003, US2).
+  # T016 alias-sweep (inharmonic-energy-vs-frequency sweep; FR-004, US2).
   # ---------------------------------------------------------------------------
   core/analysis-fft-test.cpp
   core/analysis-window-test.cpp
@@ -69,6 +70,7 @@ add_executable(acfx_core_tests
   core/analysis-thdn-test.cpp
   core/analysis-goertzel-parity-test.cpp
   core/analysis-imd-test.cpp
+  core/analysis-alias-sweep-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
