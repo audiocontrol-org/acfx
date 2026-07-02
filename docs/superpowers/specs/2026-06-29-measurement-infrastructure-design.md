@@ -78,6 +78,18 @@ speculative machinery ahead of a concrete measurement that needs it.
    analysis uses the Goertzel algorithm on known test tones; magnitude uses the existing
    sine-sweep. No new dependency; a general FFT is deferred to **Phase 8 (Convolution)**,
    where it is needed regardless. (Review recommendation, adopted.)
+
+   > **AMENDMENT (2026-07-01, `design:gap/harmonic-analysis`, FR-019).** Decision A's
+   > FFT deferral is **amended for the harmonic-analysis scope**: that feature introduces a
+   > small self-contained windowed radix-2 FFT in `host/analysis/fft.h` — **host-side and
+   > strictly off the audio thread**, which removes the real-time-safety objection that
+   > motivated the original deferral. It serves the broadband spectrum + phase, THD+N, IMD,
+   > and the live workbench/plugin readout. The **exact single-bin Goertzel is retained** for
+   > known-bin regression tests (leakage-free), so Decision A still holds for the exact-tone
+   > path — the two coexist (hybrid). Phase 8 (partitioned convolution) reuses or supersedes
+   > this FFT; introducing it here is a forward seam, not a commitment to build convolution.
+   > See `docs/superpowers/specs/2026-07-01-harmonic-analysis-design.md` (Fork 3) and
+   > `specs/harmonic-analysis/` (FR-009/025/026).
 7. **Decision B — output: assertions + optional CSV report.** CI gates rely **exclusively on
    assertions** vs analytic/reference bounds (the `svf-reference` pattern). A **CSV** report is
    **opt-in** (regression visualization, trending, harmonic-spectrum inspection, external
