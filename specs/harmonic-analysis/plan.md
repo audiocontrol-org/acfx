@@ -24,7 +24,7 @@ Close the Phase-2 "measurement gap": deepen harmonic characterization beyond tod
 
 **Language/Version**: C++ (core compiles at both C++17 floor and C++20 desktop/test — same source, matching the saturation/SVF/oversampling precedent). The RT capture probe is portable core; the analysis engine and live readouts are host/desktop only.
 
-**Primary Dependencies**: for the analysis engine — **none new/external**; the windowed radix-2 FFT is authored in-repo (no FFTW/KissFFT), consistent with the repo's no-new-dependency posture and the design's "small self-contained FFT". Reuses the shipped measurement stimulus/analyzer building blocks (`tests/support/measurement/` `SineGenerator`/`SweepGenerator`/`GoertzelAnalyzer`/`aliasingMeasure`, `tests/support/svf-reference.h` analytic-tolerance helpers, the allocation sentinel). For the live readouts: the existing `adapters/workbench/` and `adapters/plugin/` hosts. Testing: doctest.
+**Primary Dependencies**: for the analysis engine — **none new/external**; the windowed radix-2 FFT is authored in-repo (no FFTW/KissFFT), consistent with the repo's no-new-dependency posture and the design's "small self-contained FFT". The reusable measurement building blocks (`SineGenerator`/`SweepGenerator`/`GoertzelAnalyzer`/`aliasingMeasure`/`captureCallable`) **relocate from `tests/support/measurement/` into `host/analysis/`**; `tests/support/measurement/` then **re-exports** them for test-facing use (the analytic-tolerance helpers `tests/support/svf-reference.h` and the allocation sentinel stay test-side). **Dependency direction is `tests/support → host/analysis` and `adapters → host/analysis`, never the reverse** — no product/adapter code reaches the test tree (F1). For the live readouts: the existing `adapters/workbench/` and `adapters/plugin/` hosts. Testing: doctest.
 
 **Storage**: N/A. FFT twiddle factors and window tables are computed at engine `init()` (host-side, allocation permitted off the audio thread); the RT probe's ring is a fixed-size value buffer.
 
@@ -93,6 +93,9 @@ core/
 host/
 ├── processor-node/                       # existing (unchanged)
 └── analysis/                             # NEW host-only analysis engine (may allocate; off any audio thread)
+    ├── stimulus.h                        #   RELOCATED from tests/support — Sine/Sweep/Impulse/Step/WhiteNoise generators
+    ├── goertzel.h                        #   RELOCATED — exact single-bin GoertzelAnalyzer (known-bin, leakage-free)
+    ├── aliasing.h                        #   RELOCATED — integer-cycle inharmonic/aliased-energy measure
     ├── fft.h                             #   windowed radix-2 FFT; rejects non-pow2 length (FR-026)
     ├── window.h                          #   selectable window; default Blackman-Harris (+Hann, flat-top) (FR-025)
     ├── spectrum.h                        #   full harmonic spectrum: per-harmonic magnitude AND phase, arbitrary N (FR-001)
@@ -110,9 +113,9 @@ adapters/
 
 tests/
 ├── support/
-│   ├── measurement/                      # CONSOLIDATED — exact Goertzel/stimulus/aliasing retained for known-bin
-│   │   │                                 #   tests; the deep engine graduates to host/analysis and is re-used here
-│   │   └── (stimulus.h, analyzers.h, metrics.h, aliasing.h, report.h — repointed onto host/analysis where superseded)
+│   ├── measurement/                      # CONSOLIDATED — becomes thin TEST-ONLY re-exports of host/analysis
+│   │   │                                 #   (generators/Goertzel/aliasing now live in host/analysis; dep points test->host)
+│   │   └── (metrics.h + report.h stay test-side; stimulus/analyzers/aliasing RE-EXPORT host/analysis, no duplicate impl)
 │   └── svf-reference.h                   # existing analytic-tolerance helpers (reused)
 └── core/
     ├── measurement-support.h             # CONSOLIDATED — meastest:: harmonic helpers fold onto host/analysis
@@ -138,7 +141,7 @@ docs/superpowers/specs/2026-06-29-measurement-infrastructure-design.md  # MODIFI
 **Structure Decision**: Single C++ core with the established taxonomy, plus a new **host-only analysis library**. Three homes, one RT boundary (from the approved design, refined by Phase-0 research):
 
 - **`core/primitives/analysis/`** (NEW portable category) — the RT-safe SPSC capture probe. The *only* audio-path unit; `push(block)` is bounded, lock-free, allocation-free, math-free; embeddable on Daisy/Teensy. Gate-asserted platform-free.
-- **`host/analysis/`** (NEW host-only library) — the single deep analysis engine (self-contained windowed radix-2 FFT + selectable window + retained exact Goertzel + spectrum/THD+N/IMD/alias-sweep/drive-series), split across per-concern headers to honor the ~300–500-line budget (VII). May allocate; runs only off the audio thread. **This is the deviation from the design's literal "tests/support/measurement/" placement** — chosen so `adapters/{workbench,plugin}` reuse the engine without a product→test-tree dependency (Phase-0 Decision 1). The existing `tests/support/measurement/` stays as the test-facing stimulus/known-bin layer and is consolidated onto `host/analysis/`.
+- **`host/analysis/`** (NEW host-only library) — the single deep analysis engine (self-contained windowed radix-2 FFT + selectable window + retained exact Goertzel + spectrum/THD+N/IMD/alias-sweep/drive-series), split across per-concern headers to honor the ~300–500-line budget (VII). May allocate; runs only off the audio thread. **This is the deviation from the design's literal "tests/support/measurement/" placement** — chosen so `adapters/{workbench,plugin}` reuse the engine without a product→test-tree dependency (Phase-0 Decision 1). The reusable building blocks (stimulus generators, `GoertzelAnalyzer`, `aliasingMeasure`, the capture seam) **relocate into `host/analysis/`**; `tests/support/measurement/` becomes thin **test-only re-exports** + assertion helpers. So the dependency arrow is `tests/support → host/analysis` and `adapters → host/analysis` — **never product→test** (analyze finding F1).
 - **`adapters/workbench/` + `adapters/plugin/`** (MODIFIED) — each owns a capture probe, drains its ring on a UI/timer thread, and calls the shared `host/analysis` engine; one readout implementation shared by both (FR-014). Host/desktop only; the engine is never reachable from `core/`.
 
 Dependencies point inward: `adapters → host/analysis → (nothing in core)`; `core/primitives/analysis` depends on nothing host-side. This preserves the one-engine guarantee (a live number and a test number agree because both call `host/analysis`) while keeping the portable core clean.
