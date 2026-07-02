@@ -151,12 +151,17 @@ private:
             case Ballistics::decoupled: {
                 // Decoupled peak detector (Reiss). Release stage y1_ then
                 // attack stage. Coeffs are cached (aAtk_/aRel_) by the setters.
-                // Base (smooth_==false): hard max-with-decay release.
+                // Base (smooth_==false): hard max-with-decay release, decaying
+                //   toward the domain FLOOR (0 linear, -120 dB) — NOT toward 0,
+                //   which in the dB domain is unity (loud). In the linear domain
+                //   floor==0 so this reduces to the classic max(level, aRel*y1).
                 // Smooth (smooth_==true): one-pole smooth blend release at the
-                // RELEASE rate.
+                //   RELEASE rate toward the current level (which is the floor on
+                //   silence), correct in both domains.
                 const float level = value;
+                const float floor = (domain_ == DetectDomain::decibel) ? kFloorDb : 0.0f;
                 y1_ = smooth_ ? std::fmax(level, aRel_ * y1_ + (1.0f - aRel_) * level)
-                              : std::fmax(level, aRel_ * y1_);
+                              : std::fmax(level, floor + aRel_ * (y1_ - floor));
                 return aAtk_ * env_ + (1.0f - aAtk_) * y1_;
             }
         }

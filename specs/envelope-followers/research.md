@@ -50,9 +50,15 @@ level vs smooth detector topologies).
 
 - **Decision**: `Ballistics { branching, decoupled }` with a `setSmooth(bool)` flag.
   - **Branching**: single state `env`; `a = (level > env) ? aAtk : aRel`; `env = a·env + (1−a)·level`.
-  - **Decoupled** (base, `smooth_==false`): two states; a release stage `y1 = max(level, aRel·y1)`
-    (hard max-with-decay) feeds an attack smoother `env = aAtk·env + (1−aAtk)·y1` — removing the
-    branching detector's release-then-attack tracking artifact.
+  - **Decoupled** (base, `smooth_==false`): two states; a release stage
+    `y1 = max(level, floor + aRel·(y1 − floor))` (hard max-with-decay toward the **domain floor** —
+    `floor = 0` in linear, `−120 dB` in the decibel domain) feeds an attack smoother
+    `env = aAtk·env + (1−aAtk)·y1` — removing the branching detector's release-then-attack tracking
+    artifact. *(The decay MUST target the domain floor, not 0: in the dB domain 0 dB is unity/loud, so
+    a plain `aRel·y1` release would drift the envelope UP toward 0 dB on silence. In the linear domain
+    `floor==0` so this reduces to the classic `max(level, aRel·y1)`. This dB-domain correctness of the
+    base decoupled release was caught by the cross-model govern audit and fixed with dB×decoupled test
+    coverage.)*
   - **Smooth decoupled** (`smooth_==true`): the release stage becomes a one-pole smooth blend at the
     **release** rate, `y1 = max(level, aRel·y1 + (1−aRel)·level)`, feeding the same attack smoother —
     the Reiss "smooth decoupled peak detector". (This corrects the design record's loose phrasing
