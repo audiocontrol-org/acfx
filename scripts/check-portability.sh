@@ -43,6 +43,12 @@
 #   C-AN-DIR. Dependency direction: nothing under core/ includes host/analysis/ or
 #      adapters/ — the portable core never reaches the host analysis engine or adapters
 #      (Constitution IV; harmonic-analysis plan § Structure Decision, T002)
+#   C-EF-PRIM. core/primitives/dynamics/ (when present) is gate-ready: platform-free,
+#      effects-free, harness-free — explicit named coverage per FR-021 (envelope-follower
+#      T005); passes vacuously when the directory is absent or empty
+#   C-EF-LAB. Envelope-follower lab kernel headers (core/labs/envelope-follower/*.h,
+#      non-harness) are harness-free and platform-free — explicit named coverage per
+#      FR-021 (envelope-follower T005)
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -297,6 +303,53 @@ while IFS= read -r f; do
   fi
 done < <(find core -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
 [ "$_candir_fail" -eq 0 ] && note "  OK: core/ does not reach host/analysis/ or adapters/"
+
+note "== C-EF-PRIM. core/primitives/dynamics: gate-ready when present (FR-021/T005) =="
+_cefprim_files=$(find core/primitives/dynamics -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_cefprim_files" ]; then
+  note "  OK (vacuous): core/primitives/dynamics/ absent or empty — gate ready"
+else
+  _cefprim_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: dynamics primitive includes a platform header"
+      _cefprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*effects/' "$f" 2>/dev/null; then
+      note "  FAIL $f: dynamics primitive includes an effects/ path"
+      _cefprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: dynamics primitive includes a harness path"
+      _cefprim_fail=1
+      fail=1
+    fi
+  done <<< "$_cefprim_files"
+  [ "$_cefprim_fail" -eq 0 ] && note "  OK: core/primitives/dynamics/ is platform-free, effects-free, and harness-free"
+fi
+
+note "== C-EF-LAB. Envelope-follower lab kernel headers: harness-free + platform-free (FR-021/T005) =="
+_ceflab_files=$(find core/labs/envelope-follower -type f -name '*.h' -not -path '*/harness/*' 2>/dev/null)
+if [ -z "$_ceflab_files" ]; then
+  note "  OK (vacuous): core/labs/envelope-follower/ has no non-harness kernel headers — gate ready"
+else
+  _ceflab_fail=0
+  while IFS= read -r f; do
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: envelope-follower kernel header includes a harness path"
+      _ceflab_fail=1
+      fail=1
+    fi
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: envelope-follower kernel header includes a platform header"
+      _ceflab_fail=1
+      fail=1
+    fi
+  done <<< "$_ceflab_files"
+  [ "$_ceflab_fail" -eq 0 ] && note "  OK: envelope-follower lab kernel headers are harness-free and platform-free"
+fi
 
 if [ "$fail" -eq 0 ]; then
   note ""

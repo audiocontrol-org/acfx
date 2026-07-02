@@ -23,8 +23,8 @@
 // specs/envelope-followers/data-model.md.
 //
 // Constitution refs:
-//   IV   — platform-independent core: no JUCE/libDaisy/Teensy/effects/harness
-//          includes here, ever.
+//   IV   — platform-independent core: no JUCE / Daisy SDK / Teensy / effects /
+//          harness includes here, ever.
 //   VI   — real-time safety: no heap allocation, no locks, bounded work in
 //          process().
 //   VII  — strict typing & small modules: no `any`-equivalents, file stays
