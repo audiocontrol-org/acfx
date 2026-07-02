@@ -11,6 +11,7 @@
 #include "dsp/audio-block.h"
 #include "dsp/process-context.h"
 #include ACFX_EFFECT_HEADER
+#include "harmonic-readout.h"
 #include "level-meter.h"
 #include "midi-binding.h"
 #include "parameter-view.h"
@@ -37,6 +38,9 @@ using AppEffect = ACFX_EFFECT_TYPE;
 
 namespace {
 constexpr int kMaxChannels = 8;
+// Fundamental control row (~24px) + THD+N row + kHarmonicNumHarmonics rows
+// (~14px each) + a little breathing room -- see harmonic-readout.cpp's layout.
+constexpr int kHarmonicReadoutHeight = 28 + (1 + kHarmonicNumHarmonics) * 14 + 12;
 } // namespace
 
 class WorkbenchComponent final : public juce::AudioAppComponent,
@@ -46,7 +50,8 @@ public:
     WorkbenchComponent()
         : node_(std::make_unique<EffectNode<AppEffect>>()),
           paramView_(node_->parameters(),
-                     [this](ParamId id, float norm) { node_->setParameter(id, norm); }) {
+                     [this](ParamId id, float norm) { node_->setParameter(id, norm); }),
+          harmonicReadout_(harmonicProbe_) {
         params_ = node_->parameters();
 
         // Default MIDI map: bind a small fixed set of CCs to the effect's FIRST
@@ -109,6 +114,13 @@ public:
         };
         addAndMakeVisible(meter_);
 
+        // Live harmonic readout (T030, US5, FR-014/FR-016): the audio thread only
+        // ever calls harmonicProbe_.push() (see getNextAudioBlock) -- a bounded,
+        // lock-free copy, no analysis, no allocation. This component's own message-
+        // thread Timer drains that ring through the shared acfx::analysis::LiveReadout
+        // and repaints the broadband harmonic spectrum + running THD+N figure.
+        addAndMakeVisible(harmonicReadout_);
+
         // Restore persisted selections (FR-006). Saved settings take precedence over
         // the ACFX_WORKBENCH_FILE first-run convenience (FR-004): the env var only
         // seeds the source when there is nothing saved yet. This sets the initial
@@ -148,7 +160,7 @@ public:
             preferredDeviceState_ = std::make_unique<juce::XmlElement>(*loaded.deviceState);
         }
 
-        setSize(520, 344);
+        setSize(520, 344 + kHarmonicReadoutHeight);
         // Restore devices/rate/buffer (and enabled MIDI inputs) from the saved state; a
         // null state initialises defaults and a saved-but-missing device falls back to
         // an available one (selectDefaultDeviceOnFailure). This drives prepareToPlay,
@@ -190,6 +202,11 @@ public:
         preparedChannels_ = juce::jlimit(1, kMaxChannels, outputs > 0 ? outputs : 2);
         const ProcessContext ctx{sampleRate, blockSize, preparedChannels_};
         node_->prepare(ctx);
+
+        // (Re)configure the live harmonic readout for the device's actual sample
+        // rate (message thread only; the analysis engine stays off the audio path,
+        // FR-016). Mirrors node_->prepare(ctx) immediately above.
+        harmonicReadout_.prepare(sampleRate);
 
         // The SINGLE source reconfigure point (FR-008): release any prior selection,
         // (re)configure from the current message-thread state, then prepare. JUCE
@@ -268,6 +285,12 @@ public:
 
         if (!processed_.load()) {
             meter_.pushPeaks(inputPeak, inputPeak); // A/B: dry — output equals input
+            // Harmonic readout (T030): a bounded, lock-free, RT-safe handoff of the
+            // block just sent to the output device — one representative channel
+            // (channel 0), no analysis on this thread (FR-016). See
+            // harmonic-readout.h/HarmonicReadout::timerCallback for the drain side.
+            harmonicProbe_.push(acfx::span<const float>(region.getReadPointer(0),
+                                                         static_cast<std::size_t>(numSamples)));
             return;
         }
 
@@ -278,6 +301,10 @@ public:
         node_->processBlock(block);
 
         meter_.pushPeaks(inputPeak, region.getMagnitude(0, numSamples));
+        // Harmonic readout (T030): push the POST-effect output — the audio-thread
+        // side of the RT capture probe (bounded copy, no allocation, no analysis).
+        harmonicProbe_.push(acfx::span<const float>(region.getReadPointer(0),
+                                                     static_cast<std::size_t>(numSamples)));
     }
 
     void releaseResources() override { source_.release(); }
@@ -288,6 +315,7 @@ public:
         sourceBar_.setBounds(area.removeFromTop(36).reduced(4, 2));
         abToggle_.setBounds(area.removeFromBottom(32).reduced(8, 4));
         meter_.setBounds(area.removeFromBottom(44).reduced(8, 4));
+        harmonicReadout_.setBounds(area.removeFromBottom(kHarmonicReadoutHeight).reduced(8, 4));
         paramView_.setBounds(area);
     }
 
@@ -427,6 +455,16 @@ private:
     juce::TextButton audioSettingsButton_;
     SourceBar sourceBar_;
     LevelMeter meter_;
+
+    // Live harmonic readout (T030, US5, FR-014/FR-016). harmonicProbe_ is the RT
+    // capture probe -- the ONLY thing the audio thread touches (push(), in
+    // getNextAudioBlock above); it must outlive harmonicReadout_, which holds a
+    // reference to it, hence its declaration first (member init order = declaration
+    // order). harmonicReadout_ owns the shared acfx::analysis::LiveReadout and all
+    // of the message-thread drain/display logic.
+    HarmonicProbe harmonicProbe_;
+    HarmonicReadout harmonicReadout_;
+
     std::unique_ptr<AudioSettingsWindow> audioSettings_;
     WorkbenchPersistence persistence_;
 
