@@ -58,9 +58,11 @@ add_executable(acfx_core_tests
   # harmonic-analysis feature: host-only analysis engine suites (host/analysis/).
   # T003 FFT (windowed radix-2 tone reconstruction; non-pow2 rejection; FR-009/026).
   # T005 window (default Blackman-Harris; Hann/flat-top selectable; FR-025).
+  # T008 spectrum (full harmonic magnitude+phase; out-of-band/sub-floor NaN; FR-001/008).
   # ---------------------------------------------------------------------------
   core/analysis-fft-test.cpp
   core/analysis-window-test.cpp
+  core/analysis-spectrum-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
