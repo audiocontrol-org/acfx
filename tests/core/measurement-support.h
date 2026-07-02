@@ -4,6 +4,18 @@
 // All helpers live in namespace acfx::meastest as inline functions or
 // inline constexpr constants so multiple TUs can include this without
 // ODR violations.  Do NOT add "using namespace ..." in this header.
+//
+// CONSOLIDATION NOTE (harmonic-analysis T020, research.md Decision 8,
+// FR-007): every measurement building block this file uses (SineGenerator,
+// GoertzelAnalyzer/captureCallable, AliasingMeasure/aliasingMeasure) is
+// obtained THROUGH host/analysis/ — via the tests/support/measurement/
+// one-line re-export shims below (relocated by T007) — never via a second,
+// locally-duplicated implementation. `meastest::HarmonicSignature` /
+// `harmonicSignature()` and the saturation composites further down are
+// genuinely new composites BUILT ON TOP of those shipped primitives, not
+// reimplementations of them. Verified T020: no duplicate GoertzelAnalyzer /
+// AliasingMeasure / SineGenerator exists outside host/analysis/ and these
+// shims; host/analysis/ and core/ never include tests/.
 
 #pragma once
 
