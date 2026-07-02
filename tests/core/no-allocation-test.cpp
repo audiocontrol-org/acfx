@@ -254,3 +254,31 @@ TEST_CASE("EnvelopeFollower::process allocates nothing (RMS config)") {
 
     CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
 }
+
+// T021 — the no-heap-allocation-in-process() invariant for EnvelopeFollower with
+// decoupled topology and smooth variant (SC-007, FR-016). Mirrors the peak/RMS
+// cases above (T014/T017): init(), setMode(), setBallistics(), setSmooth(),
+// setAttack(), and setRelease() run OUTSIDE the sentinel scope (control-thread
+// configuration, may allocate). Only process() itself is asserted allocation-free,
+// driven with a decoupled+smooth config (peak detection, decoupled ballistics,
+// smooth variant enabled) and realistic attack/release times over a few hundred
+// samples of varying input levels.
+TEST_CASE("EnvelopeFollower::process allocates nothing (decoupled+smooth config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::peak);                // peak detection
+    env.setBallistics(Ballistics::decoupled);     // decoupled ballistics
+    env.setSmooth(true);                          // smooth variant enabled
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with varying levels (sine-like sweep): low, high, low, …
+        const float x = (i % 2 == 0) ? 0.3f : 0.8f;
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
