@@ -1,5 +1,4 @@
 ---
-
 description: "Task list for envelope-followers — dynamics level-detector primitive"
 ---
 
@@ -41,7 +40,7 @@ locks, bounded — Constitution VI).
 - [x] T001 [tier:balanced] Create `core/labs/envelope-follower/README.md` — ballistics theory (peak / RMS / peak-hold; branching vs decoupled + smooth variant; one-pole `a = exp(−1/(τ·fs))` with the 1 − 1/e convention; −120 dBFS dB floor) and a walkthrough naming `core/primitives/dynamics/` as the graduation target.
 - [x] T002 [tier:balanced] Create `core/labs/envelope-follower/envelope-follower.h` — kernel skeleton: `namespace acfx`, enums `DetectMode{peak,rms,peakHold}` / `Ballistics{branching,decoupled}` / `DetectDomain{linear,decibel}`, and the `EnvelopeFollower` class **declaration** with all methods from `contracts/envelope-follower-api.md` as `noexcept` stubs; includes limited to `<cmath>`/`<cstdint>`/`core/dsp/`.
 - [x] T003 [P] [tier:fast] Create `core/labs/envelope-follower/harness/envelope-follower-harness.cpp` (host-only stub) and wire its build target in `CMakeLists.txt`, mirroring the existing lab harness targets.
-- [x] T004 [P] [tier:fast] Register the five test files in `tests/CMakeLists.txt`: `envelope-follower-test.cpp`, `envelope-follower-ballistics-test.cpp`, `envelope-follower-rms-test.cpp`, `envelope-follower-hold-test.cpp`, `envelope-follower-db-test.cpp`.
+- [x] T004 [P] [tier:fast] Register the envelope-follower test files in `tests/CMakeLists.txt`: `envelope-follower-test.cpp`, `envelope-follower-ballistics-test.cpp`, `envelope-follower-rms-test.cpp`, `envelope-follower-hold-test.cpp`, `envelope-follower-db-test.cpp` (five at authoring; a sixth, `envelope-follower-lowfs-test.cpp`, was split out of the ballistics suite during T034 for the file-size budget — six total).
 - [x] T005 [P] [tier:balanced] Extend `scripts/check-portability.sh` with coverage markers `C-EF-PRIM` (`core/primitives/dynamics/**` gate-ready: platform-free, harness-free) and `C-EF-LAB` (`core/labs/envelope-follower/*.h` kernel headers harness-free), per FR-021.
 
 ---

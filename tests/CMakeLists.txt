@@ -86,8 +86,9 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   # Envelope-follower primitive test suites (envelope-followers feature):
   # appended by their authoring tasks. T009 interface/peak, T010 ballistics
-  # timing, T015 rms, T022 peak-hold, T025 db-domain. Each task adds its own
-  # core/envelope-follower-*-test.cpp line below.
+  # timing, T015 rms, T022 peak-hold, T025 db-domain, plus the low-sample-rate
+  # characterization split out of the ballistics suite for the file-size budget
+  # (FR-022) — six files total.
   # ---------------------------------------------------------------------------
   core/envelope-follower-test.cpp
   core/envelope-follower-ballistics-test.cpp
