@@ -1,11 +1,13 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <memory>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include ACFX_EFFECT_HEADER
+#include "plugin-editor.h"
 #include "plugin-parameters.h"
 #include "processor-node/processor-node.h"
 
@@ -13,6 +15,12 @@
 // workbench uses — EffectNode<SvfEffect> — adding only JUCE plugin glue and the
 // host-automation parameters generated from the effect's descriptor table. One
 // processor, exported as VST3 / AU / CLAP by the build (T028).
+//
+// Also owns the RT capture probe (T031, US5, FR-014/FR-016): processBlock() pushes
+// the post-effect output into it (bounded, lock-free, RT-safe -- no analysis on
+// the audio thread), and createEditor() returns a PluginEditor that drains it
+// through the SAME shared acfx::analysis::LiveReadout engine the workbench uses
+// (see plugin-editor.h).
 
 namespace acfx::plugin {
 
@@ -51,11 +59,27 @@ public:
     void getStateInformation(juce::MemoryBlock&) override {}
     void setStateInformation(const void*, int) override {}
 
+    // MESSAGE THREAD (or the host's audio-setup thread — never the RT audio
+    // callback): the RT capture probe processBlock() pushes into, and the sample
+    // rate prepareToPlay() last configured. PluginEditor reads both — see
+    // plugin-editor.h for why it pulls rather than being pushed to.
+    HarmonicProbe& harmonicProbe() noexcept { return harmonicProbe_; }
+    double currentSampleRate() const noexcept {
+        return currentSampleRate_.load(std::memory_order_relaxed);
+    }
+
 private:
     static constexpr int kMaxChannels = 8;
 
     EffectNode<AppEffect> node_;
     PluginParameters parameters_;
+
+    // Live harmonic readout (T031, US5, FR-014/FR-016): the RT capture probe --
+    // the ONLY thing the audio thread touches (push(), in processBlock) -- plus
+    // the sample rate the message-thread editor needs to (re)build the shared
+    // LiveReadout. Never touched by the offline/embedded analysis engine itself.
+    HarmonicProbe harmonicProbe_;
+    std::atomic<double> currentSampleRate_{48000.0};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginProcessor)
 };

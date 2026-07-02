@@ -11,6 +11,7 @@
 set(_acfx_plugin_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/plugin-processor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/plugin-parameters.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin-editor.cpp
 )
 
 # SVF — preserve the existing target name, product, code, and CLAP id exactly.
@@ -36,3 +37,11 @@ acfx_add_effect_plugin(
   CLAP_FEATURES audio-effect delay
   SOURCES ${_acfx_plugin_sources}
 )
+
+# Live harmonic readout (T031, US5, FR-014/FR-016): both plugin targets include
+# plugin-editor.{h,cpp}, which reaches host/analysis/live-readout.h (the shared
+# engine) and core/primitives/analysis/capture-probe.h (the RT probe). acfx_core
+# is already linked by acfx_add_effect_plugin above; acfx_analysis is the one
+# addition this feature needs (mirrors adapters/workbench/CMakeLists.txt exactly).
+target_link_libraries(acfx_plugin PRIVATE acfx_analysis)
+target_link_libraries(acfx_plugin_delay PRIVATE acfx_analysis)
