@@ -60,11 +60,13 @@ add_executable(acfx_core_tests
   # T005 window (default Blackman-Harris; Hann/flat-top selectable; FR-025).
   # T008 spectrum (full harmonic magnitude+phase; out-of-band/sub-floor NaN; FR-001/008).
   # T010 thdn (THD+N residual method + noise-floor/SNR; no-fundamental NaN; FR-002/008).
+  # T012 goertzel parity (retained exact known-bin Goertzel path; FR-007/010).
   # ---------------------------------------------------------------------------
   core/analysis-fft-test.cpp
   core/analysis-window-test.cpp
   core/analysis-spectrum-test.cpp
   core/analysis-thdn-test.cpp
+  core/analysis-goertzel-parity-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
