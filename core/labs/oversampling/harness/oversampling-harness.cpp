@@ -17,6 +17,11 @@
 //   (d) OPTIONAL: --csv flag for a machine-readable CSV dump of all three
 //       sections (default: human-readable tables only).
 //
+// CONSOLIDATION NOTE (harmonic-analysis T023): Measurement routed exclusively
+// through the shared host/analysis toolkit (acfx::measure::GoertzelAnalyzer +
+// meastest::aliasingMeasure); no self-contained spectral engine or duplicate
+// aliasing implementation exists in this harness.
+//
 // Mirrors core/labs/saturation/harness/saturation-harness.cpp: unlike the
 // SVF/waveshaping harnesses (self-contained per the SVF-harness precedent),
 // this harness drives its measurements through the shared measurement
