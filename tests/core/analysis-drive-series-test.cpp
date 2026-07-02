@@ -172,7 +172,7 @@ TEST_CASE("driveSeries: 2nd/4th/5th-harmonic curves stay near the measurement fl
     }
 }
 
-TEST_CASE("driveSeries: linear system (drive=0 only) -> THD and every harmonic ~0 (no distortion)") {
+TEST_CASE("driveSeries: linear system (drive=0 only) -> THD and every non-fundamental harmonic ~0 (no distortion)") {
     const DriveRange range{/*startDrive=*/0.0, /*stopDrive=*/0.0, /*numSteps=*/1};
     const DriveSeries series = driveSeries(cubic, range, /*numHarmonics=*/5);
 
@@ -181,8 +181,15 @@ TEST_CASE("driveSeries: linear system (drive=0 only) -> THD and every harmonic ~
     CHECK(series.thd[0] < kAbsentCeiling);
 
     REQUIRE(series.harmonic.size() == 5);
-    for (const auto& curve : series.harmonic) {
-        REQUIRE(curve.size() == 1);
-        CHECK(curve[0] < kAbsentCeiling);
+    // Index 0 == the FUNDAMENTAL (k=1): at drive=0 the cubic collapses to a
+    // linear pass-through, so the fundamental naturally carries the full
+    // stimulus amplitude (kA, ~0.5) -- it is NOT expected to be near zero.
+    // Only the harmonics (k=2..5, indices 1..4) carry no energy for a linear
+    // system; those are the ones this "no distortion" case asserts on.
+    REQUIRE(series.harmonic[0].size() == 1);
+    CHECK(series.harmonic[0][0] == doctest::Approx(kA).epsilon(kRelTol));
+    for (std::size_t idx = 1; idx < series.harmonic.size(); ++idx) {
+        REQUIRE(series.harmonic[idx].size() == 1);
+        CHECK(series.harmonic[idx][0] < kAbsentCeiling);
     }
 }
