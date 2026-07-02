@@ -50,6 +50,19 @@ if(TARGET DaisySP)
 endif()
 
 # ---------------------------------------------------------------------------
+# acfx_analysis -- the host-only harmonic-analysis engine (harmonic-analysis
+# feature, host/analysis/). Header-only (INTERFACE), like acfx_core: puts
+# host/ on the include path so headers are included as
+# "#include "analysis/window.h"" (mirroring acfx_core's core/ ->
+# "primitives/..."). HOST-ONLY: never linked by MCU/core targets, only by
+# acfx_core_tests here; desktop adapters link it when the live readout lands.
+# ---------------------------------------------------------------------------
+add_library(acfx_analysis INTERFACE)
+add_library(acfx::analysis ALIAS acfx_analysis)
+target_include_directories(acfx_analysis INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/host")
+target_compile_features(acfx_analysis INTERFACE cxx_std_17)
+
+# ---------------------------------------------------------------------------
 # Subdirectories, gated by the build-surface options.
 # ---------------------------------------------------------------------------
 if(ACFX_BUILD_DESKTOP)
@@ -101,7 +114,7 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   add_executable(acfx_lab_waveshaping_harness
     core/labs/waveshaping/harness/waveshaping-harness.cpp
   )
-  target_link_libraries(acfx_lab_waveshaping_harness PRIVATE acfx_core)
+  target_link_libraries(acfx_lab_waveshaping_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_waveshaping_harness PRIVATE cxx_std_20)
 
   # Saturation lab harness — same linkage as the two harnesses above, plus the
@@ -116,7 +129,10 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
     core/labs/saturation/harness/saturation-harness.cpp
   )
   target_include_directories(acfx_lab_saturation_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
-  target_link_libraries(acfx_lab_saturation_harness PRIVATE acfx_core)
+  # acfx_analysis: this harness includes core/measurement-support.h, which
+  # includes the tests/support/measurement/*.h re-export shims that now
+  # forward to host/analysis/*.h (harmonic-analysis T007, analyze finding F1).
+  target_link_libraries(acfx_lab_saturation_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_saturation_harness PRIVATE cxx_std_20)
 
   # Oversampling lab harness — same linkage as acfx_lab_saturation_harness,
@@ -131,6 +147,9 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
     core/labs/oversampling/harness/oversampling-harness.cpp
   )
   target_include_directories(acfx_lab_oversampling_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
-  target_link_libraries(acfx_lab_oversampling_harness PRIVATE acfx_core)
+  # acfx_analysis: this harness includes core/measurement-support.h, which
+  # includes the tests/support/measurement/*.h re-export shims that now
+  # forward to host/analysis/*.h (harmonic-analysis T007, analyze finding F1).
+  target_link_libraries(acfx_lab_oversampling_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_oversampling_harness PRIVATE cxx_std_20)
 endif()

@@ -37,6 +37,12 @@
 #   C-OS-LAB. Oversampling lab kernel headers (core/labs/oversampling/*.h, non-harness) are
 #      platform-free — explicit named coverage per FR-022 (T002); passes vacuously when the
 #      directory is absent, empty, or contains no non-harness kernel headers
+#   C-AN-PRIM. core/primitives/analysis/ (when present) is gate-ready: platform-free,
+#      harness-free — explicit named coverage per FR-022 (harmonic-analysis T002); passes
+#      vacuously when the directory contains only a README (no headers yet)
+#   C-AN-DIR. Dependency direction: nothing under core/ includes host/analysis/ or
+#      adapters/ — the portable core never reaches the host analysis engine or adapters
+#      (Constitution IV; harmonic-analysis plan § Structure Decision, T002)
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -254,6 +260,43 @@ else
   done <<< "$_coslab_files"
   [ "$_coslab_fail" -eq 0 ] && note "  OK: oversampling lab kernel headers are platform-free"
 fi
+
+note "== C-AN-PRIM. core/primitives/analysis: gate-ready when present (FR-022/T002) =="
+_canprim_files=$(find core/primitives/analysis -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_canprim_files" ]; then
+  note "  OK (vacuous): core/primitives/analysis/ absent or empty (README only) — gate ready"
+else
+  _canprim_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: analysis primitive includes a platform header"
+      _canprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: analysis primitive includes a harness path"
+      _canprim_fail=1
+      fail=1
+    fi
+  done <<< "$_canprim_files"
+  [ "$_canprim_fail" -eq 0 ] && note "  OK: core/primitives/analysis/ is platform-free and harness-free"
+fi
+
+note "== C-AN-DIR. core/ never reaches host/analysis or adapters (Constitution IV/T002) =="
+_candir_fail=0
+while IFS= read -r f; do
+  if grep -En '#include.*"?(\.\./)*host/analysis/' "$f" 2>/dev/null; then
+    note "  FAIL $f: core/ includes host/analysis/ (portable core must not reach the host engine)"
+    _candir_fail=1
+    fail=1
+  fi
+  if grep -En '#include.*"?(\.\./)*adapters/' "$f" 2>/dev/null; then
+    note "  FAIL $f: core/ includes adapters/ (portable core must not reach adapters)"
+    _candir_fail=1
+    fail=1
+  fi
+done < <(find core -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+[ "$_candir_fail" -eq 0 ] && note "  OK: core/ does not reach host/analysis/ or adapters/"
 
 if [ "$fail" -eq 0 ]; then
   note ""

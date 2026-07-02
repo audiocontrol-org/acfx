@@ -8,6 +8,7 @@
 
 set(_acfx_workbench_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/workbench-app.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/workbench-main.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/parameter-view.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/audio-source.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/audio-settings.cpp
@@ -15,6 +16,7 @@ set(_acfx_workbench_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/workbench-settings.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/workbench-persistence.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/level-meter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/harmonic-readout.cpp
 )
 
 # SVF — preserve the existing target name + product exactly (no regression).
@@ -34,3 +36,11 @@ acfx_add_effect_workbench(
   PRODUCT "acfx Workbench Delay"
   SOURCES ${_acfx_workbench_sources}
 )
+
+# Live harmonic readout (T030, US5, FR-014/FR-016): both workbench targets
+# include harmonic-readout.{h,cpp}, which reaches host/analysis/live-readout.h
+# (the shared engine) and core/primitives/analysis/capture-probe.h (the RT
+# probe). acfx_core is already linked by acfx_add_effect_workbench above;
+# acfx_analysis is the one addition this feature needs.
+target_link_libraries(acfx_workbench PRIVATE acfx_analysis)
+target_link_libraries(acfx_workbench_delay PRIVATE acfx_analysis)

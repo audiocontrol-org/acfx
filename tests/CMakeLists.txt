@@ -54,6 +54,35 @@ add_executable(acfx_core_tests
   core/oversampler-aliasing-test.cpp
   core/oversampler-response-test.cpp
   core/oversampler-latency-test.cpp
+  # ---------------------------------------------------------------------------
+  # harmonic-analysis feature: host-only analysis engine suites (host/analysis/).
+  # T003 FFT (windowed radix-2 tone reconstruction; non-pow2 rejection; FR-009/026).
+  # T005 window (default Blackman-Harris; Hann/flat-top selectable; FR-025).
+  # T008 spectrum (full harmonic magnitude+phase; out-of-band/sub-floor NaN; FR-001/008).
+  # T010 thdn (THD+N residual method + noise-floor/SNR; no-fundamental NaN; FR-002/008).
+  # T012 goertzel parity (retained exact known-bin Goertzel path; FR-007/010).
+  # T014 imd (twin-tone SMPTE+CCIF difference/sum products; FR-003, US2).
+  # T016 alias-sweep (inharmonic-energy-vs-frequency sweep; FR-004, US2).
+  # T018 drive-series (drive->THD + drive->per-harmonic curves; FR-005, US3).
+  # ---------------------------------------------------------------------------
+  core/analysis-fft-test.cpp
+  core/analysis-window-test.cpp
+  core/analysis-spectrum-test.cpp
+  core/analysis-thdn-test.cpp
+  core/analysis-goertzel-parity-test.cpp
+  core/analysis-imd-test.cpp
+  core/analysis-alias-sweep-test.cpp
+  core/analysis-drive-series-test.cpp
+  # T025 capture-probe (portable-core lock-free SPSC RT capture ring;
+  # overrun/underrun observable; FR-011/012/013, US5). The ONLY audio-path unit
+  # in this feature -- lives in core/primitives/analysis/capture-probe.h.
+  core/capture-probe-test.cpp
+  # T028 live-vs-offline parity (the ONE-ENGINE guarantee; FR-014/015, SC-005,
+  # US5): asserts a metric measured live (through the RT capture probe,
+  # drained + analyzed by the shared host/analysis/live-readout.h) equals the
+  # same metric measured offline (the engine called directly) within a named
+  # tolerance. T029 lands the shared LiveReadout that makes this GREEN.
+  core/analysis-live-offline-parity-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
@@ -61,7 +90,7 @@ target_include_directories(acfx_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
 # adapters/workbench on the include path so the serde test (and its TU) resolve
 # #include "workbench-settings.h".
 target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
-target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host doctest::doctest)
+target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host acfx_analysis doctest::doctest)
 target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
 
 # Per-test-case ctest registration when doctest ships its CMake helper; otherwise

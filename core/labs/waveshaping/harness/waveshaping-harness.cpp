@@ -18,6 +18,9 @@
 #include "primitives/nonlinear/waveshaper-shapes.h"
 #include "primitives/nonlinear/adaa-waveshaper.h"
 
+#include "analysis/analyzers.h"
+#include "dsp/span.h"
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -57,35 +60,6 @@ constexpr float  kAliasDrive  = 4.0f;
 } // namespace
 
 // ---------------------------------------------------------------------------
-// Self-contained Goertzel single-bin magnitude
-//
-// Mirrors acfx::measure::GoertzelAnalyzer::analyze() from
-// tests/support/measurement/analyzers.h (self-contained per SVF harness
-// precedent — no dependency on the tests/ measurement infrastructure).
-//
-// Returns amplitude-normalised magnitude: ~1.0 for a unit-amplitude sine at
-// exactly freqHz, with an integer-cycle window.
-// ---------------------------------------------------------------------------
-
-static double goertzel(const float* buf, int n, double freqHz, double sampleRate)
-{
-    const double w     = 2.0 * kPi * freqHz / sampleRate;
-    const double coeff = 2.0 * std::cos(w);
-
-    double sPrev  = 0.0;
-    double sPrev2 = 0.0;
-    for (int i = 0; i < n; ++i) {
-        const double s = static_cast<double>(buf[i]) + coeff * sPrev - sPrev2;
-        sPrev2 = sPrev;
-        sPrev  = s;
-    }
-
-    const double real = sPrev - sPrev2 * std::cos(w);
-    const double imag = sPrev2 * std::sin(w);
-    return 2.0 * std::sqrt(real * real + imag * imag) / static_cast<double>(n);
-}
-
-// ---------------------------------------------------------------------------
 // Harmonic signature structure and computation
 // ---------------------------------------------------------------------------
 
@@ -121,7 +95,8 @@ static HarmonicSignature computeHarmonicSignature(acfx::Shape shape, const char*
         if (freq >= kSampleRateD * 0.5) {
             sig.magnitudes[h - 1] = 0.0;  // Nyquist cutoff
         } else {
-            sig.magnitudes[h - 1] = goertzel(win, kN, freq, kSampleRateD);
+            acfx::measure::GoertzelAnalyzer analyzer{freq, kSampleRateD};
+            sig.magnitudes[h - 1] = analyzer.analyze(acfx::span<const float>(win, kN)).magnitude;
         }
     }
     return sig;
@@ -176,7 +151,8 @@ static AliasMeasure measureAliasing(const float* buf, int n, double fundHz)
 
     const double nyquist = kSampleRateD * 0.5;
     for (int k = 1; static_cast<double>(k) * fundHz < nyquist; ++k) {
-        const double aK = goertzel(buf, n, static_cast<double>(k) * fundHz, kSampleRateD);
+        acfx::measure::GoertzelAnalyzer analyzer{static_cast<double>(k) * fundHz, kSampleRateD};
+        const double aK = analyzer.analyze(acfx::span<const float>(buf, n)).magnitude;
         harmonicPower += 0.5 * aK * aK;  // sinusoid power = A^2 / 2
     }
 

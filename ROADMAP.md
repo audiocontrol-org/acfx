@@ -145,6 +145,10 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:gap/harmonic-analysis
 - status: planned
+- analyze-clean: yes
+- spec: specs/harmonic-analysis
+- design-approved: yes
+- design: docs/superpowers/specs/2026-07-01-harmonic-analysis-design.md
 - depends-on: multi:feature/phase-digital-fundamentals
 - part-of: multi:feature/phase-nonlinear-dsp
 
