@@ -77,6 +77,12 @@ add_executable(acfx_core_tests
   # overrun/underrun observable; FR-011/012/013, US5). The ONLY audio-path unit
   # in this feature -- lives in core/primitives/analysis/capture-probe.h.
   core/capture-probe-test.cpp
+  # T028 live-vs-offline parity (the ONE-ENGINE guarantee; FR-014/015, SC-005,
+  # US5): asserts a metric measured live (through the RT capture probe,
+  # drained + analyzed by the shared host/analysis/live-readout.h) equals the
+  # same metric measured offline (the engine called directly) within a named
+  # tolerance. T029 lands the shared LiveReadout that makes this GREEN.
+  core/analysis-live-offline-parity-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
