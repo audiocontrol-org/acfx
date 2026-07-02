@@ -21,6 +21,15 @@
 
 **Input**: User description: "Compressors — a dynamics processor for the acfx platform-independent DSP core: the full three-layer vertical (lab + graduated stateless GainComputer primitive + CompressorEffect composing the shipped EnvelopeFollower, SvfPrimitive, and DelayLine). Capture everything the design record specifies (compress/limit/expand/gate; feedforward+feedback; level+gain ballistics sites; external sidechain; sidechain HPF; lookahead; auto-makeup; stereo linking); insert no scope cuts — first-cut sequencing is a later /speckit-clarify pass." (full brief in the design record)
 
+## Clarifications
+
+### Session 2026-07-02
+
+- Q: First graduated/shipped cut — which of the captured catalog lands in this feature's implementation vs stays captured-for-later? → A: Full captured catalog — all modes (compress/limit/expand/gate), both topologies (feedforward/feedback), both ballistics sites (level/gain), external sidechain, sidechain HPF, lookahead, auto-makeup, and stereo linking all land in the first cut (matching the envelope-followers full-catalog precedent).
+- Q: Feedback topology — which signal should the feedback detector read? → A: The post-makeup, pre-mix compressed signal — after the gain multiply and makeup, but before the dry/wet mix and output trim (so mix and output trim stay outside the detection loop).
+- Q: Soft-knee formula — one form across all modes, or per-mode? → A: A single unified quadratic (C¹-continuous) knee straddling the threshold, applied by the same machinery in every mode (above-threshold for compress/limit, below-threshold for expand/gate), reducing exactly to the hard knee at knee = 0.
+- Q: Auto-makeup — what reference model derives the makeup gain? → A: Closed-form `makeup = −computeGainDb(0 dBFS)` (compensate the reduction the curve applies at a 0 dBFS reference), recomputed once per parameter change (no runtime tracking); auto-makeup is 0 for expand/gate (downward-only).
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" of this feature is a **DSP effect author / host integrator** — the developer wiring a compressor into a plugin or embedded target — and the **primitive consumer** who composes the graduated `GainComputer` into other dynamics processors, plus the **lab reader** learning the gain-computer and topology theory. Each story is an independently testable slice.
@@ -232,7 +241,7 @@ A host integrator drives the `CompressorEffect` through the standard `Effect` co
 - **Ratio at extremes**: ratio 1:1 → no compression (unity curve); ratio → ∞ / limit mode → brickwall at threshold; the curve stays finite and monotone.
 - **Feedback cold start**: the feedback detector's first sample (no prior output) uses a defined initial output (silence/floor); the loop must not read uninitialized state or diverge.
 - **Lookahead = 0**: zero added latency, no delay buffer engaged; reported latency is 0.
-- **Auto-makeup with expander/gate modes**: auto-makeup is defined for downward compression/limiting; its behavior (or disablement) for expand/gate is a defined, documented rule (see Deferred Decisions), not undefined.
+- **Auto-makeup with expander/gate modes**: auto-makeup is 0 (disabled) for expand/gate — it is defined only for downward compression/limiting (FR-016) — never undefined.
 - **Sidechain HPF at/above Nyquist or ≤ 0 Hz**: guarded to a defined, stable filter state (bypass at ≤ 0; clamp near Nyquist) — no NaN/Inf, consistent with `SvfPrimitive` guards.
 - **Parameter change mid-stream** (threshold/ratio/attack/…): recomputes coefficients off the audio thread's pending-queue without allocation; click-free enough for control-rate use; no state reset unless `reset()` is called.
 - **Mono input to a linked/stereo config**: linking across one channel degenerates to per-channel (the max over one channel is itself); no special-case failure.
@@ -250,19 +259,19 @@ A host integrator drives the `CompressorEffect` through the standard `Effect` co
 - **FR-004**: In **limit** mode the curve MUST behave as ratio → ∞ (output held at the threshold within the knee).
 - **FR-005**: In **expand** mode below threshold the curve MUST apply downward expansion by the ratio, bounded by the `range` floor (maximum attenuation); above threshold it MUST be unity.
 - **FR-006**: In **gate** mode below the (knee-rounded) threshold the curve MUST attenuate toward the `range` floor; above threshold it MUST be unity.
-- **FR-007**: The system MUST support a configurable **knee** width: knee = 0 gives a hard corner; knee > 0 gives a C¹-continuous (value- and slope-continuous) transition straddling the threshold, reducing exactly to the hard-knee curve as knee → 0.
+- **FR-007**: The system MUST support a configurable **knee** width via a **single unified quadratic (C¹-continuous) knee** straddling the threshold, applied by the same machinery in every mode (above-threshold for compress/limit, below-threshold for expand/gate): knee = 0 gives a hard corner; knee > 0 gives a value- and slope-continuous transition, reducing exactly to the hard-knee curve as knee → 0. (Clarified 2026-07-02 — one form across all modes, not per-mode.)
 
 **CompressorCore (composition kernel)**
 
 - **FR-008**: The system MUST provide a per-channel `CompressorCore` that composes the shipped `EnvelopeFollower` (detection + ballistics + dB domain), `SvfPrimitive` (sidechain highpass), and `DelayLine` (lookahead) — it MUST NOT re-derive detection, filtering, or delay.
 - **FR-009**: `CompressorCore` MUST implement the per-sample signal chain: derive the key (external sidechain or main input) → optional sidechain highpass → detect level → static-curve gain reduction → optional gain-site smoothing → convert to linear gain with makeup → apply to the (optionally delayed) main path → dry/wet mix → output trim.
-- **FR-010**: The system MUST support an enum-selected `Detection` topology of **feedForward** (detector reads the input) and **feedBack** (detector reads the previous output sample, post-gain-reduction); the feedback path MUST use a defined initial output at cold start and MUST remain stable (no divergence/oscillation) for bounded input.
+- **FR-010**: The system MUST support an enum-selected `Detection` topology of **feedForward** (detector reads the input) and **feedBack** (detector reads the previous **post-makeup, pre-mix** output sample — after the gain multiply and makeup gain but **before** the dry/wet mix and output trim, so those stay outside the detection loop; Clarified 2026-07-02); the feedback path MUST use a defined initial output at cold start and MUST remain stable (no divergence/oscillation) for bounded input.
 - **FR-011**: The system MUST support an enum-selected `BallisticsSite` of **level** (attack/release applied to the detected level via the `EnvelopeFollower`; the static curve is instantaneous) and **gain** (the static curve maps the ~instantaneous level; a second smoother applies attack/release to the gain-reduction signal).
 - **FR-012**: The system MUST support selecting the detector mode (**peak** / **rms**) used for detection, delegating to the composed `EnvelopeFollower`.
 - **FR-013**: The system MUST support a pre-detector **sidechain highpass** (cutoff in Hz; 0 = bypass) applied to the key signal only, via the composed `SvfPrimitive`, leaving the main path unaffected.
 - **FR-014**: The system MUST support an **external sidechain** (key) input: when supplied, detection reads the key; when absent, detection reads the main input.
 - **FR-015**: The system MUST support **lookahead**: the main path is delayed by `round(lookaheadMs·fs)` samples via the composed `DelayLine` (buffer sized in `prepare()`), and the resulting latency MUST be reported to the host; lookahead = 0 adds no latency and engages no delay.
-- **FR-016**: The system MUST support **makeup** gain — manual (dB) and an **auto** mode derived from the threshold/ratio per a defined reference model — a dry/wet **mix** (parallel compression; 0 = dry, 1 = fully compressed), and a final **output** trim (dB).
+- **FR-016**: The system MUST support **makeup** gain — manual (dB) and an **auto** mode computed as the closed-form `makeup = −computeGainDb(0 dBFS)` (compensating the gain reduction the curve applies at a 0 dBFS reference), recomputed once per parameter change with no runtime tracking; auto-makeup MUST be 0 in expand/gate modes (downward-only). (Clarified 2026-07-02.) It MUST also support a dry/wet **mix** (parallel compression; 0 = dry, 1 = fully compressed) and a final **output** trim (dB).
 - **FR-017**: The system MUST support **stereo/multichannel linking**: **linked** detection drives a single common gain from the max detector value across linked channels; **perChannel** detection is independent per channel. Linking over a single channel degenerates to per-channel.
 
 **CompressorEffect (host-facing wrapper)**
@@ -324,20 +333,20 @@ A host integrator drives the `CompressorEffect` through the standard `Effect` co
 - **Consumers call `process()` per block** through the `Effect` contract (the established idiom); `CompressorCore::process()` is the per-sample loop body — matching `SaturationEffect`/`SvfEffect`.
 - **The composed primitives are shipped and reused as-is**: `EnvelopeFollower` (`core/primitives/dynamics/envelope-follower.h`), `SvfPrimitive` (`core/primitives/filters/svf-primitive.h`), and `DelayLine` (`core/primitives/delays/delay-line.h`). Detection ballistics, dB-domain handling, and the −120 dBFS floor are inherited from `EnvelopeFollower`.
 - **Validation reuses the shipped measurement (stimulus/response) infrastructure** (`tests/core/measurement-*`, `measurement-support.h`, `tests/support/svf-reference.h`) for static-curve, step-response, and latency assertions, following the `svf-reference` named-tolerance pattern.
-- **The full captured catalog is the design scope, not necessarily the first-cut scope**: all modes (compress/limit/expand/gate), both topologies (feedforward/feedback), both ballistics sites (level/gain), external sidechain, sidechain HPF, lookahead, auto-makeup, and stereo linking are captured; **which land in the first graduated/shipped cut is an explicit `/speckit-clarify` sequencing pass** (see Deferred Decisions) — captured, not cut.
+- **The full captured catalog IS the first-cut scope** (Clarified 2026-07-02): all modes (compress/limit/expand/gate), both topologies (feedforward/feedback), both ballistics sites (level/gain), external sidechain, sidechain HPF, lookahead, auto-makeup, and stereo linking all land in this feature's implementation — nothing is deferred to a follow-on, matching the envelope-followers full-catalog precedent.
 - **Default configuration** on `prepare()` is a downward compressor: feedforward, level-smoothed, a default detector mode, hard knee, manual (0 dB) makeup, mix = 1, per-channel linking, no sidechain HPF, no external key, no lookahead — so a host that only sets threshold/ratio/attack/release gets a working compressor.
 - **The gain application is a per-sample linear multiply** folded into `CompressorCore`; no separate stateful VCA-envelope primitive is graduated in this feature (that taxonomy entry remains available for a later item).
 - **Dependency**: `multi:feature/phase-nonlinear-dsp` is complete; the `EnvelopeFollower`/`SvfPrimitive`/`DelayLine` primitives, the measurement infrastructure, and the three-layer/portability tooling are shipped.
 
 ## Deferred Decisions *(for `/speckit-clarify` and `/speckit-plan`)*
 
-Captured per the capture-over-YAGNI house rule — parked for an explicit later scoping pass, **not** discarded. These do not change the design scope; they resolve sequencing and parameterization detail:
+Four of the design-record open questions were resolved in the 2026-07-02 clarification session
+(see `## Clarifications` and the folded FR-007/FR-010/FR-016 and Assumptions updates: first-cut =
+full catalog, feedback tap = post-makeup/pre-mix, unified quadratic knee across modes, auto-makeup =
+closed-form at 0 dBFS / off for expand-gate). The remaining items are parameterization/structure
+detail parked for `/speckit-plan` — captured, not discarded, and not scope-affecting:
 
-- **First graduated/shipped cut.** Which of the captured catalog (feedback topology, the gain ballistics site, expand/gate modes, external sidechain, sidechain HPF, lookahead, auto-makeup, stereo linking) lands in the first cut vs stays captured-for-later. A sequencing decision.
 - **Effect-wrapper file split.** Whether the ~17-parameter `compressor-effect.h` exceeds the ~300–500 line guideline and how it splits (parameter-table header + apply/denormalize header) — an FR-028 planning decision.
-- **Feedback path definition.** Exactly which output the feedback detector reads (post-makeup, post-mix, or pre-mix) and how the one-sample feedback delay interacts with the ballistics site and lookahead.
-- **Ratio / limit parameterization.** Whether `limit` is a distinct `GainMode` or the ratio's ∞ end, and the ratio parameter's skew mapping (log/skewed 1:1…∞:1) for usable control.
-- **Soft-knee formula across modes.** Whether the same quadratic soft-knee blend applies identically to expand/gate (knee below threshold) or needs a per-mode form, and how `range` and `knee` interact for the gate.
-- **Auto-makeup model.** The reference model for auto-makeup (e.g. gain reduction at a reference level such as −20 dBFS, or a threshold/ratio closed form), whether it tracks parameters live or is computed per parameter change, and its defined behavior in expand/gate modes.
+- **Ratio / limit parameterization.** Given `limit` is a distinct `GainMode` (FR-002/FR-004), the ratio parameter's skew mapping (log/skewed 1:1…∞:1) for usable control and how `range` and `knee` interact for the gate.
 - **Stereo-link detail.** Whether linking offers only max or also sum/average, and whether the sidechain HPF / external key is per-channel or shared across a linked group.
 - **Detector defaults per topology.** Whether feedback defaults to a different detector mode / ballistics than feedforward, given feedback's inherent smoothing.
