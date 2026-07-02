@@ -95,16 +95,27 @@ void addSine(std::vector<float>& out, double freqHz, double sampleRate, double a
 }
 
 // Analytic prediction for the Goertzel/DFT phase readout of a pure
-// sin(w*n + phaseParam) component (negative-exponent DFT convention, per
-// analyzers.h's GoertzelAnalyzer doc comment): the readout phase is
-// phaseParam - pi/2 (derivation: X[k] = sum x[n]*e^{-jwn} for an
-// integer-cycle window reduces to (A*N/2) * e^{j(phaseParam - pi/2)}).
-// Independently verified in measurement-response-test.cpp's
-// "Goertzel phase tracks a known phase offset" case (phase DIFFERENCES
-// track exactly); this derives the ABSOLUTE constant so a single-harmonic
-// phase can be asserted directly rather than only a relative offset.
-double expectedGoertzelPhase(double phaseParam) {
-    return wrapToPi(phaseParam - kHalfPi);
+// sin(w*n + phaseParam) component, `N` samples long, at `freqHz` (negative-
+// exponent DFT convention, per analyzers.h's GoertzelAnalyzer doc comment).
+//
+// Two contributions:
+//   1. A continuous-time-style DFT anchored at n=0 would read back
+//      (phaseParam - pi/2): X[k] = sum x[n]*e^{-jwn} for an integer-cycle
+//      window reduces to (A*N/2) * e^{j(phaseParam - pi/2)}.
+//   2. GoertzelAnalyzer's recursion (analyzers.h) anchors its output phase
+//      at the LAST sample of the block (n = N-1), not n = 0 -- a standard
+//      property of the Goertzel recursion (real = sPrev - sPrev2*cos(w),
+//      imag = sPrev2*sin(w), evaluated after the final iteration). That
+//      shifts the readout by an additional +w*(N-1) term. (This convention-
+//      dependent term is exactly why measurement-response-test.cpp's
+//      "Goertzel phase tracks a known phase offset" case only ever asserts
+//      on a phase DIFFERENCE between two same-frequency readouts -- the term
+//      is identical for both and cancels. It does NOT cancel here because
+//      each harmonic k has a different w = 2*pi*k*fundamentalHz/sampleRate,
+//      so it must be included explicitly per harmonic.)
+double expectedGoertzelPhase(double freqHz, double sampleRate, std::size_t n, double phaseParam) {
+    const double omega = 2.0 * kPi * freqHz / sampleRate;
+    return wrapToPi(phaseParam - kHalfPi + omega * (static_cast<double>(n) - 1.0));
 }
 
 } // namespace
@@ -148,7 +159,9 @@ TEST_CASE("harmonicSpectrum: symmetric (odd-only) signal -- odd harmonics presen
         REQUIRE(!std::isnan(bin.magnitude));
         CHECK(bin.magnitude == doctest::Approx(h.amplitude).epsilon(kMagnitudeTolerance));
         REQUIRE(!std::isnan(bin.phaseRad));
-        CHECK(bin.phaseRad == doctest::Approx(expectedGoertzelPhase(h.phaseParam)).epsilon(kPhaseToleranceRad));
+        const double expectedPhase =
+            expectedGoertzelPhase(static_cast<double>(h.k) * kFundHz, kSampleRate, kN, h.phaseParam);
+        CHECK(bin.phaseRad == doctest::Approx(expectedPhase).epsilon(kPhaseToleranceRad));
     }
 
     // Absent even harmonics: near-zero magnitude, undefined (NaN) phase.
@@ -193,7 +206,9 @@ TEST_CASE("harmonicSpectrum: biased/asymmetric signal -- even AND odd harmonics 
         REQUIRE(!std::isnan(bin.magnitude));
         CHECK(bin.magnitude == doctest::Approx(h.amplitude).epsilon(kMagnitudeTolerance));
         REQUIRE(!std::isnan(bin.phaseRad));
-        CHECK(bin.phaseRad == doctest::Approx(expectedGoertzelPhase(h.phaseParam)).epsilon(kPhaseToleranceRad));
+        const double expectedPhase =
+            expectedGoertzelPhase(static_cast<double>(h.k) * kFundHz, kSampleRate, kN, h.phaseParam);
+        CHECK(bin.phaseRad == doctest::Approx(expectedPhase).epsilon(kPhaseToleranceRad));
     }
 
     // 4th harmonic is absent from the synthesized signal: near-zero.
@@ -224,7 +239,8 @@ TEST_CASE("harmonicSpectrum: sub-floor magnitude -> NaN phase, not a spurious va
     REQUIRE(!std::isnan(fundamental.magnitude));
     CHECK(fundamental.magnitude == doctest::Approx(kAmplitude).epsilon(kMagnitudeTolerance));
     REQUIRE(!std::isnan(fundamental.phaseRad));
-    CHECK(fundamental.phaseRad == doctest::Approx(expectedGoertzelPhase(kPhaseParam)).epsilon(kPhaseToleranceRad));
+    const double expectedPhase = expectedGoertzelPhase(kFundHz, kSampleRate, kN, kPhaseParam);
+    CHECK(fundamental.phaseRad == doctest::Approx(expectedPhase).epsilon(kPhaseToleranceRad));
 
     for (int k = 2; k <= kNumHarm; ++k) {
         const HarmonicSpectrum::Bin bin = spectrum.at(k);
