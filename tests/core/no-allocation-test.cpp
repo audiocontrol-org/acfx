@@ -282,3 +282,31 @@ TEST_CASE("EnvelopeFollower::process allocates nothing (decoupled+smooth config)
 
     CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
 }
+
+// T024 — the no-heap-allocation-in-process() invariant for EnvelopeFollower in
+// peak-hold mode (SC-007, FR-016). Mirrors the peak/RMS/decoupled cases above
+// (T014/T017/T021): init(), setMode(), setHold(), setAttack(), and setRelease()
+// run OUTSIDE the sentinel scope (control-thread configuration, may allocate).
+// Only process() itself is asserted allocation-free, driven with a peak-hold
+// config (peak-hold detection mode, 50 ms hold time) and realistic attack/release
+// times over a few hundred samples that drive a peak and then silence to exercise
+// the hold logic.
+TEST_CASE("EnvelopeFollower::process allocates nothing (peak-hold config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::peakHold);            // peak-hold detection
+    env.setHold(0.050f);                          // 50 ms hold time
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with a peak (first 128 samples at 0.8) then silence (remaining 128 at 0.0)
+        // to exercise the hold logic
+        const float x = (i < 128) ? 0.8f : 0.0f;
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
