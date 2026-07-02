@@ -34,3 +34,6 @@ external/.cpm-cache/
 
 # Subagent-driven-development scratch (progress ledger, briefs, review packages)
 .superpowers/
+
+# stack-control execute ledger — local resume-safety state, not shared
+.stack-control/execute/
