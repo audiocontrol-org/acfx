@@ -165,7 +165,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-dynamic-systems
 
 ## design:feature/compressors
-- status: planned
+- status: in-flight
+- design-approved: yes
 - design: docs/superpowers/specs/2026-07-02-compressors-design.md
 - depends-on: multi:feature/phase-nonlinear-dsp
 - part-of: multi:feature/phase-dynamic-systems

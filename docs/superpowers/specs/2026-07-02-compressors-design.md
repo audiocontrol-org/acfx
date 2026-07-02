@@ -2,7 +2,7 @@
 title: Compressors — Dynamics Gain-Computer Primitive + CompressorEffect — Design Record
 date: 2026-07-02
 roadmap-item: design:feature/compressors
-status: proposed
+status: approved
 ---
 
 # Compressors — Gain Computer + Compressor Effect
