@@ -81,18 +81,31 @@ from a **decoupled** (smooth) detector:
   sees a rising input in time to react with the attack coefficient — the
   release-then-attack artifact of the branching detector disappears.
 
-- **Smooth variant** — `setSmooth(true)` applies the *attack* coefficient
-  in **both** stages (Reiss's "smooth decoupled" detector) instead of
-  `aRel` in the release stage:
+- **Smooth variant** — for the decoupled topology, `setSmooth(true)` turns
+  the *release* (first) stage into a one-pole smooth blend **at the
+  release rate** (`aRel`) instead of the base decoupled's hard
+  max-with-decay:
 
-      y1  = max(level, aAtk·y1 + (1 − aAtk)·level)
-      env = aAtk·env + (1 − aAtk)·y1
+      base   (smooth_==false): y1 = max(level, aRel·y1)
+      smooth (smooth_==true):  y1 = max(level, aRel·y1 + (1 − aRel)·level)
+      env    (both cases):     env = aAtk·env + (1 − aAtk)·y1
 
-  This removes the remaining discontinuity at the attack/release seam,
-  trading a small amount of extra release-stage smoothing for a
-  click-free transition. It is the modern default for musical compressors;
-  plain (non-smooth) decoupled and branching remain available for the
-  cheap, MCU-friendly cases (simple gates, minimal footprint).
+  This is the Reiss "smooth decoupled peak detector." The attack stage
+  always uses `aAtk`; only the release stage's smoothness changes — the
+  release stage MUST stay governed by the release coefficient, never the
+  attack coefficient (an earlier loose phrasing of this design, "attack
+  coefficient in both stages," would incorrectly force release to run at
+  the attack rate; corrected during implementation, see
+  `specs/envelope-followers/spec.md` FR-005 and `research.md` Decision 4).
+  The smooth blend removes the remaining discontinuity at the
+  attack/release seam, trading a small amount of extra release-stage
+  smoothing for a click-free transition. It is the modern default for
+  musical compressors; plain (non-smooth) decoupled and branching remain
+  available for the cheap, MCU-friendly cases (simple gates, minimal
+  footprint).
+
+  For the **branching** topology (a single stage) `setSmooth` has no
+  additional stage to smooth and is a **no-op**.
 
 Both topologies are first-class, enum-selected (`Ballistics::branching` /
 `Ballistics::decoupled`), matching the existing `SvfMode`-style idiom in
@@ -177,6 +190,18 @@ meters that don't need it.
 discards musically relevant low-level detail while still guaranteeing the
 returned value is always finite.
 
+**Usage contract — set the domain, then reset.** `setDomain()` only
+switches which conversion `applyDomain()` performs; it does not by itself
+re-baseline runtime state. The dB-domain silence baseline (`env == −120`)
+is established by `clearRuntimeState()`, which only `init()` and `reset()`
+call. Callers that need silence to read exactly −120 dB (rather than the
+linear-domain initial value of `0`) MUST call `setDomain(DetectDomain::decibel)`
+and then `reset()` before the first `process()` call — the same
+init-then-configure-then-reset ordering `envelope-follower-db-test.cpp`
+exercises. Once that baseline is established, silence reads −120 dB and
+every subsequent `applyDomain()` call returns `20·log10(level)` clamped at
+the −120 dB floor, as described above.
+
 ## Walkthrough
 
 The kernel lives in a single header, `envelope-follower.h`, in
@@ -214,7 +239,7 @@ detect: d = (peak)     |x|
           | (peakHold) latch/hold(|x|, holdCounter, heldPeak)
 domain: s = (decibel)  toDb(clamp(d, -120dBFS)) : d
 smooth: env = (branching) branch(s, aAtk, aRel)
-             | (decoupled) attackStage(releaseStage(s, aRel), aAtk[, smooth])
+             | (decoupled) attackStage(releaseStage(s, aRel[, smooth]), aAtk)
 return env
 ```
 
@@ -242,23 +267,31 @@ underlying design rationale and the alternatives considered for each
 decision above are in `specs/envelope-followers/research.md` and the
 design record, `docs/superpowers/specs/2026-07-01-envelope-followers-design.md`.
 
-## Graduation target
+## Graduation status
 
-`envelope-follower.h` graduates from this lab to
+`envelope-follower.h` has **graduated** from this lab to
 **`core/primitives/dynamics/envelope-follower.h`** via `git mv`, in one
-atomic commit alongside updating `core/primitives/README.md` to move
+atomic commit that also updated `core/primitives/README.md` to move
 `dynamics/` from a prospectus family to an inhabited category — this
 primitive is the first inhabitant of `core/primitives/dynamics/`. The
-public contract does not change across the move; only the include path
-does (`core/labs/envelope-follower/envelope-follower.h` →
+public contract did not change across the move; only the include path
+did (`core/labs/envelope-follower/envelope-follower.h` →
 `core/primitives/dynamics/envelope-follower.h`).
 
 Per Constitution IX, the lab folder persists after graduation: this
-README (theory + walkthrough) and the host-only measurement harness stay
-in `core/labs/envelope-follower/`, updated to point at the graduated
-primitive's new location, serving as the living record of how and why the
-primitive works — the same pattern already established by
-`core/labs/waveshaping/` and `core/labs/state-variable-filter/`.
+README (theory + walkthrough) and the host-only measurement harness
+(`harness/envelope-follower-harness.cpp`) stay in
+`core/labs/envelope-follower/`, pointing at the graduated primitive's new
+location and serving as the living record of how and why the primitive
+works — the same pattern already established by `core/labs/waveshaping/`
+and `core/labs/state-variable-filter/`. There is no further graduation
+step pending; the kernel is done, and this lab folder's remaining job is
+documentation (this README) plus the desktop-only measurement harness
+that exercises the graduated header and prints qualitative evidence
+(attack/release timing versus configured values, branching-vs-decoupled
+side-by-side samples, RMS settling to `A/√2`, peak-hold dwell length, and
+the −120 dB floor/level-independence in the dB domain) rather than
+fabricated numbers.
 
 ## How to run
 
