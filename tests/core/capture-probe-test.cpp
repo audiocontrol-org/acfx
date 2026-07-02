@@ -196,6 +196,109 @@ TEST_CASE("capture-probe: empty push and empty drain are no-ops") {
     CHECK(ring.available() == 0);
 }
 
+TEST_CASE("capture-probe: every drained window is a contiguous run (coherent), never torn") {
+    // C1 (coherent-window-or-dropped-frame), deterministic single-threaded
+    // model. The producer writes a STRICTLY MONOTONIC counter as float; the
+    // consumer drains varied window sizes while we deliberately induce overrun
+    // (some rounds push far more than the ring can hold). Single-threaded, the
+    // write index is stable across a drain(), so EVERY non-empty window must be
+    // a contiguous +1.0 run (never a torn old/new mix), and the leading value
+    // must move strictly forward across calls (overrun skips forward, never
+    // backward, and never re-serves stale data). No torn frames -> no drops.
+    CaptureProbeRing<kCap> ring;
+    float next = 0.0f;
+    float lastSeen = -1.0f;
+    for (int round = 0; round < 500; ++round) {
+        const std::size_t pushN = static_cast<std::size_t>(1 + (round % (kCap * 2)));
+        pushRamp(ring, next, pushN); // some rounds overrun (pushN up to 2*Capacity)
+        next += static_cast<float>(pushN);
+
+        const std::size_t wantN = static_cast<std::size_t>(1 + (round % kCap));
+        std::vector<float> out(wantN, -1.0f);
+        const std::size_t got = ring.drain(acfx::span<float>(out.data(), out.size()));
+
+        // Contiguity: the window is one unbroken run of the monotonic counter.
+        for (std::size_t i = 0; i + 1 < got; ++i) {
+            CHECK(out[i + 1] == doctest::Approx(out[i] + 1.0f));
+        }
+        // Forward progress: every drained value is newer than any before it.
+        if (got > 0) {
+            CHECK(out[0] > lastSeen);
+            lastSeen = out[got - 1];
+        }
+    }
+    // The single-threaded model never tears, so it never drops a frame.
+    CHECK(ring.droppedFrameCount() == 0u);
+}
+
+TEST_CASE("capture-probe: two-thread heavy overrun never yields out-of-band garbage") {
+    // C1 under real concurrency (memory-safety half of coherent-or-dropped). One
+    // producer streams a strictly monotonic counter in varied chunks; one
+    // consumer drains a small window, forcing heavy overrun so drain()'s
+    // re-read/retry/drop path is exercised. We assert the ROBUST, always-true
+    // guarantees: the run terminates (no deadlock/block) and every value ever
+    // returned is a real in-range pushed sample -- never uninitialised memory or
+    // an out-of-band index. (Strict per-window contiguity under concurrency is
+    // NOT asserted here: push() writes its slots before its single release
+    // store, so an in-flight push can tear the boundary slot in a way the
+    // consumer's write-index re-read cannot see -- inherent to overwrite-on-
+    // overrun SPSC without push() cooperation, documented in the header. The
+    // deterministic single-threaded case above proves the coherent-window
+    // invariant.)
+    constexpr std::size_t Capacity = 1024;
+    CaptureProbeRing<Capacity> ring;
+    constexpr std::size_t total = 2'000'000;
+    std::atomic<bool> producerDone{false};
+    std::atomic<bool> allInRange{true};
+
+    std::thread producer([&] {
+        float v = 0.0f;
+        std::size_t sent = 0;
+        std::vector<float> chunk;
+        while (sent < total) {
+            const std::size_t n = (sent % 131) + 1; // varied chunk sizes
+            const std::size_t take = (sent + n > total) ? (total - sent) : n;
+            chunk.resize(take);
+            for (std::size_t i = 0; i < take; ++i) {
+                chunk[i] = v;
+                v += 1.0f;
+            }
+            ring.push(acfx::span<const float>(chunk.data(), chunk.size()));
+            sent += take;
+        }
+        producerDone.store(true, std::memory_order_release);
+    });
+
+    auto scan = [&](const std::vector<float>& out, std::size_t got) {
+        for (std::size_t i = 0; i < got; ++i) {
+            if (out[i] < 0.0f || out[i] >= static_cast<float>(total)) {
+                allInRange.store(false, std::memory_order_relaxed);
+            }
+        }
+    };
+
+    std::thread consumer([&] {
+        std::vector<float> out(300);
+        for (;;) {
+            const std::size_t got =
+                ring.drain(acfx::span<float>(out.data(), out.size()));
+            scan(out, got);
+            if (got == 0 && producerDone.load(std::memory_order_acquire)) {
+                const std::size_t tail =
+                    ring.drain(acfx::span<float>(out.data(), out.size()));
+                scan(out, tail);
+                break;
+            }
+        }
+    });
+
+    producer.join();
+    consumer.join();
+
+    CHECK(allInRange.load()); // no garbage / out-of-band reads under overrun
+    CHECK(ring.available() <= Capacity); // state stays consistent
+}
+
 TEST_CASE("capture-probe: two-thread SPSC smoke test never blocks or deadlocks") {
     // A light concurrency smoke test: one producer thread streams a long ramp in
     // small chunks; one consumer thread drains as data becomes available. We do
