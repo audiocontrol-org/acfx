@@ -1,0 +1,5 @@
+{"id":"T001","tierLabel":"fast","model":"haiku","commitRange":"0b31139","reviewClean":true,"note":"scaffold core/primitives/analysis + host/analysis dirs with placeholder READMEs"}
+{"id":"T002","tierLabel":"balanced","model":"sonnet","commitRange":"72ed4f3","reviewClean":true,"note":"check-portability.sh: C-AN-PRIM (platform/harness-free) + C-AN-DIR (core !-> host/analysis|adapters); passes vacuously exit 0"}
+{"id":"T005","tierLabel":"balanced","model":"sonnet","commitRange":"7f1a443","reviewClean":true,"note":"RED window test (default BH, selectable, closed-form coeffs, symmetry); verified RED (header not found)"}
+{"id":"T006","tierLabel":"balanced","model":"sonnet","commitRange":"a2b2036","reviewClean":true,"note":"host/analysis/window.h GREEN + acfx_analysis INTERFACE scaffold (host/ on include path); make test 213/213"}
+{"id":"T003","tierLabel":"balanced","model":"sonnet","commitRange":"343f207","reviewClean":true,"note":"RED FFT test: pow2 reconstruction, DC, two-tone linearity, non-pow2 throws with descriptive msg; verified RED (fft.h missing)"}

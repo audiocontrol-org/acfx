@@ -214,7 +214,13 @@ TEST_CASE("Fft two-tone input shows two distinct peaks (linearity)") {
     constexpr int kBin1 = 10;
     constexpr int kBin2 = 60; // well separated from kBin1: main lobes do not overlap
     constexpr double kAmplitude1 = 1.0;
-    constexpr double kAmplitude2 = 0.6;
+    // Must clear the strong tone's Blackman-Harris main-lobe skirt: the default
+    // window's adjacent bin (bin1 +-1) sits at ~0.68 of the peak, so a second
+    // tone whose amplitude is below that ratio would be out-ranked by the first
+    // tone's own leakage bins and never appear in the top two -- a property of
+    // the window, not the FFT (the naive windowed DFT ranks the bins the same).
+    // 0.85 > 0.68 keeps both tones independently resolvable by magnitude.
+    constexpr double kAmplitude2 = 0.85;
 
     std::vector<float> in(kSize, 0.0f);
     addIntegerCycleSine(in, kBin1, kAmplitude1);
