@@ -73,6 +73,10 @@ add_executable(acfx_core_tests
   core/analysis-imd-test.cpp
   core/analysis-alias-sweep-test.cpp
   core/analysis-drive-series-test.cpp
+  # T025 capture-probe (portable-core lock-free SPSC RT capture ring;
+  # overrun/underrun observable; FR-011/012/013, US5). The ONLY audio-path unit
+  # in this feature -- lives in core/primitives/analysis/capture-probe.h.
+  core/capture-probe-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
