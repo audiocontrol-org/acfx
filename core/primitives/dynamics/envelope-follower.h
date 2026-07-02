@@ -126,7 +126,6 @@ private:
     }
 
     // Ballistics topology-dependent smoother (data-model.md "Smoothing").
-    // decoupled branch is still a passthrough; real smoothing lands in T019/T020.
     float applySmoothing(float value) noexcept {
         switch (ballistics_) {
             case Ballistics::branching: {
@@ -137,9 +136,17 @@ private:
                 const float a = (value > env_) ? aAtk_ : aRel_;
                 return a * env_ + (1.0f - a) * value;
             }
-            case Ballistics::decoupled:
-                // TODO(T019): decoupled two-stage; TODO(T020): smooth variant
-                return value;
+            case Ballistics::decoupled: {
+                // Decoupled peak detector (Reiss). Release stage y1_ then
+                // attack stage. Coeffs are cached (aAtk_/aRel_) by the setters.
+                // Base (smooth_==false): hard max-with-decay release.
+                // Smooth (smooth_==true): one-pole smooth blend release at the
+                // RELEASE rate.
+                const float level = value;
+                y1_ = smooth_ ? std::fmax(level, aRel_ * y1_ + (1.0f - aRel_) * level)
+                              : std::fmax(level, aRel_ * y1_);
+                return aAtk_ * env_ + (1.0f - aAtk_) * y1_;
+            }
         }
         return value;
     }

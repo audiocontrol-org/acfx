@@ -50,11 +50,15 @@ level vs smooth detector topologies).
 
 - **Decision**: `Ballistics { branching, decoupled }` with a `setSmooth(bool)` flag.
   - **Branching**: single state `env`; `a = (level > env) ? aAtk : aRel`; `env = a·env + (1−a)·level`.
-  - **Decoupled**: two states; a release smoother `y1 = max(level, aRel·y1 + (1−aRel)·level)` feeds an
-    attack smoother `env = aAtk·env + (1−aAtk)·y1` — removing the branching detector's
-    release-then-attack tracking artifact.
-  - **Smooth variant**: the attack coefficient is applied in *both* stages (the "smooth decoupled" of
-    the Reiss taxonomy), giving continuous behavior with no discontinuity at the attack/release seam.
+  - **Decoupled** (base, `smooth_==false`): two states; a release stage `y1 = max(level, aRel·y1)`
+    (hard max-with-decay) feeds an attack smoother `env = aAtk·env + (1−aAtk)·y1` — removing the
+    branching detector's release-then-attack tracking artifact.
+  - **Smooth decoupled** (`smooth_==true`): the release stage becomes a one-pole smooth blend at the
+    **release** rate, `y1 = max(level, aRel·y1 + (1−aRel)·level)`, feeding the same attack smoother —
+    the Reiss "smooth decoupled peak detector". (This corrects the design record's loose phrasing
+    "attack coeff in both stages": the release stage MUST stay at the release rate, else release would
+    run at the attack rate. The attack stage always uses `aAtk`; only the release stage's smoothness
+    changes.) For the branching topology the flag is a no-op (single stage).
 - **Rationale**: Branching is the cheapest single-state option (MCU targets, simple gates); decoupled-
   smooth is the modern compressor reference. Capturing both, enum-selected, matches the `SvfMode`
   idiom and serves both consumer classes without a second primitive.
