@@ -89,6 +89,8 @@ add_executable(acfx_core_tests
   # timing, T015 rms, T022 peak-hold, T025 db-domain. Each task adds its own
   # core/envelope-follower-*-test.cpp line below.
   # ---------------------------------------------------------------------------
+  core/envelope-follower-test.cpp
+  core/envelope-follower-ballistics-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
