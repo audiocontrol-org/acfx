@@ -21,6 +21,16 @@
 
 **Input**: User description: "Envelope followers — the dynamics level-detector primitive for the acfx platform-independent DSP core … capture everything it specifies, insert no scope cuts." (full brief in the design record)
 
+## Clarifications
+
+### Session 2026-07-02
+
+- Q: First graduated cut — which modes/topologies/domains land first? → A: Full catalog — all three modes (peak, RMS, peak-hold), both topologies (branching + decoupled, both smooth-capable), and both domains (linear + dB) land in the first graduated primitive.
+- Q: RMS averaging model — how is the moving mean-square computed and what does `setRmsWindow` control? → A: One-pole leaky integrator whose time constant is set independently by `setRmsWindow` (RT-safe O(1), no buffer), decoupled from the attack/release ballistics.
+- Q: dB-domain floor near silence? → A: Fixed floor at −120 dBFS — detected level is clamped to −120 dBFS before the log conversion, so silence reads −120 dB (never −∞).
+- Q: Peak-hold interaction with the decoupled topology? → A: Compose with both — the hold is applied at the detector/latch stage, upstream of the ballistics smoother, so it is topology-independent (works with branching and decoupled).
+- Q: Time-constant convention for RMS? → A: Identical convention — attack/release use the same `coeff = exp(−1/(τ·fs))` mapping in every mode; the RMS mean-square averaging is a separate stage governed by `setRmsWindow`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" of this primitive is a **DSP effect author / downstream primitive consumer** — the
@@ -131,7 +141,7 @@ level.
 **Acceptance Scenarios**:
 
 1. **Given** decibel domain with a fixed attack time, **When** two steps of different amplitude are applied, **Then** the measured attack time (to ~63% of the dB change) is the same for both within tolerance.
-2. **Given** decibel domain, **When** the input is at or below the detection floor, **Then** the returned dB value is clamped to the floor rather than −∞ (see Deferred Decisions for the floor level).
+2. **Given** decibel domain, **When** the input is at or below −120 dBFS, **Then** the returned dB value is clamped to the −120 dBFS floor rather than −∞.
 
 ---
 
@@ -160,7 +170,7 @@ both new paths.
 
 ### Edge Cases
 
-- **Silence / zero input**: linear envelope must settle to exactly 0 with no NaN/Inf; dB-domain envelope must clamp to the floor, not −∞.
+- **Silence / zero input**: linear envelope must settle to exactly 0 with no NaN/Inf; dB-domain envelope must clamp to the −120 dBFS floor, not −∞.
 - **First sample after `init()`/`reset()`**: state is defined and deterministic (envelope starts from 0); no uninitialized read.
 - **Very short time constants at low sample rate** (e.g., attack shorter than a sample period at 32 kHz on MCU): the coefficient must remain finite and stable (bounded to [0, 1)); behavior is characterized (see Deferred Decisions).
 - **DC input**: peak → |DC|; RMS → |DC|; a DC-blocked path is NOT part of this primitive (that is the consumer's concern).
@@ -182,16 +192,16 @@ both new paths.
 - **FR-006**: The system MUST support selecting the detection domain among **linear** (base contract) and **decibel** (convert to dB before smoothing) via an enum-selected `setDomain`.
 - **FR-007**: The system MUST accept attack and release times in **seconds** (`setAttack`, `setRelease`), interpreted as the time to reach **1 − 1/e (~63%)** of a step target.
 - **FR-008**: The system MUST accept a **hold** time in seconds (`setHold`), effective in peak-hold mode and ignored in other modes.
-- **FR-009**: The system MUST accept an **RMS window / averaging** control (`setRmsWindow`) governing the RMS mean-square accumulation (exact averaging model deferred — see Deferred Decisions).
+- **FR-009**: The system MUST accept an **RMS window** control (`setRmsWindow`) that sets the time constant of a **one-pole leaky integrator** performing the RMS mean-square accumulation. The RMS window is **independent** of the attack/release ballistics (it is not derived from release). No buffer is used; the integrator is O(1) and allocation-free.
 - **FR-010**: `reset()` MUST clear all detector and smoother state to a defined initial condition (envelope 0), safe to call while the stream is stopped.
 
 **Signal processing**
 
-- **FR-011**: In peak mode the detector MUST rectify to `|x|`; in RMS mode it MUST square to `x²`, accumulate a moving mean-square, and take the square root to return amplitude (in the linear domain); in peak-hold mode it MUST latch `|x|` peaks and apply the hold timer before release.
-- **FR-012**: In the decibel domain the detector MUST convert the detected level to dB **before** the ballistics smoothing, and return the smoothed dB value (with a defined floor near zero — see Deferred Decisions).
-- **FR-013**: Attack/release one-pole coefficients MUST be computed as `coeff = exp(−1/(τ·sampleRate))` (or an equivalent characterized mapping) and cached in the `set*` methods; they MUST NOT be recomputed per sample.
+- **FR-011**: In peak mode the detector MUST rectify to `|x|`; in RMS mode it MUST square to `x²`, accumulate the moving mean-square via a **one-pole leaky integrator** (time constant per `setRmsWindow`, FR-009), and take the square root to return amplitude (in the linear domain); in peak-hold mode it MUST latch `|x|` peaks and apply the hold timer before release.
+- **FR-012**: In the decibel domain the detector MUST clamp the detected level to a fixed floor of **−120 dBFS** and then convert to dB **before** the ballistics smoothing, returning the smoothed dB value; a level at or below the floor MUST return −120 dB (never −∞).
+- **FR-013**: Attack/release one-pole coefficients MUST be computed as `coeff = exp(−1/(τ·sampleRate))` and cached in the `set*` methods; they MUST NOT be recomputed per sample. This mapping MUST be **identical across all detection modes** — the RMS mean-square averaging (FR-009/FR-011) is a separate stage and does NOT alter the attack/release convention.
 - **FR-014**: The branching topology MUST use the attack coefficient when the (rectified/converted) input exceeds the current envelope and the release coefficient otherwise; the decoupled topology MUST route the level through a release smoother and then an attack smoother.
-- **FR-015**: The peak-hold hold duration MUST be realized as a sample counter derived once (in `setHold`/`init`), not recomputed per sample; a new higher peak during the hold window MUST update the held value and restart the hold window.
+- **FR-015**: The peak-hold hold duration MUST be realized as a sample counter derived once (in `setHold`/`init`), not recomputed per sample; a new higher peak during the hold window MUST update the held value and restart the hold window. The hold MUST be applied at the **detector/latch stage, upstream of the ballistics smoother**, so it is **topology-independent** (composes with both branching and decoupled).
 
 **Real-time safety & portability**
 
@@ -229,7 +239,7 @@ both new paths.
 - **SC-005**: In peak-hold mode, a detected peak is held within tolerance for the configured hold time (± one control period) before the release begins.
 - **SC-006**: In the decibel domain, the measured attack time (to ~63% of the dB change) is equal across two input levels differing by ≥ 20 dB, within tolerance — demonstrating level-independent time constants; the linear domain does not exhibit this equality.
 - **SC-007**: A no-allocation test confirms zero heap allocation on the `process()` path across all modes, topologies, and domains.
-- **SC-008**: No input (silence, DC, impulse, low-sample-rate short-τ) produces a NaN/Inf output in any configuration; the linear envelope of silence is exactly 0 and the dB envelope of silence equals the defined floor.
+- **SC-008**: No input (silence, DC, impulse, low-sample-rate short-τ) produces a NaN/Inf output in any configuration; the linear envelope of silence is exactly 0 and the dB envelope of silence equals −120 dBFS (the floor).
 - **SC-009**: The portability gate passes over `core/labs/envelope-follower/**` and `core/primitives/dynamics/**` (harness isolation, dependency direction, platform independence, file size), and `dynamics/` is documented as inhabited in `core/primitives/README.md`.
 - **SC-010**: The graduation lands the category directory and its first inhabitant in a single atomic commit, with the lab (README + kernel + host-only harness) present and no portable unit including a harness.
 
@@ -237,19 +247,18 @@ both new paths.
 
 - **Consumers call `process()` per sample** (the established primitive contract); block processing, if any, is the consumer's loop — not this primitive's concern.
 - **Validation reuses the shipped measurement (stimulus/response) infrastructure** (`tests/core/measurement-*`, `measurement-support.h`, `tests/support/svf-reference.h`) for step/response and sine-envelope assertions, following the `svf-reference` named-tolerance pattern.
-- **The full mode/topology/domain catalog is captured in this spec.** Which subset lands in the *first graduated cut* is a planning/sequencing decision, not a scope cut (see Deferred Decisions); the design record captures everything per the capture-over-YAGNI house rule.
-- **Time-constant convention** is the 1 − 1/e (~63%) seconds convention for the one-pole smoothers; whether it is applied identically to RMS (whose effective constant is shaped by the mean-square stage) is a Deferred Decision.
+- **The full mode/topology/domain catalog lands in the first graduated cut** (Clarifications 2026-07-02): all three modes, both topologies (both smooth-capable), and both domains ship in the first graduated primitive — no subset is deferred.
+- **Time-constant convention** is the 1 − 1/e (~63%) seconds convention for the one-pole smoothers, applied **identically across all modes** (Clarifications 2026-07-02); the RMS mean-square averaging is a separate one-pole stage governed by `setRmsWindow` and does not alter the attack/release convention.
 - **Default configuration** on `init()` is peak mode, branching topology, non-smooth, linear domain, with implementation-chosen default attack/release — so a consumer that only calls `init()` + `process()` gets a working peak follower (US1).
 - **Dependency**: `multi:feature/phase-nonlinear-dsp` is complete; the measurement infrastructure and the three-layer/portability tooling it relies on are shipped.
 
-## Deferred Decisions *(for `/speckit-clarify`)*
+## Deferred Decisions *(for `/speckit-plan`)*
 
-Captured (not resolved) per the capture-over-YAGNI house rule; the design record parks these and
-`/speckit-clarify` is the sanctioned pass to resolve them before planning:
+Five of the six design-record open questions were resolved in the 2026-07-02 clarification session
+(see `## Clarifications` and the folded requirements). One remains, deferred to planning/implementation
+as a characterization detail that does not affect scope, task decomposition, or acceptance-test design:
 
-- **First graduated cut** — which `DetectMode`s and `Ballistics` topologies land in the first graduated primitive vs stay captured-for-later.
-- **RMS averaging model** — one-pole leaky integrator (release-derived constant) vs an explicit windowed average; whether `setRmsWindow` is an independent parameter or derived from release.
-- **dB-domain floor** — the floor level (e.g., −120 dB) and −∞ guard near zero, and its interaction with attack tracking from silence.
-- **Peak-hold × decoupled composition** — whether peak-hold composes with the two-stage decoupled smoother or is defined for the branching path only in the first cut.
-- **1 − 1/e convention for RMS** — whether the seconds→coefficient mapping is identical for RMS or adjusted for the mean-square stage.
-- **Low-sample-rate coefficient accuracy** — whether `exp(−1/(τ·fs))` needs a higher-order correction for very short time constants at MCU sample rates (≤ 32 kHz).
+- **Low-sample-rate coefficient accuracy** — whether `coeff = exp(−1/(τ·fs))` needs a higher-order
+  correction for very short time constants at MCU sample rates (≤ 32 kHz). The FR-018 guard already
+  bounds every coefficient to `[0, 1)` and forbids NaN/Inf; whether an additional accuracy correction
+  is warranted is a `/speckit-plan` characterization decision, not a spec ambiguity.
