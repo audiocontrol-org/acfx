@@ -102,9 +102,12 @@ private:
         switch (mode_) {
             case DetectMode::peak:
                 return std::fabs(x);
-            case DetectMode::rms:
-                // TODO(T016): rms mean-square+sqrt
-                return std::fabs(x);
+            case DetectMode::rms: {
+                // One-pole mean-square (leaky integrator), window = setRmsWindow (aRms_).
+                // meanSquare_ is runtime state (cleared by reset()); update then sqrt.
+                meanSquare_ = aRms_ * meanSquare_ + (1.0f - aRms_) * (x * x);
+                return std::sqrt(meanSquare_);
+            }
             case DetectMode::peakHold:
                 // TODO(T023): peakHold latch+hold
                 return std::fabs(x);
