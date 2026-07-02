@@ -56,8 +56,10 @@ add_executable(acfx_core_tests
   core/oversampler-latency-test.cpp
   # ---------------------------------------------------------------------------
   # harmonic-analysis feature: host-only analysis engine suites (host/analysis/).
+  # T003 FFT (windowed radix-2 tone reconstruction; non-pow2 rejection; FR-009/026).
   # T005 window (default Blackman-Harris; Hann/flat-top selectable; FR-025).
   # ---------------------------------------------------------------------------
+  core/analysis-fft-test.cpp
   core/analysis-window-test.cpp
 )
 
