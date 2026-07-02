@@ -155,7 +155,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-nonlinear-dsp
 
 ## design:primitive/envelope-followers
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/envelope-followers
 - design-approved: yes
