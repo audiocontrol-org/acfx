@@ -50,6 +50,19 @@ if(TARGET DaisySP)
 endif()
 
 # ---------------------------------------------------------------------------
+# acfx_analysis -- the host-only harmonic-analysis engine (harmonic-analysis
+# feature, host/analysis/). Header-only (INTERFACE), like acfx_core: puts
+# host/ on the include path so headers are included as
+# "#include "analysis/window.h"" (mirroring acfx_core's core/ ->
+# "primitives/..."). HOST-ONLY: never linked by MCU/core targets, only by
+# acfx_core_tests here; desktop adapters link it when the live readout lands.
+# ---------------------------------------------------------------------------
+add_library(acfx_analysis INTERFACE)
+add_library(acfx::analysis ALIAS acfx_analysis)
+target_include_directories(acfx_analysis INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/host")
+target_compile_features(acfx_analysis INTERFACE cxx_std_17)
+
+# ---------------------------------------------------------------------------
 # Subdirectories, gated by the build-surface options.
 # ---------------------------------------------------------------------------
 if(ACFX_BUILD_DESKTOP)

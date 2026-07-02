@@ -54,6 +54,11 @@ add_executable(acfx_core_tests
   core/oversampler-aliasing-test.cpp
   core/oversampler-response-test.cpp
   core/oversampler-latency-test.cpp
+  # ---------------------------------------------------------------------------
+  # harmonic-analysis feature: host-only analysis engine suites (host/analysis/).
+  # T005 window (default Blackman-Harris; Hann/flat-top selectable; FR-025).
+  # ---------------------------------------------------------------------------
+  core/analysis-window-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
@@ -61,7 +66,7 @@ target_include_directories(acfx_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
 # adapters/workbench on the include path so the serde test (and its TU) resolve
 # #include "workbench-settings.h".
 target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
-target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host doctest::doctest)
+target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host acfx_analysis doctest::doctest)
 target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
 
 # Per-test-case ctest registration when doctest ships its CMake helper; otherwise
