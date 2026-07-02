@@ -16,7 +16,7 @@
 // CMake target). Compile with -std=c++20. May allocate, loop, printf. Never
 // included by portable code (C-1 gate in scripts/check-portability.sh).
 
-#include "labs/envelope-follower/envelope-follower.h"
+#include "primitives/dynamics/envelope-follower.h"
 
 #include <cstdio>
 

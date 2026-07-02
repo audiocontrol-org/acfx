@@ -13,9 +13,10 @@
 // compute gain reduction (see contracts/envelope-follower-api.md, "Out of
 // scope").
 //
-// Authored in the LAB (core/labs/envelope-follower/) per Constitution IX; a
-// later task graduates this file — unchanged in its public contract — via
-// `git mv` into core/primitives/dynamics/envelope-follower.h.
+// Lives in core/primitives/dynamics/ as the first inhabitant of the
+// `dynamics/` category, graduated — unchanged in its public contract — via
+// `git mv` from core/labs/envelope-follower/ per Constitution IX. The
+// originating lab persists as README + host-only harness.
 //
 // This is a SKELETON (task T002, dispatch wired up in T007): all state is
 // declared and `process()` now dispatches through detect/applyDomain/

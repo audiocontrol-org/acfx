@@ -64,6 +64,18 @@ Time-varying control signal generators.
 Consumers: `core/effects/modulated-delay/`.
 Tests: `tests/core/lfo-test.cpp`.
 
+### `dynamics/`
+
+Amplitude-envelope processors (peak/RMS detectors, gain computers, VCA envelopes for compressors, limiters, gates).
+
+| Primitive | Description |
+|---|---|
+| `dynamics/envelope-follower.h` | Level detector — peak/RMS/peak-hold modes, branching/decoupled ballistics (smooth-capable), linear/dB detection; RT-safe, allocation-free. First inhabitant of dynamics/. |
+
+Consumers: none yet — the compressor/limiter/gate effects in phase-dynamic-systems will consume it.
+Lab: `core/labs/envelope-follower/`.
+Tests: `tests/core/envelope-follower-*.cpp` (added by later tasks).
+
 ### `nonlinear/`
 
 Waveshapers, saturators, and distortion kernels. Graduated from `core/labs/waveshaping/` (T024).
@@ -92,11 +104,6 @@ together in one atomic commit.
 
 A reviewer reading this document can determine where any planned concept
 family is intended to land (SC-007).
-
-### `dynamics/`
-
-Amplitude-envelope processors. Intended inhabitants: peak/RMS detectors,
-gain computers, VCA envelopes for compressors, limiters, gates.
 
 ### `analog/`
 

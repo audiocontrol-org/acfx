@@ -1,0 +1,7 @@
+{"id":"T002","tierLabel":"balanced","model":"sonnet","commitRange":"6ef335e..86c9a6d","reviewClean":true}
+{"id":"T001","tierLabel":"balanced","model":"sonnet","commitRange":"ee6dc0d","reviewClean":true}
+{"id":"T005","tierLabel":"balanced","model":"sonnet","commitRange":"c1aad35","reviewClean":true,"note":"also corrected T002 header comment (platform-token grep)"}
+{"id":"T003","tierLabel":"fast","model":"haiku","commitRange":"HEAD~1","reviewClean":true,"note":"controller fixed include to core-relative + int-div nits; verified real cmake build"}
+{"id":"T004","tierLabel":"fast","model":"haiku","commitRange":"HEAD","reviewClean":true}
+{"id":"T006","tierLabel":"powerful","model":"opus","commitRange":"7ecf875","reviewClean":true}
+{"id":"T007","tierLabel":"balanced","model":"sonnet","commitRange":"d3d4491","reviewClean":true}
