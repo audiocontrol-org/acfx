@@ -338,3 +338,55 @@ TEST_CASE("EnvelopeFollower::process allocates nothing (decibel domain config)")
 
     CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
 }
+
+// T033 — the no-heap-allocation-in-process() invariant for EnvelopeFollower across
+// the full cartesian product of all configurations (SC-007, FR-016): DetectMode
+// {peak, rms, peakHold} × Ballistics {branching, decoupled} × smooth {false, true}
+// × DetectDomain {linear, decibel} = 24 configs. All configuration setters and
+// reset() run OUTSIDE the sentinel scope (control-thread configuration, may allocate;
+// reset() must run after setDomain for dB baseline establishment). Only process()
+// itself is asserted allocation-free, driven with ~256 samples of varying input
+// levels per config.
+TEST_CASE("EnvelopeFollower::process allocates nothing across all mode x topology x domain configs") {
+    constexpr DetectMode kModes[] = {DetectMode::peak, DetectMode::rms, DetectMode::peakHold};
+    constexpr Ballistics kBallistics[] = {Ballistics::branching, Ballistics::decoupled};
+    constexpr bool kSmoothValues[] = {false, true};
+    constexpr DetectDomain kDomains[] = {DetectDomain::linear, DetectDomain::decibel};
+
+    for (DetectMode mode : kModes) {
+        for (Ballistics ballistics : kBallistics) {
+            for (bool smooth : kSmoothValues) {
+                for (DetectDomain domain : kDomains) {
+                    EnvelopeFollower env;
+                    env.init(48000.0f);           // control thread: caches fs, clears state
+                    env.setMode(mode);            // set detection mode
+                    env.setBallistics(ballistics);// set ballistics topology
+                    env.setSmooth(smooth);        // set smooth variant
+                    env.setDomain(domain);        // set linear or decibel domain
+                    env.setAttack(0.010f);        // 10 ms attack time
+                    env.setRelease(0.100f);       // 100 ms release time
+                    if (mode == DetectMode::rms) {
+                        env.setRmsWindow(0.050f); // 50 ms RMS window (only for RMS mode)
+                    }
+                    if (mode == DetectMode::peakHold) {
+                        env.setHold(0.050f);      // 50 ms hold time (only for peak-hold mode)
+                    }
+                    env.reset();                  // control thread: clears state, dB baseline after setDomain
+
+                    AllocationSentinel::reset();
+                    for (int i = 0; i < 256; ++i) {
+                        // Drive with sine sweep and varying levels: smooth variation
+                        const float x = std::sin(0.05f * static_cast<float>(i));
+                        (void)env.process(x);
+                    }
+                    const std::size_t allocations = AllocationSentinel::allocations();
+
+                    CHECK_MESSAGE(allocations == 0, "mode=", static_cast<int>(mode),
+                                  " ballistics=", static_cast<int>(ballistics),
+                                  " smooth=", (smooth ? 1 : 0), " domain=", static_cast<int>(domain),
+                                  " allocated ", allocations);
+                }
+            }
+        }
+    }
+}

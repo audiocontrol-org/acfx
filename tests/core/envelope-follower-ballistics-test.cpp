@@ -444,3 +444,7 @@ TEST_CASE("decoupled peak has no branching re-attack artifact") {
               static_cast<double>(env[n - 1]) + kMonotoneEpsilon);
     }
 }
+
+// Low-sample-rate coefficient accuracy characterization (T034, research.md
+// Decision 7) lives in envelope-follower-lowfs-test.cpp, split out to keep
+// this file under the FR-022 500-line file-size budget.

@@ -169,6 +169,11 @@ private:
     //   seconds <= 0        -> 0.0f (instantaneous: a=0 makes y=x)
     //   non-finite result   -> 0.0f (never emit NaN/Inf, FR-018)
     // Result is clamped to [0.0f, 1.0f) so it is never >= 1 (FR-018).
+    // NOTE (research Decision 7, CLOSED): exp() is the mathematically exact
+    // one-pole pole for ANY fs, so no higher-order low-sample-rate correction is
+    // needed — characterized/demonstrated in
+    // tests/core/envelope-follower-ballistics-test.cpp ("coefficient accuracy
+    // holds at low sample rates").
     float coeffFor(float seconds) const noexcept {
         if (seconds <= 0.0f) {
             return 0.0f;
