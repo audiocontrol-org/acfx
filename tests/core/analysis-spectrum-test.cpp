@@ -315,3 +315,27 @@ TEST_CASE("harmonicSpectrum: at(k) is 1-based; out-of-range k is NOT-MEASURED, n
     CHECK(std::isnan(aboveRange.magnitude));
     CHECK(std::isnan(aboveRange.phaseRad));
 }
+
+TEST_CASE("harmonicSpectrum: empty input -> NaN for every harmonic, never a fabricated 0.0 "
+          "(code-review D3, mirrors thdn.h's n==0 guard)") {
+    // An empty capture has no measurable data at all. Without an explicit
+    // guard, GoertzelAnalyzer::analyze returns a hard-coded {0.0, 0.0} for an
+    // empty span, which would masquerade as "a real, near-zero measurement"
+    // in every harmonic bin -- exactly the fabricated-0.0 this file's own
+    // banner (and thdPlusN's n==0 guard, thdn.h) forbids.
+    constexpr double kFundHz     = 1000.0;
+    constexpr double kSampleRate = 48000.0;
+    constexpr int    kNumHarm    = 4;
+
+    const std::vector<float> empty;
+    const HarmonicSpectrum spectrum =
+        harmonicSpectrum(acfx::span<const float>(empty), kFundHz, kSampleRate, kNumHarm);
+
+    CHECK(spectrum.numHarmonics == kNumHarm);
+    for (int k = 1; k <= kNumHarm; ++k) {
+        const HarmonicSpectrum::Bin bin = spectrum.at(k);
+        INFO("harmonic k=" << k);
+        CHECK(std::isnan(bin.magnitude));
+        CHECK(std::isnan(bin.phaseRad));
+    }
+}

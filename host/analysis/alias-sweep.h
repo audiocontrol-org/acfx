@@ -50,7 +50,10 @@
 //     as imd.h's Effect overload requires -- a mismatched rate is a caller
 //     error, not silently corrected).
 
+#include <cmath>      // std::round
 #include <cstddef>    // std::size_t
+#include <stdexcept>  // std::invalid_argument
+#include <string>     // std::to_string
 #include <vector>     // std::vector (offline scratch; NOT audio path)
 
 #include "analysis/aliasing.h"   // acfx::measure::aliasingMeasure (REUSED, not re-derived)
@@ -102,6 +105,22 @@ inline std::vector<double> sweepFrequencies(const FrequencyRange& sweep) {
     return freqs;
 }
 
+// Snap `freqHz` to the nearest integer-cycle bin frequency -- the nearest
+// whole multiple of kAliasSweepSampleRate / kAliasSweepSamplesPerStep
+// (100 Hz/bin). aliasingMeasure (aliasing.h) REQUIRES an integer-cycle tone;
+// a linearly-spaced sweep point that is NOT already bin-aligned (e.g.
+// 1333.33 Hz) would scallop the Goertzel and report spurious "aliasing"
+// energy even for a purely linear passthrough (code-review finding D1).
+// Snapping BEFORE measuring -- and reporting the SNAPPED frequency back in
+// AliasSweepCurve::frequencyHz -- keeps the curve honest about what was
+// actually measured, never a silently-wrong reading at the requested (but
+// unmeasurable-as-such) frequency.
+inline double snapToBin(double freqHz) {
+    constexpr double kBinHz = kAliasSweepSampleRate /
+                              static_cast<double>(kAliasSweepSamplesPerStep);
+    return std::round(freqHz / kBinHz) * kBinHz;
+}
+
 } // namespace detail
 
 // aliasSweep(fn, sweep): drive a per-sample callable float(float) `fn` (a
@@ -118,7 +137,12 @@ inline AliasSweepCurve aliasSweep(Fn&& fn, const FrequencyRange& sweep) {
     std::vector<float> stimulus(kAliasSweepSamplesPerStep, 0.0f);
     std::vector<float> out(kAliasSweepSamplesPerStep, 0.0f);
 
-    for (const double freqHz : freqs) {
+    for (const double requestedFreqHz : freqs) {
+        // Snap to the nearest integer-cycle bin BEFORE measuring (FR-004,
+        // code-review finding D1) -- aliasingMeasure requires it, and the
+        // curve reports the SNAPPED frequency it actually measured.
+        const double freqHz = detail::snapToBin(requestedFreqHz);
+
         acfx::measure::SineGenerator{freqHz, kAliasSweepSampleRate}
             .fill(acfx::span<float>{stimulus});
 
@@ -139,12 +163,19 @@ inline AliasSweepCurve aliasSweep(Fn&& fn, const FrequencyRange& sweep) {
 // an Effect implementation with an integer-cycle tone at each swept frequency
 // via capture(). The caller MUST pass a ProcessContext whose sampleRate ==
 // kAliasSweepSampleRate so every step stays integer-cycle (a mismatched rate
-// is a caller error, not silently corrected -- mirrors imd.h's Effect
-// overload). Distinct arity from aliasSweep(fn, sweep) -> no overload
-// ambiguity.
+// is a caller error, not silently corrected -- enforced below by throwing,
+// mirrors imd.h's Effect overload; code-review finding D2). Distinct arity
+// from aliasSweep(fn, sweep) -> no overload ambiguity.
 template <class FX>
 inline AliasSweepCurve aliasSweep(FX& fx, const acfx::ProcessContext& ctx,
                                   const FrequencyRange& sweep) {
+    if (ctx.sampleRate != kAliasSweepSampleRate) {
+        throw std::invalid_argument(
+            "acfx::analysis::aliasSweep: ctx.sampleRate must equal "
+            "kAliasSweepSampleRate (" + std::to_string(kAliasSweepSampleRate) +
+            "); got " + std::to_string(ctx.sampleRate));
+    }
+
     AliasSweepCurve curve;
     const std::vector<double> freqs = detail::sweepFrequencies(sweep);
     curve.frequencyHz.reserve(freqs.size());
@@ -153,7 +184,12 @@ inline AliasSweepCurve aliasSweep(FX& fx, const acfx::ProcessContext& ctx,
     std::vector<float> stimulus(kAliasSweepSamplesPerStep, 0.0f);
     std::vector<float> out(kAliasSweepSamplesPerStep, 0.0f);
 
-    for (const double freqHz : freqs) {
+    for (const double requestedFreqHz : freqs) {
+        // Snap to the nearest integer-cycle bin BEFORE measuring (FR-004,
+        // code-review finding D1) -- aliasingMeasure requires it, and the
+        // curve reports the SNAPPED frequency it actually measured.
+        const double freqHz = detail::snapToBin(requestedFreqHz);
+
         acfx::measure::SineGenerator{freqHz, kAliasSweepSampleRate}
             .fill(acfx::span<float>{stimulus});
 

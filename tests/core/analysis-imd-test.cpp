@@ -61,16 +61,31 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include "analysis/imd.h"  // UNDER TEST (does not exist at RED time)
+#include "dsp/audio-block.h"
+#include "dsp/process-context.h"
 #include "dsp/span.h"
 
 using acfx::analysis::ImdMethod;
 using acfx::analysis::ImdResult;
 using acfx::analysis::imd;
+using acfx::analysis::kImdSampleRate;
 
 namespace {
+
+// Minimal identity Effect (prepare/reset/process no-ops, passthrough) --
+// enough to satisfy the Effect-contract front door's template constraints
+// for the ctx.sampleRate validation test below (code-review finding D2).
+// The mismatched-sampleRate throw is expected to fire before any
+// process()/capture() work happens.
+struct IdentityEffect {
+    void prepare(const acfx::ProcessContext&) {}
+    void reset() {}
+    void process(acfx::AudioBlock&) {}
+};
 
 // The stimulus and output are float32 buffers; an integer-cycle Goertzel on an
 // exact bin is analytically exact up to that float round-trip (~1e-6 relative).
@@ -227,4 +242,14 @@ TEST_CASE("imd: product frequency sets are disjoint and never a tone harmonic (a
         for (const double df : r.differenceFreqHz) notAHarmonic(df);
         for (const double sf : r.sumFreqHz) notAHarmonic(sf);
     }
+}
+
+TEST_CASE("imd Effect overload: ctx.sampleRate != kImdSampleRate throws (fail-loud, code-review D2)") {
+    IdentityEffect fx;
+    // A caller error -- e.g. a ProcessContext built at the host's live
+    // sample rate rather than the fixed internal integer-cycle rate the
+    // stimulus is built at -- must be rejected loudly, never silently
+    // corrected or silently measured against the wrong rate.
+    const acfx::ProcessContext wrongRateCtx{kImdSampleRate * 0.5, 512, 1};
+    CHECK_THROWS_AS(imd(fx, wrongRateCtx, ImdMethod::SMPTE), std::invalid_argument);
 }

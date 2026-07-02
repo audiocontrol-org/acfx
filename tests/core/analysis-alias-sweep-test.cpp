@@ -60,16 +60,30 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <stdexcept>
 
 #include "analysis/alias-sweep.h"  // UNDER TEST (does not exist at RED time)
+#include "dsp/audio-block.h"
+#include "dsp/process-context.h"
 #include "dsp/span.h"
 
 using acfx::analysis::AliasSweepCurve;
 using acfx::analysis::FrequencyRange;
 using acfx::analysis::aliasSweep;
+using acfx::analysis::kAliasSweepSampleRate;
 
 namespace {
+
+// Minimal identity Effect (prepare/reset/process no-ops, passthrough) --
+// enough to satisfy the Effect-contract front door's template constraints
+// for the ctx.sampleRate validation test below (code-review finding D2).
+struct IdentityEffect {
+    void prepare(const acfx::ProcessContext&) {}
+    void reset() {}
+    void process(acfx::AudioBlock&) {}
+};
 
 // A ceiling a genuinely-absent inharmonic component sits well under (float32
 // round-off on unit-amplitude synthesized buffers is ~1e-6 amplitude / ~1e-12
@@ -174,4 +188,46 @@ TEST_CASE("aliasSweep: linear identity pass-through -- inharmonic energy stays n
                       "step ", i, " freq=", curve.frequencyHz[i],
                       " inharmonic=", curve.inharmonicEnergy[i]);
     }
+}
+
+TEST_CASE("aliasSweep: non-bin-aligned sweep points are snapped to the nearest 100 Hz bin "
+          "BEFORE measuring -- no false aliasing on a linear passthrough (code-review D1)") {
+    // 1000..2000 Hz, 4 points: 1000, 1333.33, 1666.67, 2000 -- none of the
+    // interior points is a whole multiple of the fixed 100 Hz/bin resolution
+    // alias-sweep.h measures at. Feeding aliasingMeasure a non-bin-aligned
+    // tone directly would scallop the Goertzel and report spurious
+    // "aliasing" energy even for a purely linear (identity) passthrough --
+    // the exact silent-wrong-result this test guards against.
+    constexpr FrequencyRange kNonAlignedSweep{/*startHz=*/1000.0, /*stopHz=*/2000.0,
+                                              /*numSteps=*/4};
+    const AliasSweepCurve curve = aliasSweep(identity(), kNonAlignedSweep);
+
+    REQUIRE(curve.frequencyHz.size() == 4);
+    REQUIRE(curve.inharmonicEnergy.size() == 4);
+
+    // Every reported frequency is the SNAPPED bin frequency (a whole
+    // multiple of 100 Hz), never the raw (possibly non-bin-aligned) request
+    // -- the curve is honest about what was actually measured.
+    for (std::size_t i = 0; i < curve.frequencyHz.size(); ++i) {
+        const double f = curve.frequencyHz[i];
+        const double nearestBin = 100.0 * std::round(f / 100.0);
+        CHECK_MESSAGE(f == doctest::Approx(nearestBin),
+                      "step ", i, " freq=", f, " is not a multiple of 100 Hz");
+    }
+
+    // A linear passthrough has no harmonic content to fold: inharmonic
+    // energy must stay near zero at every (snapped) step, including the
+    // originally-non-bin-aligned ones.
+    for (std::size_t i = 0; i < curve.inharmonicEnergy.size(); ++i) {
+        CHECK_MESSAGE(curve.inharmonicEnergy[i] < kNearZeroCeiling,
+                      "step ", i, " freq=", curve.frequencyHz[i],
+                      " inharmonic=", curve.inharmonicEnergy[i]);
+    }
+}
+
+TEST_CASE("aliasSweep Effect overload: ctx.sampleRate != kAliasSweepSampleRate throws "
+          "(fail-loud, code-review D2)") {
+    IdentityEffect fx;
+    const acfx::ProcessContext wrongRateCtx{kAliasSweepSampleRate * 0.5, 512, 1};
+    CHECK_THROWS_AS(aliasSweep(fx, wrongRateCtx, kSweep), std::invalid_argument);
 }

@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include "analysis/live-readout.h"  // UNDER TEST (does not exist at RED time)
@@ -118,6 +119,24 @@ void pushInBlocks(CaptureProbeRing<Capacity>& ring, const std::vector<float>& in
 }
 
 } // namespace
+
+TEST_CASE("LiveReadout: fundamentalHz <= 0 throws (fail-loud, code-review D6)") {
+    // LiveReadoutConfig::fundamentalHz defaults to 0.0 -- a "not yet
+    // configured" marker, never a usable reference frequency. Silently
+    // constructing on it would analyze the DC bin as the "fundamental,"
+    // reporting a meaningless-but-plausible spectrum/THD instead of failing
+    // loud.
+    CaptureProbeRing<kRingCapacity> ring;
+    LiveReadoutConfig zeroFundamentalConfig{/*fundamentalHz=*/0.0, kSampleRate,
+                                             kNumHarmonics, kWindowSize};
+    CHECK_THROWS_AS((LiveReadout<kRingCapacity>(ring, zeroFundamentalConfig)),
+                     std::invalid_argument);
+
+    LiveReadoutConfig negativeFundamentalConfig{/*fundamentalHz=*/-100.0, kSampleRate,
+                                                 kNumHarmonics, kWindowSize};
+    CHECK_THROWS_AS((LiveReadout<kRingCapacity>(ring, negativeFundamentalConfig)),
+                     std::invalid_argument);
+}
 
 TEST_CASE("LiveReadout: underrun -- fewer than one window available -> no result (FR-013)") {
     CaptureProbeRing<kRingCapacity> ring;

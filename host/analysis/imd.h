@@ -68,6 +68,8 @@
 #include <cmath>       // std::isnan
 #include <cstddef>     // std::size_t
 #include <limits>      // std::numeric_limits
+#include <stdexcept>   // std::invalid_argument
+#include <string>      // std::to_string
 #include <utility>     // std::forward
 #include <vector>      // std::vector (offline scratch; NOT audio path)
 
@@ -234,10 +236,18 @@ inline ImdResult imd(Fn&& fn, ImdMethod method) {
 // Effect implementation with the internally-built twin-tone via capture(). The
 // caller MUST pass a ProcessContext whose sampleRate == kImdSampleRate so the
 // stimulus stays integer-cycle (a mismatched rate is a caller error, not
-// silently corrected). Distinct arity from imd(fn, method) -> no overload
-// ambiguity.
+// silently corrected -- enforced below by throwing, never silently coerced
+// or ignored; code-review finding D2). Distinct arity from imd(fn, method) ->
+// no overload ambiguity.
 template <class FX>
 inline ImdResult imd(FX& fx, const acfx::ProcessContext& ctx, ImdMethod method) {
+    if (ctx.sampleRate != kImdSampleRate) {
+        throw std::invalid_argument(
+            "acfx::analysis::imd: ctx.sampleRate must equal kImdSampleRate (" +
+            std::to_string(kImdSampleRate) + "); got " +
+            std::to_string(ctx.sampleRate));
+    }
+
     const detail::ImdSpec spec = detail::imdSpec(method);
 
     std::vector<float> stimulus(kImdNumSamples, 0.0f);

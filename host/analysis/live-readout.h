@@ -40,6 +40,8 @@
 
 #include <cstddef>
 #include <limits>
+#include <stdexcept>  // std::invalid_argument
+#include <string>     // std::to_string
 #include <vector>
 
 #include "analysis/spectrum.h"  // acfx::analysis::HarmonicSpectrum, harmonicSpectrum -- the ONE engine
@@ -68,8 +70,20 @@ struct LiveReadoutConfig {
 template <std::size_t Capacity>
 class LiveReadout {
 public:
+    // A non-positive fundamentalHz is a caller error (the default-constructed
+    // LiveReadoutConfig::fundamentalHz == 0.0 is a "not yet configured"
+    // marker, never a usable reference frequency): silently proceeding would
+    // analyze the DC bin as the "fundamental," reporting a meaningless-but-
+    // plausible spectrum/THD instead of failing loud (Constitution V;
+    // code-review finding D6).
     LiveReadout(CaptureProbeRing<Capacity>& probe, LiveReadoutConfig config)
-        : probe_(probe), config_(config), window_(config.windowSize, 0.0f) {}
+        : probe_(probe), config_(config), window_(config.windowSize, 0.0f) {
+        if (!(config_.fundamentalHz > 0.0)) {
+            throw std::invalid_argument(
+                "acfx::analysis::LiveReadout: config.fundamentalHz must be > 0; got " +
+                std::to_string(config_.fundamentalHz));
+        }
+    }
 
     // Drains up to ONE analysis window's worth of samples from the probe and,
     // if a full window was available, recomputes the spectrum + running

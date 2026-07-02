@@ -133,6 +133,20 @@ inline HarmonicSpectrum harmonicSpectrum(acfx::span<const float> in,
     spectrum.magnitude.resize(static_cast<std::size_t>(numHarmonics));
     spectrum.phaseRad.resize(static_cast<std::size_t>(numHarmonics));
 
+    if (in.empty()) {
+        // No measurable data: every harmonic is unmeasurable (FR-008),
+        // mirroring thdPlusN's n==0 guard (thdn.h). Without this guard
+        // GoertzelAnalyzer::analyze returns a fabricated {0.0, 0.0} for an
+        // empty span, which would masquerade as "a real, near-zero
+        // measurement" rather than "not measured" (code-review finding D3).
+        for (int k = 1; k <= numHarmonics; ++k) {
+            const std::size_t idx = static_cast<std::size_t>(k - 1);
+            spectrum.magnitude[idx] = nan;
+            spectrum.phaseRad[idx] = nan;
+        }
+        return spectrum;
+    }
+
     for (int k = 1; k <= numHarmonics; ++k) {
         const std::size_t idx = static_cast<std::size_t>(k - 1);
         const double freqHz = static_cast<double>(k) * fundamentalHz;
