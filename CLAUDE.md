@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **harmonic-analysis**.
+Active Spec Kit feature: **envelope-followers**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/harmonic-analysis/plan.md` (spec: `specs/harmonic-analysis/spec.md`).
+current plan at `specs/envelope-followers/plan.md` (spec: `specs/envelope-followers/spec.md`).
 <!-- SPECKIT END -->
