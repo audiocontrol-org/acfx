@@ -33,6 +33,7 @@
 #include "analysis/fft.h"
 #include "analysis/stimulus.h"
 #include "analysis/window.h"
+#include "dsp/span.h"
 
 namespace acfx::analysis {
 
@@ -61,6 +62,20 @@ using acfx::measure::SweepGenerator;
 using acfx::measure::CorrelationAnalyzer;
 using acfx::measure::GoertzelAnalyzer;
 using acfx::measure::ImpulseAnalyzer;
+
+// ---------------------------------------------------------------------------
+// goertzelBin -- the RETAINED exact single-bin known-bin readout
+// (contracts/analysis-engine-api.md "retained exact known-bin path
+// (FR-007/010)"; T012/T013). A thin, exact wrapper over the shipped
+// acfx::measure::GoertzelAnalyzer above: unwindowed, leakage-free,
+// integer-cycle. This is NOT a re-derivation of the Goertzel math and does
+// NOT go through the windowed FFT (fft.h) -- the FFT serves the
+// broadband/breadth view elsewhere (FR-009); this retained path exists for
+// exact known-bin regression checks (analysis-goertzel-parity-test.cpp).
+// ---------------------------------------------------------------------------
+inline double goertzelBin(acfx::span<const float> in, double freqHz, double sampleRate) {
+    return GoertzelAnalyzer{freqHz, sampleRate}.analyze(in).magnitude;
+}
 
 // ---------------------------------------------------------------------------
 // Inharmonic / aliased-energy measure (research.md Decision 6/8) -- the
