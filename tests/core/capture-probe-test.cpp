@@ -187,12 +187,12 @@ TEST_CASE("capture-probe: reset clears all state") {
 TEST_CASE("capture-probe: empty push and empty drain are no-ops") {
     CaptureProbeRing<kCap> ring;
 
-    ring.push(acfx::span<const float>(nullptr, 0));
+    ring.push(acfx::span<const float>{}); // empty view (span rejects a null iterator)
     CHECK(ring.available() == 0);
 
     std::vector<float> out(4, -1.0f);
     CHECK(ring.drain(acfx::span<float>(out.data(), 0)) == 0);
-    CHECK(ring.drain(acfx::span<float>(nullptr, 0)) == 0);
+    CHECK(ring.drain(acfx::span<float>{}) == 0);
     CHECK(ring.available() == 0);
 }
 
