@@ -108,9 +108,18 @@ private:
                 meanSquare_ = aRms_ * meanSquare_ + (1.0f - aRms_) * (x * x);
                 return std::sqrt(meanSquare_);
             }
-            case DetectMode::peakHold:
-                // TODO(T023): peakHold latch+hold
-                return std::fabs(x);
+            case DetectMode::peakHold: {
+                const float rect = std::fabs(x);
+                if (rect >= heldPeak_) {
+                    heldPeak_    = rect;          // new/equal peak: latch it
+                    holdCounter_ = holdSamples_;   // (re)start the hold window
+                } else if (holdCounter_ > 0) {
+                    --holdCounter_;                // still holding: heldPeak_ unchanged
+                } else {
+                    heldPeak_ = rect;               // hold expired: track down to input (ballistics then releases)
+                }
+                return heldPeak_;
+            }
         }
         return std::fabs(x);
     }
