@@ -8,6 +8,7 @@
 
 set(_acfx_workbench_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/workbench-app.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/workbench-main.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/parameter-view.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/audio-source.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/audio-settings.cpp
