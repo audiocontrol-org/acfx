@@ -114,7 +114,7 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   add_executable(acfx_lab_waveshaping_harness
     core/labs/waveshaping/harness/waveshaping-harness.cpp
   )
-  target_link_libraries(acfx_lab_waveshaping_harness PRIVATE acfx_core)
+  target_link_libraries(acfx_lab_waveshaping_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_waveshaping_harness PRIVATE cxx_std_20)
 
   # Saturation lab harness — same linkage as the two harnesses above, plus the
