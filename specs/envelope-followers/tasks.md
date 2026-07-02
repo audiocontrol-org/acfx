@@ -27,9 +27,10 @@ a single header-only primitive; the kernel is authored in the lab, then **gradua
 into the new `dynamics/` category, and refined in place. All `process()` code is RT-safe (no heap, no
 locks, bounded — Constitution VI).
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `[ID] [P?] [Story] [tier:label] Description`
 - **[P]**: can run in parallel (different files, no dependency on an incomplete task)
 - **[Story]**: US1..US6 (maps to spec.md user stories); Setup/Foundational/Polish carry no story label
+- **[tier:label]**: model-sized-dispatch tier (033) — `fast`/`balanced`/`powerful` resolve via `.stack-control/config.yaml` `tier_map` (haiku/sonnet/opus). `fast` = mechanical (1–2 files, complete spec); `balanced` = standard impl/integration/tests; `powerful` = subtle correctness / broad-context.
 
 ---
 
@@ -37,11 +38,11 @@ locks, bounded — Constitution VI).
 
 **Purpose**: create the lab, the kernel skeleton, and the gate/build wiring every story builds on
 
-- [ ] T001 Create `core/labs/envelope-follower/README.md` — ballistics theory (peak / RMS / peak-hold; branching vs decoupled + smooth variant; one-pole `a = exp(−1/(τ·fs))` with the 1 − 1/e convention; −120 dBFS dB floor) and a walkthrough naming `core/primitives/dynamics/` as the graduation target.
-- [ ] T002 Create `core/labs/envelope-follower/envelope-follower.h` — kernel skeleton: `namespace acfx`, enums `DetectMode{peak,rms,peakHold}` / `Ballistics{branching,decoupled}` / `DetectDomain{linear,decibel}`, and the `EnvelopeFollower` class **declaration** with all methods from `contracts/envelope-follower-api.md` as `noexcept` stubs; includes limited to `<cmath>`/`<cstdint>`/`core/dsp/`.
-- [ ] T003 [P] Create `core/labs/envelope-follower/harness/envelope-follower-harness.cpp` (host-only stub) and wire its build target in `CMakeLists.txt`, mirroring the existing lab harness targets.
-- [ ] T004 [P] Register the five test files in `tests/CMakeLists.txt`: `envelope-follower-test.cpp`, `envelope-follower-ballistics-test.cpp`, `envelope-follower-rms-test.cpp`, `envelope-follower-hold-test.cpp`, `envelope-follower-db-test.cpp`.
-- [ ] T005 [P] Extend `scripts/check-portability.sh` with coverage markers `C-EF-PRIM` (`core/primitives/dynamics/**` gate-ready: platform-free, harness-free) and `C-EF-LAB` (`core/labs/envelope-follower/*.h` kernel headers harness-free), per FR-021.
+- [ ] T001 [tier:balanced] Create `core/labs/envelope-follower/README.md` — ballistics theory (peak / RMS / peak-hold; branching vs decoupled + smooth variant; one-pole `a = exp(−1/(τ·fs))` with the 1 − 1/e convention; −120 dBFS dB floor) and a walkthrough naming `core/primitives/dynamics/` as the graduation target.
+- [ ] T002 [tier:balanced] Create `core/labs/envelope-follower/envelope-follower.h` — kernel skeleton: `namespace acfx`, enums `DetectMode{peak,rms,peakHold}` / `Ballistics{branching,decoupled}` / `DetectDomain{linear,decibel}`, and the `EnvelopeFollower` class **declaration** with all methods from `contracts/envelope-follower-api.md` as `noexcept` stubs; includes limited to `<cmath>`/`<cstdint>`/`core/dsp/`.
+- [ ] T003 [P] [tier:fast] Create `core/labs/envelope-follower/harness/envelope-follower-harness.cpp` (host-only stub) and wire its build target in `CMakeLists.txt`, mirroring the existing lab harness targets.
+- [ ] T004 [P] [tier:fast] Register the five test files in `tests/CMakeLists.txt`: `envelope-follower-test.cpp`, `envelope-follower-ballistics-test.cpp`, `envelope-follower-rms-test.cpp`, `envelope-follower-hold-test.cpp`, `envelope-follower-db-test.cpp`.
+- [ ] T005 [P] [tier:balanced] Extend `scripts/check-portability.sh` with coverage markers `C-EF-PRIM` (`core/primitives/dynamics/**` gate-ready: platform-free, harness-free) and `C-EF-LAB` (`core/labs/envelope-follower/*.h` kernel headers harness-free), per FR-021.
 
 ---
 
@@ -51,9 +52,9 @@ locks, bounded — Constitution VI).
 
 **⚠️ CRITICAL**: no user-story work begins until this phase completes
 
-- [ ] T006 Implement `init(float)` / `reset()` / state members and the guarded coefficient helper in the kernel: `aAtk`,`aRel`,`aRms = exp(−1/(τ·fs))` bounded to `[0,1)`, `holdSamples = round(hold·fs)`; every `set*` recomputes-and-caches, never per-sample; degenerate inputs (≤0 fs/time) guarded to finite results (FR-013, FR-016, FR-018; data-model state table).
-- [ ] T007 Implement the `process(float)` dispatch skeleton wiring detect(mode) → domain(linear/dB) → smooth(topology) with per-branch stubs returning a defined value (FR-002); establishes the per-sample chain from `data-model.md`.
-- [ ] T008 **GRADUATION (one atomic commit)**: `git mv core/labs/envelope-follower/envelope-follower.h core/primitives/dynamics/envelope-follower.h` (creating the `dynamics/` category dir with its first inhabitant); move `dynamics/` from a prospectus family to an **inhabited** category in `core/primitives/README.md`; update the harness + test `#include` paths to the graduated location — all in the SAME commit (FR-019, FR-020, SC-010).
+- [ ] T006 [tier:powerful] Implement `init(float)` / `reset()` / state members and the guarded coefficient helper in the kernel: `aAtk`,`aRel`,`aRms = exp(−1/(τ·fs))` bounded to `[0,1)`, `holdSamples = round(hold·fs)`; every `set*` recomputes-and-caches, never per-sample; degenerate inputs (≤0 fs/time) guarded to finite results (FR-013, FR-016, FR-018; data-model state table).
+- [ ] T007 [tier:balanced] Implement the `process(float)` dispatch skeleton wiring detect(mode) → domain(linear/dB) → smooth(topology) with per-branch stubs returning a defined value (FR-002); establishes the per-sample chain from `data-model.md`.
+- [ ] T008 [tier:balanced] **GRADUATION (one atomic commit)**: `git mv core/labs/envelope-follower/envelope-follower.h core/primitives/dynamics/envelope-follower.h` (creating the `dynamics/` category dir with its first inhabitant); move `dynamics/` from a prospectus family to an **inhabited** category in `core/primitives/README.md`; update the harness + test `#include` paths to the graduated location — all in the SAME commit (FR-019, FR-020, SC-010).
 
 **Checkpoint**: `core/primitives/dynamics/envelope-follower.h` exists with a working skeleton; `dynamics/` is inhabited; the gate is wired.
 
@@ -66,14 +67,14 @@ locks, bounded — Constitution VI).
 **Independent Test**: unit step → ~63% within attack time; 1→0 step → ~37% within release time; sine A → peak ≈ A.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T009 [P] [US1] `tests/core/envelope-follower-test.cpp` — interface + default config (peak/branching/linear after `init` only), `reset()` clears to 0, silence → exactly 0, no NaN/Inf on DC/impulse (SC-008, Assumptions).
-- [ ] T010 [P] [US1] `tests/core/envelope-follower-ballistics-test.cpp` — branching attack-time (step → 1−1/e within `attackSeconds`) and release-time (→ 1/e within `releaseSeconds`) via the measurement stimulus/response infra + `svf-reference` named tolerances (SC-001, SC-002).
+- [ ] T009 [P] [US1] [tier:balanced] `tests/core/envelope-follower-test.cpp` — interface + default config (peak/branching/linear after `init` only), `reset()` clears to 0, silence → exactly 0, no NaN/Inf on DC/impulse (SC-008, Assumptions).
+- [ ] T010 [P] [US1] [tier:powerful] `tests/core/envelope-follower-ballistics-test.cpp` — branching attack-time (step → 1−1/e within `attackSeconds`) and release-time (→ 1/e within `releaseSeconds`) via the measurement stimulus/response infra + `svf-reference` named tolerances (SC-001, SC-002).
 
 ### Implementation
-- [ ] T011 [US1] Implement the peak detector `|x|` in `core/primitives/dynamics/envelope-follower.h` (FR-011).
-- [ ] T012 [US1] Implement the branching ballistics smoother (attack coeff when level > env, release coeff otherwise) (FR-014).
-- [ ] T013 [US1] Return the linear-domain envelope and make T009/T010 pass (SC-001/002/003-peak).
-- [ ] T014 [US1] Extend `tests/core/no-allocation-test.cpp` to assert 0 heap allocations in `process()` for peak/branching/linear (SC-007).
+- [ ] T011 [US1] [tier:fast] Implement the peak detector `|x|` in `core/primitives/dynamics/envelope-follower.h` (FR-011).
+- [ ] T012 [US1] [tier:balanced] Implement the branching ballistics smoother (attack coeff when level > env, release coeff otherwise) (FR-014).
+- [ ] T013 [US1] [tier:balanced] Return the linear-domain envelope and make T009/T010 pass (SC-001/002/003-peak).
+- [ ] T014 [US1] [tier:fast] Extend `tests/core/no-allocation-test.cpp` to assert 0 heap allocations in `process()` for peak/branching/linear (SC-007).
 
 **Checkpoint**: US1 is a fully functional, independently testable peak level detector (MVP).
 
@@ -86,11 +87,11 @@ locks, bounded — Constitution VI).
 **Independent Test**: steady sine A → RMS envelope ≈ A/√2; settled ripple below the named bound.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T015 [P] [US2] `tests/core/envelope-follower-rms-test.cpp` — sine A → A/√2 (± tol) and settled peak-to-peak ripple below bound (SC-003-rms, SC-004).
+- [ ] T015 [P] [US2] [tier:balanced] `tests/core/envelope-follower-rms-test.cpp` — sine A → A/√2 (± tol) and settled peak-to-peak ripple below bound (SC-003-rms, SC-004).
 
 ### Implementation
-- [ ] T016 [US2] Implement RMS mode: one-pole mean-square accumulate (`aRms` from `setRmsWindow`, independent of attack/release) → `sqrt` in the linear domain (FR-009, FR-011).
-- [ ] T017 [US2] Make T015 pass; extend `no-allocation-test.cpp` for the rms config (SC-007).
+- [ ] T016 [US2] [tier:powerful] Implement RMS mode: one-pole mean-square accumulate (`aRms` from `setRmsWindow`, independent of attack/release) → `sqrt` in the linear domain (FR-009, FR-011).
+- [ ] T017 [US2] [tier:fast] Make T015 pass; extend `no-allocation-test.cpp` for the rms config (SC-007).
 
 **Checkpoint**: peak (US1) and RMS (US2) both work independently.
 
@@ -103,12 +104,12 @@ locks, bounded — Constitution VI).
 **Independent Test**: transient-then-decay → branching shows the artifact, decoupled tracks monotonically; smooth variant matches the characterized curve.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T018 [P] [US4] Add decoupled + smooth cases to `tests/core/envelope-follower-ballistics-test.cpp` — decoupled tracks a decaying tail without the branching artifact; `setSmooth(true)` applies the attack coeff in both stages (US4 acceptance).
+- [ ] T018 [P] [US4] [tier:powerful] Add decoupled + smooth cases to `tests/core/envelope-follower-ballistics-test.cpp` — decoupled tracks a decaying tail without the branching artifact; `setSmooth(true)` applies the attack coeff in both stages (US4 acceptance).
 
 ### Implementation
-- [ ] T019 [US4] Implement the decoupled smoother (release stage feeding an attack stage) selectable via `setBallistics` (FR-004, FR-014).
-- [ ] T020 [US4] Implement `setSmooth(bool)` smooth variant (attack coeff in both smoothing stages) for both topologies (FR-005).
-- [ ] T021 [US4] Make T018 pass; extend `no-allocation-test.cpp` for decoupled + smooth (SC-007).
+- [ ] T019 [US4] [tier:powerful] Implement the decoupled smoother (release stage feeding an attack stage) selectable via `setBallistics` (FR-004, FR-014).
+- [ ] T020 [US4] [tier:balanced] Implement `setSmooth(bool)` smooth variant (attack coeff in both smoothing stages) for both topologies (FR-005).
+- [ ] T021 [US4] [tier:fast] Make T018 pass; extend `no-allocation-test.cpp` for decoupled + smooth (SC-007).
 
 **Checkpoint**: both topologies, both smooth-capable, work under peak and RMS.
 
@@ -121,11 +122,11 @@ locks, bounded — Constitution VI).
 **Independent Test**: impulse to P then silence → holds ≈ P for `holdSeconds`, then releases; a higher peak during hold restarts the window; works under branching AND decoupled.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T022 [P] [US3] `tests/core/envelope-follower-hold-test.cpp` — dwell ≈ `holdSeconds` (± one control period), restart-on-higher-peak, and identical hold behavior under both topologies (SC-005, FR-015).
+- [ ] T022 [P] [US3] [tier:balanced] `tests/core/envelope-follower-hold-test.cpp` — dwell ≈ `holdSeconds` (± one control period), restart-on-higher-peak, and identical hold behavior under both topologies (SC-005, FR-015).
 
 ### Implementation
-- [ ] T023 [US3] Implement peak-hold at the detector/latch stage (upstream of smoothing): latch `|x|`, `holdCounter` countdown, restart on a higher peak; topology-independent by construction (FR-015).
-- [ ] T024 [US3] Make T022 pass; extend `no-allocation-test.cpp` for peakHold (SC-007).
+- [ ] T023 [US3] [tier:balanced] Implement peak-hold at the detector/latch stage (upstream of smoothing): latch `|x|`, `holdCounter` countdown, restart on a higher peak; topology-independent by construction (FR-015).
+- [ ] T024 [US3] [tier:fast] Make T022 pass; extend `no-allocation-test.cpp` for peakHold (SC-007).
 
 **Checkpoint**: all three modes work under both topologies.
 
@@ -138,11 +139,11 @@ locks, bounded — Constitution VI).
 **Independent Test**: two steps ≥ 20 dB apart → equal dB attack time (± tol) while linear differs; silence → −120 dB (never −∞).
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T025 [P] [US5] `tests/core/envelope-follower-db-test.cpp` — level-independent attack time across a ≥20 dB pair (dB equal, linear differs); silence/sub-floor → −120 dB, no −∞/NaN (SC-006, SC-008).
+- [ ] T025 [P] [US5] [tier:powerful] `tests/core/envelope-follower-db-test.cpp` — level-independent attack time across a ≥20 dB pair (dB equal, linear differs); silence/sub-floor → −120 dB, no −∞/NaN (SC-006, SC-008).
 
 ### Implementation
-- [ ] T026 [US5] Implement decibel domain: clamp detected level to −120 dBFS, `20·log10` before smoothing, return the smoothed dB value, selectable via `setDomain` (FR-006, FR-012).
-- [ ] T027 [US5] Make T025 pass; extend `no-allocation-test.cpp` for the dB config (SC-007).
+- [ ] T026 [US5] [tier:balanced] Implement decibel domain: clamp detected level to −120 dBFS, `20·log10` before smoothing, return the smoothed dB value, selectable via `setDomain` (FR-006, FR-012).
+- [ ] T027 [US5] [tier:fast] Make T025 pass; extend `no-allocation-test.cpp` for the dB config (SC-007).
 
 **Checkpoint**: full mode × topology × domain catalog functional (the first graduated cut).
 
@@ -155,9 +156,9 @@ locks, bounded — Constitution VI).
 **Independent Test**: `core/labs/envelope-follower/` has README (theory) + host-only harness; `core/primitives/dynamics/` holds the primitive; `core/primitives/README.md` lists `dynamics/` inhabited; the portability gate passes over both paths.
 
 ### Implementation
-- [ ] T028 [US6] Fill `core/labs/envelope-follower/harness/envelope-follower-harness.cpp` — drive step/impulse/sine stimuli and emit attack/release + RMS/hold measurement evidence (host-only; never included by a portable unit).
-- [ ] T029 [US6] Finalize `core/labs/envelope-follower/README.md` theory to match the shipped primitive; confirm the lab persists (README + harness) and `dynamics/` is documented as inhabited (moved from prospectus) in `core/primitives/README.md` (US6 acceptance, FR-020).
-- [ ] T030 [US6] Run `scripts/check-portability.sh` — PASS over `core/labs/envelope-follower/**` and `core/primitives/dynamics/**` (harness isolation, dependency direction, platform independence, file size) (SC-009).
+- [ ] T028 [US6] [tier:balanced] Fill `core/labs/envelope-follower/harness/envelope-follower-harness.cpp` — drive step/impulse/sine stimuli and emit attack/release + RMS/hold measurement evidence (host-only; never included by a portable unit).
+- [ ] T029 [US6] [tier:balanced] Finalize `core/labs/envelope-follower/README.md` theory to match the shipped primitive; confirm the lab persists (README + harness) and `dynamics/` is documented as inhabited (moved from prospectus) in `core/primitives/README.md` (US6 acceptance, FR-020).
+- [ ] T030 [US6] [tier:fast] Run `scripts/check-portability.sh` — PASS over `core/labs/envelope-follower/**` and `core/primitives/dynamics/**` (harness isolation, dependency direction, platform independence, file size) (SC-009).
 
 **Checkpoint**: the graduation is complete, gate-clean, and taught.
 
@@ -165,10 +166,10 @@ locks, bounded — Constitution VI).
 
 ## Phase 9: Polish & Cross-Cutting
 
-- [ ] T031 [P] Verify the ~300–500-line module budget (VII, FR-022); if `envelope-follower.h` exceeds it, split a detector/ballistics helper header out under `core/primitives/dynamics/` and update includes.
-- [ ] T032 Run `quickstart.md` end-to-end (`make test` + `scripts/check-portability.sh`) and confirm every validation-scenario outcome.
-- [ ] T033 [P] Final `no-allocation-test.cpp` sweep asserting 0 allocations across ALL modes × topologies × domains (SC-007).
-- [ ] T034 Characterize the deferred low-sample-rate coefficient accuracy (research Decision 7) at ≤ 32 kHz with short τ; apply a higher-order correction only if the ballistics test flags timing drift beyond tolerance.
+- [ ] T031 [P] [tier:balanced] Verify the ~300–500-line module budget (VII, FR-022); if `envelope-follower.h` exceeds it, split a detector/ballistics helper header out under `core/primitives/dynamics/` and update includes.
+- [ ] T032 [tier:fast] Run `quickstart.md` end-to-end (`make test` + `scripts/check-portability.sh`) and confirm every validation-scenario outcome.
+- [ ] T033 [P] [tier:fast] Final `no-allocation-test.cpp` sweep asserting 0 allocations across ALL modes × topologies × domains (SC-007).
+- [ ] T034 [tier:powerful] Characterize the deferred low-sample-rate coefficient accuracy (research Decision 7) at ≤ 32 kHz with short τ; apply a higher-order correction only if the ballistics test flags timing drift beyond tolerance.
 
 ---
 
