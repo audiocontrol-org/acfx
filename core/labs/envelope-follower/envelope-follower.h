@@ -17,10 +17,11 @@
 // later task graduates this file — unchanged in its public contract — via
 // `git mv` into core/primitives/dynamics/envelope-follower.h.
 //
-// This is a SKELETON (task T002): all state is declared and every method
-// compiles, but the per-sample math is stubbed. `process()` returns 0.0f
-// until a later task fills in the detect/domain/smooth pipeline described in
-// specs/envelope-followers/data-model.md.
+// This is a SKELETON (task T002, dispatch wired up in T007): all state is
+// declared and `process()` now dispatches through detect/applyDomain/
+// applySmoothing, but those seam methods are still stubs (peak-only
+// detection, linear-only domain, passthrough smoothing) until later tasks
+// fill in the real math described in specs/envelope-followers/data-model.md.
 //
 // Constitution refs:
 //   IV   — platform-independent core: no JUCE / Daisy SDK / Teensy / effects /
@@ -81,12 +82,59 @@ public:
     // Clear all runtime state to the defined initial condition (env = 0).
     void reset() noexcept { clearRuntimeState(); }
 
-    // Process one input sample; return the current envelope. Stubbed for
-    // this skeleton task — always returns 0.0f. A later task implements the
-    // detect / domain / smooth pipeline (data-model.md "State transitions").
-    float process(float /*x*/) noexcept { return 0.0f; }
+    // Process one input sample; return the current envelope. This is the
+    // dispatch SKELETON (task T007): the detect -> domain -> smooth pipeline
+    // structure is wired up, but the private seam methods below are stubs
+    // filled in by later tasks (see data-model.md "State transitions").
+    float process(float x) noexcept {
+        const float detected = detect(x);                 // mode-dependent level
+        const float domained = applyDomain(detected);     // linear passthrough or dB (stub: passthrough)
+        const float smoothed = applySmoothing(domained);   // topology-dependent smoother (stub: passthrough)
+        env_ = smoothed;
+        return env_;
+    }
 
 private:
+    // Mode-dependent level detector (data-model.md "Detection modes").
+    // Stub: every branch currently returns peak (|x|) behavior.
+    float detect(float x) noexcept {
+        switch (mode_) {
+            case DetectMode::peak:
+                return std::fabs(x);
+            case DetectMode::rms:
+                // TODO(T016): rms mean-square+sqrt
+                return std::fabs(x);
+            case DetectMode::peakHold:
+                // TODO(T023): peakHold latch+hold
+                return std::fabs(x);
+        }
+        return std::fabs(x);
+    }
+
+    // Linear-vs-decibel domain conversion (data-model.md "Domain").
+    // Stub: dB branch is a passthrough; real conversion lands in T026.
+    float applyDomain(float level) noexcept {
+        if (domain_ == DetectDomain::decibel) {
+            // TODO(T026): clamp -120 dBFS + 20*log10
+            return level;
+        }
+        return level;
+    }
+
+    // Ballistics topology-dependent smoother (data-model.md "Smoothing").
+    // Stub: both branches are passthrough; real smoothing lands in T012/T019/T020.
+    float applySmoothing(float value) noexcept {
+        switch (ballistics_) {
+            case Ballistics::branching:
+                // TODO(T012): branching one-pole
+                return value;
+            case Ballistics::decoupled:
+                // TODO(T019): decoupled two-stage; TODO(T020): smooth variant
+                return value;
+        }
+        return value;
+    }
+
     // Time-constant -> one-pole coefficient. For the update
     //   y[n] = a*y[n-1] + (1-a)*x[n]
     // the envelope reaches 1 - 1/e (~63%) of a step in `seconds`.
