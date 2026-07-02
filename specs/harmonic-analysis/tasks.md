@@ -136,9 +136,9 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T032 [P] [tier:fast] Write `core/primitives/analysis/README.md` (RT-safety contract + overrun/underrun semantics) and `host/analysis/README.md` (host-only boundary, one-engine guarantee, hybrid FFT+Goertzel rationale).
-- [ ] T033 [P] [tier:fast] FR-019: append the amendment note to `docs/superpowers/specs/2026-06-29-measurement-infrastructure-design.md` — Phase-2 off-thread FFT amends its Decision A; Phase 8 reuses/supersedes.
-- [ ] T034 [tier:balanced] Final gate: run `scripts/check-portability.sh` + the full suite; confirm `host/analysis` and adapters are unreachable from portable `core/` (SC-006) and walk quickstart.md end-to-end.
+- [x] T032 [P] [tier:fast] Write `core/primitives/analysis/README.md` (RT-safety contract + overrun/underrun semantics) and `host/analysis/README.md` (host-only boundary, one-engine guarantee, hybrid FFT+Goertzel rationale).
+- [x] T033 [P] [tier:fast] FR-019: append the amendment note to `docs/superpowers/specs/2026-06-29-measurement-infrastructure-design.md` — Phase-2 off-thread FFT amends its Decision A; Phase 8 reuses/supersedes.
+- [x] T034 [tier:balanced] Final gate: run `scripts/check-portability.sh` + the full suite; confirm `host/analysis` and adapters are unreachable from portable `core/` (SC-006) and walk quickstart.md end-to-end.
 
 ---
 
