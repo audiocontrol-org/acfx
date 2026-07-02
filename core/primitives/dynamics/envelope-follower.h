@@ -125,13 +125,16 @@ private:
     }
 
     // Linear-vs-decibel domain conversion (data-model.md "Domain").
-    // Stub: dB branch is a passthrough; real conversion lands in T026.
     float applyDomain(float level) noexcept {
         if (domain_ == DetectDomain::decibel) {
-            // TODO(T026): clamp -120 dBFS + 20*log10
-            return level;
+            // Clamp to the -120 dBFS floor, then convert to dB BEFORE smoothing.
+            // A level at/below the floor returns -120 dB (never -inf/NaN). FR-012.
+            if (level <= kFloorLin) {
+                return kFloorDb;
+            }
+            return 20.0f * std::log10(level);
         }
-        return level;
+        return level; // linear passthrough (base contract)
     }
 
     // Ballistics topology-dependent smoother (data-model.md "Smoothing").
@@ -190,12 +193,18 @@ private:
     }
 
     void clearRuntimeState() noexcept {
-        env_         = 0.0f;
+        const float floor = (domain_ == DetectDomain::decibel) ? kFloorDb : 0.0f;
+        env_         = floor;
+        y1_          = floor;
         meanSquare_  = 0.0f;
-        y1_          = 0.0f;
         heldPeak_    = 0.0f;
         holdCounter_ = 0;
     }
+
+    // dB floor (FR-012): a level at/below this linear threshold is treated as
+    // silence and reported as kFloorDb rather than -inf/NaN.
+    static constexpr float kFloorDb  = -120.0f;   // dB floor (FR-012)
+    static constexpr float kFloorLin = 1e-6f;     // 10^(kFloorDb/20) = -120 dBFS in linear
 
     // -----------------------------------------------------------------------
     // Configuration

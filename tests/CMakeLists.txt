@@ -93,6 +93,7 @@ add_executable(acfx_core_tests
   core/envelope-follower-ballistics-test.cpp
   core/envelope-follower-rms-test.cpp
   core/envelope-follower-hold-test.cpp
+  core/envelope-follower-db-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
