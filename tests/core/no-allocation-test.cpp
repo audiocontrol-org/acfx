@@ -6,8 +6,10 @@
 #include "dsp/audio-block.h"
 #include "dsp/param-id.h"
 #include "dsp/process-context.h"
+#include "dsp/span.h"
 #include "effects/svf/svf-effect.h"
 #include "effects/saturation/saturation-core.h"
+#include "primitives/analysis/capture-probe.h"
 #include "primitives/oversampling/oversampler.h"
 #include "processor-node/processor-node.h"
 #include "support/allocation-sentinel.h"
@@ -135,4 +137,63 @@ TEST_CASE("Oversampler<Factor>::process allocates nothing across supported facto
     checkOversamplerProcessAllocationFree<2>();
     checkOversamplerProcessAllocationFree<4>();
     checkOversamplerProcessAllocationFree<8>();
+}
+
+// T027 -- the no-heap-allocation invariant for CaptureProbeRing::push() (US5,
+// FR-011, spec.md SC-004: "the audio callback ... performs only a bounded
+// lock-free ring push ... verified to allocate nothing"). Capacity (8192)
+// matches the feature's default FFT-window-plus-margin sizing intent
+// (FR-022/FR-027). The source block is a pre-sized std::vector allocated
+// OUTSIDE the sentinel scope (mirrors the SvfEffect/Oversampler pattern
+// above) so only push() itself runs inside the measured region. Each block
+// size drives enough pushes to wrap the ring several times over AND force
+// overrun (nothing drains this ring), which the audio-path overrun handling
+// (capture-probe.h: "producer NEVER blocks or allocates" on lap) must also
+// clear at zero allocations.
+TEST_CASE("CaptureProbeRing::push allocates nothing across block sizes, including overrun") {
+    constexpr std::size_t kCapacity = 8192;
+
+    for (int blockSize : {16, 64, 256, 512}) {
+        acfx::CaptureProbeRing<kCapacity> ring;
+        std::vector<float> block(static_cast<std::size_t>(blockSize), 0.1f);
+
+        // Enough pushes to sweep past Capacity several times over (forcing
+        // wraparound) and keep going well past that (forcing overrun, since
+        // nothing here ever drains).
+        const int pushes =
+            static_cast<int>(kCapacity / static_cast<std::size_t>(blockSize)) * 3 + 5;
+
+        AllocationSentinel::reset();
+        for (int i = 0; i < pushes; ++i) {
+            ring.push(acfx::span<const float>(block.data(), block.size()));
+        }
+        const std::size_t allocations = AllocationSentinel::allocations();
+
+        CHECK_MESSAGE(allocations == 0, "block size ", blockSize, " push() allocated ",
+                      allocations);
+        CHECK_MESSAGE(ring.overrunCount() > 0, "block size ", blockSize,
+                      " expected push() to force overrun but overrunCount() == 0");
+    }
+}
+
+// drain() runs off the audio thread (analysis/UI thread per FR-014), but it is
+// still designed to be allocation-free (capture-probe.h: "Never blocks, never
+// allocates, never fabricates samples"). Confirm that design holds with a
+// pre-sized output buffer allocated outside the sentinel scope, interleaved
+// with pushes so drain() sees a realistic mix of full/partial availability.
+TEST_CASE("CaptureProbeRing::drain allocates nothing into a pre-sized buffer") {
+    constexpr std::size_t kCapacity = 8192;
+    acfx::CaptureProbeRing<kCapacity> ring;
+
+    std::vector<float> block(256, 0.2f);
+    std::vector<float> out(256, 0.0f);
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 200; ++i) {
+        ring.push(acfx::span<const float>(block.data(), block.size()));
+        (void)ring.drain(acfx::span<float>(out.data(), out.size()));
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "CaptureProbeRing::drain allocated ", allocations);
 }
