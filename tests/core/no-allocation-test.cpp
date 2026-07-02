@@ -10,6 +10,7 @@
 #include "effects/svf/svf-effect.h"
 #include "effects/saturation/saturation-core.h"
 #include "primitives/analysis/capture-probe.h"
+#include "primitives/dynamics/envelope-follower.h"
 #include "primitives/oversampling/oversampler.h"
 #include "processor-node/processor-node.h"
 #include "support/allocation-sentinel.h"
@@ -196,4 +197,31 @@ TEST_CASE("CaptureProbeRing::drain allocates nothing into a pre-sized buffer") {
     const std::size_t allocations = AllocationSentinel::allocations();
 
     CHECK_MESSAGE(allocations == 0, "CaptureProbeRing::drain allocated ", allocations);
+}
+
+// T014 — the no-heap-allocation-in-process() invariant for EnvelopeFollower
+// (SC-007, FR-016). Mirrors the SvfEffect/SaturationCore pattern: init(),
+// setMode(), setBallistics(), setDomain(), setAttack(), and setRelease() run
+// OUTSIDE the sentinel scope (control-thread configuration, may allocate).
+// Only process() itself is asserted allocation-free, driven with a US1 config
+// (peak mode, branching ballistics, linear domain) and realistic attack/release
+// times over a few hundred samples of varying input levels.
+TEST_CASE("EnvelopeFollower::process allocates nothing (US1 config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::peak);                // peak detection (US1 default)
+    env.setBallistics(Ballistics::branching);     // branching ballistics (US1 default)
+    env.setDomain(DetectDomain::linear);          // linear domain (US1 default)
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with varying levels (sine-like sweep): low, high, low, …
+        const float x = (i % 2 == 0) ? 0.3f : 0.8f;
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
 }
