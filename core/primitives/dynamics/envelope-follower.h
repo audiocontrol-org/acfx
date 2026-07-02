@@ -18,11 +18,10 @@
 // `git mv` from core/labs/envelope-follower/ per Constitution IX. The
 // originating lab persists as README + host-only harness.
 //
-// This is a SKELETON (task T002, dispatch wired up in T007): all state is
-// declared and `process()` now dispatches through detect/applyDomain/
-// applySmoothing, but those seam methods are still stubs (peak-only
-// detection, linear-only domain, passthrough smoothing) until later tasks
-// fill in the real math described in specs/envelope-followers/data-model.md.
+// `process()` dispatches through three seam methods — detect() (peak / RMS /
+// peak-hold), applyDomain() (linear or decibel), and applySmoothing() (branching
+// or decoupled ballistics, smooth-capable) — each fully implemented per
+// specs/envelope-followers/data-model.md "State transitions".
 //
 // Constitution refs:
 //   IV   — platform-independent core: no JUCE / Daisy SDK / Teensy / effects /
@@ -57,12 +56,29 @@ public:
     }
 
     // Configuration setters — store the parameter and recompute the cached
-    // coefficient it feeds (never in process(), FR-013). Do NOT reset runtime
-    // state here.
+    // coefficient it feeds (never in process(), FR-013). These do NOT reset
+    // runtime state (so a live parameter tweak is click-free) — the sole
+    // exception is setDomain (below), which MUST re-baseline the envelope
+    // because it changes the UNITS the envelope is stored in.
     void setMode(DetectMode mode) noexcept { mode_ = mode; }
     void setBallistics(Ballistics ballistics) noexcept { ballistics_ = ballistics; }
     void setSmooth(bool smooth) noexcept { smooth_ = smooth; }
-    void setDomain(DetectDomain domain) noexcept { domain_ = domain; }
+    // Changing the detection domain changes the units of the smoother state
+    // (env_/y1_ hold a linear amplitude in `linear`, a dB value in `decibel`),
+    // so a domain change invalidates that state. Re-baseline env_/y1_ to the new
+    // domain's floor (0 linear, -120 dB) so silence reads correctly on the very
+    // next sample — there is NO "call reset() after setDomain" footgun. The
+    // detector-stage state (meanSquare_/heldPeak_) is linear regardless of the
+    // output domain and is left untouched. No-op when the domain is unchanged.
+    void setDomain(DetectDomain domain) noexcept {
+        if (domain == domain_) {
+            return;
+        }
+        domain_          = domain;
+        const float base = (domain_ == DetectDomain::decibel) ? kFloorDb : 0.0f;
+        env_ = base;
+        y1_  = base;
+    }
     void setAttack(float seconds) noexcept {
         attackSeconds_ = seconds;
         aAtk_          = coeffFor(seconds);
@@ -80,7 +96,8 @@ public:
         aRms_             = coeffFor(seconds);
     }
 
-    // Clear all runtime state to the defined initial condition (env = 0).
+    // Clear all runtime state to the defined initial condition: the envelope
+    // baselines to the current domain's floor (0 in linear, -120 dB in decibel).
     void reset() noexcept { clearRuntimeState(); }
 
     // Process one input sample; return the current envelope. This is the

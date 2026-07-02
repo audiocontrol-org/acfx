@@ -190,17 +190,19 @@ meters that don't need it.
 discards musically relevant low-level detail while still guaranteeing the
 returned value is always finite.
 
-**Usage contract — set the domain, then reset.** `setDomain()` only
-switches which conversion `applyDomain()` performs; it does not by itself
-re-baseline runtime state. The dB-domain silence baseline (`env == −120`)
-is established by `clearRuntimeState()`, which only `init()` and `reset()`
-call. Callers that need silence to read exactly −120 dB (rather than the
-linear-domain initial value of `0`) MUST call `setDomain(DetectDomain::decibel)`
-and then `reset()` before the first `process()` call — the same
-init-then-configure-then-reset ordering `envelope-follower-db-test.cpp`
-exercises. Once that baseline is established, silence reads −120 dB and
-every subsequent `applyDomain()` call returns `20·log10(level)` clamped at
-the −120 dB floor, as described above.
+**`setDomain()` re-baselines automatically.** Changing the detection
+domain changes the *units* the smoother state (`env`/`y1`) is stored in
+(a linear amplitude in `linear`, a dB value in `decibel`), so `setDomain()`
+re-baselines that state to the new domain's floor (`0` linear, `−120` dB)
+as part of the call itself — there is no "call `reset()` after `setDomain()`"
+ordering requirement. `reset()` still clears runtime state to the same
+baseline (and remains the right call when you also want to clear
+`meanSquare`/`heldPeak`/`holdCounter`), so both `setDomain()` alone and
+`setDomain()` followed by `reset()` land on the correct −120 dB baseline
+for silence. `envelope-follower-db-test.cpp` pins both: silence reads
+−120 dB immediately after `setDomain(DetectDomain::decibel)` with no
+`reset()` call, and every subsequent `applyDomain()` call returns
+`20·log10(level)` clamped at the −120 dB floor, as described above.
 
 ## Walkthrough
 

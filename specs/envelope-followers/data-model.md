@@ -30,7 +30,7 @@ below map to the spec's Key Entities and the API contract (`contracts/envelope-f
 
 The stateful level-detector primitive. All fields are scalars (no heap, no buffer).
 
-### Configuration (set via `init` / `set*`; changes recompute cached coefficients, no reset)
+### Configuration (set via `init` / `set*`; changes recompute cached coefficients, no reset — **except `domain`**: changing it re-baselines `env`/`y1` to the new domain's floor, see Invariants)
 | Field | Type | Units / Range | Notes |
 |---|---|---|---|
 | `sampleRate` | float | Hz, > 0 | Set by `init`; guarded (FR-018). |
@@ -64,6 +64,10 @@ The stateful level-detector primitive. All fields are scalars (no heap, no buffe
 - `aAtk, aRel, aRms ∈ [0, 1)`; `holdSamples ≥ 0` (FR-018).
 - After `init()`/`reset()`: `env = meanSquare = y1 = heldPeak = 0`, `holdCounter = 0`; the linear
   envelope of silence is exactly 0, the dB envelope of silence is −120 dBFS.
+- `setDomain()` re-baselines `env`/`y1` to the new domain's floor (`0` linear, `−120` dB) as part
+  of the call — a domain change is self-baselining, with no ordering requirement to call `reset()`
+  afterward. `meanSquare`/`heldPeak`/`holdCounter` are left untouched (linear regardless of the
+  output domain); `reset()` remains the call that clears those too.
 - No `process()` output is NaN/Inf for any finite input in any configuration (SC-008).
 
 ## Entity — Envelope signal (output)

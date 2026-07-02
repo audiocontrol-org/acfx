@@ -16,15 +16,14 @@
 //       else                               -> 20*log10(level)
 //
 // Envelope BASELINE: in dB domain the smoother state baselines at the -120 dBFS
-// FLOOR (not 0 dB). The implementation sets env_/y1_ to -120 in dB domain when
-// the state is cleared, so the USAGE CONTRACT is:
-//
-//       configure the domain FIRST, THEN call reset().
-//
-// Every helper/test below therefore does, in order:
-//       init(48000); setMode(...); setDomain(DetectDomain::decibel);
-//       setAttack(...); setRelease(...); reset();
-// The reset() AFTER setDomain is what establishes the -120 dB baseline.
+// FLOOR (not 0 dB). setDomain() re-baselines env_/y1_ to the new domain's floor
+// (0 linear, -120 dB) AS PART OF THE CALL, so there is no "set domain, then
+// reset()" ordering requirement -- a domain change is self-baselining. reset()
+// lands on the same floor too (and additionally clears meanSquare_/heldPeak_/
+// holdCounter_), so the helpers/tests below still call it after setDomain for
+// readability, but it is no longer REQUIRED for the -120 dB baseline. See
+// TEST_CASE "dB domain baselines to the floor on setDomain, no reset()
+// required" below, which pins setDomain() alone (no reset()) as sufficient.
 //
 // These are required GREEN contract tests. They pin the -120 dBFS clamp, the
 // 20*log10 conversion, the -120 dB baseline, and — TEST_CASEs 5-6 below — the
@@ -114,8 +113,9 @@ double dbOf(double linear) noexcept {
     return (linear <= kFloorLevel) ? kFloorDb : 20.0 * std::log10(linear);
 }
 
-// Configure a fresh peak / branching / decibel follower, honouring the usage
-// contract (setDomain BEFORE reset so the smoother baselines at -120 dB).
+// Configure a fresh peak / branching / decibel follower. setDomain() already
+// baselines the smoother at -120 dB; reset() below is not required for that
+// baseline but is still called to also clear detector-stage state.
 EnvelopeFollower makeDbFollower(float attackSeconds, float releaseSeconds) {
     EnvelopeFollower ef;
     ef.init(kSampleRateF);
@@ -123,7 +123,7 @@ EnvelopeFollower makeDbFollower(float attackSeconds, float releaseSeconds) {
     ef.setDomain(DetectDomain::decibel);
     ef.setAttack(attackSeconds);
     ef.setRelease(releaseSeconds);
-    ef.reset(); // AFTER setDomain -> -120 dB baseline
+    ef.reset(); // not required for the -120 dB baseline (setDomain already did it)
     return ef;
 }
 
@@ -184,8 +184,9 @@ int linearDomainDbCrossingSamples(float Llow, float Lhigh, float attackSeconds) 
     return -1;
 }
 
-// Configure a fresh peak / DECOUPLED / decibel follower, honouring the usage
-// contract (setDomain BEFORE reset so the smoother baselines at -120 dB).
+// Configure a fresh peak / DECOUPLED / decibel follower. setDomain() already
+// baselines the smoother at -120 dB; reset() below is not required for that
+// baseline but is still called to also clear detector-stage state.
 EnvelopeFollower makeDbDecoupledFollower(bool smooth) {
     EnvelopeFollower ef;
     ef.init(kSampleRateF);
@@ -195,7 +196,7 @@ EnvelopeFollower makeDbDecoupledFollower(bool smooth) {
     ef.setDomain(DetectDomain::decibel);
     ef.setAttack(static_cast<float>(kDecoupledAttackSec));
     ef.setRelease(static_cast<float>(kDecoupledReleaseSec));
-    ef.reset(); // AFTER setDomain -> -120 dB baseline
+    ef.reset(); // not required for the -120 dB baseline (setDomain already did it)
     return ef;
 }
 
@@ -417,7 +418,7 @@ TEST_CASE("rms detection in the decibel domain settles at 20*log10(A/sqrt(2))") 
     ef.setBallistics(Ballistics::branching);
     ef.setAttack(0.001f);
     ef.setRelease(0.05f);
-    ef.reset(); // AFTER setDomain -> -120 dB baseline
+    ef.reset(); // not required for the -120 dB baseline (setDomain already did it)
 
     float env = 0.0f;
     for (int n = 0; n < kSineSettleSamples; ++n) {
@@ -446,7 +447,7 @@ TEST_CASE("peak-hold in the decibel domain reports the held peak in dB") {
     ef.setDomain(DetectDomain::decibel);
     ef.setAttack(0.001f);
     ef.setRelease(0.05f);
-    ef.reset(); // AFTER setDomain -> -120 dB baseline
+    ef.reset(); // not required for the -120 dB baseline (setDomain already did it)
 
     float env = 0.0f;
     for (int n = 0; n < kHoldExerciseSamples; ++n) {
@@ -455,4 +456,44 @@ TEST_CASE("peak-hold in the decibel domain reports the held peak in dB") {
 
     const double want = 20.0 * std::log10(static_cast<double>(kLevel)); // ~ -6.0206 dB
     CHECK(std::fabs(static_cast<double>(env) - want) <= kSteadyTolDb);
+}
+
+TEST_CASE("dB domain baselines to the floor on setDomain, no reset() required") {
+    // Regression pin: setDomain() now baselines env_/y1_ to the new domain's
+    // floor AS PART OF THE CALL, so "set domain, then reset()" is obsolete.
+    // Before the fix, silence with no reset() after setDomain(decibel)
+    // reported ~0 dB (a loud transient) on the first sample.
+    SUBCASE("setDomain alone (no reset()) baselines the first sample and holds it") {
+        EnvelopeFollower ef;
+        ef.init(kSampleRateF);
+        ef.setMode(DetectMode::peak);
+        ef.setDomain(DetectDomain::decibel); // NOTE: deliberately NO reset() after setDomain
+        const float first = ef.process(0.0f);
+        CHECK(std::isfinite(first));
+        CHECK(std::fabs(static_cast<double>(first) - kFloorDb) <= kFloorTolDb);
+        for (int n = 0; n < 2048; ++n) {
+            const float env = ef.process(0.0f);
+            CHECK(std::isfinite(env));
+            CHECK(std::fabs(static_cast<double>(env) - kFloorDb) <= kFloorTolDb);
+        }
+    }
+    SUBCASE("setDomain mid-stream re-baselines away from a settled linear level") {
+        EnvelopeFollower ef;
+        ef.init(kSampleRateF);
+        ef.setMode(DetectMode::peak);
+        ef.setDomain(DetectDomain::linear);
+        ef.setAttack(static_cast<float>(kAttackTauSec));
+        ef.setRelease(kLongRelease);
+        ef.reset(); // settle in LINEAR on a steady 0.5 signal (env ~ 0.5 linear)
+        float env = 0.0f;
+        for (int n = 0; n < kSettleSamples; ++n) {
+            env = ef.process(0.5f);
+        }
+        REQUIRE(std::fabs(static_cast<double>(env) - 0.5) <= 1.0e-3);
+        // NOTE: deliberately NO reset() after setDomain -- the next sample must re-baseline.
+        ef.setDomain(DetectDomain::decibel);
+        const float afterSwitch = ef.process(0.0f);
+        CHECK(std::isfinite(afterSwitch));
+        CHECK(std::fabs(static_cast<double>(afterSwitch) - kFloorDb) <= kFloorTolDb);
+    }
 }
