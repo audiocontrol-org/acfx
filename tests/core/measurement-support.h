@@ -264,55 +264,18 @@ inline double dcOffset(Fn&& fn,
 //       The biased-setting DC-free assertion (SC-005, US3) drives a biased
 //       voicing and asserts the composed DC-blocker holds dcOffset near zero.
 //
-// The two remaining signatures — a drive->THD series and a mix dry/wet balance
-// measure — are the saturation-specific composites added below.  Both are thin
-// wrappers over the shipped captureSineResponse + acfx::measure::thd and over
-// plain buffer arithmetic; neither invents a new tolerance (helpers MEASURE,
-// tests assert against named bounds).
+// A former (b) — an ad-hoc drive->THD series helper (a point struct plus a
+// sweep function) — used to live here too. It has been migrated onto the
+// shipped acfx::analysis::driveSeries (host/analysis/drive-series.h, T019)
+// and removed (harmonic-analysis T022): saturation-harmonics-test.cpp is the
+// sole consumer and now calls driveSeries(...) directly, so this file no
+// longer duplicates that reduction.
+//
+// The one remaining signature — a mix dry/wet balance measure — is the
+// saturation-specific composite added below.  It is a thin wrapper over
+// plain buffer arithmetic; it does not invent a new tolerance (helpers
+// MEASURE, tests assert against named bounds).
 // ===========================================================================
-
-// ---------------------------------------------------------------------------
-// DriveThdSeries  (helper (b) — drive -> THD series)
-//
-// Measures total harmonic distortion as a function of drive so the suite can
-// assert drive->THD MONOTONICITY (FR-017, SC-002): rising drive raises measured
-// distortion.  `makeProcessor(drive)` returns a per-sample callable float(float)
-// configured at that drive (e.g. a lambda closing over a Waveshaper /
-// SaturationCore whose drive has been set).  For each drive a fresh sine is
-// captured through that callable and reduced to a single THD reading via the
-// shipped acfx::measure::thd (which itself returns NaN when THD is unmeasurable
-// — no fabricated 0.0).  Returns the (drive, thd) pairs; the test asserts the
-// thd sequence is non-decreasing within its named tolerance.
-//
-// Window contract: obey the integer-cycle window (header note) so every harmonic
-// bin is leakage-free.
-// ---------------------------------------------------------------------------
-struct DriveThdPoint {
-    double drive;  // the drive value applied for this measurement
-    double thd;    // measured THD at that drive (NaN when unmeasurable — thd() convention)
-};
-
-template <class MakeProcessor>
-inline std::vector<DriveThdPoint> driveThdSeries(MakeProcessor&& makeProcessor,
-                                                 acfx::span<const double> driveValues,
-                                                 double fundamentalHz,
-                                                 double sampleRate,
-                                                 std::size_t numSamples,
-                                                 int harmonics = 5,
-                                                 float amplitude = 1.0f) {
-    std::vector<DriveThdPoint> series;
-    series.reserve(driveValues.size());
-    for (std::size_t i = 0; i < driveValues.size(); ++i) {
-        const double drive = driveValues[i];
-        const std::vector<float> out =
-            captureSineResponse(makeProcessor(drive),
-                                fundamentalHz, sampleRate, numSamples, amplitude);
-        const double t = acfx::measure::thd(acfx::span<const float>(out),
-                                            fundamentalHz, sampleRate, harmonics);
-        series.push_back(DriveThdPoint{drive, t});
-    }
-    return series;
-}
 
 // ---------------------------------------------------------------------------
 // relativeRmsError  (mix building block)

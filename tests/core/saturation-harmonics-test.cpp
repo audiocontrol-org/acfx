@@ -65,10 +65,13 @@
 #include <functional>
 #include <vector>
 
+#include "analysis/drive-series.h"
 #include "effects/saturation/saturation-core.h"
 #include "core/measurement-support.h"
 
 using namespace acfx;
+using acfx::analysis::DriveRange;
+using acfx::analysis::DriveSeries;
 
 namespace {
 
@@ -79,9 +82,26 @@ constexpr float       kAmplitude  = 1.0f;     // unit-amplitude sine input
 
 // Drive sweep: spans softKnee's linear boundary (0.5) through its flat
 // boundary and mildly past it (2.0). See file header for the idealized
-// THD/loudness numbers this range produces.
+// THD/loudness numbers this range produces. Used directly by TEST 2 (which
+// still drives its own kAmplitude=1.0f stimulus via meastest::
+// captureSineResponse), so u = drive*amplitude = drive here.
 constexpr std::array<double, 7> kDriveValues = {
     0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0
+};
+
+// TEST 1 uses acfx::analysis::driveSeries (host/analysis/drive-series.h,
+// T019/T022) instead of hand-rolling the sweep. driveSeries() fixes its
+// internal stimulus amplitude at acfx::analysis::kDriveSeriesAmplitude
+// (0.5f) -- half of this file's kAmplitude (1.0f) used above -- so the drive
+// CONTROL values swept here are doubled relative to kDriveValues (1.0..4.0
+// in 0.5 steps rather than 0.5..2.0 in 0.25 steps). Since softKnee only sees
+// u = drive*amplitude, doubling drive while amplitude is halved reproduces
+// EXACTLY the same u sequence (0.5, 0.75, ..., 2.0) -- same physical
+// stimulus into softKnee, same expected THD numbers as the file header's
+// idealized model, so no tolerance changed.
+constexpr DriveRange kThdDriveRange{
+    kDriveValues.front() * 2.0, kDriveValues.back() * 2.0,
+    static_cast<int>(kDriveValues.size())
 };
 
 // Monotonicity tolerance: a small allowance for measurement noise (the
@@ -119,12 +139,12 @@ void configureCore(SaturationCore& core, float drive) {
     core.setOutput(1.0f);
 }
 
-// Drive -> per-sample callable, for meastest::driveThdSeries /
+// Drive -> per-sample callable, for acfx::analysis::driveSeries /
 // meastest::captureSineResponse. A fresh SaturationCore is built and
 // configured per drive value, then captured by value into the returned
 // closure so state is not shared across drive values (each drive gets its
-// own filter/DC-blocker state, matching driveThdSeries's per-drive-fresh-
-// capture contract in measurement-support.h).
+// own filter/DC-blocker state, matching driveSeries's per-drive-fresh-
+// capture contract, host/analysis/drive-series.h).
 std::function<float(float)> makeSoftClipProcessor(double drive) {
     SaturationCore core;
     configureCore(core, static_cast<float>(drive));
@@ -136,36 +156,38 @@ std::function<float(float)> makeSoftClipProcessor(double drive) {
 // ---------------------------------------------------------------------------
 // TEST 1: Drive -> THD monotonicity (FR-017, SC-002)
 //
-// Reuses meastest::driveThdSeries (measurement-support.h helper (b), added
-// specifically for this assertion) to sweep kDriveValues through the
-// softClip voicing and reduce each drive to a single THD reading. Asserts
-// the sequence is non-decreasing within kThdMonotonicEpsilon, and that the
-// end-to-end rise clears kMinThdRise -- rising drive into a soft-clipper
-// must not REDUCE measured distortion.
+// Reuses acfx::analysis::driveSeries (host/analysis/drive-series.h, T019;
+// migrated onto here from the ad-hoc drive->THD helper formerly in
+// measurement-support.h by T022) to sweep kThdDriveRange through the
+// softClip voicing and reduce each
+// drive point to a single THD reading (fundamental=1000 Hz, sr=48000 Hz,
+// N=4800 internally -- the same integer-cycle window this file already
+// uses). Asserts the sequence is non-decreasing within kThdMonotonicEpsilon,
+// and that the end-to-end rise clears kMinThdRise -- rising drive into a
+// soft-clipper must not REDUCE measured distortion.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("softClip: drive->THD is monotonically non-decreasing (FR-017/SC-002)") {
-    const std::vector<meastest::DriveThdPoint> series =
-        meastest::driveThdSeries(makeSoftClipProcessor,
-                                 acfx::span<const double>(kDriveValues),
-                                 kF0, kSampleRate, kN,
-                                 /*harmonics=*/5, kAmplitude);
+    const DriveSeries series =
+        acfx::analysis::driveSeries(makeSoftClipProcessor, kThdDriveRange,
+                                    /*numHarmonics=*/5);
 
-    REQUIRE(series.size() == kDriveValues.size());
+    REQUIRE(series.driveValue.size() == kDriveValues.size());
+    REQUIRE(series.thd.size() == series.driveValue.size());
 
-    for (std::size_t i = 0; i < series.size(); ++i) {
-        INFO("drive=" << series[i].drive << " thd=" << series[i].thd);
-        REQUIRE(std::isfinite(series[i].thd));
+    for (std::size_t i = 0; i < series.thd.size(); ++i) {
+        INFO("drive=" << series.driveValue[i] << " thd=" << series.thd[i]);
+        REQUIRE(std::isfinite(series.thd[i]));
     }
 
-    for (std::size_t i = 0; i + 1 < series.size(); ++i) {
-        INFO("drive[" << series[i].drive << "]=" << series[i].thd
-             << " -> drive[" << series[i + 1].drive << "]=" << series[i + 1].thd);
-        CHECK(series[i + 1].thd >= series[i].thd - kThdMonotonicEpsilon);
+    for (std::size_t i = 0; i + 1 < series.thd.size(); ++i) {
+        INFO("drive[" << series.driveValue[i] << "]=" << series.thd[i]
+             << " -> drive[" << series.driveValue[i + 1] << "]=" << series.thd[i + 1]);
+        CHECK(series.thd[i + 1] >= series.thd[i] - kThdMonotonicEpsilon);
     }
 
-    INFO("first thd=" << series.front().thd << " last thd=" << series.back().thd);
-    CHECK(series.back().thd - series.front().thd > kMinThdRise);
+    INFO("first thd=" << series.thd.front() << " last thd=" << series.thd.back());
+    CHECK(series.thd.back() - series.thd.front() > kMinThdRise);
 }
 
 // ---------------------------------------------------------------------------

@@ -97,8 +97,8 @@ double analyticThd(double drive) {
 
 // Drive-parameterized cubic nonlinearity factory: y = x + drive*x^3.
 // makeProcessor(drive) returns a fresh per-sample callable float(float),
-// matching the shape of the ad-hoc meastest::driveThdSeries helper this
-// engine function generalizes (tests/core/measurement-support.h).
+// matching the shape of the ad-hoc drive->THD helper this engine function
+// generalizes (formerly tests/core/measurement-support.h; removed by T022).
 auto cubic(double drive) {
     return [drive](float x) {
         const double xd = static_cast<double>(x);
