@@ -235,3 +235,89 @@ TEST_CASE("rms of DC equals |DC|") {
         CHECK(std::fabs(measured - expected) <= tolerance);
     }
 }
+
+TEST_CASE("rms detection composes with the decoupled topology") {
+    // Topology composition check: the RMS mean-square detection stage must
+    // settle correctly no matter which ballistics topology processes its
+    // output. Mirrors "rms of a steady sine settles to A/sqrt(2)" above but
+    // with Ballistics::decoupled in place of the (default) branching
+    // topology, across both the base (smooth=false) and smooth (smooth=true)
+    // decoupled variants.
+    constexpr float kAmplitude = 1.0f;
+
+    auto measureDecoupled = [](bool smooth) {
+        EnvelopeFollower ef;
+        ef.init(static_cast<float>(kSampleRate));
+        ef.setMode(DetectMode::rms);
+        ef.setRmsWindow(kRmsWindowSeconds);
+        ef.setBallistics(Ballistics::decoupled);
+        ef.setSmooth(smooth);
+        ef.setAttack(kBallisticsSeconds);
+        ef.setRelease(kBallisticsSeconds);
+        ef.reset();
+
+        const double omega = 2.0 * kPi * static_cast<double>(kSineFrequencyHz) / kSampleRate;
+        for (int n = 0; n < kSettleSamples; ++n) {
+            const float x = static_cast<float>(static_cast<double>(kAmplitude) * std::sin(omega * n));
+            ef.process(x);
+        }
+
+        double sum = 0.0;
+        for (int i = 0; i < kMeasureSamples; ++i) {
+            const int n   = kSettleSamples + i;
+            const float x = static_cast<float>(static_cast<double>(kAmplitude) * std::sin(omega * n));
+            sum += static_cast<double>(ef.process(x));
+        }
+        return sum / static_cast<double>(kMeasureSamples);
+    };
+
+    const double expected  = static_cast<double>(kAmplitude) * kInvSqrt2;
+    const double tolerance = kMeanTolFrac * expected;
+
+    SUBCASE("smooth = false") {
+        CHECK(std::fabs(measureDecoupled(false) - expected) <= tolerance);
+    }
+    SUBCASE("smooth = true") {
+        CHECK(std::fabs(measureDecoupled(true) - expected) <= tolerance);
+    }
+}
+
+TEST_CASE("rms mode averages with the default window (no setRmsWindow call)") {
+    // Pins that RMS mode performs real averaging OUT OF THE BOX: the
+    // EnvelopeFollower's default rmsWindowSeconds_ (see envelope-follower.h)
+    // is non-zero, so a caller that calls setMode(rms) WITHOUT ever calling
+    // setRmsWindow() still gets sqrt(meanSquare) settling at A/sqrt(2) for a
+    // steady sine -- NOT the degenerate zero-window case, which would
+    // collapse meanSquare to x^2 every sample (i.e. |x| ~= A, a silent
+    // regression to peak behavior Constitution V forbids).
+    constexpr float kAmplitude = 1.0f;
+
+    EnvelopeFollower ef;
+    ef.init(static_cast<float>(kSampleRate));
+    ef.setMode(DetectMode::rms);
+    // Deliberately NOT calling setRmsWindow(): exercises the class default.
+    ef.reset();
+
+    const double omega = 2.0 * kPi * static_cast<double>(kSineFrequencyHz) / kSampleRate;
+    for (int n = 0; n < kSettleSamples; ++n) {
+        const float x = static_cast<float>(static_cast<double>(kAmplitude) * std::sin(omega * n));
+        ef.process(x);
+    }
+
+    double sum = 0.0;
+    for (int i = 0; i < kMeasureSamples; ++i) {
+        const int n   = kSettleSamples + i;
+        const float x = static_cast<float>(static_cast<double>(kAmplitude) * std::sin(omega * n));
+        sum += static_cast<double>(ef.process(x));
+    }
+    const double measured = sum / static_cast<double>(kMeasureSamples);
+
+    const double expected  = static_cast<double>(kAmplitude) * kInvSqrt2;
+    const double tolerance = kMeanTolFrac * expected; // ~3%, matches empirical ~0.7075
+    CHECK(std::fabs(measured - expected) <= tolerance);
+
+    // Guard against the degenerate zero-window (peak-equivalent) case: the
+    // measured mean must NOT be close to the rectified-peak mean (~A), which
+    // is what a collapsed default window would yield.
+    CHECK(std::fabs(measured - static_cast<double>(kAmplitude)) > tolerance);
+}

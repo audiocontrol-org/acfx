@@ -36,12 +36,12 @@ The stateful level-detector primitive. All fields are scalars (no heap, no buffe
 | `sampleRate` | float | Hz, > 0 | Set by `init`; guarded (FR-018). |
 | `mode` | DetectMode | enum | Default `peak`. |
 | `ballistics` | Ballistics | enum | Default `branching`. |
-| `smooth` | bool | — | Smooth variant: attack coeff in both smoothing stages. Default `false`. |
+| `smooth` | bool | — | Smooth variant (decoupled release stage becomes a one-pole blend at the release rate). Default `false`. |
 | `domain` | DetectDomain | enum | Default `linear`. |
-| `attackSeconds` | float | s, ≥ 0 | Time to 1 − 1/e of a step; → `aAtk`. |
-| `releaseSeconds` | float | s, ≥ 0 | Time to 1 − 1/e of a step; → `aRel`. |
-| `holdSeconds` | float | s, ≥ 0 | Peak-hold only; → `holdSamples`. |
-| `rmsWindowSeconds` | float | s, ≥ 0 | RMS one-pole mean-square time constant; → `aRms`. Independent of attack/release. |
+| `attackSeconds` | float | s, ≥ 0 | Time to 1 − 1/e of a step; → `aAtk`. Default `0.010` (10 ms). |
+| `releaseSeconds` | float | s, ≥ 0 | Time to 1 − 1/e of a step; → `aRel`. Default `0.100` (100 ms). |
+| `holdSeconds` | float | s, ≥ 0 | Peak-hold only; → `holdSamples`. Default `0` (plain peak). |
+| `rmsWindowSeconds` | float | s, ≥ 0 | RMS one-pole mean-square time constant; → `aRms`. Independent of attack/release. Default `0.050` (50 ms) — MUST be non-zero or RMS silently degenerates to `|x|`. |
 
 ### Derived / cached (computed in setters, never in `process()`)
 | Field | Type | Derivation |

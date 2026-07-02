@@ -438,6 +438,21 @@ TEST_CASE("decoupled peak has no branching re-attack artifact") {
     const auto peakIt = std::max_element(env.begin(), env.end());
     const std::size_t peakIdx =
         static_cast<std::size_t>(std::distance(env.begin(), peakIt));
+
+    // Guard against a vacuous pass: without this, a bug that made the
+    // envelope climb monotonically to a global max at the LAST sample (e.g.
+    // a broken decoupled release that never decays) would find peakIdx at
+    // env.size() - 1, leaving no "remainder" for the monotonic-non-increase
+    // loop below to check, and the test would pass trivially. The genuine
+    // peak must land in the TRANSIENT region (env is still one-poling toward
+    // y1 == 1.0 there), plus a little headroom for env to finish catching up
+    // to y1's slow decoupled-release decay once the sustain phase begins:
+    // ~10 attack time constants is generous slack for that catch-up while
+    // remaining far short of the full sustain window (5 RELEASE time
+    // constants, an order of magnitude longer).
+    const int peakRegionSlackSamples = static_cast<int>(10.0 * kAttack * kSampleRate);
+    CHECK(peakIdx < static_cast<std::size_t>(transientSamples + peakRegionSlackSamples));
+
     constexpr double kMonotoneEpsilon = 1.0e-6; // absorb float rounding only
     for (std::size_t n = peakIdx + 1; n < env.size(); ++n) {
         CHECK(static_cast<double>(env[n]) <=

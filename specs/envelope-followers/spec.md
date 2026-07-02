@@ -249,7 +249,7 @@ both new paths.
 - **Validation reuses the shipped measurement (stimulus/response) infrastructure** (`tests/core/measurement-*`, `measurement-support.h`, `tests/support/svf-reference.h`) for step/response and sine-envelope assertions, following the `svf-reference` named-tolerance pattern.
 - **The full mode/topology/domain catalog lands in the first graduated cut** (Clarifications 2026-07-02): all three modes, both topologies (both smooth-capable), and both domains ship in the first graduated primitive — no subset is deferred.
 - **Time-constant convention** is the 1 − 1/e (~63%) seconds convention for the one-pole smoothers, applied **identically across all modes** (Clarifications 2026-07-02); the RMS mean-square averaging is a separate one-pole stage governed by `setRmsWindow` and does not alter the attack/release convention.
-- **Default configuration** on `init()` is peak mode, branching topology, non-smooth, linear domain, with implementation-chosen default attack/release — so a consumer that only calls `init()` + `process()` gets a working peak follower (US1).
+- **Default configuration** on `init()` is peak mode, branching topology, non-smooth, linear domain, with sensible non-zero defaults (attack 10 ms, release 100 ms, RMS window 50 ms) — so a consumer that only calls `init()` + a mode + `process()` gets useful ballistics. The RMS window in particular MUST default non-zero: a zero window collapses the mean-square to `x²` (i.e. `|x|`), which would silently NOT be RMS (Constitution V — no silent degeneracy).
 - **Dependency**: `multi:feature/phase-nonlinear-dsp` is complete; the measurement infrastructure and the three-layer/portability tooling it relies on are shipped.
 
 ## Deferred Decisions *(for `/speckit-plan`)*

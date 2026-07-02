@@ -224,10 +224,15 @@ private:
     Ballistics   ballistics_       = Ballistics::branching;
     bool         smooth_           = false;
     DetectDomain domain_           = DetectDomain::linear;
-    float        attackSeconds_    = 0.0f;
-    float        releaseSeconds_   = 0.0f;
-    float        holdSeconds_      = 0.0f;
-    float        rmsWindowSeconds_ = 0.0f;
+    // Sensible non-zero defaults so a consumer that only calls init() + a mode
+    // gets useful ballistics — and, critically, RMS mode actually averages (a
+    // zero window would collapse the mean-square to x^2, i.e. |x|, silently NOT
+    // doing RMS — Constitution V forbids that silent degeneracy). Callers
+    // override via the setters.
+    float        attackSeconds_    = 0.010f;   // 10 ms
+    float        releaseSeconds_   = 0.100f;   // 100 ms
+    float        holdSeconds_      = 0.0f;     // peak-hold opt-in (0 = plain peak)
+    float        rmsWindowSeconds_ = 0.050f;   // 50 ms RMS averaging window
 
     // -----------------------------------------------------------------------
     // Derived / cached coefficients — recomputed in setters, never in

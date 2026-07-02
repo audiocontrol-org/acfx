@@ -101,6 +101,12 @@ inline constexpr double kNearFloorDb = -100.0;
 // magnitude larger than this epsilon).
 inline constexpr double kMonotonicEpsDb = 1.0e-4;
 
+// Tolerance for the RMS+dB composition test below: looser than kSteadyTolDb
+// because it stacks the RMS mean-square stage's (small but nonzero) settled
+// ripple on top of the same dB steady-state comparison kSteadyTolDb already
+// covers for pure peak/dB.
+inline constexpr double kRmsDbSteadyTolDb = 0.1;
+
 // dB conversion mirroring the applyDomain() contract, guarded against log10(0)
 // with the SAME 1e-6 floor the primitive uses. Used both to compute analytic
 // expectations and (in T4) to read the dB of a measured LINEAR envelope.
@@ -385,4 +391,68 @@ TEST_CASE("dB decoupled release decays toward the -120 dBFS floor, not toward 0 
 
     SUBCASE("smooth = false (base)") { exercise(false); }
     SUBCASE("smooth = true") { exercise(true); }
+}
+
+TEST_CASE("rms detection in the decibel domain settles at 20*log10(A/sqrt(2))") {
+    // Composition check: RMS mode's mean-square detection stage feeds the SAME
+    // applyDomain() dB conversion peak mode does, ahead of the branching
+    // smoother. For a steady sine of amplitude A the RMS level settles at
+    // A/sqrt(2) (see envelope-follower-rms-test.cpp), so the dB-domain
+    // envelope must settle at 20*log10(A/sqrt(2)).
+    constexpr float  kAmplitude   = 1.0f;
+    constexpr float  kFrequencyHz = 1000.0f;
+    const double      omega       = 2.0 * 3.14159265358979323846 *
+                                    static_cast<double>(kFrequencyHz) / kSampleRate;
+
+    // ~2 s: many RMS-window (50 ms) and ballistics (1 ms / 50 ms) time
+    // constants, so both the mean-square stage and the smoother are fully
+    // settled well before the readout.
+    const int kSineSettleSamples = static_cast<int>(2.0 * kSampleRate);
+
+    EnvelopeFollower ef;
+    ef.init(kSampleRateF);
+    ef.setMode(DetectMode::rms);
+    ef.setRmsWindow(0.05f);
+    ef.setDomain(DetectDomain::decibel);
+    ef.setBallistics(Ballistics::branching);
+    ef.setAttack(0.001f);
+    ef.setRelease(0.05f);
+    ef.reset(); // AFTER setDomain -> -120 dB baseline
+
+    float env = 0.0f;
+    for (int n = 0; n < kSineSettleSamples; ++n) {
+        const float x = static_cast<float>(static_cast<double>(kAmplitude) * std::sin(omega * n));
+        env = ef.process(x);
+    }
+
+    const double want = 20.0 * std::log10(1.0 / std::sqrt(2.0)); // ~ -3.0103 dB
+    CHECK(std::fabs(static_cast<double>(env) - want) <= kRmsDbSteadyTolDb);
+}
+
+TEST_CASE("peak-hold in the decibel domain reports the held peak in dB") {
+    // dB-domain peak-hold: the held peak (linear) must run through the SAME
+    // applyDomain() dB conversion peak/RMS modes use, then the branching
+    // smoother. A constant input latches heldPeak_ at that level indefinitely
+    // (rect == heldPeak_ every sample re-arms the hold window, see detect()'s
+    // peakHold branch), so once the fast (1 ms) attack settles, the envelope
+    // reports 20*log10(level).
+    constexpr float kLevel = 0.5f;
+    const int kHoldExerciseSamples = static_cast<int>(0.5 * kSampleRate); // 0.5 s
+
+    EnvelopeFollower ef;
+    ef.init(kSampleRateF);
+    ef.setMode(DetectMode::peakHold);
+    ef.setHold(0.5f);
+    ef.setDomain(DetectDomain::decibel);
+    ef.setAttack(0.001f);
+    ef.setRelease(0.05f);
+    ef.reset(); // AFTER setDomain -> -120 dB baseline
+
+    float env = 0.0f;
+    for (int n = 0; n < kHoldExerciseSamples; ++n) {
+        env = ef.process(kLevel);
+    }
+
+    const double want = 20.0 * std::log10(static_cast<double>(kLevel)); // ~ -6.0206 dB
+    CHECK(std::fabs(static_cast<double>(env) - want) <= kSteadyTolDb);
 }
