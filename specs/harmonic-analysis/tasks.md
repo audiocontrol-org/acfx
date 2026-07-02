@@ -34,8 +34,8 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 **Purpose**: Directory skeletons and the portability gate, ready before code lands.
 
-- [ ] T001 [tier:fast] Create the directory skeletons: `core/primitives/analysis/` (placeholder `README.md`) and `host/analysis/` (placeholder `README.md`), per plan.md Project Structure.
-- [ ] T002 [P] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/primitives/analysis/**` (platform-free, harness-free) and assert neither `host/analysis/**` nor any adapter is reachable from `core/` (dependency direction), following the existing `core/primitives/oversampling` gate block; must pass vacuously while the trees are empty.
+- [x] T001 [tier:fast] Create the directory skeletons: `core/primitives/analysis/` (placeholder `README.md`) and `host/analysis/` (placeholder `README.md`), per plan.md Project Structure.
+- [x] T002 [P] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/primitives/analysis/**` (platform-free, harness-free) and assert neither `host/analysis/**` nor any adapter is reachable from `core/` (dependency direction), following the existing `core/primitives/oversampling` gate block; must pass vacuously while the trees are empty.
 
 **Checkpoint**: Directories exist; the gate recognizes the new trees.
 
@@ -45,11 +45,11 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 **Purpose**: The FFT + window + shared engine seam every offline story builds on. ⚠️ No user story can proceed until this phase is complete.
 
-- [ ] T003 [tier:balanced] RED: `tests/core/analysis-fft-test.cpp` — windowed radix-2 FFT reconstructs analytic tones within tolerance; **a non-power-of-two length is rejected with a descriptive error** (FR-009/026). (Links RED until T004.)
-- [ ] T004 [tier:powerful] `host/analysis/fft.h` — self-contained iterative radix-2 FFT (namespace `acfx::analysis`), twiddles precomputed at `init()`, applies the configured window, **power-of-two-only with a descriptive error on non-pow2**; GREEN T003 (research Decision 2).
-- [ ] T005 [P] [tier:balanced] RED: `tests/core/analysis-window-test.cpp` — default window is 4-term Blackman-Harris; Hann and flat-top selectable; sidelobe/main-lobe sanity (FR-025). (Links RED until T006.)
-- [ ] T006 [tier:balanced] `host/analysis/window.h` — selectable `WindowKind{BlackmanHarris(default),Hann,FlatTop}`, coeffs at `init()`; GREEN T005 (research Decision 3).
-- [ ] T007 [tier:balanced] **Relocate** the reusable building blocks from `tests/support/measurement/` into `host/analysis/` — `stimulus.h` (Sine/Sweep/Impulse/Step/WhiteNoise), `goertzel.h` (exact single-bin `GoertzelAnalyzer`), `aliasing.h` (integer-cycle inharmonic measure), and the `captureCallable` seam — make `tests/support/measurement/` **re-export** them (no duplicate impl; dependency `tests/support → host/analysis`, never the reverse — analyze F1); then author `host/analysis/analysis-engine.h`, the single entry surface (namespace `acfx::analysis`) composing Window + Fft + the relocated capture seam, establishing the one-engine seam tests and adapters share (FR-006/014/015 foundation). Existing call sites keep compiling.
+- [x] T003 [tier:balanced] RED: `tests/core/analysis-fft-test.cpp` — windowed radix-2 FFT reconstructs analytic tones within tolerance; **a non-power-of-two length is rejected with a descriptive error** (FR-009/026). (Links RED until T004.)
+- [x] T004 [tier:powerful] `host/analysis/fft.h` — self-contained iterative radix-2 FFT (namespace `acfx::analysis`), twiddles precomputed at `init()`, applies the configured window, **power-of-two-only with a descriptive error on non-pow2**; GREEN T003 (research Decision 2).
+- [x] T005 [P] [tier:balanced] RED: `tests/core/analysis-window-test.cpp` — default window is 4-term Blackman-Harris; Hann and flat-top selectable; sidelobe/main-lobe sanity (FR-025). (Links RED until T006.)
+- [x] T006 [tier:balanced] `host/analysis/window.h` — selectable `WindowKind{BlackmanHarris(default),Hann,FlatTop}`, coeffs at `init()`; GREEN T005 (research Decision 3).
+- [x] T007 [tier:balanced] **Relocate** the reusable building blocks from `tests/support/measurement/` into `host/analysis/` — `stimulus.h` (Sine/Sweep/Impulse/Step/WhiteNoise), `goertzel.h` (exact single-bin `GoertzelAnalyzer`), `aliasing.h` (integer-cycle inharmonic measure), and the `captureCallable` seam — make `tests/support/measurement/` **re-export** them (no duplicate impl; dependency `tests/support → host/analysis`, never the reverse — analyze F1); then author `host/analysis/analysis-engine.h`, the single entry surface (namespace `acfx::analysis`) composing Window + Fft + the relocated capture seam, establishing the one-engine seam tests and adapters share (FR-006/014/015 foundation). Existing call sites keep compiling.
 
 **Checkpoint**: engine core builds; FFT + window suites green.
 
@@ -61,12 +61,12 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 **Independent test**: Run against analytic nonlinearities (symmetric→odd-only; biased→even+odd+DC); spectrum/THD+N/noise-floor match analytic references within tolerance; retained Goertzel reproduces exact known-bin values.
 
-- [ ] T008 [tier:balanced] RED: `tests/core/analysis-spectrum-test.cpp` — full spectrum magnitude+phase vs analytic harmonic signatures; out-of-band harmonics not-measured; sub-floor phase → NaN (FR-001/008, US1).
-- [ ] T009 [US1] [tier:balanced] `host/analysis/spectrum.h` — `harmonicSpectrum(in, fundamentalHz, numHarmonics)`: per-harmonic magnitude AND phase, arbitrary N, 1-based `at(k)`; GREEN T008.
-- [ ] T010 [tier:powerful] RED: `tests/core/analysis-thdn-test.cpp` — THD+N residual method + noise-floor/SNR vs analytic; no-fundamental → NaN (FR-002/008, US1).
-- [ ] T011 [US1] [tier:powerful] `host/analysis/thdn.h` — `thdPlusN(in, fundamentalHz)` residual (notch-fundamental) method, `noiseFloor`, `snr` referenced to fundamental, NaN sentinel; GREEN T010 (research Decision 4).
-- [ ] T012 [tier:balanced] RED: `tests/core/analysis-goertzel-parity-test.cpp` — retained exact integer-cycle Goertzel reproduces the current known-bin amplitudes (FR-007, US1).
-- [ ] T013 [US1] [tier:balanced] Wire the retained exact `goertzelBin(...)` known-bin path into `host/analysis/analysis-engine.h` (unwindowed, leakage-free), reusing the relocated `host/analysis/goertzel.h`; GREEN T012 (FR-007/010).
+- [x] T008 [tier:balanced] RED: `tests/core/analysis-spectrum-test.cpp` — full spectrum magnitude+phase vs analytic harmonic signatures; out-of-band harmonics not-measured; sub-floor phase → NaN (FR-001/008, US1).
+- [x] T009 [US1] [tier:balanced] `host/analysis/spectrum.h` — `harmonicSpectrum(in, fundamentalHz, numHarmonics)`: per-harmonic magnitude AND phase, arbitrary N, 1-based `at(k)`; GREEN T008.
+- [x] T010 [tier:powerful] RED: `tests/core/analysis-thdn-test.cpp` — THD+N residual method + noise-floor/SNR vs analytic; no-fundamental → NaN (FR-002/008, US1).
+- [x] T011 [US1] [tier:powerful] `host/analysis/thdn.h` — `thdPlusN(in, fundamentalHz)` residual (notch-fundamental) method, `noiseFloor`, `snr` referenced to fundamental, NaN sentinel; GREEN T010 (research Decision 4).
+- [x] T012 [tier:balanced] RED: `tests/core/analysis-goertzel-parity-test.cpp` — retained exact integer-cycle Goertzel reproduces the current known-bin amplitudes (FR-007, US1).
+- [x] T013 [US1] [tier:balanced] Wire the retained exact `goertzelBin(...)` known-bin path into `host/analysis/analysis-engine.h` (unwindowed, leakage-free), reusing the relocated `host/analysis/goertzel.h`; GREEN T012 (FR-007/010).
 
 **Checkpoint**: US1 independently testable — the MVP offline characterization ships.
 
@@ -78,10 +78,10 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 **Independent test**: Known nonlinearity + each twin-tone pair → difference/sum products within tolerance; swept tone through a naive nonlinearity → inharmonic curve rises past Nyquist, lower for a band-limited arm.
 
-- [ ] T014 [tier:powerful] RED: `tests/core/analysis-imd-test.cpp` — SMPTE (60+7000 Hz) and CCIF (19+20 kHz) difference/sum products vs analytic; product-bin coinciding with a harmonic attributed unambiguously (FR-003, US2).
-- [ ] T015 [US2] [tier:powerful] `host/analysis/imd.h` — `imd(fx, method)` twin-tone SMPTE/CCIF, difference AND sum products, unambiguous product attribution; GREEN T014 (research Decision 5).
-- [ ] T016 [tier:balanced] RED: `tests/core/analysis-alias-sweep-test.cpp` — inharmonic energy rises as harmonics fold past Nyquist; a band-limited arm is lower (FR-004, US2).
-- [ ] T017 [US2] [tier:balanced] `host/analysis/alias-sweep.h` — `aliasSweep(fx, sweep)` inharmonic-vs-frequency reusing the relocated `host/analysis/aliasing.h` integer-cycle measure; GREEN T016 (research Decision 6).
+- [x] T014 [tier:powerful] RED: `tests/core/analysis-imd-test.cpp` — SMPTE (60+7000 Hz) and CCIF (19+20 kHz) difference/sum products vs analytic; product-bin coinciding with a harmonic attributed unambiguously (FR-003, US2).
+- [x] T015 [US2] [tier:powerful] `host/analysis/imd.h` — `imd(fx, method)` twin-tone SMPTE/CCIF, difference AND sum products, unambiguous product attribution; GREEN T014 (research Decision 5).
+- [x] T016 [tier:balanced] RED: `tests/core/analysis-alias-sweep-test.cpp` — inharmonic energy rises as harmonics fold past Nyquist; a band-limited arm is lower (FR-004, US2).
+- [x] T017 [US2] [tier:balanced] `host/analysis/alias-sweep.h` — `aliasSweep(fx, sweep)` inharmonic-vs-frequency reusing the relocated `host/analysis/aliasing.h` integer-cycle measure; GREEN T016 (research Decision 6).
 
 **Checkpoint**: US2 independently testable atop US1's engine.
 
@@ -93,8 +93,8 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 **Independent test**: Sweep drive on a known nonlinearity → drive→THD monotonic where the model predicts; per-harmonic curves match analytic references at sampled points.
 
-- [ ] T018 [tier:balanced] RED: `tests/core/analysis-drive-series-test.cpp` — drive→THD monotonicity + per-harmonic curves vs analytic (FR-005, US3).
-- [ ] T019 [US3] [tier:balanced] `host/analysis/drive-series.h` — `driveSeries(fxFactory, driveRange, numHarmonics)` returning drive→THD and drive→harmonic curves; GREEN T018.
+- [x] T018 [tier:balanced] RED: `tests/core/analysis-drive-series-test.cpp` — drive→THD monotonicity + per-harmonic curves vs analytic (FR-005, US3).
+- [x] T019 [US3] [tier:balanced] `host/analysis/drive-series.h` — `driveSeries(fxFactory, driveRange, numHarmonics)` returning drive→THD and drive→harmonic curves; GREEN T018.
 
 **Checkpoint**: US3 independently testable.
 
@@ -106,11 +106,11 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 **Independent test**: Repointed harnesses produce identical harmonic tables / aliasing figures; no self-contained Goertzel remains; all prior suites green.
 
-- [ ] T020 [US4] [tier:balanced] Repoint `tests/core/measurement-support.h` (`meastest::`) onto the relocated `host/analysis/` building blocks (T007), and confirm the `tests/support/measurement/` re-exports carry every existing call site with no duplicate impl remaining (FR-007 preserved).
-- [ ] T021 [P] [US4] [tier:fast] Repoint `core/labs/waveshaping/harness/waveshaping-harness.cpp` at `host/analysis/`; delete its self-contained Goertzel; confirm the per-shape harmonic table is unchanged.
-- [ ] T022 [P] [US4] [tier:fast] Repoint `core/labs/saturation/harness/saturation-harness.cpp` at `host/analysis/`; delete its self-contained Goertzel and open-coded `driveThdSeries` (use `drive-series.h`); confirm harmonic + aliasing figures unchanged.
-- [ ] T023 [P] [US4] [tier:fast] Repoint `core/labs/oversampling/harness/oversampling-harness.cpp` at `host/analysis/`; delete its self-contained Goertzel; confirm the naive-vs-ADAA aliasing figures unchanged.
-- [ ] T024 [US4] [tier:balanced] Zero-regression gate: run all prior harmonic/aliasing suites (waveshaper/saturation/oversampler) and assert green; `grep -rn Goertzel core/labs/*/harness/` returns nothing (SC-003).
+- [x] T020 [US4] [tier:balanced] Repoint `tests/core/measurement-support.h` (`meastest::`) onto the relocated `host/analysis/` building blocks (T007), and confirm the `tests/support/measurement/` re-exports carry every existing call site with no duplicate impl remaining (FR-007 preserved).
+- [x] T021 [P] [US4] [tier:fast] Repoint `core/labs/waveshaping/harness/waveshaping-harness.cpp` at `host/analysis/`; delete its self-contained Goertzel; confirm the per-shape harmonic table is unchanged.
+- [x] T022 [P] [US4] [tier:fast] Repoint `core/labs/saturation/harness/saturation-harness.cpp` at `host/analysis/`; delete its self-contained Goertzel and open-coded `driveThdSeries` (use `drive-series.h`); confirm harmonic + aliasing figures unchanged.
+- [x] T023 [P] [US4] [tier:fast] Repoint `core/labs/oversampling/harness/oversampling-harness.cpp` at `host/analysis/`; delete its self-contained Goertzel; confirm the naive-vs-ADAA aliasing figures unchanged.
+- [x] T024 [US4] [tier:balanced] Zero-regression gate: run all prior harmonic/aliasing suites (waveshaper/saturation/oversampler) and assert green; `grep -rn Goertzel core/labs/*/harness/` returns nothing (SC-003).
 
 **Checkpoint**: one shared toolkit; no duplication; prior evidence intact.
 
@@ -122,13 +122,13 @@ Portable RT probe under `core/primitives/analysis/`; host engine under `host/ana
 
 **Independent test**: In workbench and plugin, a known nonlinearity's live readout reflects its harmonic signature; the audio callback does only a bounded lock-free push; a live metric matches the offline figure within tolerance.
 
-- [ ] T025 [tier:powerful] RED: `tests/core/capture-probe-test.cpp` — SPSC ring correctness + deterministic overrun (counted, non-blocking) / underrun (hold, skip) (FR-011/013, US5).
-- [ ] T026 [US5] [tier:powerful] `core/primitives/analysis/capture-probe.h` — `CaptureProbeRing<Capacity>` lock-free SPSC; audio-path `push(block)` bounded copy + release store, no alloc/lock/math; acquire-side `drain`/`available`/`overrunCount`; GREEN T025 (research Decision 7; contract capture-probe-api.md).
-- [ ] T027 [P] [US5] [tier:balanced] Extend `tests/core/no-allocation-test.cpp` — assert `CaptureProbeRing::push()` allocates nothing on the audio path (SC-004).
-- [ ] T028 [tier:balanced] RED: `tests/core/analysis-live-offline-parity-test.cpp` — a metric captured through the probe → engine equals the direct offline engine result within a named tolerance (FR-015, US5).
-- [ ] T029 [US5] [tier:balanced] Author the shared live-readout implementation (drains the ring on a UI/timer thread at ~15–30 Hz overlapping windows, calls `host/analysis` for spectrum + running THD); GREEN T028's offline-parity assertion.
-- [ ] T030 [US5] [tier:balanced] Wire the shared readout into `adapters/workbench/` (spectrum + running-THD surface; audio thread owns a `CaptureProbeRing` and only `push`es).
-- [ ] T031 [P] [US5] [tier:balanced] Wire the same shared readout + capture probe into `adapters/plugin/` (one implementation, second host; desktop-only, never embedded) (FR-014/016).
+- [x] T025 [tier:powerful] RED: `tests/core/capture-probe-test.cpp` — SPSC ring correctness + deterministic overrun (counted, non-blocking) / underrun (hold, skip) (FR-011/013, US5).
+- [x] T026 [US5] [tier:powerful] `core/primitives/analysis/capture-probe.h` — `CaptureProbeRing<Capacity>` lock-free SPSC; audio-path `push(block)` bounded copy + release store, no alloc/lock/math; acquire-side `drain`/`available`/`overrunCount`; GREEN T025 (research Decision 7; contract capture-probe-api.md).
+- [x] T027 [P] [US5] [tier:balanced] Extend `tests/core/no-allocation-test.cpp` — assert `CaptureProbeRing::push()` allocates nothing on the audio path (SC-004).
+- [x] T028 [tier:balanced] RED: `tests/core/analysis-live-offline-parity-test.cpp` — a metric captured through the probe → engine equals the direct offline engine result within a named tolerance (FR-015, US5).
+- [x] T029 [US5] [tier:balanced] Author the shared live-readout implementation (drains the ring on a UI/timer thread at ~15–30 Hz overlapping windows, calls `host/analysis` for spectrum + running THD); GREEN T028's offline-parity assertion.
+- [~] T030 [US5] [tier:balanced] Wire the shared readout into `adapters/workbench/` (spectrum + running-THD surface; audio thread owns a `CaptureProbeRing` and only `push`es).
+- [~] T031 [P] [US5] [tier:balanced] Wire the same shared readout + capture probe into `adapters/plugin/` (one implementation, second host; desktop-only, never embedded) (FR-014/016).
 
 **Checkpoint**: live readout in both hosts; one-engine parity proven.
 
