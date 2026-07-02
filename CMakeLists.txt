@@ -129,7 +129,10 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
     core/labs/saturation/harness/saturation-harness.cpp
   )
   target_include_directories(acfx_lab_saturation_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
-  target_link_libraries(acfx_lab_saturation_harness PRIVATE acfx_core)
+  # acfx_analysis: this harness includes core/measurement-support.h, which
+  # includes the tests/support/measurement/*.h re-export shims that now
+  # forward to host/analysis/*.h (harmonic-analysis T007, analyze finding F1).
+  target_link_libraries(acfx_lab_saturation_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_saturation_harness PRIVATE cxx_std_20)
 
   # Oversampling lab harness — same linkage as acfx_lab_saturation_harness,
@@ -144,6 +147,9 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
     core/labs/oversampling/harness/oversampling-harness.cpp
   )
   target_include_directories(acfx_lab_oversampling_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
-  target_link_libraries(acfx_lab_oversampling_harness PRIVATE acfx_core)
+  # acfx_analysis: this harness includes core/measurement-support.h, which
+  # includes the tests/support/measurement/*.h re-export shims that now
+  # forward to host/analysis/*.h (harmonic-analysis T007, analyze finding F1).
+  target_link_libraries(acfx_lab_oversampling_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_oversampling_harness PRIVATE cxx_std_20)
 endif()
