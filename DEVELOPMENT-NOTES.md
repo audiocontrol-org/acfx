@@ -2,6 +2,102 @@
 
 ---
 
+## 2026-07-02: Envelope followers — design → ship through the stack-control front door
+
+**Goal:** Drive `design:primitive/envelope-followers` end-to-end through the
+stack-control front door — from the ready roadmap frontier to a merge-ready
+dynamics level-detector primitive: design record, runnable Spec Kit spec,
+implementation via model-sized subagent dispatch, governance, and a PR.
+
+**Accomplished:**
+- Full lifecycle: design → define → clarify → plan → tasks → analyze → execute →
+  govern(override) → ship (PR #12). Roadmap node `planned → merging`.
+- `EnvelopeFollower` primitive at `core/primitives/dynamics/envelope-follower.h` —
+  the first inhabitant of the new `dynamics/` category, graduated from its lab in
+  one atomic commit. Full catalog: peak/RMS/peak-hold × branching/decoupled(+smooth)
+  × linear/dB, RT-safe and allocation-free.
+- All 34 `tasks.md` tasks dispatched to fresh per-task subagents at their resolved
+  model tier (10 haiku / 15 sonnet / 9 opus), each reviewed, committed, ledgered.
+- 293 host doctest cases green (`make test`), portability gate green, zero heap
+  allocation across all 24 mode × topology × domain configs, lab harness emitting
+  measurement evidence.
+
+**Didn't Work:**
+- The govern cross-model barrage was killed by the sandbox runtime ceiling (~10 min)
+  before reconciling — no convergence record produced. Terminated via
+  operator-approved `--override` after a `/code-review` stop-gap.
+- The `agent-context` after_specify/after_plan hook could not run (PyYAML not
+  importable in the `python3` env) — the CLAUDE.md SPECKIT marker was updated by hand.
+- `check-prerequisites.sh` rejects the descriptive branch name (TF-09) — resolution
+  goes through `.specify/feature.json` / the CLAUDE.md marker instead.
+
+**Course Corrections:**
+- Governance earned its keep: the partial barrage + the `/code-review` stop-gap caught
+  **two HIGH-severity bugs** incremental per-slice testing missed — (1) decoupled+dB
+  released *up* toward 0 dB (unity) instead of the −120 floor; (2) RMS silently
+  degenerated to `|x|` when `setRmsWindow` was unset (zero defaults). Both fixed with
+  regression coverage.
+- PR review caught a third real defect: `setDomain(decibel)` without a following
+  `reset()` produced a loud ~0 dB first sample (env_ in stale linear units). Fixed by
+  making `setDomain` re-baseline the smoother state to the domain floor, deleting the
+  unenforced ordering contract rather than documenting around it.
+
+**Insights:**
+- The bug class that slipped past per-task testing was **compositional** — mode ×
+  topology × domain combinations (decoupled+dB, rms silent-degenerate) that each
+  slice tested in isolation but never together. Cross-model governance and a broad
+  code-review pass are exactly the nets that catch that class; single-slice tests do not.
+- Model-sized subagent dispatch (haiku/sonnet/opus by declared tier) held up well:
+  the opus lanes on the subtle math (coefficients, decoupled recurrence, dB
+  level-independence) produced correct reference-model-pinned code; haiku handled the
+  mechanical no-alloc/wiring tasks cleanly.
+- Pinning implementations to an in-test reference model (the decoupled 1e-5 equality)
+  is what let the domain-floor fix land safely — the linear reference stayed bit-exact
+  because floor=0 makes the change a no-op in linear.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 38
+  - fix(envelope-followers): setDomain re-baselines the envelope; clean stale comments (PR review)
+  - fix(envelope-followers): sensible non-zero defaults + composition coverage (code-review)
+  - docs(envelope-followers): reconcile test-registration count (govern audit)
+  - fix(envelope-followers): decoupled release decays toward the domain floor (govern audit)
+  - tasks(envelope-followers): mark all 34 tasks complete (implemented, tested, committed)
+  - impl(envelope-followers): T033 combinatorial no-alloc sweep + T034 low-fs coefficient characterization
+  - impl(envelope-followers): T029 finalize lab README to match shipped primitive (US6)
+  - impl(envelope-followers): T028 lab harness measurement evidence (US6)
+  - impl(envelope-followers): T027 decibel-domain no-allocation coverage (SC-007)
+  - impl(envelope-followers): T025+T026 decibel detection domain + -120 dBFS floor
+  - impl(envelope-followers): T024 peak-hold no-allocation coverage (SC-007)
+  - impl(envelope-followers): T022+T023 peak-hold detector (latch + hold + restart)
+  - impl(envelope-followers): T021 decoupled+smooth no-allocation coverage (SC-007)
+  - impl(envelope-followers): T018+T019+T020 decoupled + smooth-decoupled ballistics
+  - impl(envelope-followers): T017 RMS no-allocation coverage (SC-007)
+  - impl(envelope-followers): T015+T016 RMS detector (one-pole mean-square + sqrt) + tests
+  - impl(envelope-followers): T014 no-allocation coverage for EnvelopeFollower process() (SC-007)
+  - impl(envelope-followers): T010+T012 branching attack/release ballistics + timing tests
+  - impl(envelope-followers): T009 US1 interface + edge-case test suite
+  - chore(execute): gitignore local stack-control execute ledger
+  - impl(envelope-followers): T008 graduate envelope-follower kernel into core/primitives/dynamics/ (first inhabitant)
+  - impl(envelope-followers): T007 process() detect/domain/smooth dispatch skeleton
+  - impl(envelope-followers): T006 coefficient math + init/reset guards (FR-013/016/018)
+  - impl(envelope-followers): T004 envelope-follower test-suite section header in acfx_core_tests
+  - impl(envelope-followers): T003 lab harness stub + acfx_lab_envelope_follower_harness target
+  - impl(envelope-followers): T005 portability gate covers dynamics/ + envelope-follower lab
+  - impl(envelope-followers): T001 lab README (ballistics theory + graduation walkthrough)
+  - impl(envelope-followers): T002 EnvelopeFollower kernel skeleton (lab)
+  - tasks(envelope-followers): add [tier:label] model-sized-dispatch tags
+  - analyze(envelope-followers): record analyze-clean marker (specifying->implementing gate)
+  - tasks(envelope-followers): dependency-ordered tasks.md (34 tasks)
+  - plan(envelope-followers): plan.md + research/data-model/contracts/quickstart
+  - clarify(envelope-followers): resolve 5 of 6 open questions into the spec
+  - define(envelope-followers): Spec Kit spec.md + quality checklist; set spec pointer
+  - design(envelope-followers): record design-approved marker
+  - design(envelope-followers): design record + design pointer
+  - chore(roadmap): close multi:feature/phase-nonlinear-dsp (all children closed)
+  - chore(roadmap): close design:gap/harmonic-analysis (shipped, validated)
+- Files changed: 27
+- Backlog touched: (none)
+
 ## 2026-07-01: Saturation — design → define → execute → govern(override) → ship
 
 **Goal:** Drive `design:feature/saturation` end-to-end through the stack-control

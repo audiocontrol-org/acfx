@@ -33,3 +33,8 @@
 ## session-end 2026-07-01
 - stackctl govern --mode implement barrage cannot complete in the CI-constrained sandbox: killed ~5-7min before reconciliation, the sonnet fleet lane times out each chunk (degraded 2/3, floor of 2 still met); no convergence record written. Terminal was operator --override + full /code-review as compensating control.
 - govern FATALs early (before the barrage) on any single diffed file over the 24576-byte per-file fleet envelope; forced trimming spec.md and splitting saturation-effect-test.cpp to satisfy the audit envelope, not for code-quality reasons. A hunk-split or higher envelope for non-code docs would avoid this.
+
+## session-end 2026-07-02
+- agent-context after_specify/after_plan hook cannot run: PyYAML not importable in the python3 env, so the CLAUDE.md SPECKIT marker had to be updated by hand each time.
+- speckit check-prerequisites.sh rejects the descriptive branch name (TF-09); active spec dir resolves via .specify/feature.json / CLAUDE.md marker instead of the branch.
+- govern --mode implement cross-model barrage killed by the sandbox runtime ceiling (~10min) before reconciling; terminated via operator-approved --override after a /code-review high-effort stop-gap that itself caught 2 HIGH bugs.

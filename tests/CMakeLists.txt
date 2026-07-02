@@ -83,6 +83,19 @@ add_executable(acfx_core_tests
   # same metric measured offline (the engine called directly) within a named
   # tolerance. T029 lands the shared LiveReadout that makes this GREEN.
   core/analysis-live-offline-parity-test.cpp
+  # ---------------------------------------------------------------------------
+  # Envelope-follower primitive test suites (envelope-followers feature):
+  # appended by their authoring tasks. T009 interface/peak, T010 ballistics
+  # timing, T015 rms, T022 peak-hold, T025 db-domain, plus the low-sample-rate
+  # characterization split out of the ballistics suite for the file-size budget
+  # (FR-022) — six files total.
+  # ---------------------------------------------------------------------------
+  core/envelope-follower-test.cpp
+  core/envelope-follower-ballistics-test.cpp
+  core/envelope-follower-lowfs-test.cpp
+  core/envelope-follower-rms-test.cpp
+  core/envelope-follower-hold-test.cpp
+  core/envelope-follower-db-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

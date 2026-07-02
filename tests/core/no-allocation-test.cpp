@@ -10,6 +10,7 @@
 #include "effects/svf/svf-effect.h"
 #include "effects/saturation/saturation-core.h"
 #include "primitives/analysis/capture-probe.h"
+#include "primitives/dynamics/envelope-follower.h"
 #include "primitives/oversampling/oversampler.h"
 #include "processor-node/processor-node.h"
 #include "support/allocation-sentinel.h"
@@ -196,4 +197,196 @@ TEST_CASE("CaptureProbeRing::drain allocates nothing into a pre-sized buffer") {
     const std::size_t allocations = AllocationSentinel::allocations();
 
     CHECK_MESSAGE(allocations == 0, "CaptureProbeRing::drain allocated ", allocations);
+}
+
+// T014 — the no-heap-allocation-in-process() invariant for EnvelopeFollower
+// (SC-007, FR-016). Mirrors the SvfEffect/SaturationCore pattern: init(),
+// setMode(), setBallistics(), setDomain(), setAttack(), and setRelease() run
+// OUTSIDE the sentinel scope (control-thread configuration, may allocate).
+// Only process() itself is asserted allocation-free, driven with a US1 config
+// (peak mode, branching ballistics, linear domain) and realistic attack/release
+// times over a few hundred samples of varying input levels.
+TEST_CASE("EnvelopeFollower::process allocates nothing (US1 config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::peak);                // peak detection (US1 default)
+    env.setBallistics(Ballistics::branching);     // branching ballistics (US1 default)
+    env.setDomain(DetectDomain::linear);          // linear domain (US1 default)
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with varying levels (sine-like sweep): low, high, low, …
+        const float x = (i % 2 == 0) ? 0.3f : 0.8f;
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
+
+// T017 — the no-heap-allocation-in-process() invariant for EnvelopeFollower in
+// RMS mode (SC-007, FR-016). Mirrors the peak mode case above (T014): init(),
+// setMode(), setBallistics(), setDomain(), setRmsWindow(), setAttack(), and
+// setRelease() run OUTSIDE the sentinel scope (control-thread configuration,
+// may allocate). Only process() itself is asserted allocation-free, driven with
+// an RMS config (rms detection mode, branching ballistics, linear domain, 50 ms
+// RMS window) and realistic attack/release times over a few hundred samples of
+// a sine sweep.
+TEST_CASE("EnvelopeFollower::process allocates nothing (RMS config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::rms);                 // RMS detection
+    env.setBallistics(Ballistics::branching);     // branching ballistics
+    env.setDomain(DetectDomain::linear);          // linear domain
+    env.setRmsWindow(0.050f);                     // 50 ms RMS window
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with sine sweep: std::sin to get a smooth variation
+        const float x = std::sin(0.05f * static_cast<float>(i));
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
+
+// T021 — the no-heap-allocation-in-process() invariant for EnvelopeFollower with
+// decoupled topology and smooth variant (SC-007, FR-016). Mirrors the peak/RMS
+// cases above (T014/T017): init(), setMode(), setBallistics(), setSmooth(),
+// setAttack(), and setRelease() run OUTSIDE the sentinel scope (control-thread
+// configuration, may allocate). Only process() itself is asserted allocation-free,
+// driven with a decoupled+smooth config (peak detection, decoupled ballistics,
+// smooth variant enabled) and realistic attack/release times over a few hundred
+// samples of varying input levels.
+TEST_CASE("EnvelopeFollower::process allocates nothing (decoupled+smooth config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::peak);                // peak detection
+    env.setBallistics(Ballistics::decoupled);     // decoupled ballistics
+    env.setSmooth(true);                          // smooth variant enabled
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with varying levels (sine-like sweep): low, high, low, …
+        const float x = (i % 2 == 0) ? 0.3f : 0.8f;
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
+
+// T024 — the no-heap-allocation-in-process() invariant for EnvelopeFollower in
+// peak-hold mode (SC-007, FR-016). Mirrors the peak/RMS/decoupled cases above
+// (T014/T017/T021): init(), setMode(), setHold(), setAttack(), and setRelease()
+// run OUTSIDE the sentinel scope (control-thread configuration, may allocate).
+// Only process() itself is asserted allocation-free, driven with a peak-hold
+// config (peak-hold detection mode, 50 ms hold time) and realistic attack/release
+// times over a few hundred samples that drive a peak and then silence to exercise
+// the hold logic.
+TEST_CASE("EnvelopeFollower::process allocates nothing (peak-hold config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::peakHold);            // peak-hold detection
+    env.setHold(0.050f);                          // 50 ms hold time
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with a peak (first 128 samples at 0.8) then silence (remaining 128 at 0.0)
+        // to exercise the hold logic
+        const float x = (i < 128) ? 0.8f : 0.0f;
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
+
+// T027 — the no-heap-allocation-in-process() invariant for EnvelopeFollower in
+// decibel domain (SC-007, FR-016). Mirrors the peak/RMS/decoupled/peak-hold cases
+// above (T014/T017/T021/T024): init(), setMode(), setDomain(), setAttack(), and
+// setRelease() run OUTSIDE the sentinel scope (control-thread configuration, may
+// allocate). Reset must also run OUTSIDE the sentinel scope since the dB baseline
+// is established by reset AFTER setDomain. Only process() itself is asserted
+// allocation-free, driven with a decibel config (peak detection, decibel domain)
+// and realistic attack/release times over a few hundred samples of a sine sweep.
+TEST_CASE("EnvelopeFollower::process allocates nothing (decibel domain config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::peak);                // peak detection
+    env.setDomain(DetectDomain::decibel);         // decibel domain
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+    env.reset();                                  // control thread: dB baseline established after setDomain
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with sine sweep to test allocation-free decibel processing
+        const float x = std::sin(0.05f * static_cast<float>(i));
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
+
+// T033 — the no-heap-allocation-in-process() invariant for EnvelopeFollower across
+// the full cartesian product of all configurations (SC-007, FR-016): DetectMode
+// {peak, rms, peakHold} × Ballistics {branching, decoupled} × smooth {false, true}
+// × DetectDomain {linear, decibel} = 24 configs. All configuration setters and
+// reset() run OUTSIDE the sentinel scope (control-thread configuration, may allocate;
+// reset() must run after setDomain for dB baseline establishment). Only process()
+// itself is asserted allocation-free, driven with ~256 samples of varying input
+// levels per config.
+TEST_CASE("EnvelopeFollower::process allocates nothing across all mode x topology x domain configs") {
+    constexpr DetectMode kModes[] = {DetectMode::peak, DetectMode::rms, DetectMode::peakHold};
+    constexpr Ballistics kBallistics[] = {Ballistics::branching, Ballistics::decoupled};
+    constexpr bool kSmoothValues[] = {false, true};
+    constexpr DetectDomain kDomains[] = {DetectDomain::linear, DetectDomain::decibel};
+
+    for (DetectMode mode : kModes) {
+        for (Ballistics ballistics : kBallistics) {
+            for (bool smooth : kSmoothValues) {
+                for (DetectDomain domain : kDomains) {
+                    EnvelopeFollower env;
+                    env.init(48000.0f);           // control thread: caches fs, clears state
+                    env.setMode(mode);            // set detection mode
+                    env.setBallistics(ballistics);// set ballistics topology
+                    env.setSmooth(smooth);        // set smooth variant
+                    env.setDomain(domain);        // set linear or decibel domain
+                    env.setAttack(0.010f);        // 10 ms attack time
+                    env.setRelease(0.100f);       // 100 ms release time
+                    if (mode == DetectMode::rms) {
+                        env.setRmsWindow(0.050f); // 50 ms RMS window (only for RMS mode)
+                    }
+                    if (mode == DetectMode::peakHold) {
+                        env.setHold(0.050f);      // 50 ms hold time (only for peak-hold mode)
+                    }
+                    env.reset();                  // control thread: clears state, dB baseline after setDomain
+
+                    AllocationSentinel::reset();
+                    for (int i = 0; i < 256; ++i) {
+                        // Drive with sine sweep and varying levels: smooth variation
+                        const float x = std::sin(0.05f * static_cast<float>(i));
+                        (void)env.process(x);
+                    }
+                    const std::size_t allocations = AllocationSentinel::allocations();
+
+                    CHECK_MESSAGE(allocations == 0, "mode=", static_cast<int>(mode),
+                                  " ballistics=", static_cast<int>(ballistics),
+                                  " smooth=", (smooth ? 1 : 0), " domain=", static_cast<int>(domain),
+                                  " allocated ", allocations);
+                }
+            }
+        }
+    }
 }

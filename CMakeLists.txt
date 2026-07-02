@@ -135,6 +135,23 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   target_link_libraries(acfx_lab_saturation_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_saturation_harness PRIVATE cxx_std_20)
 
+  # Envelope-follower lab harness — same linkage as acfx_lab_saturation_harness,
+  # plus the tests/ include root: like the saturation harness, this harness
+  # drives its measurements through the SHARED measurement infrastructure
+  # (tests/core/measurement-support.h) per spec.md, rather than reimplementing
+  # a second spectral engine. That header and its support/measurement/*.h
+  # dependencies are header-only, so only the include path is needed — no
+  # test-target linkage.
+  add_executable(acfx_lab_envelope_follower_harness
+    core/labs/envelope-follower/harness/envelope-follower-harness.cpp
+  )
+  target_include_directories(acfx_lab_envelope_follower_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+  # acfx_analysis: this harness includes core/measurement-support.h, which
+  # includes the tests/support/measurement/*.h re-export shims that now
+  # forward to host/analysis/*.h (harmonic-analysis T007, analyze finding F1).
+  target_link_libraries(acfx_lab_envelope_follower_harness PRIVATE acfx_core acfx_analysis)
+  target_compile_features(acfx_lab_envelope_follower_harness PRIVATE cxx_std_20)
+
   # Oversampling lab harness — same linkage as acfx_lab_saturation_harness,
   # plus the tests/ include root: like the saturation harness, this harness
   # drives its aliasing-reduction evidence through the SHARED measurement
