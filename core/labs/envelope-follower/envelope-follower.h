@@ -43,27 +43,40 @@ enum class DetectDomain : std::uint8_t { linear, decibel };
 class EnvelopeFollower {
 public:
     // Prepare for a sample rate; caches fs, recomputes coefficients, clears
-    // runtime state. sampleRate <= 0 will be guarded to a defined finite
-    // state in a later task (FR-018); this skeleton just stores/clears.
+    // runtime state. Guards sampleRate <= 0 to a safe 48000.0f so nothing
+    // downstream divides by zero (FR-016/FR-018).
     void init(float sampleRate) noexcept {
-        sampleRate_ = sampleRate;
-        aAtk_        = 0.0f;
-        aRel_        = 0.0f;
-        aRms_        = 0.0f;
-        holdSamples_ = 0;
+        sampleRate_ = (sampleRate > 0.0f) ? sampleRate : 48000.0f;
+        aAtk_        = coeffFor(attackSeconds_);
+        aRel_        = coeffFor(releaseSeconds_);
+        aRms_        = coeffFor(rmsWindowSeconds_);
+        holdSamples_ = holdSamplesFor(holdSeconds_);
         clearRuntimeState();
     }
 
-    // Configuration setters — store the parameter; coefficient recomputation
-    // is filled in by a later task. Do NOT reset runtime state here.
+    // Configuration setters — store the parameter and recompute the cached
+    // coefficient it feeds (never in process(), FR-013). Do NOT reset runtime
+    // state here.
     void setMode(DetectMode mode) noexcept { mode_ = mode; }
     void setBallistics(Ballistics ballistics) noexcept { ballistics_ = ballistics; }
     void setSmooth(bool smooth) noexcept { smooth_ = smooth; }
     void setDomain(DetectDomain domain) noexcept { domain_ = domain; }
-    void setAttack(float seconds) noexcept { attackSeconds_ = seconds; }
-    void setRelease(float seconds) noexcept { releaseSeconds_ = seconds; }
-    void setHold(float seconds) noexcept { holdSeconds_ = seconds; }
-    void setRmsWindow(float seconds) noexcept { rmsWindowSeconds_ = seconds; }
+    void setAttack(float seconds) noexcept {
+        attackSeconds_ = seconds;
+        aAtk_          = coeffFor(seconds);
+    }
+    void setRelease(float seconds) noexcept {
+        releaseSeconds_ = seconds;
+        aRel_           = coeffFor(seconds);
+    }
+    void setHold(float seconds) noexcept {
+        holdSeconds_ = seconds;
+        holdSamples_ = holdSamplesFor(seconds);
+    }
+    void setRmsWindow(float seconds) noexcept {
+        rmsWindowSeconds_ = seconds;
+        aRms_             = coeffFor(seconds);
+    }
 
     // Clear all runtime state to the defined initial condition (env = 0).
     void reset() noexcept { clearRuntimeState(); }
@@ -74,6 +87,35 @@ public:
     float process(float /*x*/) noexcept { return 0.0f; }
 
 private:
+    // Time-constant -> one-pole coefficient. For the update
+    //   y[n] = a*y[n-1] + (1-a)*x[n]
+    // the envelope reaches 1 - 1/e (~63%) of a step in `seconds`.
+    //   seconds <= 0        -> 0.0f (instantaneous: a=0 makes y=x)
+    //   non-finite result   -> 0.0f (never emit NaN/Inf, FR-018)
+    // Result is clamped to [0.0f, 1.0f) so it is never >= 1 (FR-018).
+    float coeffFor(float seconds) const noexcept {
+        if (seconds <= 0.0f) {
+            return 0.0f;
+        }
+        const float a = std::exp(-1.0f / (seconds * sampleRate_));
+        if (!std::isfinite(a) || a < 0.0f) {
+            return 0.0f;
+        }
+        // Strictly below 1.0f: nudge down the largest representable float < 1.
+        constexpr float kMaxCoeff = 0.99999994f; // nextafter(1.0f, 0.0f)
+        return (a > kMaxCoeff) ? kMaxCoeff : a;
+    }
+
+    // Hold time -> non-negative sample count (integer-safe rounding).
+    std::int32_t holdSamplesFor(float seconds) const noexcept {
+        if (seconds <= 0.0f) {
+            return 0;
+        }
+        const std::int32_t n =
+            static_cast<std::int32_t>(std::lround(seconds * sampleRate_));
+        return (n >= 0) ? n : 0;
+    }
+
     void clearRuntimeState() noexcept {
         env_         = 0.0f;
         meanSquare_  = 0.0f;
