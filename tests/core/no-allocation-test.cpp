@@ -225,3 +225,32 @@ TEST_CASE("EnvelopeFollower::process allocates nothing (US1 config)") {
 
     CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
 }
+
+// T017 — the no-heap-allocation-in-process() invariant for EnvelopeFollower in
+// RMS mode (SC-007, FR-016). Mirrors the peak mode case above (T014): init(),
+// setMode(), setBallistics(), setDomain(), setRmsWindow(), setAttack(), and
+// setRelease() run OUTSIDE the sentinel scope (control-thread configuration,
+// may allocate). Only process() itself is asserted allocation-free, driven with
+// an RMS config (rms detection mode, branching ballistics, linear domain, 50 ms
+// RMS window) and realistic attack/release times over a few hundred samples of
+// a sine sweep.
+TEST_CASE("EnvelopeFollower::process allocates nothing (RMS config)") {
+    EnvelopeFollower env;
+    env.init(48000.0f);                           // control thread: caches fs, clears state
+    env.setMode(DetectMode::rms);                 // RMS detection
+    env.setBallistics(Ballistics::branching);     // branching ballistics
+    env.setDomain(DetectDomain::linear);          // linear domain
+    env.setRmsWindow(0.050f);                     // 50 ms RMS window
+    env.setAttack(0.010f);                        // 10 ms attack time
+    env.setRelease(0.100f);                       // 100 ms release time
+
+    AllocationSentinel::reset();
+    for (int i = 0; i < 256; ++i) {
+        // Drive with sine sweep: std::sin to get a smooth variation
+        const float x = std::sin(0.05f * static_cast<float>(i));
+        (void)env.process(x);
+    }
+    const std::size_t allocations = AllocationSentinel::allocations();
+
+    CHECK_MESSAGE(allocations == 0, "EnvelopeFollower::process allocated ", allocations);
+}
