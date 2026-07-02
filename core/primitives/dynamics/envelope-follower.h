@@ -123,12 +123,17 @@ private:
     }
 
     // Ballistics topology-dependent smoother (data-model.md "Smoothing").
-    // Stub: both branches are passthrough; real smoothing lands in T012/T019/T020.
+    // decoupled branch is still a passthrough; real smoothing lands in T019/T020.
     float applySmoothing(float value) noexcept {
         switch (ballistics_) {
-            case Ballistics::branching:
-                // TODO(T012): branching one-pole
-                return value;
+            case Ballistics::branching: {
+                // One-pole: attack coeff when the input rises above the
+                // current envelope, release coeff when it falls. Coeffs are
+                // cached (aAtk_/aRel_) by the setters (FR-013).
+                // y[n] = a*y[n-1] + (1-a)*value  reaches 1-1/e of a step in tau.
+                const float a = (value > env_) ? aAtk_ : aRel_;
+                return a * env_ + (1.0f - a) * value;
+            }
             case Ballistics::decoupled:
                 // TODO(T019): decoupled two-stage; TODO(T020): smooth variant
                 return value;
