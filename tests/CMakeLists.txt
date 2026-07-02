@@ -63,6 +63,7 @@ add_executable(acfx_core_tests
   # T012 goertzel parity (retained exact known-bin Goertzel path; FR-007/010).
   # T014 imd (twin-tone SMPTE+CCIF difference/sum products; FR-003, US2).
   # T016 alias-sweep (inharmonic-energy-vs-frequency sweep; FR-004, US2).
+  # T018 drive-series (drive->THD + drive->per-harmonic curves; FR-005, US3).
   # ---------------------------------------------------------------------------
   core/analysis-fft-test.cpp
   core/analysis-window-test.cpp
@@ -71,6 +72,7 @@ add_executable(acfx_core_tests
   core/analysis-goertzel-parity-test.cpp
   core/analysis-imd-test.cpp
   core/analysis-alias-sweep-test.cpp
+  core/analysis-drive-series-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
