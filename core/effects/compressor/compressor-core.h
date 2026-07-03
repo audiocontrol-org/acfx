@@ -170,14 +170,30 @@ public:
     // when keyless — the caller passes x as key). Returns the wet-mixed,
     // output-trimmed sample (data-model.md "Per-sample chain").
     //
+    // Implemented as the composition detectGainLin() -> applyGain(): this is
+    // the per-channel (perChannel-link) path and is behavior-identical to the
+    // original single-method form. The split lets CompressorEffect drive
+    // linked stereo/multichannel detection (FR-017): compute ONE gain from a
+    // designated core's detectGainLin() on the cross-channel-max key, then
+    // apply that SAME gain to every channel via applyGain().
+    //
     // RT-safe: noexcept, no heap allocation, no locks, bounded work.
     float process(float x, float key) noexcept {
-        // Detection input. Feedback taps the previous POST-makeup, PRE-mix
-        // output (research Decision 3); feedforward taps the (optionally
-        // HPF-filtered) key. In feedback mode the filtered key would be
-        // discarded, so the HPF is skipped there — behaviorally identical to
-        // the data-model pseudocode (which filters then discards), but without
-        // pointlessly advancing the filter state.
+        return applyGain(x, detectGainLin(key));
+    }
+
+    // Detection half of process(): run the (optionally HPF-filtered) key through
+    // level detection + the static curve + gain-site ballistics + makeup, and
+    // return the LINEAR gain to apply to the main path. Advances the detector
+    // (and, in feedback mode, reads this core's previous output) — so calling
+    // this exactly once per sample keeps ballistics state correct.
+    //
+    // Feedback taps the previous POST-makeup, PRE-mix output (research Decision
+    // 3); feedforward taps the key. In feedback mode the filtered key would be
+    // discarded, so the HPF is skipped there — behaviorally identical to the
+    // data-model pseudocode (filter then discard) but without pointlessly
+    // advancing the filter state.
+    float detectGainLin(float key) noexcept {
         float detIn;
         if (detection_ == Detection::feedBack) {
             detIn = prevOutput_;
@@ -198,8 +214,17 @@ public:
         }
 
         // Fold in makeup (auto or manual, cached) and linearize.
-        const float gLin = dbToLin(grDb + makeupEffectiveDb_);
+        return dbToLin(grDb + makeupEffectiveDb_);
+    }
 
+    // Application half of process(): apply a linear gain to the main path —
+    // lookahead pre-delay -> VCA multiply -> feedback tap -> dry/wet mix ->
+    // output trim. `gainLin` is normally this core's own detectGainLin(); in
+    // linked mode it is the shared gain from the designated detector core, so
+    // every channel receives the SAME gain reduction (FR-017). This advances
+    // the lookahead line and updates the feedback tap, so it must run once per
+    // sample per channel.
+    float applyGain(float x, float gainLin) noexcept {
         // Main path pre-delay. The delay line is kept current every sample;
         // readFractional(lookaheadSamples_) is an exact integer-sample delay,
         // and readFractional(0) returns the just-written x (bypass at 0).
@@ -208,7 +233,7 @@ public:
             lookahead_.readFractional(static_cast<float>(lookaheadSamples_));
 
         // VCA multiply.
-        const float comp = main * gLin;
+        const float comp = main * gainLin;
 
         // Feedback tap: POST-makeup, PRE-mix.
         prevOutput_ = comp;

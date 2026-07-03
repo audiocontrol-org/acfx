@@ -14,6 +14,7 @@
 #include "dsp/process-context.h"
 #include "dsp/span.h"
 #include "effects/compressor/compressor-core.h"
+#include "effects/compressor/compressor-parameters.h"
 
 // CompressorEffect — the host-facing wrapper that adds the Effect contract on
 // top of the CompressorCore composition kernel (US1..US4). Mirrors the shipped
@@ -23,21 +24,33 @@
 // parameter handoff (FR-020). The wrapper owns per-channel CompressorCore
 // state and is allocation-free in process() (FR-022).
 //
-// Finalized (task T011): the parameter table + static_assert + Effect-contract
-// methods (prepare/process/reset), the full per-parameter denormalize ->
+// The parameter table + static_assert + Effect-contract methods
+// (prepare/process/reset), the full per-parameter denormalize ->
 // CompressorCore setter forwarding, and the lookahead latency report are all
-// live end-to-end against the complete CompressorCore (T010). One behavior is
-// deliberately left for a later task:
-//   - StereoLink cross-channel composition (FR-017, linked -> common gain from
-//     the cross-channel max) is NOT wired yet: every channel runs its detection
-//     independently regardless of the stored stereoLink_ value. The stereoLink
-//     parameter is denormalized and stored, but not composed across channels;
-//     that is task T038 (US12). perChannel behavior is correct today.
-//   - External-key sidechain routing (T032): process() is keyless here, so the
-//     main input doubles as the detector key (key = x per channel).
-// Per-parameter denormalize -> CompressorCore setter forwarding for all 17
-// parameters IS implemented below (the same boilerplate shape as
+// live end-to-end against the complete CompressorCore. Per-parameter
+// denormalize -> CompressorCore setter forwarding for all 17 parameters is
+// implemented below (the same boilerplate shape as
 // SaturationEffect::applyPending).
+//
+// EXTERNAL KEY (FR-014, T032): the plain process(io) overload is keyless — the
+// main input doubles as the detector key (key = x per channel). The
+// process(io, sidechain) overload routes the matching sidechain channel sample
+// as the key into each channel's detection instead. Channel-count mismatch
+// rule: for main channel ch, the key channel is ch when the sidechain has that
+// channel, else sidechain channel 0 (a mono key feeds every channel); if the
+// sidechain has zero channels the key falls back to the channel's own input.
+//
+// STEREO LINKING (FR-017, T038): stereoLink_ == perChannel runs each channel's
+// detection independently (the classic per-channel path). stereoLink_ ==
+// linked shares ONE detection across the linked channels: per sample, the key
+// of largest magnitude across channels drives the designated detector core
+// (channel 0) once via detectGainLin(), and that SAME linear gain is applied
+// to every channel via applyGain() — so a transient in one channel ducks all
+// channels equally and the stereo image stays put. The single linked detection
+// state lives in core 0 (its detector/HPF/ballistics + feedback tap); in
+// feedback topology the linked detector therefore taps channel 0's previous
+// output. Linking over one channel degenerates to per-channel (the max over
+// one channel is itself).
 //
 // Thread-ownership boundary (identical to SaturationEffect/SvfEffect):
 //   - setParameter() may be called from ANY thread (a UI loop, a MIDI
@@ -52,28 +65,13 @@
 //     this, and that quiescence is the adapter's responsibility, not
 //     something the wrapper can enforce (FR-021).
 //
-// PARAMETER RANGES ARE A TUNING-PASS OPEN QUESTION. The descriptor shapes
-// below (kinds/units/skews/labels) are normative (contracts/compressor-
-// effect-api.md, data-model.md); the exact numeric ranges are defensible
-// placeholders, not yet validated against a reference measurement — mirroring
-// SaturationEffect's kParams disclaimer.
-//
-// NOTE on time-valued units: ParamUnit (core/dsp/param-id.h) has no
-// milliseconds enumerator, only `seconds`. data-model.md lists attack/
-// release/lookahead ranges in ms as the tuning-pass placeholder; this table
-// stores the equivalent values in SECONDS (the unit CompressorCore's
-// setAttack/setRelease take) and tags them ParamUnit::seconds, so no ms<->s
-// conversion is needed at apply time. lookahead is likewise stored/denormalized
-// in seconds and converted to samples (round(seconds * sampleRate)) only when
-// forwarded to CompressorCore::setLookahead / prepare()'s buffer sizing.
+// The parameter descriptor table, discrete-option labels, and the StereoLink
+// enum live in effects/compressor/compressor-parameters.h (split out per
+// FR-028 to keep this wrapper within budget); the range/units disclaimers are
+// documented there. This file keeps the `Param` index enum below and exposes
+// the table via the `kParams` alias.
 
 namespace acfx {
-
-// StereoLink (data-model.md "StereoLink") — CompressorEffect-level only; not
-// a CompressorCore concern. perChannel: independent per-channel detection.
-// linked: one detector value (cross-channel max) drives a common gain
-// (FR-017) — see the class-level skeleton note above.
-enum class StereoLink : std::uint8_t { perChannel, linked };
 
 class CompressorEffect {
 public:
@@ -99,73 +97,12 @@ public:
         kOutput = 16
     };
 
-    // Option labels for the discrete parameters (single source of truth).
-    static constexpr std::array<std::string_view, 4> kModeLabels = {
-        {"compress", "limit", "expand", "gate"}};
-    static constexpr std::array<std::string_view, 2> kDetectionLabels = {
-        {"feedForward", "feedBack"}};
-    static constexpr std::array<std::string_view, 2> kDetectorLabels = {{"peak", "rms"}};
-    static constexpr std::array<std::string_view, 2> kBallisticsSiteLabels = {{"level", "gain"}};
-    static constexpr std::array<std::string_view, 2> kAutoMakeupLabels = {{"off", "on"}};
-    static constexpr std::array<std::string_view, 2> kStereoLinkLabels = {
-        {"perChannel", "linked"}};
-
-    // The single source of parameter truth (FR-019). Shapes are normative
-    // (data-model.md); ranges are the tuning-pass OPEN QUESTION (see the
-    // header note above):
-    //   threshold:      dB, -60..0, default -18
-    //   ratio:          ratio, 1..20, default 4 (limit mode ignores it)
-    //   knee:           dB, 0..24, default 6
-    //   attack:         seconds, 0.0001..0.2 (0.1..200 ms), default 0.01
-    //   release:        seconds, 0.001..2.0 (1..2000 ms), default 0.1
-    //   mode:           discrete {compress, limit, expand, gate}
-    //   detection:      discrete {feedForward, feedBack}
-    //   detector:       discrete {peak, rms}
-    //   ballisticsSite: discrete {level, gain}
-    //   range:          dB, -80..0, default -40
-    //   scHpf:          Hz, 0..500, default 0 (0 = bypass)
-    //   lookahead:      seconds, 0..0.02 (0..20 ms), default 0
-    //   makeup:         dB, -24..24, default 0
-    //   autoMakeup:     discrete {off, on}
-    //   stereoLink:     discrete {perChannel, linked}, default linked
-    //   mix:            linear 0..1, default 1
-    //   output:         dB, -24..24, default 0
-    static constexpr std::array<ParameterDescriptor, 17> kParams = {{
-        {ParamId{kThreshold}, "threshold", ParamUnit::decibels, -60.0f, 0.0f, -18.0f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kRatio}, "ratio", ParamUnit::ratio, 1.0f, 20.0f, 4.0f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kKnee}, "knee", ParamUnit::decibels, 0.0f, 24.0f, 6.0f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kAttack}, "attack", ParamUnit::seconds, 0.0001f, 0.2f, 0.01f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kRelease}, "release", ParamUnit::seconds, 0.001f, 2.0f, 0.1f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 3.0f, 0.0f, ParamSkew::linear,
-         ParamKind::discrete, 4, kModeLabels},
-        {ParamId{kDetection}, "detection", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear,
-         ParamKind::discrete, 2, kDetectionLabels},
-        {ParamId{kDetector}, "detector", ParamUnit::none, 0.0f, 1.0f, 1.0f, ParamSkew::linear,
-         ParamKind::discrete, 2, kDetectorLabels},
-        {ParamId{kBallisticsSite}, "ballisticsSite", ParamUnit::none, 0.0f, 1.0f, 0.0f,
-         ParamSkew::linear, ParamKind::discrete, 2, kBallisticsSiteLabels},
-        {ParamId{kRange}, "range", ParamUnit::decibels, -80.0f, 0.0f, -40.0f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kScHpf}, "scHpf", ParamUnit::hz, 0.0f, 500.0f, 0.0f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kLookahead}, "lookahead", ParamUnit::seconds, 0.0f, 0.02f, 0.0f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kMakeup}, "makeup", ParamUnit::decibels, -24.0f, 24.0f, 0.0f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kAutoMakeup}, "autoMakeup", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear,
-         ParamKind::discrete, 2, kAutoMakeupLabels},
-        {ParamId{kStereoLink}, "stereoLink", ParamUnit::none, 0.0f, 1.0f, 1.0f, ParamSkew::linear,
-         ParamKind::discrete, 2, kStereoLinkLabels},
-        {ParamId{kMix}, "mix", ParamUnit::none, 0.0f, 1.0f, 1.0f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-        {ParamId{kOutput}, "output", ParamUnit::decibels, -24.0f, 24.0f, 0.0f, ParamSkew::linear,
-         ParamKind::continuous, 0},
-    }};
+    // The single source of parameter truth (FR-019), defined in
+    // compressor-parameters.h and aliased here so every in-class reference
+    // (kParams[kThreshold], the static_assert, parameters()) reads naturally.
+    // Row order matches the Param enum above (see that header for shapes,
+    // ranges, and the discrete-option label arrays).
+    static constexpr const std::array<ParameterDescriptor, 17>& kParams = kCompressorParams;
 
     CompressorEffect() noexcept {
         for (std::size_t i = 0; i < kNumParams; ++i) {
@@ -207,19 +144,23 @@ public:
         applyAll();
     }
 
-    // In-place, per-channel, keyless (main input doubles as the sidechain
-    // key). SKELETON: no cross-channel StereoLink composition yet — see the
-    // header note above (FR-017 deferred).
+    // In-place, keyless (the main input doubles as the sidechain key). This is
+    // the Effect-concept process() — the contract stays a single-argument,
+    // in-place call. StereoLink is honored (FR-017); see processBlock().
     void process(AudioBlock& io) noexcept {
         applyPending(); // consume cross-thread parameter edits on the audio thread
-        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
-        const int samples = io.numSamples();
-        for (int ch = 0; ch < channels; ++ch) {
-            float* x = io.channel(ch);
-            CompressorCore& core = cores_[static_cast<std::size_t>(ch)];
-            for (int n = 0; n < samples; ++n)
-                x[n] = core.process(x[n], x[n]);
-        }
+        processBlock(io, nullptr);
+    }
+
+    // In-place with an EXTERNAL sidechain key (FR-014). Detection reads the
+    // matching sidechain channel instead of the main input; the gain is still
+    // applied to the main path `io`. `sidechain` is a separate read-only block
+    // supplied by the host. Both overloads consume pending params at the top
+    // and are allocation-free / lock-free. Channel-mapping + linking rules are
+    // documented at processBlock()/keyAt().
+    void process(AudioBlock& io, const AudioBlock& sidechain) noexcept {
+        applyPending();
+        processBlock(io, &sidechain);
     }
 
     // Publish a normalized 0..1 value for a parameter. Callable from any
@@ -243,6 +184,72 @@ public:
 private:
     static constexpr int kMaxChannels = 8;
     static constexpr std::size_t kNumParams = 17;
+
+    // The key sample for main channel `ch` at sample `n`. With no sidechain
+    // block (sc == nullptr) or an empty one, the key is the channel's own input
+    // (internal sidechain, key = x). With a sidechain block, use its channel
+    // `ch`; if it has fewer channels, fall back to its channel 0 (a mono key
+    // feeds every channel). Reads only — never writes the main buffer, so the
+    // detect pass sees pre-write values.
+    static float keyAt(const std::array<float*, kMaxChannels>& mainCh,
+                       const AudioBlock* sc, int scChannels, int ch, int n) noexcept {
+        if (sc == nullptr || scChannels <= 0)
+            return mainCh[static_cast<std::size_t>(ch)][n];
+        const int scCh = (ch < scChannels) ? ch : 0;
+        return sc->channel(scCh)[n];
+    }
+
+    // Shared core of both process() overloads. `sc == nullptr` => internal key
+    // (keyless). perChannel: each channel detects + applies independently.
+    // linked (FR-017): per sample, take the largest-magnitude key across the
+    // channels, run the designated detector core (channel 0) ONCE to get a
+    // common linear gain, then apply that SAME gain to every channel. The
+    // detect pass reads all keys before the apply pass writes any output, so an
+    // internal key is never read after being overwritten. Allocation-free: the
+    // only scratch is a bounded stack array of channel pointers (<= kMaxChannels).
+    void processBlock(AudioBlock& io, const AudioBlock* sc) noexcept {
+        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
+        const int samples = io.numSamples();
+        const int scChannels = (sc != nullptr) ? sc->numChannels() : 0;
+
+        std::array<float*, kMaxChannels> mainCh{};
+        for (int ch = 0; ch < channels; ++ch)
+            mainCh[static_cast<std::size_t>(ch)] = io.channel(ch);
+
+        if (stereoLink_ == StereoLink::linked && channels > 0) {
+            for (int n = 0; n < samples; ++n) {
+                // Detect pass: cross-channel-max key (by magnitude).
+                float maxKey = 0.0f;
+                float maxMag = -1.0f;
+                for (int ch = 0; ch < channels; ++ch) {
+                    const float key = keyAt(mainCh, sc, scChannels, ch, n);
+                    const float mag = std::fabs(key);
+                    if (mag > maxMag) {
+                        maxMag = mag;
+                        maxKey = key;
+                    }
+                }
+                // One shared detection on the designated core, one common gain.
+                const float gLin = cores_[0].detectGainLin(maxKey);
+                // Apply pass: same gain to every channel (image-stable).
+                for (int ch = 0; ch < channels; ++ch) {
+                    float* x = mainCh[static_cast<std::size_t>(ch)];
+                    x[n] = cores_[static_cast<std::size_t>(ch)].applyGain(x[n], gLin);
+                }
+            }
+            return;
+        }
+
+        // perChannel: independent detection + application per channel.
+        for (int ch = 0; ch < channels; ++ch) {
+            float* x = mainCh[static_cast<std::size_t>(ch)];
+            CompressorCore& core = cores_[static_cast<std::size_t>(ch)];
+            for (int n = 0; n < samples; ++n) {
+                const float key = keyAt(mainCh, sc, scChannels, ch, n);
+                x[n] = core.process(x[n], key);
+            }
+        }
+    }
 
     // float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy
     // is a register move). Lets the cross-thread atomics be provably
@@ -292,8 +299,8 @@ private:
     // Apply any parameter values published since the last block (audio
     // thread). Each dirty param is denormalized into its REAL value before
     // the matching CompressorCore setter is pushed to every channel.
-    // stereoLink_ is stored but not (yet) composed across channels — see the
-    // header note above.
+    // stereoLink_ is stored here and composed across channels in processBlock()
+    // (FR-017), not pushed to any single CompressorCore.
     void applyPending() noexcept {
         if (pendingDirty_[kThreshold].exchange(0u, std::memory_order_acquire)) {
             thresholdDb_ = denormalize(kParams[kThreshold], pendingValue(kThreshold));
@@ -356,8 +363,8 @@ private:
         if (pendingDirty_[kStereoLink].exchange(0u, std::memory_order_acquire)) {
             stereoLink_ =
                 toStereoLink(denormalize(kParams[kStereoLink], pendingValue(kStereoLink)));
-            // Not forwarded to CompressorCore: cross-channel composition is a
-            // later task (see the header note above; FR-017).
+            // Not a per-core setter: linking is composed ACROSS channels in
+            // processBlock() (FR-017), not inside any single CompressorCore.
         }
         if (pendingDirty_[kMix].exchange(0u, std::memory_order_acquire)) {
             mix_ = denormalize(kParams[kMix], pendingValue(kMix));
