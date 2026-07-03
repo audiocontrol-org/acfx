@@ -822,3 +822,4 @@ workflow(graduate): design:gap/three-layer-structure merging -> validating
 workflow(graduate): design:gap/harmonic-analysis merging -> validating
 workflow(graduate): design:primitive/envelope-followers merging -> validating
 workflow(graduate): design:feature/compressors merging -> validating
+workflow(graduate): design:feature/program-dependent-saturation merging -> validating
