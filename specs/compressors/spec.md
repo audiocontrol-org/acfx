@@ -193,12 +193,12 @@ The author applies makeup gain (manual dB, or **auto** derived from threshold/ra
 
 **Why this priority**: Makeup and parallel mix are standard finishing controls that improve usability but are conveniences over the core gain reduction; the compressor reduces gain correctly without them.
 
-**Independent Test**: With auto-makeup on, assert a below-threshold (unity-reduction) signal passes at ≈ unity; with manual makeup of M dB assert the output rises by M dB; with mix = 0 assert full dry passthrough and mix = 1 assert fully compressed.
+**Independent Test**: With auto-makeup on, assert the effective makeup equals the closed-form `−computeGainDb(0 dBFS)` and is applied as a **constant** gain (so a below-threshold signal is lifted by that makeup amount — the standard constant-makeup behavior, not gated to only the compressed region); with manual makeup of M dB assert the output rises by M dB; with mix = 0 assert full dry passthrough and mix = 1 assert fully compressed.
 
 **Acceptance Scenarios**:
 
 1. **Given** manual makeup M dB, **When** applied, **Then** the output level is M dB above the un-made-up compressed level.
-2. **Given** auto-makeup, **When** a below-threshold signal is processed, **Then** the output is ≈ unity (the auto-makeup does not inflate signal that received no reduction beyond its defined reference model).
+2. **Given** auto-makeup, **When** a below-threshold signal is processed, **Then** the output is lifted by the constant closed-form makeup gain `−computeGainDb(0 dBFS)` (a constant makeup gain compensates the reduction at the 0 dBFS reference and is applied uniformly, so below-threshold content is boosted by that amount — the standard makeup-gain behavior; it is NOT gated to unity below threshold). *(Reconciled during implementation 2026-07-02: the original "≈ unity below threshold" wording contradicted the operator's chosen closed-form constant-makeup model, which mathematically lifts all signal; the model is authoritative and the acceptance is corrected to match it.)*
 3. **Given** mix = 0, **Then** the output equals the dry input; **Given** mix = 1, **Then** the output is the fully compressed signal.
 
 ---
@@ -320,7 +320,7 @@ A host integrator drives the `CompressorEffect` through the standard `Effect` co
 - **SC-006**: With the sidechain HPF engaged at `fc`, a tone below `fc` produces substantially less gain reduction than a tone above `fc` at the same level; at 0 Hz the detection is full-band.
 - **SC-007**: With an external key supplied, gain reduction tracks the key level (not the main level); with no key, detection reads the main input.
 - **SC-008**: With lookahead L ms, the reported host latency equals `round(L·fs)` samples, and a first-sample transient is limited from its first sample (no threshold overshoot that a zero-lookahead limiter would pass).
-- **SC-009**: Manual makeup of M dB raises the output by M dB; auto-makeup passes a below-threshold signal at ≈ unity; mix = 0 yields dry passthrough and mix = 1 yields the fully compressed signal.
+- **SC-009**: Manual makeup of M dB raises the output by M dB; auto-makeup applies the closed-form constant makeup `−computeGainDb(0 dBFS)` uniformly (a below-threshold signal is lifted by that makeup amount, per the chosen constant-makeup model — not gated to unity); mix = 0 yields dry passthrough and mix = 1 yields the fully compressed signal.
 - **SC-010**: Linked detection applies the same gain to all linked channels (driven by the cross-channel max), keeping a one-channel transient's image stable; per-channel detection attenuates only the affected channel.
 - **SC-011**: `CompressorEffect` satisfies the `Effect` concept; a parameter edit from a non-audio thread is applied on the next `process()` with no lock or torn read; a malformed descriptor fails the build via `static_assert`.
 - **SC-012**: A no-allocation test confirms zero heap allocation on the `process()` path (after `prepare()`) across all modes, topologies, sites, and feature combinations.
