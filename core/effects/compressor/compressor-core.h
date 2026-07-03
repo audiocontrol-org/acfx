@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstdint>
 
-#include "labs/compressor/gain-computer.h"
+#include "primitives/dynamics/gain-computer.h"
 #include "primitives/delays/delay-line.h"
 #include "primitives/dynamics/envelope-follower.h"
 #include "primitives/filters/svf-primitive.h"
@@ -17,11 +17,10 @@
 // the chain is implemented (specs/compressors/contracts/compressor-effect-api.md
 // "CompressorCore").
 //
-// NOTE (Setup-phase include path): gain-computer.h currently lives in the
-// authoring lab (core/labs/compressor/gain-computer.h, task T002) and is
-// git-mv'd to core/primitives/dynamics/gain-computer.h in T009 (graduation,
-// same public contract). This include is updated to the graduated path in
-// that same commit.
+// NOTE (graduated include path): gain-computer.h was authored in the lab
+// (core/labs/compressor/gain-computer.h, task T002) and graduated — same
+// public contract — via `git mv` to core/primitives/dynamics/gain-computer.h
+// in T009. This include points at the graduated primitive path.
 //
 // Composition (data-model.md "Entity — CompressorCore"): an EnvelopeFollower
 // detector (level detection + level-site ballistics, dB domain), a second

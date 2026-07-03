@@ -310,19 +310,18 @@ envelope-follower lab cites for the branching/decoupled ballistics split.
 
 ## Graduation status
 
-Not yet graduated. This lab is currently at the **Setup** phase of
-`specs/compressors/tasks.md`: this README, the `GainComputer` kernel
-skeleton, and the `CompressorCore`/`CompressorEffect` skeletons are being
-authored side by side with the build/test wiring. `GainComputer` graduates
-in a single atomic commit (`git mv core/labs/compressor/gain-computer.h
+Graduated. `GainComputer` now lives at
+`core/primitives/dynamics/gain-computer.h`, moved there — unchanged in its
+public contract — in a single atomic commit (`git mv
+core/labs/compressor/gain-computer.h
 core/primitives/dynamics/gain-computer.h`, Task T009) once its
-implementation and static-curve tests pass — the same pattern
+implementation and static-curve tests passed. This is the same pattern
 `envelope-follower.h` already went through, making `gain-computer.h` the
-category's **second** inhabitant. `CompressorCore`/`CompressorEffect` are
-not lab-authored primitives; per the contracts above, they live
-permanently in `core/effects/compressor/`, composing the graduated
-`EnvelopeFollower`, `SvfPrimitive`, and `DelayLine` rather than graduating
-themselves.
+`dynamics/` category's **second** inhabitant. `CompressorCore`/
+`CompressorEffect` are not lab-authored primitives; per the contracts
+above, they live permanently in `core/effects/compressor/`, composing the
+graduated `EnvelopeFollower`, `SvfPrimitive`, and `DelayLine` rather than
+graduating themselves.
 
 Per Constitution IX, this lab folder persists after graduation — this
 README stays as the living theory record, and the host-only measurement

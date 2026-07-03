@@ -2,7 +2,7 @@
 // Host-only lab evidence harness: never included by portable code (C-1 gate
 // in scripts/check-portability.sh).
 //
-// Drives the graduated acfx::GainComputer (core/labs/compressor/gain-computer.h)
+// Drives the graduated acfx::GainComputer (core/primitives/dynamics/gain-computer.h)
 // through representative stimuli and prints measured evidence of its behavior
 // to stdout:
 //   1. Compressor static curve: gain reduction across input levels.
@@ -16,7 +16,7 @@
 // Include roots: core/ (see the acfx_lab_compressor_harness CMake
 // target). Compile with -std=c++20. May allocate, loop, printf.
 
-#include "labs/compressor/gain-computer.h"
+#include "primitives/dynamics/gain-computer.h"
 
 #include <cstdio>
 
