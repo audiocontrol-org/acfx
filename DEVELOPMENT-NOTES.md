@@ -2,21 +2,55 @@
 
 ---
 
-## 2026-07-03: <!-- session title -->
+## 2026-07-03: Compressors — design → ship (PR #13) through the stack-control front door
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Drive `design:feature/compressors` end-to-end through the front door —
+from the ready roadmap frontier to a merged compressor: design record, runnable
+Spec Kit spec, implementation via model-sized subagent dispatch, governance, PR,
+and ship.
 
 **Accomplished:**
-- <!-- compose -->
+- Full lifecycle: design → define → clarify → plan → tasks → analyze → execute →
+  govern(override) → ship (PR #13). Roadmap node `planned → merging`.
+- Full three-layer vertical: `GainComputer` graduated into
+  `core/primitives/dynamics/` (second inhabitant) — compress/limit/expand/gate with
+  a unified C¹ knee; `CompressorCore` composing the shipped EnvelopeFollower / SVF
+  (sidechain HPF) / DelayLine (lookahead); `CompressorEffect` host wrapper
+  (17-param lock-free handoff, external key, stereo linking).
+- All 41 `tasks.md` tasks dispatched to fresh per-task subagents at their resolved
+  model tier (2 haiku / 27 sonnet / 12 opus), ledgered.
+- 351 host doctest cases green, portability gate green, no-alloc + NaN safety across
+  the config sweep, lab harness emitting measurement evidence.
 
 **Didn't Work:**
-- <!-- compose -->
+- The whole-feature `govern` audit-barrage FATAL'd on the environmental per-file
+  envelope (`spec.md` 39,965 B > the 24,576 B fleet limit) — the recurring sandbox
+  ceiling; could not run the cross-model barrage.
 
 **Course Corrections:**
-- <!-- compose -->
+- Used the recorded terminal for the govern ceiling: `/code-review high` stop-gap
+  (3 finder angles) → fixed 7 substantive findings (a real gate soft-knee bug that
+  violated FR-007/SC-003, a sidechain OOB read, latency-report divergence, overflow
+  guards, dense-id static_assert) → operator-approved `--override` recorded the
+  convergence terminal.
+- Reconciled an auto-makeup spec/impl mismatch: the operator's chosen closed-form
+  `−computeGainDb(0 dBFS)` is a constant makeup that lifts below-threshold signal;
+  corrected the contradictory "unity below threshold" spec wording rather than the
+  faithful implementation.
+- Third-party review response: agreed on hardening non-finite guards
+  (setMakeup/setMix/setOutput); pushed back on the auto-makeup "conflict" (already
+  reconciled in-spec; the review had read a stale test comment, now cleaned).
 
 **Insights:**
-- <!-- compose -->
+- Test suites can carry blind spots that mirror the implementation: the gain-computer
+  test's gate-knee C¹ scan was written around the buggy floor kink, so 351 green did
+  NOT catch the gate-knee degeneracy bug — the adversarial `/code-review` finder did.
+  A green suite authored against the code is not an independent check of the spec.
+- "Documented divergence" between code and spec is a smell a reviewer will (rightly)
+  escalate; reconcile the spec or the code, and scrub stale divergence comments —
+  they outlive the divergence and mislead the next reader.
+- A constant makeup gain inherently lifts below-threshold signal; "auto-makeup →
+  unity below threshold" is an incorrect expectation, not a target.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 16
