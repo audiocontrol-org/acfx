@@ -176,6 +176,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:feature/program-dependent-saturation
 - status: planned
+- analyze-clean: yes
 - spec: specs/program-dependent-saturation
 - design-approved: yes
 - design: docs/superpowers/specs/2026-07-02-program-dependent-saturation-design.md
