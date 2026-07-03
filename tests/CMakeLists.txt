@@ -157,6 +157,11 @@ add_executable(acfx_core_tests
   # Split out of tape-dynamics-effect-test.cpp to stay under the per-file
   # line budget.
   core/tape-dynamics-compression-test.cpp
+  # T023 -- the TapeDynamicsEffect::process() no-allocation / RT-safety
+  # invariant (US5, SC-007), split out per Constitution VII (mirrors
+  # compressor-no-allocation-test.cpp / program-dependent-saturation-
+  # no-allocation-test.cpp).
+  core/tape-dynamics-no-allocation-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
