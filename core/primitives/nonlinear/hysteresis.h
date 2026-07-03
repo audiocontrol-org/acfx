@@ -112,14 +112,104 @@ public:
     }
 
 private:
-    // T006/T007/T008/T009 seam: the shared JA derivative dM/dH, reused by
-    // every solver (R3). Declared here to fix the shape of the contract;
-    // intentionally NOT defined in this header — T006 supplies the body
-    // (Langevin anhysteretic M_an = Ms*L(H_e/a) with the small-x series near
-    // 0, effective field H_e = H + alpha*M, irreversible+reversible split).
-    // Not yet called from process(), so leaving it undefined does not break
-    // compilation or linking of this translation unit.
-    [[nodiscard]] double dMdH(double H, double M, double dH) const noexcept;
+    // Test seam: grants the primitive's unit tests access to the shared JA
+    // derivative dMdH() (private RT-internal, not part of the public surface).
+    // No behavior of its own — purely befriends the test accessor.
+    friend struct HysteresisTestAccess;
+
+    // Numerical thresholds for the JA derivative (all dimensionless / in the
+    // argument space of the Langevin function). Chosen so the small-x series
+    // and the coth-overflow guard both stay well inside double precision.
+    static constexpr double kLangevinSmall = 1.0e-3;  // |x| below → series
+    static constexpr double kLangevinLarge = 20.0;     // |x| above → asymptote
+    static constexpr double kDenomFloor = 1.0e-12;     // divide-by-~0 guard
+
+    // Langevin function L(x) = coth(x) - 1/x, defined everywhere:
+    //   * small |x|: series  x/3 - x^3/45  (avoids the coth 1/x cancellation)
+    //   * large |x|: coth(x) -> sign(x), 1/sinh^2 -> 0 (avoids sinh overflow)
+    [[nodiscard]] static double langevin(double x) noexcept {
+        const double ax = std::fabs(x);
+        if (ax < kLangevinSmall) {
+            return x * (1.0 / 3.0) - (x * x * x) * (1.0 / 45.0);
+        }
+        if (ax > kLangevinLarge) {
+            return (x > 0.0 ? 1.0 : -1.0) - 1.0 / x;  // coth(x) ~= sign(x)
+        }
+        return 1.0 / std::tanh(x) - 1.0 / x;  // coth(x) - 1/x
+    }
+
+    // dL/dx = 1/x^2 - 1/sinh^2(x)  ( = 1 - coth^2(x) + 1/x^2 ), the anhysteretic
+    // slope shape:
+    //   * small |x|: series  1/3 - x^2/15  (limit L'(0) = 1/3)
+    //   * large |x|: 1/sinh^2 -> 0, so L'(x) -> 1/x^2
+    [[nodiscard]] static double langevinDeriv(double x) noexcept {
+        const double ax = std::fabs(x);
+        if (ax < kLangevinSmall) {
+            return (1.0 / 3.0) - (x * x) * (1.0 / 15.0);
+        }
+        if (ax > kLangevinLarge) {
+            return 1.0 / (x * x);
+        }
+        const double sh = std::sinh(x);
+        return 1.0 / (x * x) - 1.0 / (sh * sh);
+    }
+
+    // Floor a denominator's magnitude to kDenomFloor while preserving its sign,
+    // so a ~0 denominator yields a large-but-finite quotient (never NaN/Inf).
+    [[nodiscard]] static double guardDenom(double d) noexcept {
+        if (std::fabs(d) < kDenomFloor) {
+            return (d < 0.0) ? -kDenomFloor : kDenomFloor;
+        }
+        return d;
+    }
+
+    // T006/T007/T008/T009 seam: the shared JA derivative dM/dH, reused by every
+    // solver (R3). The arrangement below is the standard closed-form
+    // Jiles-Atherton dM/dH (Jiles & Atherton 1986; the form used in
+    // Chowdhury, "Real-Time Physical Modelling for Analog Tape Machines",
+    // DAFx 2019 / research.md R1):
+    //
+    //   H_e     = H + alpha*M                     (effective field)
+    //   x       = H_e / a
+    //   M_an    = Ms * L(x)                        (anhysteretic, Langevin)
+    //   dMan/dHe= (Ms/a) * L'(x)                   (anhysteretic slope)
+    //   dMirr/dH= (M_an - M) / (delta*k - alpha*(M_an - M)),  delta = sign(dH)
+    //   dM/dH   = ( (1-c)*dMirr/dH + c*dMan/dHe )
+    //             / ( 1 - alpha*c*dMan/dHe )       (effective-field feedback)
+    //
+    // Sign fix (the classic JA pathology): the irreversible term only advances
+    // the domain walls in the drive direction, so dMirr/dH is zeroed when
+    // (M_an - M) opposes delta, and clamped >= 0 as a safety net. delta is
+    // taken as +1 for dH == 0 so a zero step never makes the denominator sign
+    // ambiguous or divides by zero.
+    [[nodiscard]] double dMdH(double H, double M, double dH) const noexcept {
+        const double Ms = params_.Ms;
+        const double a = params_.a;         // > 0 (guaranteed by setA)
+        const double alpha = params_.alpha;
+        const double k = params_.k;         // > 0 (guaranteed by setK)
+        const double c = params_.c;
+
+        const double He = H + alpha * M;
+        const double x = He / a;
+        const double Man = Ms * langevin(x);
+        const double dMan_dHe = (Ms / a) * langevinDeriv(x);
+
+        const double delta = (dH < 0.0) ? -1.0 : 1.0;  // sign(dH), dH==0 -> +1
+        const double manMinusM = Man - M;
+
+        // Irreversible susceptibility with the JA sign correction.
+        double dMirr_dH = 0.0;
+        if (delta * manMinusM > 0.0) {
+            const double denom = guardDenom(delta * k - alpha * manMinusM);
+            dMirr_dH = manMinusM / denom;
+            if (dMirr_dH < 0.0) dMirr_dH = 0.0;  // safety: never drive M away
+        }
+
+        // Combined reversible + irreversible with effective-field feedback.
+        const double num = (1.0 - c) * dMirr_dH + c * dMan_dHe;
+        const double den = guardDenom(1.0 - alpha * c * dMan_dHe);
+        return num / den;
+    }
 
     // Configuration.
     double sampleRate_ = 48000.0;
