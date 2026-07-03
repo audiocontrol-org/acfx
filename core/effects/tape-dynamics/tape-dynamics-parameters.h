@@ -19,6 +19,30 @@
 // the exact numeric ranges are defensible placeholders, not yet validated
 // against reference measurement — mirroring CompressorEffect/SaturationEffect
 // kParams disclaimers.
+//
+// Macro-to-physics mapping (data-model.md "Entity: TapeDynamicsParameters"):
+//   drive       -> input gain applied before the signal enters the magnetics
+//                  as the applied field H (Hysteresis::process(H)).
+//   saturation  -> JAParams.Ms (saturation magnetization / ceiling).
+//   width       -> JAParams.k (coercivity / loop width / memory).
+//   solver      -> Hysteresis::solver (Solver enum: rk2/rk4/newtonRaphson).
+//   oversampling-> selects which TapeDynamicsCore<Factor> is active
+//                  (Factor in {2,4,8} — Oversampler<Factor> static_asserts
+//                  this; there is no 16x option).
+//   trim.*      -> the optional explicit EnvelopeFollower+GainComputer trim
+//                  stage (T026); trim.enabled gates it, attack/release drive
+//                  the follower, amount sets the applied depth.
+//   mix/output  -> dry/wet blend and post makeup gain.
+// JAParams.a/alpha/c are left at Hysteresis's own defaults (not exposed as
+// top-level macro controls in this first cut — data-model.md marks them
+// "default; advanced").
+//
+// NOTE on time-valued units: ParamUnit (core/dsp/param-id.h) has no
+// milliseconds enumerator, only `seconds`. data-model.md lists trim.attack/
+// trim.release in ms as the tuning-pass placeholder; this table stores the
+// equivalent values in SECONDS and tags them ParamUnit::seconds, matching
+// CompressorEffect's attack/release convention — no ms<->s conversion is
+// needed at apply time.
 
 namespace acfx {
 
@@ -33,17 +57,18 @@ inline constexpr std::array<std::string_view, 2> kTapeDynamicsTrimEnabledLabels 
 // The single source of parameter truth (FR-010). Row order matches
 // TapeDynamicsEffect::Param (leading ParamId index == that dense id). Shapes are
 // normative (data-model.md); ranges are tuning-pass OPEN QUESTION:
-//   0  drive:           dB or linear, tuned (OQ3)
-//   1  saturation:      tuned (OQ3), maps to Ms
-//   2  width:           tuned (OQ3), maps to k
+//   0  drive:           dB, 0..24, default 0 (unity) -> H input gain
+//   1  saturation:      tuned (OQ3), 0.1..2.0, default 1.0 -> JAParams.Ms
+//   2  width:           tuned (OQ3), 0.1..2.0, default 1.0 -> JAParams.k
 //   3  solver:          discrete {rk2, rk4, newtonRaphson}, default rk4
-//   4  oversampling:    discrete {2x, 4x, 8x, 16x}, default 8x
+//   4  oversampling:    discrete {2x, 4x, 8x}, default 8x (Oversampler<Factor>
+//                       supports Factor in {2,4,8} only — no 16x)
 //   5  trim.enabled:    discrete {off, on}, default off
-//   6  trim.attack:     ms, tuned (OQ3)
-//   7  trim.release:    ms, tuned (OQ3)
-//   8  trim.amount:     linear, tuned (OQ3)
+//   6  trim.attack:     seconds (ms tuning value), tuned (OQ3)
+//   7  trim.release:    seconds (ms tuning value), tuned (OQ3)
+//   8  trim.amount:     linear 0..1, tuned (OQ3)
 //   9  mix:             linear 0..1, default 1
-//   10 output:          dB, tuned (OQ3)
+//   10 output:          dB, -24..24, default 0
 inline constexpr std::array<ParameterDescriptor, 11> kTapeDynamicsParams = {{
     {ParamId{0}, "drive", ParamUnit::decibels, 0.0f, 24.0f, 0.0f, ParamSkew::linear,
      ParamKind::continuous, 0},
