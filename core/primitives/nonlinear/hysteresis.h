@@ -98,17 +98,51 @@ public:
         solver_ = s;
     }
 
-    // Audio path — RT-safe, one high-rate step. Returns a
-    // magnetization-derived output.
+    // Audio path — RT-safe, one high-rate step. Integrates the JA state one
+    // step over dH = H - Hprev using the selected solver, advances the stored
+    // magnetization M_, records Hprev_ = H, and returns the M-derived output.
     //
-    // PLACEHOLDER (T005 scope): performs no integration yet — trivial
-    // pass-through so the type compiles and is callable end-to-end for
-    // downstream consumers (tape-dynamics-core.h, hysteresis-test.cpp).
-    // T007/T008 replace this body with the RK2/RK4/Newton-Raphson steppers
-    // over dMdH(); T009 adds the finiteness/stability guard (FR-006,
-    // contract C3).
+    // Integration is in the field variable H (the ODE is dM/dH, evaluated at
+    // the sub-stage H positions), NOT in time: one input sample = one step of
+    // width dH. All internal math is double; only the returned value narrows.
+    //
+    // The JA derivative depends on delta = sign(dH). For a single Runge-Kutta
+    // step the step's overall delta (the direction of the whole dH) is held
+    // CONSTANT across every sub-stage evaluation — the domain-wall drive
+    // direction is a property of the step, not of the individual stages. This
+    // is the standard treatment of JA under an explicit RK stepper: a stage
+    // must not flip delta merely because its intermediate M/H excursion would
+    // locally imply the opposite sign. We pass dH straight into dMdH() (whose
+    // internal delta = sign(dH)) at every stage to enforce this.
+    //
+    // T007 implements the explicit RK2 (Heun) and RK4 cases. The
+    // newtonRaphson case is temporarily routed to RK4 so the type compiles and
+    // never crashes; T008 fills this with the implicit stepper. The stiff
+    // -transient clamp / deNaN guard is T009 (FR-006, contract C3) and is
+    // deliberately NOT applied here.
     [[nodiscard]] float process(float H) noexcept {
-        return H;
+        const double Hnew = static_cast<double>(H);
+        const double Hprev = Hprev_;
+        const double dH = Hnew - Hprev;
+
+        double Mnext = M_;
+        switch (solver_) {
+            case Solver::rk2:
+                Mnext = stepRK2(Hprev, M_, dH);
+                break;
+            case Solver::rk4:
+                Mnext = stepRK4(Hprev, M_, dH);
+                break;
+            case Solver::newtonRaphson:
+                // T008 fills this — temporarily route to RK4 so process() is
+                // callable and non-crashing under the newtonRaphson selection.
+                Mnext = stepRK4(Hprev, M_, dH);
+                break;
+        }
+
+        M_ = Mnext;
+        Hprev_ = Hnew;
+        return static_cast<float>(M_);
     }
 
 private:
@@ -209,6 +243,37 @@ private:
         const double num = (1.0 - c) * dMirr_dH + c * dMan_dHe;
         const double den = guardDenom(1.0 - alpha * c * dMan_dHe);
         return num / den;
+    }
+
+    // Explicit RK2 (Heun / trapezoidal-predictor-corrector) over one step of
+    // width dH, integrating dM/dH from (H0, M0). Two dMdH evaluations:
+    //   k1 = f(H0,        M0)                 slope at the step's start
+    //   k2 = f(H0 + dH,   M0 + dH*k1)         slope at the Euler-predicted end
+    //   M1 = M0 + (dH/2)*(k1 + k2)            average the two slopes
+    // delta = sign(dH) is held constant across both stages (see process()): the
+    // whole step's dH is passed into every dMdH() call, never the stage offset.
+    [[nodiscard]] double stepRK2(double H0, double M0, double dH) const noexcept {
+        const double k1 = dMdH(H0, M0, dH);
+        const double k2 = dMdH(H0 + dH, M0 + dH * k1, dH);
+        return M0 + (dH * 0.5) * (k1 + k2);
+    }
+
+    // Standard explicit RK4 over one step of width dH, integrating dM/dH from
+    // (H0, M0). Four dMdH evaluations at H0, +dH/2, +dH/2, +dH with 1/6 weights:
+    //   k1 = f(H0,         M0)
+    //   k2 = f(H0 + dH/2,  M0 + (dH/2)*k1)
+    //   k3 = f(H0 + dH/2,  M0 + (dH/2)*k2)
+    //   k4 = f(H0 + dH,    M0 + dH*k3)
+    //   M1 = M0 + (dH/6)*(k1 + 2*k2 + 2*k3 + k4)
+    // delta = sign(dH) is held constant across all four stages (see process()):
+    // the whole step's dH is passed into every dMdH() call, not the sub-offset.
+    [[nodiscard]] double stepRK4(double H0, double M0, double dH) const noexcept {
+        const double half = dH * 0.5;
+        const double k1 = dMdH(H0, M0, dH);
+        const double k2 = dMdH(H0 + half, M0 + half * k1, dH);
+        const double k3 = dMdH(H0 + half, M0 + half * k2, dH);
+        const double k4 = dMdH(H0 + dH, M0 + dH * k3, dH);
+        return M0 + (dH / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
     }
 
     // Configuration.

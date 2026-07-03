@@ -66,3 +66,103 @@ TEST_CASE("Hysteresis::dMdH — Jiles-Atherton derivative sanity (T006)") {
         }
     }
 }
+
+// T007 — the explicit RK2/RK4 steppers wired into process(). Drives a few
+// cycles of a sinusoidal H and checks the integrated magnetization is well
+// behaved and hysteretic. The full loop-area / cross-solver-agreement suite is
+// T012/T019; this pins the steppers' core behavior only.
+namespace {
+
+// Drive `cycles` full sine cycles of amplitude `amp` through process() at
+// `stepsPerCycle` samples/cycle, asserting the output is finite and bounded by
+// a small multiple of Ms throughout. Returns the M sampled at the +amp*sin
+// phase crossings on the rising vs falling branch of the LAST cycle, so the
+// caller can assert a genuinely open loop.
+struct BranchProbe {
+    double risingM = 0.0;   // M near H = 0 while H increasing (rising branch)
+    double fallingM = 0.0;  // M near H = 0 while H decreasing (falling branch)
+    bool sawRising = false;
+    bool sawFalling = false;
+};
+
+BranchProbe driveSine(Hysteresis& h, double amp, int cycles, int stepsPerCycle,
+                      double Ms) {
+    BranchProbe probe;
+    const int total = cycles * stepsPerCycle;
+    double prevH = 0.0;
+    const double bound = 4.0 * Ms;  // small multiple of the saturation ceiling
+    for (int n = 0; n <= total; ++n) {
+        const double phase =
+            2.0 * M_PI * (static_cast<double>(n) / stepsPerCycle);
+        const double H = amp * std::sin(phase);
+        const float out = h.process(static_cast<float>(H));
+        CHECK(std::isfinite(out));
+        CHECK(std::fabs(static_cast<double>(out)) <= bound);
+
+        // Probe the last cycle: capture M as H sweeps through ~0 in each
+        // direction, giving one point on the rising and one on the falling
+        // branch at (nearly) the same field.
+        if (n > (cycles - 1) * stepsPerCycle && std::fabs(H) < 0.05 * amp) {
+            if (H > prevH) {
+                probe.risingM = static_cast<double>(out);
+                probe.sawRising = true;
+            } else if (H < prevH) {
+                probe.fallingM = static_cast<double>(out);
+                probe.sawFalling = true;
+            }
+        }
+        prevH = H;
+    }
+    return probe;
+}
+
+}  // namespace
+
+TEST_CASE("Hysteresis::process — RK2/RK4 steppers integrate a loop (T007)") {
+    const double Ms = 1.0;
+
+    SUBCASE("RK2: finite, bounded, and a closed (open) loop forms") {
+        Hysteresis h;
+        h.prepare(48000.0);
+        JAParams p;  // Ms=1, a=1, alpha=0, k=1, c=0.5
+        p.k = 0.6;   // widen the loop so the branch split is unambiguous
+        h.setParams(p);
+        h.setSolver(Solver::rk2);
+        h.reset();
+
+        const BranchProbe probe = driveSine(h, 1.5, 4, 256, Ms);
+        REQUIRE(probe.sawRising);
+        REQUIRE(probe.sawFalling);
+        // Rising vs falling branch differ at the same H => open hysteresis loop.
+        CHECK(std::fabs(probe.risingM - probe.fallingM) > 1e-4);
+    }
+
+    SUBCASE("RK4: finite, bounded, and a closed (open) loop forms") {
+        Hysteresis h;
+        h.prepare(48000.0);
+        JAParams p;
+        p.k = 0.6;
+        h.setParams(p);
+        h.setSolver(Solver::rk4);
+        h.reset();
+
+        const BranchProbe probe = driveSine(h, 1.5, 4, 256, Ms);
+        REQUIRE(probe.sawRising);
+        REQUIRE(probe.sawFalling);
+        CHECK(std::fabs(probe.risingM - probe.fallingM) > 1e-4);
+    }
+
+    SUBCASE("newtonRaphson selection is callable (routed to RK4 for T007)") {
+        // T008 owns the real implicit stepper; here we only assert the case
+        // compiles, runs, and stays finite (temporarily routed to RK4).
+        Hysteresis h;
+        h.prepare(48000.0);
+        h.setParams(JAParams{});
+        h.setSolver(Solver::newtonRaphson);
+        h.reset();
+        for (int n = 0; n < 512; ++n) {
+            const double H = 1.2 * std::sin(2.0 * M_PI * n / 128.0);
+            CHECK(std::isfinite(h.process(static_cast<float>(H))));
+        }
+    }
+}
