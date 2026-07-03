@@ -50,7 +50,7 @@ host-only.
 | Emergent compression | trim OFF; input-level sweep at fixed drive | output-vs-input monotonic + compressive above thr | SC-003 |
 | Compression vs drive | trim OFF; DRR metric at low vs high drive | DRR(high) > DRR(low) | SC-003 |
 | Emergent not a param | inspect parameter list | no "compression" parameter present | FR-012 |
-| Aliasing vs OS | hot tone at 2×/4×/8×/16× | alias-sweep metric decreases monotonically | SC-004 |
+| Aliasing vs OS | hot tone at 2×/4×/8× | alias-sweep metric decreases monotonically | SC-004 |
 | Trim no-op | `trim.enabled` = false | output bit-exact the magnetics-only core | FR-011 |
 | Trim active | `trim.enabled` = true, set attack/release/amount | envelope-driven gain reduction tracks timing | US6 |
 | RT-safety | allocation sentinel over `process()` all configs | zero heap allocation, no locks | SC-007 |

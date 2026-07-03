@@ -60,7 +60,7 @@ clarify.
 **Decision**: Run the JA integration inside `Oversampler<Factor>::process(x, evalAtHighRate)`, passing
 the per-sample JA step as the `evalAtHighRate` callable — the shipped oversampler is reused **verbatim**
 (no modification). The `oversampling` parameter selects among compiled `Factor` instantiations
-**{2, 4, 8, 16}**, default **8** (clarified OQ4). Runtime selection dispatches to the matching
+**{2, 4, 8}**, default **8** (clarified OQ4; the shipped `Oversampler` `static_assert`s `Factor ∈ {2,4,8}`). Runtime selection dispatches to the matching
 compile-time `Oversampler<Factor>` instance held by the core.
 
 **Rationale**: a saturating nonlinearity aliases; oversampling is the antialiasing route. Crucially,

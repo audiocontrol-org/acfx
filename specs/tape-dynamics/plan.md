@@ -34,7 +34,7 @@ because state carries across samples, so oversampling is the antialiasing route)
 `TapeDynamicsCore` + `TapeDynamicsEffect` in `core/effects/tape-dynamics/` mirroring the shipped
 `SaturationEffect`/`CompressorEffect`/`SvfEffect` idiom exactly.
 
-The `oversampling` parameter exposes the menu **{2×, 4×, 8×, 16×}**, default **8×** (clarified OQ4);
+The `oversampling` parameter exposes the menu **{2×, 4×, 8×}**, default **8×** (clarified OQ4; the shipped `Oversampler` caps at Factor 8);
 concrete numeric ranges for the physics macros are tuned during implementation against the analysis
 harness (OQ3, deferred — not architecture-blocking). Validation reuses the shipped measurement
 stimulus/response infrastructure (`host/analysis/`): the **closed `M`-vs-`H` loop with area > 0** is

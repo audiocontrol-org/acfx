@@ -125,10 +125,10 @@ oversampling rises; none diverge on a transient.
 
 ## Phase 8: User Story 7 — Oversampling factor menu (Priority: P2)
 
-**Goal**: expose {2×,4×,8×,16×} (default 8×) with runtime dispatch; control aliasing.
+**Goal**: expose {2×,4×,8×} (default 8×) with runtime dispatch; control aliasing.
 **Independent test**: alias metric falls as factor rises; JA runs as the oversampler's `evalAtHighRate`.
 
-- [ ] T024 [US7] [tier:powerful] Instantiate `Oversampler<2>/<4>/<8>/<16>` in `TapeDynamicsCore` and dispatch on the runtime `oversampling` parameter (default 8×) in `core/effects/tape-dynamics/tape-dynamics-core.h` and `-parameters.h` (FR-010; research R4).
+- [ ] T024 [US7] [tier:powerful] Instantiate `Oversampler<2>/<4>/<8>` in `TapeDynamicsCore` and dispatch on the runtime `oversampling` parameter (default 8×) in `core/effects/tape-dynamics/tape-dynamics-core.h` and `-parameters.h` (FR-010; research R4).
 - [ ] T025 [US7] [tier:balanced] `tests/core/tape-dynamics-alias-test.cpp`: alias-sweep metric decreases monotonically as the factor rises (SC-004, US7.1); assert the JA step runs strictly as `Oversampler<Factor>::process`'s `evalAtHighRate` callable (US7.2, E4).
 
 ---

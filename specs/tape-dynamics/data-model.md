@@ -92,7 +92,7 @@ platform model, handed off lock-free.
 | `saturation` (`ceiling`) | float | tuned (OQ3) | — | `Ms` |
 | `width` | float | tuned (OQ3) | — | `k` |
 | `solver` | enum | rk2 / rk4 / newtonRaphson | rk4 | `Hysteresis::solver` |
-| `oversampling` | enum | 2× / 4× / 8× / 16× | **8×** | active `Oversampler<Factor>` |
+| `oversampling` | enum | 2× / 4× / 8× | **8×** | active `Oversampler<Factor>` |
 | `trim.enabled` | bool | on/off | off | explicit trim gate |
 | `trim.attack` | float (ms) | tuned | — | `EnvelopeFollower` attack |
 | `trim.release` | float (ms) | tuned | — | `EnvelopeFollower` release |

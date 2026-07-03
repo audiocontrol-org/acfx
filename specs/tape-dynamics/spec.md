@@ -23,7 +23,7 @@
 
 - Q: OQ1 — Which numerical solver(s) ship in the first implementation cut? → A: All three — RK2, RK4, and Newton-Raphson — in the first cut (the selectable-solver tradeoff is the feature's core numerical-methods lesson; shipping all three delivers it fully).
 - Q: OQ2 — Does the optional explicit envelope-driven trim (US6 / FR-011) land in the first cut? → A: Yes — included in the first cut (bit-exact no-op when disabled; completes the "both, layered" compression identity).
-- Q: OQ4 — Which oversampling factors are exposed, and what is the default? → A: Menu {2×, 4×, 8×, 16×}, default 8× (exact sweet spot still tuned against the alias-sweep harness during implementation).
+- Q: OQ4 — Which oversampling factors are exposed, and what is the default? → A: Menu {2×, 4×, 8×}, default 8× (exact sweet spot still tuned against the alias-sweep harness during implementation). *Note (2026-07-03, implementation): the menu was set to {2×, 4×, 8×} — the shipped `Oversampler<Factor>` `static_assert`s `Factor ∈ {2,4,8}`, so 16× is unavailable without modifying that separate validated primitive; operator elected to stay within the feature boundary rather than extend it.*
 - Q: OQ3 — Concrete parameter ranges/mapping for the physics macros? → A: Deferred to implementation — musically useful ranges tuned against harness measurements (as the `saturation` voicings were); not an architecture-blocking decision.
 - Q: OQ5 — Does `Hysteresis` get its own `tests/core/` unit file in addition to the lab harness? → A: Yes — a dedicated `tests/core/hysteresis-test.cpp`, mirroring `tests/core/delay-line-test.cpp`.
 
@@ -175,7 +175,7 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 
 - **FR-008**: The system MUST provide a `TapeDynamicsEffect` under `core/effects/tape-dynamics/` (split into core / effect / parameters / presets) conforming to the platform `Effect` concept: `prepare(ProcessContext)` and `process(AudioBlock)`.
 - **FR-009**: The effect MUST run the Jiles-Atherton integration under the shipped `Oversampler<Factor>`, passing the per-sample JA step as the `evalAtHighRate` callable of `Oversampler<Factor>::process(x, eval)` — reusing the existing oversampler without modification.
-- **FR-010**: The effect MUST expose host-facing macro parameters that map to the physics: `drive` (input gain into the magnetics), `saturation`/`ceiling` (→ `Ms`), `width` (→ `k`), `solver` (RK2/RK4/Newton), `oversampling` (factor select), `mix` (dry/wet), and `output` (makeup gain). The `oversampling` parameter MUST expose the factor menu **{2×, 4×, 8×, 16×}** with a default of **8×** (clarified 2026-07-03, OQ4). Concrete numeric ranges/mappings for the physics macros are tuned during implementation against the analysis harness (OQ3, deferred).
+- **FR-010**: The effect MUST expose host-facing macro parameters that map to the physics: `drive` (input gain into the magnetics), `saturation`/`ceiling` (→ `Ms`), `width` (→ `k`), `solver` (RK2/RK4/Newton), `oversampling` (factor select), `mix` (dry/wet), and `output` (makeup gain). The `oversampling` parameter MUST expose the factor menu **{2×, 4×, 8×}** with a default of **8×** (clarified 2026-07-03, OQ4; bounded to the shipped `Oversampler`'s supported factors). Concrete numeric ranges/mappings for the physics macros are tuned during implementation against the analysis harness (OQ3, deferred).
 - **FR-011**: The effect MUST provide an **optional** explicit envelope-driven trim composing the shipped `EnvelopeFollower` and `GainComputer`, controlled by `trim.enabled`, `trim.attack`, `trim.release`, and `trim.amount`. When `trim.enabled` is false, the signal path MUST equal the magnetics-only core path exactly. This layer is **included in the first cut** (clarified 2026-07-03, OQ2).
 - **FR-012**: The effect MUST NOT expose emergent dynamic compression as a parameter; it is an inherent property of the saturating magnetics, surfaced only through the level response and lab measurement.
 - **FR-013**: The effect MUST provide named presets (starting points) in `tape-dynamics-presets.h`.
@@ -234,5 +234,5 @@ All five sequencing open questions are now resolved (see `## Clarifications`); r
 - **OQ1** → **Resolved**: all three solvers (RK2 + RK4 + Newton) ship in the first cut (FR-005).
 - **OQ2** → **Resolved**: the optional explicit-trim layer is included in the first cut (FR-011, US6).
 - **OQ3** → **Deferred to implementation**: physics-macro ranges/mappings tuned against the analysis harness (FR-010); not architecture-blocking.
-- **OQ4** → **Resolved**: oversampling menu {2×, 4×, 8×, 16×}, default 8× (FR-010).
+- **OQ4** → **Resolved**: oversampling menu {2×, 4×, 8×}, default 8× (FR-010; 16× dropped — shipped `Oversampler` caps at Factor 8).
 - **OQ5** → **Resolved**: a dedicated `tests/core/hysteresis-test.cpp` in addition to the lab harness (FR-024).

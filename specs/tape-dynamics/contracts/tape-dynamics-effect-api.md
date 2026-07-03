@@ -26,7 +26,7 @@ public:
 ## Parameters (FR-010)
 
 `drive`, `saturation`/`ceiling` (→`Ms`), `width` (→`k`), `solver` (rk2/rk4/newtonRaphson),
-`oversampling` (**2×/4×/8×/16×, default 8×**), `trim.enabled`, `trim.attack`, `trim.release`,
+`oversampling` (**2×/4×/8×, default 8×**), `trim.enabled`, `trim.attack`, `trim.release`,
 `trim.amount`, `mix` (0..1, default 1), `output` (makeup). Numeric ranges tuned in implementation
 (OQ3). **Emergent compression is NOT a parameter** (FR-012).
 
