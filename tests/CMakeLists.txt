@@ -147,6 +147,10 @@ add_executable(acfx_core_tests
   # determinism). Kept separate from tape-dynamics-effect-test.cpp's T017
   # placeholder.
   core/tape-dynamics-core-test.cpp
+  # T019 -- solver-selection agreement + convergence-under-oversampling
+  # (US3, SC-002, contract C4), exercised through TapeDynamicsCore<Factor> so
+  # the OVERSAMPLED integrator dt is genuinely on the test's axis.
+  core/tape-dynamics-solver-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
