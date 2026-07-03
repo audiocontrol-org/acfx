@@ -2,6 +2,43 @@
 
 ---
 
+## 2026-07-03: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 16
+  - fix(compressors): harden non-finite param guards; clarify auto-makeup reconciliation (review response)
+  - fix(compressors): address /code-review findings (govern stop-gap)
+  - chore(compressors): mark all 41 tasks complete (349/349 green, gate clean)
+  - test(compressors): Polish — no-alloc/NaN safety + real harness (T039/T040/T041)
+  - test(compressors): 7 validation suites for US1-US13 (T012-T037)
+  - feat(compressors): external sidechain key + stereo linking (T032/T038)
+  - feat(compressors): CompressorCore chain + CompressorEffect wrapper (T010/T011)
+  - feat(compressors): graduate GainComputer primitive (T008/T009)
+  - feat(compressors): Phase 1 setup — lab, skeletons, build wiring
+  - tasks(compressors): dependency-ordered task list (41 tasks, 13 stories)
+  - plan(compressors): Phase 0/1 design artifacts
+  - clarify(compressors): resolve 4 high-impact deferred decisions
+  - spec(compressors): author Spec Kit spec from approved design record
+  - design(compressors): operator-approved; advance planned -> in-flight
+  - design(compressors): design record for gain-computer primitive + CompressorEffect
+  - chore(roadmap): close design:primitive/envelope-followers (shipped, validated)
+- Files changed: 31
+- Backlog touched: (none)
+
 ## 2026-07-02: Envelope followers — design → ship through the stack-control front door
 
 **Goal:** Drive `design:primitive/envelope-followers` end-to-end through the
