@@ -120,6 +120,14 @@ add_executable(acfx_core_tests
   core/program-dependent-saturation-presets-test.cpp
   core/program-dependent-saturation-sidechain-test.cpp
   core/program-dependent-saturation-effect-test.cpp
+  # T037 -- the ProgramDependentSaturationEffect::process() no-allocation
+  # invariant (SC-013), split out of no-allocation-test.cpp for the module
+  # budget (mirrors compressor-no-allocation-test.cpp).
+  core/program-dependent-saturation-no-allocation-test.cpp
+  # T038 -- SC-014 numerical-safety battery (no NaN/Inf + bounded output for
+  # pathological stimuli x configs; modulated params stay in SaturationCore's
+  # valid range via the FR-010 clamps).
+  core/program-dependent-saturation-safety-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
