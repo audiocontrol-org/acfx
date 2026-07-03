@@ -166,3 +166,66 @@ TEST_CASE("Hysteresis::process — RK2/RK4 steppers integrate a loop (T007)") {
         }
     }
 }
+
+// T008 — the Newton-Raphson IMPLICIT stepper wired into process(). Drives a
+// sinusoidal H and checks the implicitly-integrated magnetization is finite,
+// bounded, and forms an open hysteresis loop; then cross-checks that under a
+// mild drive the implicit loop stays CLOSE to the explicit RK4 loop within a
+// loose tolerance. The full cross-solver agreement suite is T019; this pins the
+// implicit stepper's core behavior and its rough consistency with RK4 only.
+TEST_CASE("Hysteresis::process — Newton-Raphson implicit stepper (T008)") {
+    const double Ms = 1.0;
+
+    SUBCASE("newtonRaphson: finite, bounded, and an open loop forms") {
+        Hysteresis h;
+        h.prepare(48000.0);
+        JAParams p;  // Ms=1, a=1, alpha=0, k=1, c=0.5
+        p.k = 0.6;   // widen the loop so the branch split is unambiguous
+        h.setParams(p);
+        h.setSolver(Solver::newtonRaphson);
+        h.reset();
+
+        const BranchProbe probe = driveSine(h, 1.5, 4, 256, Ms);
+        REQUIRE(probe.sawRising);
+        REQUIRE(probe.sawFalling);
+        // Rising vs falling branch differ at the same H => open hysteresis loop.
+        CHECK(std::fabs(probe.risingM - probe.fallingM) > 1e-4);
+    }
+
+    SUBCASE("newtonRaphson stays close to RK4 under a mild drive") {
+        // Same parameters + input drive through both solvers; the per-sample
+        // outputs should track within a loose tolerance (both integrate the
+        // same JA ODE; the implicit/explicit discretizations differ by O(step)).
+        JAParams p;   // defaults; alpha=0, gentle so neither stepper is stiff
+        const double amp = 0.6;      // mild drive (well below hard saturation)
+        const int stepsPerCycle = 512;
+        const int cycles = 3;
+        const int total = cycles * stepsPerCycle;
+
+        Hysteresis hn;
+        hn.prepare(48000.0);
+        hn.setParams(p);
+        hn.setSolver(Solver::newtonRaphson);
+        hn.reset();
+
+        Hysteresis hr;
+        hr.prepare(48000.0);
+        hr.setParams(p);
+        hr.setSolver(Solver::rk4);
+        hr.reset();
+
+        double maxAbsDiff = 0.0;
+        for (int n = 0; n <= total; ++n) {
+            const double phase =
+                2.0 * M_PI * (static_cast<double>(n) / stepsPerCycle);
+            const double H = amp * std::sin(phase);
+            const double on = static_cast<double>(hn.process(static_cast<float>(H)));
+            const double orr = static_cast<double>(hr.process(static_cast<float>(H)));
+            CHECK(std::isfinite(on));
+            const double diff = std::fabs(on - orr);
+            if (diff > maxAbsDiff) maxAbsDiff = diff;
+        }
+        // Loose agreement: the implicit and explicit loops must not diverge.
+        CHECK(maxAbsDiff < 5.0e-2);
+    }
+}

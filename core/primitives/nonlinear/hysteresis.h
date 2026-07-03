@@ -115,9 +115,9 @@ public:
     // locally imply the opposite sign. We pass dH straight into dMdH() (whose
     // internal delta = sign(dH)) at every stage to enforce this.
     //
-    // T007 implements the explicit RK2 (Heun) and RK4 cases. The
-    // newtonRaphson case is temporarily routed to RK4 so the type compiles and
-    // never crashes; T008 fills this with the implicit stepper. The stiff
+    // T007 implements the explicit RK2 (Heun) and RK4 cases; T008 implements
+    // the newtonRaphson case as a genuine implicit backward step (see
+    // stepNewton), with a documented explicit-RK4 divergence bail. The stiff
     // -transient clamp / deNaN guard is T009 (FR-006, contract C3) and is
     // deliberately NOT applied here.
     [[nodiscard]] float process(float H) noexcept {
@@ -134,9 +134,9 @@ public:
                 Mnext = stepRK4(Hprev, M_, dH);
                 break;
             case Solver::newtonRaphson:
-                // T008 fills this — temporarily route to RK4 so process() is
-                // callable and non-crashing under the newtonRaphson selection.
-                Mnext = stepRK4(Hprev, M_, dH);
+                // T008: implicit backward step, solved by bounded Newton-Raphson
+                // with a documented explicit-RK4 divergence bail (see stepNewton).
+                Mnext = stepNewton(Hprev, M_, dH);
                 break;
         }
 
@@ -157,6 +157,13 @@ private:
     static constexpr double kLangevinSmall = 1.0e-3;  // |x| below → series
     static constexpr double kLangevinLarge = 20.0;     // |x| above → asymptote
     static constexpr double kDenomFloor = 1.0e-12;     // divide-by-~0 guard
+
+    // Newton-Raphson implicit-stepper thresholds (T008). RT-safe: the iteration
+    // count is a hard compile-time cap, never data-dependent/unbounded.
+    static constexpr int kNewtonMaxIters = 12;      // bounded iteration ceiling
+    static constexpr double kNewtonTol = 1.0e-10;   // |update| / |residual| exit
+    static constexpr double kNewtonFDEps = 1.0e-6;  // central-FD step for dr/dM1
+    static constexpr double kJacobianFloor = 1.0e-9;  // |dr/dM1| floor (signed)
 
     // Langevin function L(x) = coth(x) - 1/x, defined everywhere:
     //   * small |x|: series  x/3 - x^3/45  (avoids the coth 1/x cancellation)
@@ -274,6 +281,74 @@ private:
         const double k3 = dMdH(H0 + half, M0 + half * k2, dH);
         const double k4 = dMdH(H0 + dH, M0 + dH * k3, dH);
         return M0 + (dH / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
+    }
+
+    // Implicit backward step over one step of width dH, integrating dM/dH from
+    // (H0, M0) by Newton-Raphson (T008). Solves the backward-Euler residual
+    //
+    //   r(M1) = M1 - M0 - dH * dMdH(H0 + dH, M1, dH) = 0
+    //
+    // for the end-of-step magnetization M1, evaluating the JA slope at the
+    // step's END field (H0 + dH) and the UNKNOWN M1 — the defining property of
+    // an implicit (A-stable-leaning) stepper, trading extra work for stability
+    // on the stiff JA transient where the explicit RK stages would overshoot.
+    // delta = sign(dH) is held constant across every evaluation (see process()):
+    // the whole step's dH is passed into dMdH(), never a stage offset.
+    //
+    // Newton iteration:
+    //   r'(M1) = dr/dM1 = 1 - dH * d(dMdH)/dM1
+    // where d(dMdH)/dM1 is a central finite difference with step kNewtonFDEps:
+    //   d(dMdH)/dM1 ≈ ( f(M1+eps) - f(M1-eps) ) / (2*eps),  f(M) = dMdH(He,M,dH)
+    // The Jacobian magnitude is floored to kJacobianFloor (sign preserved) so a
+    // near-flat residual can never produce a NaN/Inf/huge Newton update.
+    //
+    // RT-safety + robustness: the loop is hard-capped at kNewtonMaxIters (no
+    // data-dependent unbounded spin); it early-outs when |update| or |residual|
+    // drops below kNewtonTol. On non-convergence within the cap, or a non-finite
+    // / wild iterate at any point, it BAILS to the explicit stepRK4() result — a
+    // defined, documented deterministic fallback (NOT a mock): a worse-but-safe
+    // step is always preferable to emitting a diverged/NaN magnetization.
+    [[nodiscard]] double stepNewton(double H0, double M0,
+                                    double dH) const noexcept {
+        const double He = H0 + dH;      // implicit: slope evaluated at step end
+        double M1 = M0;                 // initial guess: last magnetization
+
+        for (int iter = 0; iter < kNewtonMaxIters; ++iter) {
+            const double f = dMdH(He, M1, dH);
+            const double residual = M1 - M0 - dH * f;
+
+            // Wild / non-finite iterate → fall back to the explicit step.
+            if (!std::isfinite(M1) || !std::isfinite(residual)) {
+                return stepRK4(H0, M0, dH);
+            }
+            if (std::fabs(residual) < kNewtonTol) {
+                return M1;  // residual converged
+            }
+
+            // d(dMdH)/dM1 by central finite difference at the step-end field.
+            const double fPlus = dMdH(He, M1 + kNewtonFDEps, dH);
+            const double fMinus = dMdH(He, M1 - kNewtonFDEps, dH);
+            const double dfdM = (fPlus - fMinus) / (2.0 * kNewtonFDEps);
+
+            // Jacobian dr/dM1 = 1 - dH * d(dMdH)/dM1, floored away from 0.
+            double jac = 1.0 - dH * dfdM;
+            if (std::fabs(jac) < kJacobianFloor) {
+                jac = (jac < 0.0) ? -kJacobianFloor : kJacobianFloor;
+            }
+
+            const double update = residual / jac;
+            M1 -= update;
+
+            if (!std::isfinite(M1)) {
+                return stepRK4(H0, M0, dH);
+            }
+            if (std::fabs(update) < kNewtonTol) {
+                return M1;  // update converged
+            }
+        }
+
+        // Non-convergence within the bounded cap → documented explicit bail.
+        return stepRK4(H0, M0, dH);
     }
 
     // Configuration.
