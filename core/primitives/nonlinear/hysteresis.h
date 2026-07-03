@@ -58,6 +58,7 @@ public:
     void reset() noexcept {
         M_ = 0.0;
         Hprev_ = 0.0;
+        lastFiniteM_ = 0.0;  // T009: the guard's recovery target resets too
     }
 
     // Assigns all five JAParams fields via the per-parameter setters below,
@@ -117,11 +118,16 @@ public:
     //
     // T007 implements the explicit RK2 (Heun) and RK4 cases; T008 implements
     // the newtonRaphson case as a genuine implicit backward step (see
-    // stepNewton), with a documented explicit-RK4 divergence bail. The stiff
-    // -transient clamp / deNaN guard is T009 (FR-006, contract C3) and is
-    // deliberately NOT applied here.
+    // stepNewton), with a documented explicit-RK4 divergence bail. T009 adds
+    // the stiff-solver stability guard below (FR-006, contract C3): a hot
+    // transient (or an adversarial/non-finite input) can never leave M_/Hprev_
+    // in a non-finite or unbounded state, and the returned value is always
+    // finite. This is a DEFINED rule (Constitution V), not a hidden fallback.
     [[nodiscard]] float process(float H) noexcept {
-        const double Hnew = static_cast<double>(H);
+        // FR-006 guard, input half: a non-finite H is not a value the JA ODE
+        // can be stepped over, so it is treated as a defined "hold previous
+        // field" (dH = 0) rather than poisoning Hprev_/M_ with NaN/Inf.
+        const double Hnew = std::isfinite(H) ? static_cast<double>(H) : Hprev_;
         const double Hprev = Hprev_;
         const double dH = Hnew - Hprev;
 
@@ -140,7 +146,28 @@ public:
                 break;
         }
 
+        // FR-006 guard, state half (contract C3): a stiff transient can drive
+        // an explicit stepper (rk2/rk4) to overshoot into a non-finite or
+        // wildly out-of-range M. Resolve to a defined, stable state:
+        //   * non-finite Mnext  -> reset to the last known-finite M (never 0
+        //     by default, so a diverged step decays back toward wherever the
+        //     primitive was last known-good rather than snapping to the
+        //     origin, which would itself be an audible discontinuity).
+        //   * |Mnext| > kMBoundMultiplier * Ms -> clamp to that bound, sign
+        //     preserved. The bound is a small multiple of the saturation
+        //     ceiling Ms, not Ms itself, so it does not clip a legitimately
+        //     large-but-physical excursion, only a diverged one.
+        const double bound = kMBoundMultiplier * params_.Ms;
+        if (!std::isfinite(Mnext)) {
+            Mnext = lastFiniteM_;
+        } else if (Mnext > bound) {
+            Mnext = bound;
+        } else if (Mnext < -bound) {
+            Mnext = -bound;
+        }
+
         M_ = Mnext;
+        lastFiniteM_ = Mnext;  // Mnext is finite by construction at this point
         Hprev_ = Hnew;
         return static_cast<float>(M_);
     }
@@ -164,6 +191,15 @@ private:
     static constexpr double kNewtonTol = 1.0e-10;   // |update| / |residual| exit
     static constexpr double kNewtonFDEps = 1.0e-6;  // central-FD step for dr/dM1
     static constexpr double kJacobianFloor = 1.0e-9;  // |dr/dM1| floor (signed)
+
+    // T009 stiff-solver stability guard (FR-006, contract C3): the bound on
+    // |M| is a small multiple of the runtime saturation ceiling Ms (NOT a
+    // fixed constant), since Ms is a caller-configurable JAParams field. 4x
+    // is comfortably above any physical excursion (the anhysteretic/
+    // irreversible terms are themselves Ms-bounded in steady state) while
+    // still catching a diverging stiff transient well before it reaches
+    // float overflow territory.
+    static constexpr double kMBoundMultiplier = 4.0;
 
     // Langevin function L(x) = coth(x) - 1/x, defined everywhere:
     //   * small |x|: series  x/3 - x^3/45  (avoids the coth 1/x cancellation)
@@ -360,6 +396,10 @@ private:
     // State (per-sample mutable, RT) — data-model.md "Entity: Hysteresis".
     double M_ = 0.0;      // current magnetization (the output-bearing state)
     double Hprev_ = 0.0;  // previous applied field (dH = H - Hprev, sign(dH))
+    // T009: last M_ known to be finite; the guard's recovery target when a
+    // step produces a non-finite Mnext (FR-006). Always mirrors M_ except
+    // during the single guarded step where M_ would otherwise go non-finite.
+    double lastFiniteM_ = 0.0;
 };
 
 }  // namespace acfx

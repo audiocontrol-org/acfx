@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
+#include <limits>
 
 #include "primitives/nonlinear/hysteresis.h"
 
@@ -227,5 +228,113 @@ TEST_CASE("Hysteresis::process — Newton-Raphson implicit stepper (T008)") {
         }
         // Loose agreement: the implicit and explicit loops must not diverge.
         CHECK(maxAbsDiff < 5.0e-2);
+    }
+}
+
+// T009 — the stiff-solver stability guard wired into process() (FR-006,
+// contract C3). Two focused properties, for ALL THREE solvers: (1) a hot
+// transient under deliberately stiff params can never produce a non-finite
+// or unbounded output, and the primitive recovers to normal bounded output
+// once the transient passes; (2) a non-finite input can never propagate
+// NaN/Inf into the output or poison subsequent state. The full SC-005 sweep
+// is a later task; this only pins the guard itself.
+namespace {
+
+// Mirrors the private kMBoundMultiplier documented in hysteresis.h (T009);
+// duplicated here so the test can assert the *contract's* numeric bound
+// (|M| <= kMBoundMultiplier * Ms) without needing friend access.
+constexpr double kGuardBoundMultiplier = 4.0;
+
+void checkHotTransientRecovers(Solver solver) {
+    Hysteresis h;
+    h.prepare(48000.0);
+    // Physically well-behaved params (same shape T007/T008 already prove is
+    // stable/bounded under normal drive) — the stress here comes from the
+    // TRANSIENT (an enormous single-sample |dH|), not from pathological
+    // physics, so "recovers afterward" is a meaningful assertion rather than
+    // an artifact of params that never settle.
+    JAParams p;
+    p.Ms = 1.0;
+    p.a = 1.0;
+    p.alpha = 0.0;
+    p.k = 0.6;   // widen the loop, as T007/T008 do
+    p.c = 0.5;
+    h.setParams(p);
+    h.setSolver(solver);
+    h.reset();
+
+    const double bound = kGuardBoundMultiplier * p.Ms;
+
+    // Adversarial hot transient: enormous alternating steps (|dH| ~ 1e5-2e5)
+    // stress every solver's stiff-transient handling — a step this large
+    // drives the explicit RK stages to overshoot the physical M range by
+    // orders of magnitude before the JA sign-correction can rein it in,
+    // exactly the regime the T009 guard exists for.
+    const double transientSteps[] = {1.0e5, -1.0e5, 1.5e5, -2.0e5, 5.0e4};
+    for (double H : transientSteps) {
+        const float out = h.process(static_cast<float>(H));
+        CHECK(std::isfinite(out));
+        CHECK(std::fabs(static_cast<double>(out)) <= bound + 1e-6);
+    }
+
+    // Recovery: resume a normal, gentle drive and confirm the primitive
+    // settles back into the physically-bounded (~Ms) operating range rather
+    // than staying pinned at the guard's clamp bound.
+    double lastOut = 0.0;
+    for (int n = 0; n < 2000; ++n) {
+        const double H = 0.5 * p.Ms * std::sin(2.0 * M_PI * n / 256.0);
+        const float out = h.process(static_cast<float>(H));
+        CHECK(std::isfinite(out));
+        CHECK(std::fabs(static_cast<double>(out)) <= bound + 1e-6);
+        lastOut = static_cast<double>(out);
+    }
+    // After 2000 gentle samples the primitive must have recovered to the
+    // physical (Ms-scale) range, not remained pinned at the guard bound.
+    CHECK(std::fabs(lastOut) <= 1.5 * p.Ms);
+}
+
+}  // namespace
+
+TEST_CASE("Hysteresis::process — T009 stiff-solver stability guard (FR-006/C3)") {
+    SUBCASE("rk2: hot transient stays finite+bounded and recovers") {
+        checkHotTransientRecovers(Solver::rk2);
+    }
+    SUBCASE("rk4: hot transient stays finite+bounded and recovers") {
+        checkHotTransientRecovers(Solver::rk4);
+    }
+    SUBCASE("newtonRaphson: hot transient stays finite+bounded and recovers") {
+        checkHotTransientRecovers(Solver::newtonRaphson);
+    }
+
+    SUBCASE("non-finite input never propagates NaN/Inf, for any solver") {
+        const Solver solvers[] = {Solver::rk2, Solver::rk4, Solver::newtonRaphson};
+        for (Solver solver : solvers) {
+            Hysteresis h;
+            h.prepare(48000.0);
+            h.setParams(JAParams{});
+            h.setSolver(solver);
+            h.reset();
+
+            const float badInputs[] = {
+                std::numeric_limits<float>::quiet_NaN(),
+                std::numeric_limits<float>::infinity(),
+                -std::numeric_limits<float>::infinity(),
+            };
+            for (float bad : badInputs) {
+                const float out = h.process(bad);
+                CHECK(std::isfinite(out));
+            }
+
+            // State must not be poisoned: normal processing afterward stays
+            // finite and settles back into the Ms-scale operating range.
+            double lastOut = 0.0;
+            for (int n = 0; n < 1000; ++n) {
+                const double H = 0.5 * std::sin(2.0 * M_PI * n / 256.0);
+                const float out = h.process(static_cast<float>(H));
+                CHECK(std::isfinite(out));
+                lastOut = static_cast<double>(out);
+            }
+            CHECK(std::fabs(lastOut) <= 1.5);
+        }
     }
 }
