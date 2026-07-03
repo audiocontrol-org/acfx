@@ -192,10 +192,10 @@ bounded — Constitution VI).
 **Goal**: `opto`/`variMu`/`tapeComp` configure the matrix to documented characters; `none` = neutral.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T029 [US9] [tier:balanced] `tests/core/program-dependent-saturation-presets-test.cpp` — for each preset, assert the realized modulation-matrix configuration (per-target depths/curves, topology, detector/ballistics) equals the documented preset definition; `none` leaves the matrix at all-depths-0 defaults (SC-008).
+- [x] T029 [US9] [tier:balanced] `tests/core/program-dependent-saturation-presets-test.cpp` — for each preset, assert the realized modulation-matrix configuration (per-target depths/curves, topology, detector/ballistics) equals the documented preset definition; `none` leaves the matrix at all-depths-0 defaults (SC-008).
 
 ### Implementation
-- [ ] T030 [US9] [tier:balanced] Implement the `DynamicPreset` apply in `ProgramDependentSaturationEffect` as a documented, testable table of matrix configurations (no new DSP), with `none` = neutral, so T029 passes (FR-014).
+- [x] T030 [US9] [tier:balanced] Implement the `DynamicPreset` apply in `ProgramDependentSaturationEffect` as a documented, testable table of matrix configurations (no new DSP), with `none` = neutral, so T029 passes (FR-014).
 
 **Checkpoint**: the named characters recall correctly.
 
@@ -206,10 +206,10 @@ bounded — Constitution VI).
 **Goal**: a pre-detector highpass attenuates low-frequency modulation; 0 Hz = bypass; main path unaffected.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T031 [US10] [tier:balanced] `tests/core/program-dependent-saturation-sidechain-test.cpp` — scHpf 120 Hz: a 60 Hz tone yields much less modulation than a 1 kHz tone at the same level; 0 Hz = full-band; the main saturation path is otherwise unchanged (SC-009).
+- [x] T031 [US10] [tier:balanced] `tests/core/program-dependent-saturation-sidechain-test.cpp` — scHpf 120 Hz: a 60 Hz tone yields much less modulation than a 1 kHz tone at the same level; 0 Hz = full-band; the main saturation path is otherwise unchanged (SC-009).
 
 ### Implementation
-- [ ] T032 [US10] [tier:balanced] Wire the composed `SvfPrimitive` highpass into the detection path of `ProgramDependentSaturationCore` (cutoff 0 = bypass; guarded near Nyquist / ≤0) so T031 passes (FR-011).
+- [x] T032 [US10] [tier:balanced] Wire the composed `SvfPrimitive` highpass into the detection path of `ProgramDependentSaturationCore` (cutoff 0 = bypass; guarded near Nyquist / ≤0) so T031 passes (FR-011).
 
 **Checkpoint**: sidechain filtering shapes detection; main path clean.
 
@@ -220,10 +220,10 @@ bounded — Constitution VI).
 **Goal**: modulation tracks an external key when supplied; falls back to the main input otherwise.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T033 [US11] [tier:balanced] Extend `tests/core/program-dependent-saturation-sidechain-test.cpp` — a loud external key + quiet main → modulation follows the key level, applied to the main saturation path; no key → detection reads the main input (SC-010).
+- [x] T033 [US11] [tier:balanced] Extend `tests/core/program-dependent-saturation-sidechain-test.cpp` — a loud external key + quiet main → modulation follows the key level, applied to the main saturation path; no key → detection reads the main input (SC-010).
 
 ### Implementation
-- [ ] T034 [US11] [tier:balanced] Route the external key through `ProgramDependentSaturationEffect::process` into `ProgramDependentSaturationCore::process(x, key)` (keyless callers pass `x` as `key`), threading the host's sidechain buffer per the `AudioBlock` convention, so T033 passes (FR-012).
+- [x] T034 [US11] [tier:balanced] Route the external key through `ProgramDependentSaturationEffect::process` into `ProgramDependentSaturationCore::process(x, key)` (keyless callers pass `x` as `key`), threading the host's sidechain buffer per the `AudioBlock` convention, so T033 passes (FR-012).
 
 **Checkpoint**: keyed modulation (ducking the saturation) works.
 
@@ -234,10 +234,10 @@ bounded — Constitution VI).
 **Goal**: linked detection drives a common modulation (cross-channel max); per-channel is independent.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T035 [US12] [tier:balanced] Extend `tests/core/program-dependent-saturation-sidechain-test.cpp` — a stereo signal with a transient in L only: linked mode applies the same modulation to both channels (character/image stable); per-channel modulates only L; linking over one channel degenerates to per-channel (SC-011).
+- [x] T035 [US12] [tier:balanced] Extend `tests/core/program-dependent-saturation-sidechain-test.cpp` — a stereo signal with a transient in L only: linked mode applies the same modulation to both channels (character/image stable); per-channel modulates only L; linking over one channel degenerates to per-channel (SC-011).
 
 ### Implementation
-- [ ] T036 [US12] [tier:balanced] Implement `StereoLink` in `ProgramDependentSaturationEffect` (linked = drive a common modulation from the max detector value across linked channels; perChannel = independent) so T035 passes (FR-013).
+- [x] T036 [US12] [tier:balanced] Implement `StereoLink` in `ProgramDependentSaturationEffect` (linked = drive a common modulation from the max detector value across linked channels; perChannel = independent) so T035 passes (FR-013).
 
 **Checkpoint**: linked and per-channel detection both work; stereo character stable.
 
