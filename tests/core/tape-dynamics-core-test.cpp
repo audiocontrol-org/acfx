@@ -186,3 +186,87 @@ TEST_CASE("TapeDynamicsCore<8> — composed OS+JA signal path (T015)") {
         CHECK(identical);
     }
 }
+
+// T026 -- optional explicit envelope-driven trim (US6, FR-011, contract E7).
+// A focused check (the full US6 suite is T027): the disabled path must stay
+// bit-exact the magnetics-only core no matter what trim.attack/release/amount
+// are set to, and the enabled path must measurably reduce a loud, sustained
+// signal's level relative to the disabled path.
+TEST_CASE("TapeDynamicsCore<8> — optional trim: disabled is bit-exact, enabled reduces level (T026)") {
+    constexpr double kFs = 48000.0;
+    constexpr int kN = 4096;
+    constexpr float kFreq = 220.0f;
+    constexpr float kAmp = 0.8f; // well above the trim curve's -18 dBFS threshold
+
+    auto configureCommon = [](auto& core) {
+        core.prepare(kFs, 1);
+        core.setDrive(6.0f);
+        core.setSaturation(1.0f);
+        core.setWidth(1.0f);
+        core.setSolver(Solver::rk4);
+        core.setMix(1.0f);
+        core.setOutput(0.0f);
+    };
+
+    SUBCASE("trim.enabled = false is bit-exact the magnetics-only path, "
+            "regardless of trim.attack/release/amount (E7)") {
+        TapeDynamicsCore<8> baseline;
+        configureCommon(baseline);
+        // trim left at its defaults (disabled) -- the magnetics-only path.
+        const auto expected = driveSine(baseline, kN, kFreq, kFs, kAmp);
+
+        TapeDynamicsCore<8> withTrimConfigured;
+        configureCommon(withTrimConfigured);
+        // Set every trim knob to an aggressive, obviously-audible value --
+        // but leave trim.enabled at its default (false).
+        withTrimConfigured.setTrimAttack(0.001f);
+        withTrimConfigured.setTrimRelease(0.5f);
+        withTrimConfigured.setTrimAmount(1.0f);
+        const auto actual = driveSine(withTrimConfigured, kN, kFreq, kFs, kAmp);
+
+        REQUIRE(expected.size() == actual.size());
+        bool identical = true;
+        for (std::size_t i = 0; identical && i < expected.size(); ++i)
+            identical = (expected[i] == actual[i]);
+        CHECK(identical);
+    }
+
+    SUBCASE("trim.enabled = true with amount = 1 measurably reduces a loud "
+            "sustained signal's level vs trim disabled") {
+        TapeDynamicsCore<8> disabled;
+        configureCommon(disabled);
+        const auto disabledOut = driveSine(disabled, kN, kFreq, kFs, kAmp);
+
+        TapeDynamicsCore<8> enabled;
+        configureCommon(enabled);
+        enabled.setTrimEnabled(true);
+        enabled.setTrimAttack(0.001f);  // fast attack: settle quickly within kN samples
+        enabled.setTrimRelease(0.05f);
+        enabled.setTrimAmount(1.0f);    // full curve depth
+        const auto enabledOut = driveSine(enabled, kN, kFreq, kFs, kAmp);
+
+        CHECK(allFinite(disabledOut));
+        CHECK(allFinite(enabledOut));
+
+        // Compare late-window RMS (past the envelope follower's attack
+        // settling) so the measurement reflects steady-state gain reduction,
+        // not the attack transient.
+        auto rmsFrom = [](const std::vector<float>& v, int start) {
+            double sumSq = 0.0;
+            int count = 0;
+            for (std::size_t i = static_cast<std::size_t>(start); i < v.size(); ++i) {
+                sumSq += static_cast<double>(v[i]) * static_cast<double>(v[i]);
+                ++count;
+            }
+            return std::sqrt(sumSq / count);
+        };
+        const double rmsDisabled = rmsFrom(disabledOut, kN / 2);
+        const double rmsEnabled = rmsFrom(enabledOut, kN / 2);
+        INFO("rmsDisabled=" << rmsDisabled << " rmsEnabled=" << rmsEnabled);
+        REQUIRE(rmsDisabled > 0.0);
+        // Named tolerance: the enabled path must sit meaningfully (>1%) below
+        // the disabled path -- comfortably above any float-rounding floor,
+        // proving the trim stage measurably attenuates a loud signal.
+        CHECK(rmsEnabled < 0.99 * rmsDisabled);
+    }
+}

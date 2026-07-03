@@ -30,8 +30,8 @@
 //                  (Factor in {2,4,8} — Oversampler<Factor> static_asserts
 //                  this; there is no 16x option).
 //   trim.*      -> the optional explicit EnvelopeFollower+GainComputer trim
-//                  stage (T026); trim.enabled gates it, attack/release drive
-//                  the follower, amount sets the applied depth.
+//                  stage; trim.enabled gates it, attack/release drive the
+//                  follower, amount scales the applied gain-reduction depth.
 //   mix/output  -> dry/wet blend and post makeup gain.
 // JAParams.a/alpha/c are left at Hysteresis's own defaults (not exposed as
 // top-level macro controls in this first cut — data-model.md marks them

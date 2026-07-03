@@ -215,8 +215,7 @@ private:
 
     // Consume pending parameter edits and denormalize into cached values, then
     // dispatch to every core's matching setter (kOversampling instead selects
-    // WHICH core processBlock() dispatches to; trim.attack/release/amount are
-    // cached only — TapeDynamicsCore has no setter for them yet, the T026 seam).
+    // WHICH core processBlock() dispatches to).
     void applyPending() noexcept {
         if (pendingDirty_[kDrive].exchange(0u, std::memory_order_acquire)) {
             driveDb_ = denormalize(kParams[kDrive], pendingValue(kDrive));
@@ -245,15 +244,16 @@ private:
             applyTrimEnabled();
         }
         if (pendingDirty_[kTrimAttack].exchange(0u, std::memory_order_acquire)) {
-            // T026 seam: cached for the future trim-ballistics EnvelopeFollower;
-            // TapeDynamicsCore has no setTrimAttack() yet (no-op passthrough).
             trimAttack_ = denormalize(kParams[kTrimAttack], pendingValue(kTrimAttack));
+            applyTrimAttack();
         }
         if (pendingDirty_[kTrimRelease].exchange(0u, std::memory_order_acquire)) {
-            trimRelease_ = denormalize(kParams[kTrimRelease], pendingValue(kTrimRelease)); // T026 seam
+            trimRelease_ = denormalize(kParams[kTrimRelease], pendingValue(kTrimRelease));
+            applyTrimRelease();
         }
         if (pendingDirty_[kTrimAmount].exchange(0u, std::memory_order_acquire)) {
-            trimAmount_ = denormalize(kParams[kTrimAmount], pendingValue(kTrimAmount)); // T026 seam
+            trimAmount_ = denormalize(kParams[kTrimAmount], pendingValue(kTrimAmount));
+            applyTrimAmount();
         }
         if (pendingDirty_[kMix].exchange(0u, std::memory_order_acquire)) {
             mix_ = denormalize(kParams[kMix], pendingValue(kMix));
@@ -293,6 +293,21 @@ private:
         core4x_.setTrimEnabled(trimEnabled_);
         core8x_.setTrimEnabled(trimEnabled_);
     }
+    void applyTrimAttack() noexcept {
+        core2x_.setTrimAttack(trimAttack_);
+        core4x_.setTrimAttack(trimAttack_);
+        core8x_.setTrimAttack(trimAttack_);
+    }
+    void applyTrimRelease() noexcept {
+        core2x_.setTrimRelease(trimRelease_);
+        core4x_.setTrimRelease(trimRelease_);
+        core8x_.setTrimRelease(trimRelease_);
+    }
+    void applyTrimAmount() noexcept {
+        core2x_.setTrimAmount(trimAmount_);
+        core4x_.setTrimAmount(trimAmount_);
+        core8x_.setTrimAmount(trimAmount_);
+    }
     void applyMix() noexcept {
         core2x_.setMix(mix_);
         core4x_.setMix(mix_);
@@ -306,15 +321,18 @@ private:
 
     // Apply all cached parameter values to every core (called by prepare()/
     // reset(), which re-prepare the composed primitives and so must
-    // re-establish the full applied parameter state). oversamplingIndex_ and
-    // the trim.attack/release/amount caches need no core push (see
-    // applyPending()'s note).
+    // re-establish the full applied parameter state). oversamplingIndex_
+    // needs no core push — it only selects which already-prepared core
+    // processBlock() runs (see processBlock()).
     void applyAll() noexcept {
         applyDrive();
         applySaturation();
         applyWidth();
         applySolver();
         applyTrimEnabled();
+        applyTrimAttack();
+        applyTrimRelease();
+        applyTrimAmount();
         applyMix();
         applyOutput();
     }

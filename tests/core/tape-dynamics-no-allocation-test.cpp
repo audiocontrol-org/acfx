@@ -45,9 +45,9 @@ float normFor(TapeDynamicsEffect::Param p, float plainValue) {
 
 // T023 (SC-007) -- the no-allocation invariant across the full configuration
 // matrix named in the task: all 3 oversampling factors (2x/4x/8x), all 3
-// solvers (rk2/rk4/newtonRaphson), trim on/off (trim.enabled is a real
-// per-core setter today -- see applyTrimEnabled() -- even though
-// trim.attack/release/amount are still a T026 cached-only seam), crossed with
+// solvers (rk2/rk4/newtonRaphson), trim on/off (trim.enabled/attack/release/
+// amount are all real per-core setters -- see applyTrimEnabled()/
+// applyTrimAttack()/applyTrimRelease()/applyTrimAmount(), T026), crossed with
 // block sizes spanning 1-sample blocks through a large block. A fresh
 // TapeDynamicsEffect is built per row (mirrors the SvfEffect/Compressor/PDS
 // pattern of preparing per block size) so prepare()'s maxBlockSize always
@@ -85,9 +85,7 @@ TEST_CASE("TapeDynamicsEffect::process allocates nothing across oversampling x s
                         normFor(TapeDynamicsEffect::kSolver, static_cast<float>(solverIndex)));
                     fx.setParameter(ParamId{TapeDynamicsEffect::kTrimEnabled},
                                     normFor(TapeDynamicsEffect::kTrimEnabled, trimOn ? 1.0f : 0.0f));
-                    // trim.attack/release/amount -- currently the T026 cached-only seam
-                    // (no core setter yet), still exercised per the task's instructions so
-                    // this test keeps covering them once T026 lands a real setter.
+                    // trim.attack/release/amount -- real per-core setters as of T026.
                     fx.setParameter(ParamId{TapeDynamicsEffect::kTrimAttack},
                                     normFor(TapeDynamicsEffect::kTrimAttack, 0.01f));
                     fx.setParameter(ParamId{TapeDynamicsEffect::kTrimRelease},

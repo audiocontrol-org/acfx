@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include "primitives/dynamics/envelope-follower.h"
+#include "primitives/dynamics/gain-computer.h"
 #include "primitives/nonlinear/hysteresis.h"
 #include "primitives/oversampling/oversampler.h"
 
@@ -18,10 +20,14 @@
 // and process() is allocation-free, lock-free, and bounded.
 //
 // Composition (data-model.md "Entity — TapeDynamicsCore"):
-//   oversampler   Oversampler<Factor>  runs Hysteresis at the oversampled rate
-//   hysteresis    Hysteresis           the Jiles-Atherton magnetics core
-//   (optional)    EnvelopeFollower     trim ballistics (if trim.enabled)
-//   (optional)    GainComputer         trim gain mapping (if trim.enabled)
+//   oversampler    Oversampler<Factor>  runs Hysteresis at the oversampled rate
+//   hysteresis     Hysteresis           the Jiles-Atherton magnetics core
+//   trimFollower   EnvelopeFollower     trim ballistics (per channel; only
+//                                        ADVANCED when trim.enabled — T026)
+//   trimGain       GainComputer         trim gain mapping (stateless; shared
+//                                        across channels — its curve is fixed,
+//                                        only the depth is user-controlled via
+//                                        trim.amount)
 //
 // The template Factor parameter (2/4/8/16) is chosen at effect level based on
 // the oversampling parameter; TapeDynamicsEffect instantiates all four cores
@@ -54,12 +60,19 @@ public:
             oversampler_[static_cast<std::size_t>(ch)].init(
                 static_cast<float>(sampleRate_));
             hysteresis_[static_cast<std::size_t>(ch)].prepare(osRate);
+            // The trim EnvelopeFollower runs at the BASE rate (it detects the
+            // post-magnetics wet signal once per base-rate sample, same as
+            // the mix/output stages) — unlike Hysteresis it is NOT inside the
+            // oversampler.
+            trimFollower_[static_cast<std::size_t>(ch)].init(
+                static_cast<float>(sampleRate_));
         }
 
         // Re-push the cached macro→physics coefficients into every channel's
         // Hysteresis so prepare() re-establishes exactly the applied parameter
         // state (setters may have run before prepare()). No per-sample work.
         applyToHysteresis();
+        applyToTrim();
     }
 
     // Advance one audio sample on a channel; signal flow:
@@ -86,8 +99,10 @@ public:
             driven, [&h](float s) noexcept { return h.process(s); });
 
         // 3. Optional explicit trim (EnvelopeFollower + GainComputer) — T026.
-        //    A clearly-marked no-op seam today: when trim is disabled the path
-        //    is exactly drive -> OS(JA) -> mix -> output. T026 fills applyTrim().
+        //    When trim is disabled the path is EXACTLY drive -> OS(JA) -> mix
+        //    -> output (bit-exact, contract E7): applyTrim() early-returns
+        //    before touching any trim state. When enabled it applies an
+        //    envelope-driven gain reduction to the wet signal.
         wet = applyTrim(wet, dry, ch);
 
         // 4. Dry/wet mix (mix=1 -> fully wet; mix=0 -> dry passthrough) then
@@ -150,22 +165,51 @@ public:
         outputGain_ = dbToGain(outputDb);
     }
 
-    // T026 seam: enable/disable the optional explicit trim stage. Today only
-    // toggles the flag; applyTrim() stays a no-op until T026 wires the
-    // EnvelopeFollower + GainComputer.
+    // Enable/disable the optional explicit trim stage (FR-011). When disabled
+    // applyTrim() early-returns without touching any trim state — the
+    // bit-exact no-op guarantee (contract E7).
     void setTrimEnabled(bool enabled) noexcept { trimEnabled_ = enabled; }
 
-    // Clear all composed state (filter memories, magnetization, etc.)
-    // without discarding applied parameter state.
+    // Trim ballistics — EnvelopeFollower attack/release, in SECONDS, pushed
+    // into every active channel's trim follower. Off the audio path.
+    void setTrimAttack(float seconds) noexcept {
+        trimAttackSeconds_ = seconds;
+        for (int ch = 0; ch < numChannels_; ++ch)
+            trimFollower_[static_cast<std::size_t>(ch)].setAttack(seconds);
+    }
+    void setTrimRelease(float seconds) noexcept {
+        trimReleaseSeconds_ = seconds;
+        for (int ch = 0; ch < numChannels_; ++ch)
+            trimFollower_[static_cast<std::size_t>(ch)].setRelease(seconds);
+    }
+
+    // Trim depth, 0..1: scales the GainComputer's gain-reduction curve (in
+    // dB) before it is applied to the wet signal. 0 == no reduction (unity);
+    // 1 == the full curve. Cached only — GainComputer is stateless, so there
+    // is nothing to push per-channel.
+    void setTrimAmount(float amount) noexcept { trimAmount_ = amount; }
+
+    // Clear all composed state (filter memories, magnetization, trim envelope
+    // follower state, etc.) without discarding applied parameter state.
     void reset() noexcept {
         for (int ch = 0; ch < numChannels_; ++ch) {
             oversampler_[ch].reset();
             hysteresis_[ch].reset();
+            trimFollower_[ch].reset();
         }
     }
 
 private:
     static constexpr int kMaxChannels = 32;
+
+    // Fixed trim GainComputer curve (not exposed as top-level trim macros —
+    // only trim.attack/release/amount are user-controlled; see
+    // tape-dynamics-parameters.h's header comment on JAParams.a/alpha/c for
+    // the same "fixed, advanced" precedent). Values mirror GainComputer's own
+    // defaults; named here for documentation.
+    static constexpr float kTrimThresholdDb = -18.0f;
+    static constexpr float kTrimRatio = 4.0f;
+    static constexpr float kTrimKneeDb = 6.0f;
 
     // dB -> linear gain (mirrors SaturationEffect/PDS dbToGain exactly). Pure,
     // RT-safe; only ever called from the off-audio-path setters, never per
@@ -186,20 +230,62 @@ private:
         }
     }
 
-    // T026 SEAM — optional explicit trim (EnvelopeFollower + GainComputer).
-    // Deliberately a no-op passthrough today so the MVP path is EXACTLY
-    // drive -> OS(JA) -> mix -> output. T026 slots the trim ballistics + gain
-    // mapping in here (using `dry` as the detector source and `ch` to select
-    // the per-channel follower state) without restructuring processSample().
-    [[nodiscard]] float applyTrim(float wet, float /*dry*/, int /*ch*/) const
-        noexcept {
+    // Optional explicit trim (EnvelopeFollower + GainComputer; T026, FR-011,
+    // contract E7). When trim is DISABLED this is a true identity: it returns
+    // `wet` untouched and — critically — never calls into trimFollower_, so
+    // the signal path is bit-exact the magnetics-only core (E7's invariant).
+    //
+    // When ENABLED: the per-channel EnvelopeFollower tracks the wet (post-
+    // magnetics) signal's envelope in the DECIBEL domain (attack/release are
+    // the user's trim.attack/trim.release ballistics); the shared
+    // (stateless) GainComputer maps that level to a gain-reduction curve in
+    // dB (a fixed compress curve — threshold/ratio/knee are not exposed as
+    // top-level trim macros, only the ballistics and the applied depth are);
+    // trim.amount scales the reduction's DEPTH (0 == no reduction, 1 == the
+    // full curve) before it is converted back to a linear gain and applied to
+    // the wet signal. Composes the shipped primitives — no hand-rolled
+    // detector.
+    [[nodiscard]] float applyTrim(float wet, float /*dry*/, int ch) noexcept {
         if (!trimEnabled_)
             return wet;
-        // T026: run the per-channel EnvelopeFollower on the detector signal and
-        // apply GainComputer output here. Until then, trimEnabled_ has no audible
-        // effect (defined no-op, not a silent fallback — the stage is not yet
-        // implemented, so it contributes unity gain).
-        return wet;
+        if (ch < 0 || ch >= numChannels_)
+            return wet;
+
+        const std::size_t c = static_cast<std::size_t>(ch);
+        EnvelopeFollower& follower = trimFollower_[c];
+
+        // Detector: envelope of the wet signal, in dB (GainComputer's native
+        // input domain).
+        const float levelDb = follower.process(wet);
+
+        // Static curve -> gain reduction (dB, <= 0), scaled by the user's
+        // trim.amount depth.
+        const float grDb = trimGain_.computeGainDb(levelDb) * trimAmount_;
+
+        return wet * dbToGain(grDb);
+    }
+
+    // Push the cached trim ballistics into every ACTIVE channel's
+    // EnvelopeFollower and (re)configure the shared GainComputer curve.
+    // Used by prepare() to (re)establish applied parameter state after the
+    // trim followers are (re)prepared. Off the audio path (mirrors
+    // applyToHysteresis()).
+    void applyToTrim() noexcept {
+        // The trim curve itself (threshold/ratio/knee) is a fixed, non-user-
+        // facing compress shape — trim.amount (applied in applyTrim()) is
+        // the only user-controlled depth knob. GainComputer's own defaults
+        // already match these values; set them explicitly for clarity.
+        trimGain_.setMode(GainMode::compress);
+        trimGain_.setThreshold(kTrimThresholdDb);
+        trimGain_.setRatio(kTrimRatio);
+        trimGain_.setKnee(kTrimKneeDb);
+
+        for (int ch = 0; ch < numChannels_; ++ch) {
+            EnvelopeFollower& follower = trimFollower_[static_cast<std::size_t>(ch)];
+            follower.setDomain(DetectDomain::decibel);
+            follower.setAttack(trimAttackSeconds_);
+            follower.setRelease(trimReleaseSeconds_);
+        }
     }
 
     double sampleRate_ = 48000.0;
@@ -207,6 +293,8 @@ private:
 
     std::array<Oversampler<Factor>, kMaxChannels> oversampler_;
     std::array<Hysteresis, kMaxChannels> hysteresis_;
+    std::array<EnvelopeFollower, kMaxChannels> trimFollower_;
+    GainComputer trimGain_; // stateless; one shared instance (fixed curve, see above)
 
     // Cached macro→physics parameter state (set off the audio path via the
     // setters / applyToHysteresis()). Defaults: 0 dB drive (unity into the
@@ -221,6 +309,9 @@ private:
     float outputDb_ = 0.0f;
     float outputGain_ = 1.0f;    // dbToGain(0) == 1
     bool trimEnabled_ = false;
+    float trimAttackSeconds_ = 0.01f;  // matches kTapeDynamicsParams[kTrimAttack] default (10 ms)
+    float trimReleaseSeconds_ = 0.1f;  // matches kTapeDynamicsParams[kTrimRelease] default (100 ms)
+    float trimAmount_ = 0.5f;          // matches kTapeDynamicsParams[kTrimAmount] default
 };
 
 } // namespace acfx
