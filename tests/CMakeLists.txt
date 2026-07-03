@@ -162,6 +162,12 @@ add_executable(acfx_core_tests
   # compressor-no-allocation-test.cpp / program-dependent-saturation-
   # no-allocation-test.cpp).
   core/tape-dynamics-no-allocation-test.cpp
+  # T027 -- US6/contract E7 trim acceptance suite: trim-disabled bit-exact
+  # (core AND effect black-box), trim-enabled gain reduction scaling with
+  # trim.amount, and attack/release ballistics timing. New file (T026's
+  # tape-dynamics-core-test.cpp addition is one focused check, not the full
+  # suite) to stay under the per-file line budget.
+  core/tape-dynamics-trim-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
