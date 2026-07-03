@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 #include "dsp/audio-block.h"
@@ -18,9 +19,13 @@
 // SHIPPED implementation in core/effects/compressor/compressor-core.h and
 // core/effects/compressor/compressor-effect.h. Written to the code as
 // implemented (research Decision 5 for makeup; FR-017 for linking), NOT to a
-// spec-idealized expectation — see the auto-makeup case below for the one place
-// the implemented relation diverges from spec SC-009's "below-threshold ≈ unity"
-// wording, documented in-line so the divergence is an explicit, reviewed choice.
+// spec-idealized expectation. The auto-makeup case asserts the RECONCILED
+// contract: SC-009 / FR-016 define auto-makeup as the closed-form CONSTANT gain
+// -computeGainDb(0 dBFS) applied uniformly, so a below-threshold signal is lifted
+// by that makeup amount (standard constant-makeup behavior), NOT gated to unity.
+// (An earlier spec draft said "below-threshold ~= unity"; that contradicted the
+// chosen constant-makeup model and was corrected in the spec -- this test matches
+// the reconciled SC-009, so there is no code/spec divergence.)
 //
 // Every CompressorCore case drives the per-channel kernel directly with a
 // constant (DC) key so the level detector settles to a fixed dB and the settled
@@ -134,6 +139,38 @@ TEST_CASE("CompressorCore manual makeup raises settled output by M dB (T035, SC-
     CHECK(ratio == doctest::Approx(dbToLin(kMakeupDb)).epsilon(kMakeupRatioRelTol));
 }
 
+// Non-finite makeup/mix/output are rejected by the setters (the prior valid value
+// stands), so process() never emits NaN/Inf from a bad parameter write. Guards the
+// three CompressorCore setters that feed the VCA/blend directly (no downstream
+// primitive absorbs a bad value there). Mirrors the GainComputer setter guards.
+TEST_CASE("CompressorCore setMakeup/setMix/setOutput reject non-finite (no NaN/Inf leak)") {
+    constexpr float kDC = 0.5f; // -6 dBFS, above threshold -> gain path active.
+    const float kNaN = std::numeric_limits<float>::quiet_NaN();
+    const float kInf = std::numeric_limits<float>::infinity();
+
+    CompressorCore ref;
+    prepareDefault(ref);
+    ref.setMakeup(6.0f);
+    ref.setOutput(-3.0f);
+    ref.setMix(0.8f);
+    const double outRef = settleDC(ref, kDC, kSettle);
+
+    CompressorCore poked;
+    prepareDefault(poked);
+    poked.setMakeup(6.0f);
+    poked.setOutput(-3.0f);
+    poked.setMix(0.8f);
+    // Each bad write MUST be ignored (prior value stands).
+    poked.setMakeup(kNaN);
+    poked.setMakeup(kInf);
+    poked.setMix(kNaN);
+    poked.setOutput(kNaN);
+    const double outPoked = settleDC(poked, kDC, kSettle);
+
+    CHECK(std::isfinite(outPoked));
+    CHECK(outPoked == doctest::Approx(outRef)); // identical to the un-poked kernel
+}
+
 // Auto-makeup — IMPLEMENTED RELATION (research Decision 5). The kernel folds the
 // cached effective makeup into the linear gain UNCONDITIONALLY:
 //     detectGainLin() returns dbToLin(grDb + makeupEffectiveDb)
@@ -142,11 +179,12 @@ TEST_CASE("CompressorCore manual makeup raises settled output by M dB (T035, SC-
 // is  input * dbToLin(-computeGainDb(0 dBFS))  — the auto-makeup gain IS applied
 // to a signal that received no reduction. This is NOT ≈ unity.
 //
-// NB: spec SC-009 / US11 Scenario 2 word this as "below-threshold ≈ unity". The
-// shipped code does not do that — it multiplies the below-threshold signal by
-// the full auto-makeup gain. Per the task's explicit instruction this test
-// asserts the IMPLEMENTED relation, and the divergence from the spec wording is
-// flagged here for review (it is the one place code and spec disagree).
+// This MATCHES the reconciled SC-009 / US11 Scenario 2 / FR-016: auto-makeup is a
+// CONSTANT gain -computeGainDb(0 dBFS) applied uniformly, so below-threshold
+// content is lifted by that amount (standard constant-makeup behavior). An
+// earlier spec draft said "below-threshold ~= unity"; that contradicted the
+// chosen constant-makeup model and was corrected in the spec, so code and spec
+// now agree.
 TEST_CASE("CompressorCore auto-makeup folds makeup into below-threshold gain (T035, SC-009)") {
     constexpr float kDC = 0.01f; // -40 dBFS: below threshold-knee (< -21) -> grDb == 0.
 

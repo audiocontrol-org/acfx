@@ -169,10 +169,21 @@ public:
         if (samples > maxLookaheadSamples_) samples = maxLookaheadSamples_;
         lookaheadSamples_ = samples;
     }
-    void setMakeup(float dB) noexcept     { makeupDb_ = dB; updateMakeup(); }
+    // makeup/mix/output feed the VCA/blend directly (no downstream primitive to
+    // absorb a bad value, unlike attack/release/scHpf), so guard non-finite here
+    // — the prior valid value stands (mirrors the GainComputer setters, FR-024).
+    void setMakeup(float dB) noexcept {
+        if (!std::isfinite(dB)) return;
+        makeupDb_ = dB;
+        updateMakeup();
+    }
     void setAutoMakeup(bool enabled) noexcept { autoMakeup_ = enabled; updateMakeup(); }
-    void setMix(float wet) noexcept        { mix_ = wet; }
+    void setMix(float wet) noexcept {
+        if (!std::isfinite(wet)) return;
+        mix_ = wet;
+    }
     void setOutput(float dB) noexcept {
+        if (!std::isfinite(dB)) return;
         outputDb_      = dB;
         outputGainLin_ = dbToLin(dB);
     }
