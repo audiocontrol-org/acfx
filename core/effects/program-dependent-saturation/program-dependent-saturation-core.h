@@ -72,6 +72,7 @@ public:
         applyScHpf();
         prevOutput_ = 0.0f;
         toneBlockOffset_ = 0.0f;
+        lastNorm_ = 0.0f;
     }
 
     // Clear the composed units' running state + the feedback tap. detector_ /
@@ -84,6 +85,7 @@ public:
         scFilter_.reset();
         prevOutput_ = 0.0f;
         toneBlockOffset_ = 0.0f;
+        lastNorm_ = 0.0f;
     }
 
     // ------------------------------------------------------------------
@@ -179,6 +181,14 @@ public:
     // static tilt set by setStaticTone() stays in effect. When depth != 0, the
     // block-representative normalized envelope `blockEnvNorm` (0..1) drives the
     // tone offset over its native half-span.
+    // Most-recent per-sample normalized-window envelope (0..1), carried from the
+    // previous block. The effect wrapper feeds this back into newBlock() so the
+    // per-block tone tilt tracks the block's representative level with a
+    // one-block (control-rate) lag — fine for a slow spectral tilt (Decision 4).
+    // Pure read of a value store; it does NOT participate in process()'s output
+    // (byte-for-byte orthogonality with the standalone saturator is preserved).
+    float lastNorm() const noexcept { return lastNorm_; }
+
     void newBlock(float blockEnvNorm) noexcept {
         if (toneDepth_ == 0.0f)
             return;
@@ -217,6 +227,7 @@ public:
         // never a divide-by-zero / NaN (Constitution V: no silent degeneracy).
         float norm = (denom > 0.0f) ? (envDb - refLo_) / denom : 0.0f;
         norm = clampf(norm, 0.0f, 1.0f);
+        lastNorm_ = norm; // control-rate carry for the effect's per-block newBlock()
 
         const float driveDb = clampf(staticDriveDb_ + driveMod_.modulate(norm) * kDriveSpanDb,
                                      kDriveMinDb, kDriveMaxDb);
@@ -318,6 +329,7 @@ private:
     // -------------------------------------------------------------------
     float prevOutput_ = 0.0f;      // Feedback tap (final output y); cold-start = 0.
     float toneBlockOffset_ = 0.0f; // The per-block tone offset in effect.
+    float lastNorm_ = 0.0f;        // Most-recent normalized-window envelope (effect's newBlock carry).
 };
 
 } // namespace acfx
