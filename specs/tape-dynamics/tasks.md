@@ -22,10 +22,15 @@ description: "Task list for tape-dynamics implementation"
 **Organization**: grouped by user story (spec.md priorities). US1 + US2 are co-P1 (the MVP: the
 graduated primitive and the effect that composes it).
 
-## Format: `[ID] [P?] [Story?] Description with file path`
+## Format: `[ID] [P?] [Story?] [tier:label] Description with file path`
 
 - **[P]**: parallelizable (different files, no dependency on an incomplete task).
 - **[Story]**: user-story label (US1..US7) for story-phase tasks only.
+- **[tier:label]**: model-sized-dispatch tier (033) — `fast`/`balanced`/`powerful` resolve via
+  the installation `tier_map` (`fast→haiku`, `balanced→sonnet`, `powerful→opus`). `fast` = mechanical
+  (scaffolds, wiring, README edits); `balanced` = standard implementation + integration + tests;
+  `powerful` = subtle numerical correctness / broad-context composition (the JA math, solvers, and the
+  oversampler-dispatch core).
 
 ## Path Conventions
 
@@ -36,10 +41,10 @@ acfx single C++ DSP core: `core/primitives/`, `core/effects/`, `core/labs/`, `te
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Create `core/effects/tape-dynamics/` module and wire it into `acfx_core` in `CMakeLists.txt` (headers: core/effect/parameters/presets).
-- [ ] T002 [P] Scaffold the lab `core/labs/tape-dynamics/` (`README.md` stub, `kernel/`, `harness/`) and add the host-only harness build target in `CMakeLists.txt`.
-- [ ] T003 [P] Create `tests/core/hysteresis-test.cpp` skeleton and register it (plus placeholder `tape-dynamics-effect-test.cpp`, `tape-dynamics-alias-test.cpp`) in the test CMake wiring.
-- [ ] T004 [P] Extend `scripts/check-portability.sh` to cover `core/primitives/nonlinear/hysteresis.h`, `core/effects/tape-dynamics/`, and `core/labs/tape-dynamics/` (host-only lab isolation).
+- [ ] T001 [tier:fast] Create `core/effects/tape-dynamics/` module and wire it into `acfx_core` in `CMakeLists.txt` (headers: core/effect/parameters/presets).
+- [ ] T002 [P] [tier:fast] Scaffold the lab `core/labs/tape-dynamics/` (`README.md` stub, `kernel/`, `harness/`) and add the host-only harness build target in `CMakeLists.txt`.
+- [ ] T003 [P] [tier:fast] Create `tests/core/hysteresis-test.cpp` skeleton and register it (plus placeholder `tape-dynamics-effect-test.cpp`, `tape-dynamics-alias-test.cpp`) in the test CMake wiring.
+- [ ] T004 [P] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/primitives/nonlinear/hysteresis.h`, `core/effects/tape-dynamics/`, and `core/labs/tape-dynamics/` (host-only lab isolation).
 
 ---
 
@@ -47,8 +52,8 @@ acfx single C++ DSP core: `core/primitives/`, `core/effects/`, `core/labs/`, `te
 
 **Purpose**: the shared Jiles-Atherton substrate every story builds on.
 
-- [ ] T005 Define `Solver` enum, `JAParams` struct, and the `Hysteresis` class shell (state `M`/`Hprev`, `prepare(sampleRate)`, `reset()`, per-parameter setters, `setSolver`) in `core/primitives/nonlinear/hysteresis.h` (data-model "Hysteresis"; contract C2/C6).
-- [ ] T006 Implement the shared derivative `double dMdH(double H, double M, double dH) const` — Langevin `L(x)=coth(x)−1/x` with the small-`x` series near 0, effective field `H_e=H+α·M`, anhysteretic `M_an=Ms·L(H_e/a)`, and the irreversible+reversible split — in `core/primitives/nonlinear/hysteresis.h` (research R1).
+- [ ] T005 [tier:balanced] Define `Solver` enum, `JAParams` struct, and the `Hysteresis` class shell (state `M`/`Hprev`, `prepare(sampleRate)`, `reset()`, per-parameter setters, `setSolver`) in `core/primitives/nonlinear/hysteresis.h` (data-model "Hysteresis"; contract C2/C6).
+- [ ] T006 [tier:powerful] Implement the shared derivative `double dMdH(double H, double M, double dH) const` — Langevin `L(x)=coth(x)−1/x` with the small-`x` series near 0, effective field `H_e=H+α·M`, anhysteretic `M_an=Ms·L(H_e/a)`, and the irreversible+reversible split — in `core/primitives/nonlinear/hysteresis.h` (research R1).
 
 **Checkpoint**: the JA model + types compile; no solver/guard yet.
 
@@ -60,13 +65,13 @@ acfx single C++ DSP core: `core/primitives/`, `core/effects/`, `core/labs/`, `te
 **Independent test**: `nonlinear/hysteresis.h` exists and is README-listed; a sinusoid yields a closed
 `M`-vs-`H` loop with area > 0; `reset()` reproducible; all three solvers finite.
 
-- [ ] T007 [US2] Implement the RK2 and RK4 explicit steppers over `dMdH` in `core/primitives/nonlinear/hysteresis.h` (research R3).
-- [ ] T008 [US2] Implement the Newton-Raphson implicit stepper — bounded fixed iteration count + divergence bail to the explicit estimate — in `core/primitives/nonlinear/hysteresis.h` (research R3/R5; Constitution VI).
-- [ ] T009 [US2] Implement the stiff-solver stability guard (`std::isfinite` + `Ms`-multiple clamp, reset-to-last-finite) inside `Hysteresis::process(float H)` in `core/primitives/nonlinear/hysteresis.h` (FR-006; contract C3).
-- [ ] T010 [P] [US2] Write `core/labs/tape-dynamics/README.md` — JA `dM/dH`, Langevin curve, explicit-vs-implicit solver tradeoff + order-of-accuracy/stability under oversampling, emergent compression, and why ADAA does not apply (state carries across samples) (FR-015).
-- [ ] T011 [P] [US2] Implement the RT-safe lab kernel in `core/labs/tape-dynamics/kernel/` mirroring the primitive (the graduation source) (FR-015; Constitution IX).
-- [ ] T012 [US2] `tests/core/hysteresis-test.cpp`: closed-loop area > 0 vs a static-waveshaper area ≈ 0 (SC-001); `reset()` reproducibility (FR-003); `k` widens / `Ms` raises the loop (US2.2); all three solvers finite on a hot transient (SC-005).
-- [ ] T013 [US2] Edit `core/primitives/README.md`: list `nonlinear/hysteresis.h` as the **first stateful** inhabitant of `nonlinear/`, with lab + consumers referenced (FR-016; SC-006).
+- [ ] T007 [US2] [tier:powerful] Implement the RK2 and RK4 explicit steppers over `dMdH` in `core/primitives/nonlinear/hysteresis.h` (research R3).
+- [ ] T008 [US2] [tier:powerful] Implement the Newton-Raphson implicit stepper — bounded fixed iteration count + divergence bail to the explicit estimate — in `core/primitives/nonlinear/hysteresis.h` (research R3/R5; Constitution VI).
+- [ ] T009 [US2] [tier:balanced] Implement the stiff-solver stability guard (`std::isfinite` + `Ms`-multiple clamp, reset-to-last-finite) inside `Hysteresis::process(float H)` in `core/primitives/nonlinear/hysteresis.h` (FR-006; contract C3).
+- [ ] T010 [P] [US2] [tier:balanced] Write `core/labs/tape-dynamics/README.md` — JA `dM/dH`, Langevin curve, explicit-vs-implicit solver tradeoff + order-of-accuracy/stability under oversampling, emergent compression, and why ADAA does not apply (state carries across samples) (FR-015).
+- [ ] T011 [P] [US2] [tier:balanced] Implement the RT-safe lab kernel in `core/labs/tape-dynamics/kernel/` mirroring the primitive (the graduation source) (FR-015; Constitution IX).
+- [ ] T012 [US2] [tier:balanced] `tests/core/hysteresis-test.cpp`: closed-loop area > 0 vs a static-waveshaper area ≈ 0 (SC-001); `reset()` reproducibility (FR-003); `k` widens / `Ms` raises the loop (US2.2); all three solvers finite on a hot transient (SC-005).
+- [ ] T013 [US2] [tier:fast] Edit `core/primitives/README.md`: list `nonlinear/hysteresis.h` as the **first stateful** inhabitant of `nonlinear/`, with lab + consumers referenced (FR-016; SC-006).
 
 **Checkpoint**: US2 independently testable and green.
 
@@ -78,10 +83,10 @@ acfx single C++ DSP core: `core/primitives/`, `core/effects/`, `core/labs/`, `te
 **Independent test**: a full-scale sinusoid at moderate `drive` yields a saturated, band-limited output
 tracing a closed loop; `drive`=0 is unity; a hot transient stays finite.
 
-- [ ] T014 [US1] Implement `TapeDynamicsParameters` (`drive`, `saturation`→`Ms`, `width`→`k`, `mix`, `output`; `solver`/`oversampling` fields present, default 8×) with descriptors in `core/effects/tape-dynamics/tape-dynamics-parameters.h` (FR-010; data-model).
-- [ ] T015 [US1] Implement `TapeDynamicsCore<Factor>` at the default factor: `x·drive → Oversampler<Factor>::process(·, JA step) → mix(dry,wet)·output`, per-channel `Hysteresis`, in `core/effects/tape-dynamics/tape-dynamics-core.h` (FR-009; contract E4).
-- [ ] T016 [US1] Implement the `TapeDynamicsEffect` host wrapper (`prepare(ProcessContext)`/`process(AudioBlock)`/`reset()`, Effect concept) in `core/effects/tape-dynamics/tape-dynamics-effect.h` (FR-008).
-- [ ] T017 [US1] `tests/core/tape-dynamics-effect-test.cpp`: closed hysteresis loop at moderate drive (US1.1); `drive`=0 unity passthrough (US1.2, E2); hot-transient finiteness (US1.3, E3).
+- [ ] T014 [US1] [tier:balanced] Implement `TapeDynamicsParameters` (`drive`, `saturation`→`Ms`, `width`→`k`, `mix`, `output`; `solver`/`oversampling` fields present, default 8×) with descriptors in `core/effects/tape-dynamics/tape-dynamics-parameters.h` (FR-010; data-model).
+- [ ] T015 [US1] [tier:powerful] Implement `TapeDynamicsCore<Factor>` at the default factor: `x·drive → Oversampler<Factor>::process(·, JA step) → mix(dry,wet)·output`, per-channel `Hysteresis`, in `core/effects/tape-dynamics/tape-dynamics-core.h` (FR-009; contract E4).
+- [ ] T016 [US1] [tier:balanced] Implement the `TapeDynamicsEffect` host wrapper (`prepare(ProcessContext)`/`process(AudioBlock)`/`reset()`, Effect concept) in `core/effects/tape-dynamics/tape-dynamics-effect.h` (FR-008).
+- [ ] T017 [US1] [tier:balanced] `tests/core/tape-dynamics-effect-test.cpp`: closed hysteresis loop at moderate drive (US1.1); `drive`=0 unity passthrough (US1.2, E2); hot-transient finiteness (US1.3, E3).
 
 **Checkpoint**: MVP (US1+US2) delivers a working tape-dynamics effect.
 
@@ -93,8 +98,8 @@ tracing a closed loop; `drive`=0 is unity; a hot transient stays finite.
 **Independent test**: each solver produces stable output; loops agree within tol and tighten as
 oversampling rises; none diverge on a transient.
 
-- [ ] T018 [US3] Wire the `solver` parameter through `tape-dynamics-parameters.h` and `TapeDynamicsCore` to `Hysteresis::setSolver` in `core/effects/tape-dynamics/tape-dynamics-core.h`.
-- [ ] T019 [US3] Extend `tests/core/hysteresis-test.cpp`: RK2/RK4/Newton loop agreement within a stated tolerance, tightening with oversampling; no divergence on a hot transient (SC-002; contract C4).
+- [ ] T018 [US3] [tier:balanced] Wire the `solver` parameter through `tape-dynamics-parameters.h` and `TapeDynamicsCore` to `Hysteresis::setSolver` in `core/effects/tape-dynamics/tape-dynamics-core.h`.
+- [ ] T019 [US3] [tier:balanced] Extend `tests/core/hysteresis-test.cpp`: RK2/RK4/Newton loop agreement within a stated tolerance, tightening with oversampling; no divergence on a hot transient (SC-002; contract C4).
 
 ---
 
@@ -103,8 +108,8 @@ oversampling rises; none diverge on a transient.
 **Goal**: measure/teach the compression that emerges from the magnetics (no control path).
 **Independent test**: trim OFF, level sweep → monotonic compressive curve; DRR rises with drive.
 
-- [ ] T020 [US4] Add the closed-loop-area and dynamic-range-reduction metrics to `core/labs/tape-dynamics/harness/tape-dynamics-harness.cpp` (research R9).
-- [ ] T021 [US4] Extend `tests/core/tape-dynamics-effect-test.cpp`: with `trim.enabled=false`, output-vs-input level curve monotonic + compressive above threshold; DRR(high drive) > DRR(low drive) (SC-003); assert no "compression" parameter exists (FR-012, US4.3).
+- [ ] T020 [US4] [tier:balanced] Add the closed-loop-area and dynamic-range-reduction metrics to `core/labs/tape-dynamics/harness/tape-dynamics-harness.cpp` (research R9).
+- [ ] T021 [US4] [tier:balanced] Extend `tests/core/tape-dynamics-effect-test.cpp`: with `trim.enabled=false`, output-vs-input level curve monotonic + compressive above threshold; DRR(high drive) > DRR(low drive) (SC-003); assert no "compression" parameter exists (FR-012, US4.3).
 
 ---
 
@@ -113,8 +118,8 @@ oversampling rises; none diverge on a transient.
 **Goal**: RT-safe, lock-free, block-robust wrapper conforming to the Effect concept.
 **Independent test**: no allocation/locks in `process()`; click-free across block sizes incl. 1 and large.
 
-- [ ] T022 [US5] Implement lock-free parameter handoff (consume edits at the top of `process()`) and block-boundary continuity in `core/effects/tape-dynamics/tape-dynamics-effect.h` (FR-008; contract E8).
-- [ ] T023 [US5] Extend `tests/core/no-allocation-test.cpp`: zero heap allocation and no locks in `TapeDynamicsEffect::process()` across all configs; correct output for 1-sample and large blocks (SC-007, US5).
+- [ ] T022 [US5] [tier:balanced] Implement lock-free parameter handoff (consume edits at the top of `process()`) and block-boundary continuity in `core/effects/tape-dynamics/tape-dynamics-effect.h` (FR-008; contract E8).
+- [ ] T023 [US5] [tier:balanced] Extend `tests/core/no-allocation-test.cpp`: zero heap allocation and no locks in `TapeDynamicsEffect::process()` across all configs; correct output for 1-sample and large blocks (SC-007, US5).
 
 ---
 
@@ -123,8 +128,8 @@ oversampling rises; none diverge on a transient.
 **Goal**: expose {2×,4×,8×,16×} (default 8×) with runtime dispatch; control aliasing.
 **Independent test**: alias metric falls as factor rises; JA runs as the oversampler's `evalAtHighRate`.
 
-- [ ] T024 [US7] Instantiate `Oversampler<2>/<4>/<8>/<16>` in `TapeDynamicsCore` and dispatch on the runtime `oversampling` parameter (default 8×) in `core/effects/tape-dynamics/tape-dynamics-core.h` and `-parameters.h` (FR-010; research R4).
-- [ ] T025 [US7] `tests/core/tape-dynamics-alias-test.cpp`: alias-sweep metric decreases monotonically as the factor rises (SC-004, US7.1); assert the JA step runs strictly as `Oversampler<Factor>::process`'s `evalAtHighRate` callable (US7.2, E4).
+- [ ] T024 [US7] [tier:powerful] Instantiate `Oversampler<2>/<4>/<8>/<16>` in `TapeDynamicsCore` and dispatch on the runtime `oversampling` parameter (default 8×) in `core/effects/tape-dynamics/tape-dynamics-core.h` and `-parameters.h` (FR-010; research R4).
+- [ ] T025 [US7] [tier:balanced] `tests/core/tape-dynamics-alias-test.cpp`: alias-sweep metric decreases monotonically as the factor rises (SC-004, US7.1); assert the JA step runs strictly as `Oversampler<Factor>::process`'s `evalAtHighRate` callable (US7.2, E4).
 
 ---
 
@@ -133,17 +138,17 @@ oversampling rises; none diverge on a transient.
 **Goal**: layer an optional tape-leveling trim composing shipped `EnvelopeFollower`+`GainComputer`.
 **Independent test**: disabled → bit-exact core; enabled → envelope-driven GR tracks attack/release.
 
-- [ ] T026 [US6] Compose `EnvelopeFollower` + `GainComputer` as the optional trim (`trim.enabled/attack/release/amount`) in `core/effects/tape-dynamics/tape-dynamics-core.h`; guarantee a bit-exact bypass when disabled (FR-011; contract E7).
-- [ ] T027 [US6] Extend `tests/core/tape-dynamics-effect-test.cpp`: trim-off path bit-exact the magnetics-only core; trim-on envelope-driven gain reduction follows the attack/release controls (US6).
+- [ ] T026 [US6] [tier:balanced] Compose `EnvelopeFollower` + `GainComputer` as the optional trim (`trim.enabled/attack/release/amount`) in `core/effects/tape-dynamics/tape-dynamics-core.h`; guarantee a bit-exact bypass when disabled (FR-011; contract E7).
+- [ ] T027 [US6] [tier:balanced] Extend `tests/core/tape-dynamics-effect-test.cpp`: trim-off path bit-exact the magnetics-only core; trim-on envelope-driven gain reduction follows the attack/release controls (US6).
 
 ---
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] T028 [P] Finalize `core/effects/tape-dynamics/tape-dynamics-presets.h` named starting points (e.g. gentle "glue" vs aggressive "saturate") (FR-013).
-- [ ] T029 [P] Add THD/alias reporting via `host/analysis/thdn.h` + `alias-sweep.h` to the harness output (FR-021).
-- [ ] T030 [P] Run `scripts/check-portability.sh` over the new paths and fix any layering/platform leak (FR-017, SC-006).
-- [ ] T031 [P] `quickstart.md` validation pass: `make test`, the harness, and the portability gate all green.
+- [ ] T028 [P] [tier:fast] Finalize `core/effects/tape-dynamics/tape-dynamics-presets.h` named starting points (e.g. gentle "glue" vs aggressive "saturate") (FR-013).
+- [ ] T029 [P] [tier:balanced] Add THD/alias reporting via `host/analysis/thdn.h` + `alias-sweep.h` to the harness output (FR-021).
+- [ ] T030 [P] [tier:balanced] Run `scripts/check-portability.sh` over the new paths and fix any layering/platform leak (FR-017, SC-006).
+- [ ] T031 [P] [tier:balanced] `quickstart.md` validation pass: `make test`, the harness, and the portability gate all green.
 
 ---
 
