@@ -83,8 +83,12 @@ public:
             maxLookaheadSamples < 0 ? 0
           : (maxLookaheadSamples > kMaxLookaheadSamples ? kMaxLookaheadSamples
                                                         : maxLookaheadSamples);
-        if (lookaheadSamples_ > maxLookaheadSamples_)
-            lookaheadSamples_ = maxLookaheadSamples_;
+        // Re-clamp the retained (unclamped) request into the now-known budget so
+        // a lookahead requested BEFORE prepare() takes effect here rather than
+        // being lost to the maxLookaheadSamples_ == 0 clamp at request time.
+        lookaheadSamples_ =
+            requestedLookaheadSamples_ > maxLookaheadSamples_ ? maxLookaheadSamples_
+                                                              : requestedLookaheadSamples_;
 
         // Detector: decibel domain so attack/release are level-independent.
         // init() clears state to the current domain's floor; setDomain(decibel)
@@ -153,8 +157,15 @@ public:
 
     // Guard the lookahead length to the fixed buffer budget (RT-safety: the
     // read is always in range). Clamped to [0, maxLookaheadSamples_].
+    //
+    // The UNCLAMPED request is retained separately (requestedLookaheadSamples_)
+    // so a lookahead set BEFORE prepare() is not silently lost: at that point
+    // maxLookaheadSamples_ is still 0, so the active length clamps to 0, but
+    // prepare() re-clamps the retained request into range once the budget is
+    // known (so setLookahead(N) then prepare(sr, max >= N) yields N).
     void setLookahead(int samples) noexcept {
         if (samples < 0) samples = 0;
+        requestedLookaheadSamples_ = samples;
         if (samples > maxLookaheadSamples_) samples = maxLookaheadSamples_;
         lookaheadSamples_ = samples;
     }
@@ -247,8 +258,16 @@ private:
     // dB -> linear amplitude. A per-sample transcendental for the gain multiply
     // is acceptable and confined here (the detector's dB conversion lives inside
     // EnvelopeFollower).
+    //
+    // F4: clamp the dB argument to a finite bound before pow() so a finite-but-
+    // extreme makeup/output/auto-makeup dB never produces Inf. 10^(300*0.05) =
+    // 10^15 is a huge-but-finite gain; anything larger would only widen toward
+    // Inf, so +300 dB is a safe ceiling. (No lower clamp needed: 10^(large
+    // negative) underflows harmlessly to 0.) RT-safe: a single branch + pow.
     static float dbToLin(float db) noexcept {
-        return std::pow(10.0f, db * 0.05f);
+        constexpr float kMaxDb = 300.0f;
+        const float clamped = db > kMaxDb ? kMaxDb : db;
+        return std::pow(10.0f, clamped * 0.05f);
     }
 
     // Route attack/release to the active smoother; hold the inactive smoother
@@ -322,7 +341,8 @@ private:
     float          attackSeconds_    = 0.010f;
     float          releaseSeconds_   = 0.100f;
     float          scHpfHz_          = 0.0f;   // 0 = bypass
-    int            lookaheadSamples_ = 0;      // 0 = bypass
+    int            lookaheadSamples_ = 0;      // 0 = bypass (clamped active length)
+    int            requestedLookaheadSamples_ = 0; // unclamped request (F2)
     float          makeupDb_         = 0.0f;
     bool           autoMakeup_       = false;
     float          mix_              = 1.0f;

@@ -26,17 +26,23 @@
 // specs/compressors/data-model.md, "Entity — GainComputer").
 //
 // The curve, per mode (u = levelDb - thresholdDb; W = knee width; R = ratio):
-//   All modes share ONE knee helper kneeGain(u, W, mLow, mHigh) blending a
-//   low-side slope mLow into a high-side slope mHigh — both lines passing
-//   through (threshold, 0) — over the window u in [-W/2, +W/2] with a C1
-//   quadratic (standard Reiss soft-knee), degenerating to a hard corner at
+//   compress / limit / expand share ONE knee helper kneeGain(u, W, mLow, mHigh)
+//   blending a low-side slope mLow into a high-side slope mHigh — both lines
+//   passing through (threshold, 0) — over the window u in [-W/2, +W/2] with a
+//   C1 quadratic (standard Reiss soft-knee), degenerating to a hard corner at
 //   W = 0. Only (mLow, mHigh) and an optional range floor differ per mode:
-//     compress : mLow = 0,          mHigh = 1/R - 1   (<= 0; unity below thr)
-//     limit    : mLow = 0,          mHigh = -1        (1/R -> 0; out held at thr)
-//     expand   : mLow = R - 1,      mHigh = 0         (downward below thr), gain >= rangeDb
-//     gate     : mLow = -2*range/W, mHigh = 0         (drop to rangeDb below thr), gain >= rangeDb
-//   (gate's mLow is chosen so the knee reaches the rangeDb floor exactly at
-//   the lower knee edge u = -W/2; at W = 0 it is the hard step 0/rangeDb.)
+//     compress : mLow = 0,     mHigh = 1/R - 1   (<= 0; unity below thr)
+//     limit    : mLow = 0,     mHigh = -1        (1/R -> 0; out held at thr)
+//     expand   : mLow = R - 1, mHigh = 0         (downward below thr), gain >= rangeDb
+//   gate is DIFFERENT: a gate interpolates between two LEVELS (0 dB above thr,
+//   the rangeDb floor below), not between two slopes. Its knee is therefore a
+//   C1 cubic SMOOTHSTEP over the window u in [-W/2, +W/2], NOT the quadratic
+//   slope-blend helper (see the gate branch for the exact math):
+//     gate     : gainDb = rangeDb*(1 - smoothstep(tau)), tau = (u + W/2)/W,
+//                smoothstep(tau) = 3*tau^2 - 2*tau^3 (0 at the lower edge,
+//                rangeDb; 1 at the upper edge, 0), with ZERO slope at both
+//                edges so it joins the flat unity/floor regions C1, and
+//                reduces EXACTLY to the hard step 0/rangeDb at W = 0.
 //
 // Constitution refs:
 //   IV   — platform-independent core: no JUCE / Daisy SDK / Teensy / effects /
@@ -107,11 +113,37 @@ public:
             return g < rangeDb_ ? rangeDb_ : g;
         }
         case GainMode::gate: {
-            // Extreme expand: drop toward the rangeDb floor below thr; unity above.
-            if (W <= 0.0f) return u < 0.0f ? rangeDb_ : 0.0f; // hard step
-            const float mLow = -2.0f * rangeDb_ / W;          // >= 0 (rangeDb <= 0)
-            const float g = kneeGain(u, W, mLow, 0.0f);
-            return g < rangeDb_ ? rangeDb_ : g;
+            // A gate interpolates between two LEVELS — unity (0 dB) above the
+            // threshold and the rangeDb floor below — via a C1 cubic smoothstep
+            // across the knee window u in [-W/2, +W/2]. This is NOT the quadratic
+            // slope-blend used by the other modes: those blend two SLOPES, which
+            // for a gate neither degenerates to the hard corner nor makes the
+            // near-threshold shape depend on knee width (FR-007/SC-003).
+            //
+            // Let tau = (u + W/2)/W map the window to [0, 1] and
+            //     s(tau) = 3*tau^2 - 2*tau^3          (cubic Hermite smoothstep).
+            // s(0) = 0, s(1) = 1, and s'(tau) = 6*tau*(1 - tau) so s'(0) = s'(1)
+            // = 0. With gainDb = rangeDb*(1 - s):
+            //   * upper edge u = +W/2 (tau = 1): s = 1 -> gainDb = 0, joining the
+            //     flat unity region above with zero slope (C1).
+            //   * lower edge u = -W/2 (tau = 0): s = 0 -> gainDb = rangeDb,
+            //     joining the flat floor below with zero slope (C1).
+            //   * threshold u = 0 (tau = 1/2): s = 1/2 -> gainDb = rangeDb/2.
+            // As W -> 0 the window collapses and the map is EXACTLY the hard step
+            // (0 above threshold, rangeDb below). gainDb is bounded to [rangeDb, 0]
+            // for every tau in [0, 1].
+            if (W <= 0.0f) return u < 0.0f ? rangeDb_ : 0.0f; // hard step (knee -> 0)
+            const float halfW = 0.5f * W;
+            if (u >= halfW) return 0.0f;      // flat unity region above the knee
+            if (u <= -halfW) return rangeDb_; // flat rangeDb floor below the knee
+            const float tau = (u + halfW) / W;              // in [0, 1]
+            const float s   = tau * tau * (3.0f - 2.0f * tau); // 3*tau^2 - 2*tau^3
+            const float g   = rangeDb_ * (1.0f - s);
+            // F3: guard the smoothstep term against an absurd-but-finite knee;
+            // a non-finite result falls back to the hard step. Branch-only.
+            if (!std::isfinite(g)) return u < 0.0f ? rangeDb_ : 0.0f;
+            if (g > 0.0f) return 0.0f;             // gate gain is always <= 0
+            return g < rangeDb_ ? rangeDb_ : g;    // and always >= rangeDb floor
         }
         }
         return 0.0f; // unreachable: all GainMode values handled above
@@ -129,7 +161,12 @@ private:
         if (u >= halfW) return mHigh * u;  // high linear segment (W==0: u >= 0)
         // Knee (W > 0 here): q(u) = mLow*u + (mHigh-mLow)*(u+W/2)^2 / (2W).
         const float t = u + halfW;
-        return mLow * u + (mHigh - mLow) * (t * t) / (2.0f * W);
+        const float g = mLow * u + (mHigh - mLow) * (t * t) / (2.0f * W);
+        // F3: an absurd-but-finite knee width can overflow the quadratic term to
+        // Inf/NaN; fall back to the hard corner (the linear segment through the
+        // threshold on the relevant side) so the map stays finite. Branch-only.
+        if (!std::isfinite(g)) return u < 0.0f ? mLow * u : mHigh * u;
+        return g;
     }
 
     // -----------------------------------------------------------------------

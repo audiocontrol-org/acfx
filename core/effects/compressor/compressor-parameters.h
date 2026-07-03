@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 
@@ -107,5 +108,21 @@ inline constexpr std::array<ParameterDescriptor, 17> kCompressorParams = {{
     {ParamId{16}, "output", ParamUnit::decibels, -24.0f, 24.0f, 0.0f, ParamSkew::linear,
      ParamKind::continuous, 0},
 }};
+
+// Build-time guard (F9): the table's ids must be DENSE and IN ORDER — row i must
+// carry ParamId{i}. CompressorEffect::Param is a dense index into this table and
+// CompressorEffect::setParameter() dispatches on id.value, so a future row
+// reorder that is not mirrored in the Param enum would silently mismap controls.
+// This constexpr loop (same style as CompressorEffect's isValidDescriptor guard)
+// makes that a compile error instead.
+static_assert(
+    [] {
+        for (std::size_t i = 0; i < kCompressorParams.size(); ++i)
+            if (static_cast<std::size_t>(kCompressorParams[i].id.value) != i)
+                return false;
+        return true;
+    }(),
+    "kCompressorParams ids must be dense and in-order (row i must have ParamId{i}) "
+    "so the ParamId dispatch in CompressorEffect stays aligned with the Param enum");
 
 } // namespace acfx

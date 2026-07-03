@@ -198,16 +198,18 @@ TEST_CASE("GainComputer - soft knee is C1 across the knee window, all modes (T01
         checkC1(gc, loFull, hiFull, /*slopeBound=*/1.5f);
     }
     SUBCASE("gate") {
-        // The gate knee is constructed to reach the range floor exactly at the
-        // lower knee edge (u = -W/2), so the floor clamp meets the knee there
-        // (a deliberate slope kink). Scan only [thr-W/2, thr+W/2], off the
-        // floor, where the underlying quadratic knee is C1.
+        // The gate knee is a cubic smoothstep between the rangeDb floor (lower
+        // edge) and unity (upper edge) with ZERO slope at BOTH edges (F1), so it
+        // is C1 across the FULL window — it joins the flat floor below
+        // (u <= -W/2) and the flat unity region above (u >= +W/2) with matched
+        // value AND slope. Scan the whole loFull..hiFull span, past both edges
+        // into the flat regions. Max slope |rangeDb|*1.5/W = 30*1.5/10 = 4.5.
         GainComputer gc;
         gc.setMode(GainMode::gate);
         gc.setThreshold(kThr);
         gc.setRange(-30.0f);
         gc.setKnee(kW);
-        checkC1(gc, kThr - kW * 0.5f, kThr + kW * 0.5f + kEps, /*slopeBound=*/7.0f);
+        checkC1(gc, loFull, hiFull, /*slopeBound=*/6.0f);
     }
 }
 
@@ -268,6 +270,82 @@ TEST_CASE("GainComputer - knee=0 reproduces the analytic hard corner, all modes 
             const float u        = o;
             const float expected = (u < 0.0f) ? range : 0.0f; // hard step
             CHECK(std::fabs(gc.computeGainDb(kThr + o) - expected) < kHardCornerTolDb);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gate knee (F1) — a gate interpolates between LEVELS (0 dB above threshold,
+// the rangeDb floor below) via a C1 cubic smoothstep, NOT the slope-blend knee
+// the other modes use. These pin the corrected behavior (FR-007; SC-003):
+//   (a) knee -> 0 approaches the hard-corner curve (0 above thr, rangeDb below);
+//   (b) the smoothstep is C1 across the FULL window INCLUDING both edges (value
+//       + slope continuity — it joins the flat unity/floor regions with zero
+//       slope);
+//   (c) the near-threshold shape depends on knee width (knee-invariance was the
+//       bug). Exactly at threshold the symmetric smoothstep pins gainDb =
+//       rangeDb/2 (tau = 1/2 for any W) — distinct from the old quadratic knee,
+//       which pinned rangeDb/4.
+// ---------------------------------------------------------------------------
+TEST_CASE("GainComputer - gate knee is a C1 smoothstep between levels (F1)") {
+    constexpr float kThr   = -20.0f;
+    constexpr float kRange = -30.0f;
+
+    SUBCASE("knee -> 0 approaches the hard-corner curve") {
+        GainComputer gc;
+        gc.setMode(GainMode::gate);
+        gc.setThreshold(kThr);
+        gc.setRange(kRange);
+        gc.setKnee(0.001f); // tiny but nonzero: exercises the smoothstep branch
+        // Offsets well outside the 0.0005 dB half-knee window fall in the flat
+        // regions, so the soft curve equals the hard corner exactly.
+        constexpr float offs[] = {-30.0f, -10.0f, -2.0f, -0.5f,
+                                  0.5f,   2.0f,   10.0f, 20.0f};
+        for (float o : offs) {
+            const float expected = (o < 0.0f) ? kRange : 0.0f;
+            CHECK(std::fabs(gc.computeGainDb(kThr + o) - expected) < kHardCornerTolDb);
+        }
+    }
+
+    SUBCASE("C1 across the full window including both edges") {
+        constexpr float kW   = 10.0f;
+        constexpr float kEps = 2.0f;
+        GainComputer gc;
+        gc.setMode(GainMode::gate);
+        gc.setThreshold(kThr);
+        gc.setRange(kRange);
+        gc.setKnee(kW);
+        // Scan past BOTH edges into the flat floor (below) and flat unity
+        // (above); zero edge slope means no finite-difference slope jump.
+        checkC1(gc, kThr - kW * 0.5f - kEps, kThr + kW * 0.5f + kEps,
+                /*slopeBound=*/6.0f);
+        // Explicit value continuity at each edge with the flat region it joins.
+        CHECK(gc.computeGainDb(kThr + kW * 0.5f) == doctest::Approx(0.0f));    // upper -> unity
+        CHECK(std::fabs(gc.computeGainDb(kThr - kW * 0.5f) - kRange) < 1e-3f); // lower -> floor
+    }
+
+    SUBCASE("at-threshold pins rangeDb/2; near-threshold shape varies with knee") {
+        auto gateAt = [&](float knee, float level) {
+            GainComputer gc;
+            gc.setMode(GainMode::gate);
+            gc.setThreshold(kThr);
+            gc.setRange(kRange);
+            gc.setKnee(knee);
+            return gc.computeGainDb(level);
+        };
+        // Exactly at threshold: rangeDb/2 for every knee width (symmetric knee).
+        for (float knee : {4.0f, 12.0f, 24.0f})
+            CHECK(std::fabs(gateAt(knee, kThr) - kRange * 0.5f) < 1e-3f);
+        // A fixed level INSIDE the knee (2 dB below threshold) yields a
+        // DIFFERENT gain for different knee widths: the gate transition shape
+        // now depends on knee width (FR-007/SC-003), no longer knee-invariant.
+        const float narrow = gateAt(4.0f, kThr - 2.0f);
+        const float wide   = gateAt(12.0f, kThr - 2.0f);
+        CHECK(std::fabs(narrow - wide) > 1.0f);
+        // Both stay in [rangeDb, 0].
+        for (float g : {narrow, wide}) {
+            CHECK(g <= kNonPositiveTolDb);
+            CHECK(g >= kRange - kNonPositiveTolDb);
         }
     }
 }
