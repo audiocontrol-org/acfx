@@ -6,10 +6,10 @@
 // Hysteresis — the graduated Jiles-Atherton primitive; first *stateful*
 // inhabitant of nonlinear/ (FR-001/016).
 //
-// Platform-independent (Constitution IV): standard library only, no
-// JUCE/libDaisy/Teensy headers. RT-safe (Constitution VI): all state
-// compile-time-sized, no heap/locks in process(); work is O(solver stages)
-// bounded.
+// Platform-independent (Constitution IV): standard library only, no vendor
+// MCU audio-framework or plugin-host framework headers. RT-safe
+// (Constitution VI): all state compile-time-sized, no heap/locks in
+// process(); work is O(solver stages) bounded.
 //
 // This header formalizes the T001 scaffolding stub into the exact contract
 // surface (types + class shell). It does NOT implement the physics: dMdH()
