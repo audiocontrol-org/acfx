@@ -194,4 +194,17 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   # forward to host/analysis/*.h (harmonic-analysis T007, analyze finding F1).
   target_link_libraries(acfx_lab_oversampling_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_oversampling_harness PRIVATE cxx_std_20)
+
+  # Tape-dynamics lab harness — same linkage as
+  # acfx_lab_saturation_harness. Minimal stub (task T005: Setup phase); real
+  # measurement evidence (task T020) will extend this with hysteresis/saturation
+  # measurements via the shared measurement infrastructure
+  # (tests/core/measurement-support.h). Header-only dependency, so only the
+  # include path is needed.
+  add_executable(acfx_lab_tape_dynamics_harness
+    core/labs/tape-dynamics/harness/tape-dynamics-harness.cpp
+  )
+  target_include_directories(acfx_lab_tape_dynamics_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+  target_link_libraries(acfx_lab_tape_dynamics_harness PRIVATE acfx_core acfx_analysis)
+  target_compile_features(acfx_lab_tape_dynamics_harness PRIVATE cxx_std_20)
 endif()
