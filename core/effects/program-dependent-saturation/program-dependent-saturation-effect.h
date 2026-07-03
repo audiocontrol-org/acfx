@@ -220,6 +220,13 @@ private:
     // ProgramDependentSaturationCore setter is pushed to every channel. Mirrors
     // SaturationEffect/CompressorEffect: one branch per Param.
     void applyPending() noexcept {
+        // Preset FIRST so a same-block individual edit (applied below) OVERRIDES it
+        // (US9 — a starting point, not a lock); writePreset() bakes the cached fields.
+        if (pendingDirty_[kDynamicPreset].exchange(0u, std::memory_order_acquire)) {
+            dynamicPreset_ =
+                toDynamicPreset(denormalize(kParams[kDynamicPreset], pendingValue(kDynamicPreset)));
+            applyDynamicPreset();
+        }
         if (pendingDirty_[kDrive].exchange(0u, std::memory_order_acquire)) {
             driveDb_ = denormalize(kParams[kDrive], pendingValue(kDrive));
             applyDrive();
@@ -299,11 +306,6 @@ private:
         if (pendingDirty_[kMixCurve].exchange(0u, std::memory_order_acquire)) {
             mixCurve_ = toModCurve(denormalize(kParams[kMixCurve], pendingValue(kMixCurve)));
             applyCurve(ModTarget::mix, mixCurve_);
-        }
-        if (pendingDirty_[kDynamicPreset].exchange(0u, std::memory_order_acquire)) {
-            dynamicPreset_ =
-                toDynamicPreset(denormalize(kParams[kDynamicPreset], pendingValue(kDynamicPreset)));
-            applyDynamicPreset();
         }
         if (pendingDirty_[kExternalSidechain].exchange(0u, std::memory_order_acquire)) {
             externalKey_ =
@@ -440,7 +442,9 @@ private:
         applyCurve(ModTarget::tone, toneCurve_);
         applyDepth(ModTarget::mix, mixDepth_);
         applyCurve(ModTarget::mix, mixCurve_);
-        applyDynamicPreset();
+        // No applyDynamicPreset() here: writePreset() already baked the preset into
+        // the cached fields at selection time, so re-pushing them faithfully carries
+        // preset+overrides on prepare/reset without reverting a manual override.
         applyExternalKey();
         applyScHpf();
         // stereoLink_ has no per-core setter (composed across channels in T036).
