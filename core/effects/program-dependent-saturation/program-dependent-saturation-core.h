@@ -4,7 +4,7 @@
 
 #include "effects/saturation/saturation-core.h"
 #include "effects/saturation/saturation-voicings.h"
-#include "labs/program-dependent-saturation/dynamics-modulator.h"
+#include "primitives/dynamics/dynamics-modulator.h"
 #include "primitives/dynamics/envelope-follower.h"
 #include "primitives/filters/svf-primitive.h"
 
@@ -31,11 +31,9 @@
 //                                  offset mappers (envelope -> offset), each
 //                                  with its own depth + curve, no cross-talk.
 //
-// DynamicsModulator is included from its PRE-GRADUATION lab path
-// (core/labs/program-dependent-saturation/dynamics-modulator.h) because T009
-// (the atomic graduation `git mv` to core/primitives/dynamics/) has not run
-// yet as of this task; T009/T010 will update this include to the graduated
-// primitive path.
+// DynamicsModulator is composed from its GRADUATED primitive path
+// (core/primitives/dynamics/dynamics-modulator.h — the dynamics/ category's
+// third inhabitant, graduated via `git mv` in T009).
 //
 // Platform-independent (Constitution IV): no host-framework or embedded-
 // vendor headers. RT-safe by construction (Constitution VI): every member is

@@ -66,16 +66,17 @@ Tests: `tests/core/lfo-test.cpp`.
 
 ### `dynamics/`
 
-Amplitude-envelope processors (peak/RMS detectors, gain computers, VCA envelopes for compressors, limiters, gates).
+Amplitude-envelope processors (peak/RMS detectors, gain computers, envelope-to-parameter modulation mappers for compressors, limiters, gates, and dynamic effects).
 
 | Primitive | Description |
 |---|---|
 | `dynamics/envelope-follower.h` | Level detector — peak/RMS/peak-hold modes, branching/decoupled ballistics (smooth-capable), linear/dB detection; RT-safe, allocation-free. First inhabitant of dynamics/. |
 | `dynamics/gain-computer.h` | Static gain-reduction curve — compress/limit/expand/gate modes, unified quadratic C1 knee straddling the threshold (hard corner at knee 0); stateless, RT-safe, branch-only arithmetic. Maps an externally supplied level (dB) to a gain change (dB); holds no runtime state and applies no ballistics. Second inhabitant of dynamics/. |
+| `dynamics/dynamics-modulator.h` | Envelope-to-signed-offset mapper — maps a normalized envelope [0,1] to a signed parameter offset shaped by a signed depth (direction + amount) and a selectable response curve (linear/logarithmic/exponential, each anchored at (0,0)/(1,1)); stateless, RT-safe, branch-only. The modulation analog of the gain computer (offset, not gain); composed by envelope-driven effects. Third inhabitant of dynamics/. |
 
-Consumers: `core/effects/compressor/` (composes it with EnvelopeFollower, SvfPrimitive, DelayLine).
-Labs: `core/labs/envelope-follower/`, `core/labs/compressor/` (each persists as README + host-only harness driving its graduated primitive).
-Tests: `tests/core/envelope-follower-*.cpp`, `tests/core/gain-computer-test.cpp` (added by later tasks).
+Consumers: `core/effects/compressor/` (composes envelope-follower + gain-computer), `core/effects/program-dependent-saturation/` (composes envelope-follower + dynamics-modulator over SaturationCore).
+Labs: `core/labs/envelope-follower/`, `core/labs/compressor/`, `core/labs/program-dependent-saturation/` (each persists as README + host-only harness driving its graduated primitive).
+Tests: `tests/core/envelope-follower-*.cpp`, `tests/core/gain-computer-test.cpp`, `tests/core/dynamics-modulator-test.cpp` (added by later tasks).
 
 ### `nonlinear/`
 
