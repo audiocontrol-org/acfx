@@ -247,10 +247,10 @@ bounded — Constitution VI).
 
 **Purpose**: RT-safety sentinel, numerical-safety sweep, and gate/doc closeout across all configs
 
-- [ ] T037 [P] [tier:balanced] Extend `tests/core/no-allocation-test.cpp` to cover `ProgramDependentSaturationEffect::process()` across all targets, curves, topologies, presets, and sidechain/link configs — assert zero heap allocation after `prepare()` (SC-013).
-- [ ] T038 [P] [tier:powerful] Numerical-safety sweep: assert no NaN/Inf for silence, DC, impulse, level step, feedback cold start, extreme depth, and low-sample-rate short-τ in any configuration, and that every modulated parameter stays within `SaturationCore`'s valid range (SC-014); add cases to the relevant suites.
-- [ ] T039 [P] [tier:fast] Complete the host-only `core/labs/program-dependent-saturation/harness/program-dependent-saturation-harness.cpp` to emit orthogonality + THD-vs-level + step-response measurement evidence driving the graduated primitive and the effect.
-- [ ] T040 [tier:balanced] Final gate + quickstart pass: run `make test` and `scripts/check-portability.sh`; confirm all suites green and the gate PASS over the three new paths; walk `quickstart.md` scenarios; confirm `core/primitives/README.md` lists the modulation mapper as inhabited.
+- [x] T037 [P] [tier:balanced] Extend `tests/core/no-allocation-test.cpp` to cover `ProgramDependentSaturationEffect::process()` across all targets, curves, topologies, presets, and sidechain/link configs — assert zero heap allocation after `prepare()` (SC-013).
+- [x] T038 [P] [tier:powerful] Numerical-safety sweep: assert no NaN/Inf for silence, DC, impulse, level step, feedback cold start, extreme depth, and low-sample-rate short-τ in any configuration, and that every modulated parameter stays within `SaturationCore`'s valid range (SC-014); add cases to the relevant suites.
+- [x] T039 [P] [tier:fast] Complete the host-only `core/labs/program-dependent-saturation/harness/program-dependent-saturation-harness.cpp` to emit orthogonality + THD-vs-level + step-response measurement evidence driving the graduated primitive and the effect.
+- [x] T040 [tier:balanced] Final gate + quickstart pass: run `make test` and `scripts/check-portability.sh`; confirm all suites green and the gate PASS over the three new paths; walk `quickstart.md` scenarios; confirm `core/primitives/README.md` lists the modulation mapper as inhabited.
 
 ---
 
