@@ -107,6 +107,7 @@ add_executable(acfx_core_tests
   core/compressor-lookahead-test.cpp
   core/compressor-makeup-link-test.cpp
   core/compressor-effect-test.cpp
+  core/compressor-no-allocation-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
