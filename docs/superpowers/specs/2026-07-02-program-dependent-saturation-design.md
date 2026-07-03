@@ -2,7 +2,7 @@
 title: Program-Dependent Saturation — Envelope-Modulated Nonlinearity + Dynamics-Modulator Primitive — Design Record
 date: 2026-07-02
 roadmap-item: design:feature/program-dependent-saturation
-status: proposed
+status: approved
 ---
 
 # Program-Dependent Saturation — Envelope-Modulated Nonlinearity
