@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **program-dependent-saturation**.
+Active Spec Kit feature: **tape-dynamics**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/program-dependent-saturation/plan.md` (spec: `specs/program-dependent-saturation/spec.md`).
+current plan at `specs/tape-dynamics/plan.md` (spec: `specs/tape-dynamics/spec.md`).
 <!-- SPECKIT END -->
