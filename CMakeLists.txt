@@ -152,6 +152,18 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   target_link_libraries(acfx_lab_envelope_follower_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_envelope_follower_harness PRIVATE cxx_std_20)
 
+  # Compressor lab harness — self-contained host-only stub (task T005: Setup
+  # phase). Mirrors the envelope-follower harness structure: a direct
+  # instantiation of acfx::GainComputer with representative parameter sets,
+  # printing static-curve evidence to stdout. Real measurement evidence (task
+  # T040) will extend this with ballistics measurements via externally-driven
+  # level inputs. No shared measurement infrastructure needed at this stage.
+  add_executable(acfx_lab_compressor_harness
+    core/labs/compressor/harness/compressor-harness.cpp
+  )
+  target_link_libraries(acfx_lab_compressor_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_compressor_harness PRIVATE cxx_std_20)
+
   # Oversampling lab harness — same linkage as acfx_lab_saturation_harness,
   # plus the tests/ include root: like the saturation harness, this harness
   # drives its aliasing-reduction evidence through the SHARED measurement

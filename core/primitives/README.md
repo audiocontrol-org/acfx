@@ -71,10 +71,11 @@ Amplitude-envelope processors (peak/RMS detectors, gain computers, VCA envelopes
 | Primitive | Description |
 |---|---|
 | `dynamics/envelope-follower.h` | Level detector — peak/RMS/peak-hold modes, branching/decoupled ballistics (smooth-capable), linear/dB detection; RT-safe, allocation-free. First inhabitant of dynamics/. |
+| `dynamics/gain-computer.h` | Static gain-reduction curve — compress/limit/expand/gate modes, unified quadratic C1 knee straddling the threshold (hard corner at knee 0); stateless, RT-safe, branch-only arithmetic. Maps an externally supplied level (dB) to a gain change (dB); holds no runtime state and applies no ballistics. Second inhabitant of dynamics/. |
 
-Consumers: none yet — the compressor/limiter/gate effects in phase-dynamic-systems will consume it.
-Lab: `core/labs/envelope-follower/`.
-Tests: `tests/core/envelope-follower-*.cpp` (added by later tasks).
+Consumers: `core/effects/compressor/` (composes it with EnvelopeFollower, SvfPrimitive, DelayLine).
+Labs: `core/labs/envelope-follower/`, `core/labs/compressor/` (each persists as README + host-only harness driving its graduated primitive).
+Tests: `tests/core/envelope-follower-*.cpp`, `tests/core/gain-computer-test.cpp` (added by later tasks).
 
 ### `nonlinear/`
 
