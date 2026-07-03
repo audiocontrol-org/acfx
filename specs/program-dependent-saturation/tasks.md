@@ -91,11 +91,11 @@ bounded — Constitution VI).
 **Independent test**: `tests/core/dynamics-modulator-test.cpp` — pure `modulate` sweeps vs the analytic `depth·curve` per curve; statelessness (call-order independence); portability gate over the new paths.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T014 [US2] [P] [tier:balanced] `tests/core/dynamics-modulator-test.cpp` — sweep `modulate(envNorm)` across [0,1] for each `ModCurve`; assert it matches the analytic `depth·curve(envNorm)`, passes through (0,0)/(1,1), is monotone and finite at endpoints, `depth==0 ⇒ 0`, sign follows `sign(depth)`, and is call-order independent (stateless) (SC-004, SC-007).
+- [x] T014 [US2] [P] [tier:balanced] `tests/core/dynamics-modulator-test.cpp` — sweep `modulate(envNorm)` across [0,1] for each `ModCurve`; assert it matches the analytic `depth·curve(envNorm)`, passes through (0,0)/(1,1), is monotone and finite at endpoints, `depth==0 ⇒ 0`, sign follows `sign(depth)`, and is call-order independent (stateless) (SC-004, SC-007).
 
 ### Implementation
-- [ ] T015 [US2] [P] [tier:balanced] Complete `core/labs/program-dependent-saturation/README.md` teaching content and add the graduated-primitive walkthrough; verify `core/primitives/README.md` documents the modulation mapper as inhabited and the harness/tests reference the graduated path (FR-023, SC-015).
-- [ ] T016 [US2] [tier:balanced] Run `scripts/check-portability.sh`; confirm PASS over `core/primitives/dynamics/dynamics-modulator.h`, `core/labs/program-dependent-saturation/**`, and `core/effects/program-dependent-saturation/**` (harness isolation, dependency direction, platform independence, file size) (SC-015).
+- [x] T015 [US2] [P] [tier:balanced] Complete `core/labs/program-dependent-saturation/README.md` teaching content and add the graduated-primitive walkthrough; verify `core/primitives/README.md` documents the modulation mapper as inhabited and the harness/tests reference the graduated path (FR-023, SC-015).
+- [x] T016 [US2] [tier:balanced] Run `scripts/check-portability.sh`; confirm PASS over `core/primitives/dynamics/dynamics-modulator.h`, `core/labs/program-dependent-saturation/**`, and `core/effects/program-dependent-saturation/**` (harness isolation, dependency direction, platform independence, file size) (SC-015).
 
 **Checkpoint**: the modulation mapper works standalone, is gate-clean, and is taught.
 
@@ -108,10 +108,10 @@ bounded — Constitution VI).
 **Independent test**: `tests/core/program-dependent-saturation-orthogonality-test.cpp` — a stimulus battery through both effects at matching static params; outputs identical within a tight tolerance.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T017 [US3] [tier:powerful] `tests/core/program-dependent-saturation-orthogonality-test.cpp` — with all depths 0 and matching static params (drive/voicing/tone/mix/output/bias/quality), run tones, sweeps, noise, and transients through both `ProgramDependentSaturationEffect` and the shipped `SaturationEffect`; assert outputs match within a tight tolerance (byte-for-byte where the paths coincide); assert a single non-zero depth modulates only that target (SC-002).
+- [x] T017 [US3] [tier:powerful] `tests/core/program-dependent-saturation-orthogonality-test.cpp` — with all depths 0 and matching static params (drive/voicing/tone/mix/output/bias/quality), run tones, sweeps, noise, and transients through both `ProgramDependentSaturationEffect` and the shipped `SaturationEffect`; assert outputs match within a tight tolerance (byte-for-byte where the paths coincide); assert a single non-zero depth modulates only that target (SC-002).
 
 ### Implementation
-- [ ] T018 [US3] [tier:powerful] Guarantee the orthogonality identity in `ProgramDependentSaturationCore`: when a target depth is 0 the modulated setter pushes the exact static base (same denormalization as `SaturationEffect`) and the per-block tone setter is skipped (no redundant SVF recompute), so T017 passes (FR-007).
+- [x] T018 [US3] [tier:powerful] Guarantee the orthogonality identity in `ProgramDependentSaturationCore`: when a target depth is 0 the modulated setter pushes the exact static base (same denormalization as `SaturationEffect`) and the per-block tone setter is skipped (no redundant SVF recompute), so T017 passes (FR-007).
 
 **Checkpoint**: the static saturator is preserved exactly; the dynamic layer is provably orthogonal.
 
@@ -178,10 +178,10 @@ bounded — Constitution VI).
 **Goal**: the host-facing wrapper satisfies the `Effect` concept with a lock-free parameter handoff.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T027 [US8] [tier:balanced] `tests/core/program-dependent-saturation-effect-test.cpp` — assert `ProgramDependentSaturationEffect` satisfies the `Effect` concept (`prepare`/`process`/`reset`/`parameters`/`setParameter`); a `setParameter` from a non-audio thread applies on the next `process()` with no lock/torn read; a malformed descriptor fails the build via `static_assert` (SC-012).
+- [x] T027 [US8] [tier:balanced] `tests/core/program-dependent-saturation-effect-test.cpp` — assert `ProgramDependentSaturationEffect` satisfies the `Effect` concept (`prepare`/`process`/`reset`/`parameters`/`setParameter`); a `setParameter` from a non-audio thread applies on the next `process()` with no lock/torn read; a malformed descriptor fails the build via `static_assert` (SC-012).
 
 ### Implementation
-- [ ] T028 [US8] [tier:balanced] Complete the `ProgramDependentSaturationEffect` parameter denormalization + per-parameter apply (static passthrough → `SaturationCore`; detector/topology → core; matrix depth/curve → the four `DynamicsModulator`s; sidechain/link → core) with the lock-free atomic handoff consumed at the top of `process()` so T027 passes (FR-015..018).
+- [x] T028 [US8] [tier:balanced] Complete the `ProgramDependentSaturationEffect` parameter denormalization + per-parameter apply (static passthrough → `SaturationCore`; detector/topology → core; matrix depth/curve → the four `DynamicsModulator`s; sidechain/link → core) with the lock-free atomic handoff consumed at the top of `process()` so T027 passes (FR-015..018).
 
 **Checkpoint**: the effect is host-drivable and thread-safe.
 
