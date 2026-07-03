@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **compressors**.
+Active Spec Kit feature: **program-dependent-saturation**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/compressors/plan.md` (spec: `specs/compressors/spec.md`).
+current plan at `specs/program-dependent-saturation/plan.md` (spec: `specs/program-dependent-saturation/spec.md`).
 <!-- SPECKIT END -->
