@@ -20,12 +20,11 @@
 // number of 1 kHz periods (48 samples) so the captured tail is phase-clean.
 //
 // ROBUSTNESS POLICY (svf-reference named-tolerance pattern, spec Assumptions):
-// every assertion is a TREND, ORDERING, or RATIO with a named tolerance --
-// never a brittle absolute magic number. The softClip law's exact THD values
-// are not predicted; only the mechanism-guaranteed relationships are asserted
-// (drive->THD is monotonic, per saturation-harmonics-test.cpp, so more drive at
-// a given input level is more THD; a bigger input level is more THD; the two
-// compound under a positive drive depth).
+// every assertion is a TREND, ORDERING, or RATIO with a named tolerance -- never
+// a brittle absolute magic number. The softClip law's exact THD values are not
+// predicted; only the mechanism-guaranteed relationships are asserted (drive->THD
+// is monotonic, per saturation-harmonics-test.cpp; a bigger input level is more
+// THD too; the two compound under a positive drive depth).
 
 #include <doctest/doctest.h>
 
@@ -84,11 +83,10 @@ constexpr double kMinNegThdDrop = 0.003;
 
 // Step-response: the one-pole envelope crosses 1 - 1/e of a step in tau.
 constexpr double kAttackCrossFrac = 0.63212055882855767;
-// Attack-time tolerance (fraction of tau). Looser than the bare
-// EnvelopeFollower ballistics suite's +-10% because the reading here is the
-// normalized-window envelope (a linear remap of the dB envelope) taken through
-// the whole composition, but still far tighter than the peak-vs-rms ordering
-// margin so the ~63%-at-tau claim stays meaningful.
+// Attack-time tolerance (fraction of tau). Looser than the bare EnvelopeFollower
+// ballistics suite's +-10% (the reading here is the normalized-window envelope
+// taken through the whole composition), but still far tighter than the
+// peak-vs-rms ordering margin so the ~63%-at-tau claim stays meaningful.
 constexpr double kAttackTolFrac = 0.30;
 
 // ---------------------------------------------------------------------------

@@ -216,7 +216,26 @@ public:
     // the same result. drive/bias/mix are therefore pushed unconditionally (the
     // cleaner branchless path); only tone is skipped when its depth is 0 (see
     // newBlock — tone is the one whose setter recomputes SVF coefficients).
-    float process(float x, float key) noexcept {
+    //
+    // The chain is SPLIT into two composable steps (T036) so the effect's linked
+    // stereo mode can drive a SHARED normalized envelope across all channels:
+    //   detectNorm(x, key)     — the detection half (source-select → SC-HPF →
+    //                            topology fork → detect → normalize) returning the
+    //                            0..1 window envelope; the ONLY step that advances
+    //                            detector_/scFilter_ state and reads prevOutput_.
+    //   processWithNorm(x,norm)— the modulation half (per-target base+offset push
+    //                            → saturation_.process → feedback-tap store).
+    // process(x, key) composes them so perChannel + every existing direct-core
+    // test (orthogonality, topology, THD, matrix) stays byte-for-byte identical.
+    //
+    // SIGNATURE NOTE (deviation from the T036 sketch's `detectNorm(float key)`):
+    // detectNorm keeps BOTH x and key because the feedforward source is
+    // `externalKey_ ? key : x` (data-model.md "Per-sample chain"). Dropping x
+    // would break the direct-core topology test, which calls `process(x, 0.0f)`
+    // with externalKey off and expects feedforward to detect on x — not the
+    // sentinel 0.0f key. The effect's linked path sidesteps this by passing the
+    // already-resolved cross-channel-max source as BOTH args (see the effect).
+    float detectNorm(float x, float key) noexcept {
         float src = externalKey_ ? key : x;
         if (scHpfActive_)
             src = scFilter_.process(src);
@@ -228,6 +247,17 @@ public:
         float norm = (denom > 0.0f) ? (envDb - refLo_) / denom : 0.0f;
         norm = clampf(norm, 0.0f, 1.0f);
         lastNorm_ = norm; // control-rate carry for the effect's per-block newBlock()
+        return norm;
+    }
+
+    // Apply the modulation half for a pre-computed normalized envelope `norm`.
+    // perChannel passes each channel's OWN detectNorm result; linked passes ONE
+    // shared norm to every channel (image-stable common modulation). ZERO-DEPTH
+    // ORTHOGONALITY holds for ANY norm: with every depth 0 the modulate() terms
+    // are exactly 0, so drive'/bias'/mix' collapse to the static bases regardless
+    // of the norm the linked path feeds in.
+    float processWithNorm(float x, float norm) noexcept {
+        lastNorm_ = norm; // carry the applied norm on EVERY channel (linked too)
 
         const float driveDb = clampf(staticDriveDb_ + driveMod_.modulate(norm) * kDriveSpanDb,
                                      kDriveMinDb, kDriveMaxDb);
@@ -241,6 +271,8 @@ public:
         prevOutput_ = y; // feedback tap = the FINAL output (Decision 3)
         return y;
     }
+
+    float process(float x, float key) noexcept { return processWithNorm(x, detectNorm(x, key)); }
 
 private:
     // dB → linear gain. MIRRORS SaturationEffect::dbToGain EXACTLY (saturation-

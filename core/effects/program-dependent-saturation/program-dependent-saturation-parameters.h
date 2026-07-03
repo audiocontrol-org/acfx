@@ -1,30 +1,40 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string_view>
 
 #include "dsp/param-id.h"
 #include "dsp/parameter.h"
+#include "effects/program-dependent-saturation/program-dependent-saturation-core.h"
 
 // ProgramDependentSaturationEffect parameter data — the single source of
 // parameter truth (data-model.md "Parameter table"), split out of
 // program-dependent-saturation-effect.h to keep that wrapper within the
 // ~300-500 line budget (FR-025/FR-028), mirroring compressor-parameters.h.
-// This header owns exactly two things: the discrete-option label arrays and
-// the constexpr ParameterDescriptor table. The effect keeps its own `Param`
-// enum (the dense index names used throughout the wrapper) and exposes this
-// table via a `kParams` alias; the row order here matches that enum exactly
-// (drive=0 .. stereoLink=23), so the leading ParamId index on each row is that
-// same dense id.
+// This header owns three things: the discrete-option label arrays, the
+// constexpr ParameterDescriptor table, and the STATELESS scalar/enum-converter
+// helpers the effect's applyPending()/setParameter() call (moved here to keep
+// the wrapper within budget — none of them touch per-channel core state). The
+// effect keeps its own `Param` enum (the dense index names used throughout the
+// wrapper) and exposes this table via a `kParams` alias; the row order here
+// matches that enum exactly (drive=0 .. stereoLink=23), so the leading ParamId
+// index on each row is that same dense id.
 //
 // SCOPE NOTE: the DynamicPreset and StereoLink enums are deliberately NOT
 // declared here — they stay NESTED in ProgramDependentSaturationEffect so a
 // translation unit that also includes compressor-effect.h never sees two
 // competing `acfx::StereoLink` definitions (an enum redefinition is a hard
 // compile error). Only the LABEL arrays live here; the effect maps a bucket
-// index to its nested enum itself.
+// index to its nested enum itself. For the SAME reason, toDynamicPreset()/
+// toStereoLink() (which return those nested enums) stay member functions of
+// the effect — every OTHER index->enum converter below returns a type owned by
+// an included primitive/core header (SaturationVoicing, SaturationQuality,
+// DetectMode, Ballistics, Detection, ModCurve), so it is free to live here as
+// a plain acfx free function.
 //
 // PARAMETER RANGES ARE A TUNING-PASS OPEN QUESTION. The descriptor shapes
 // (kinds/units/skews/labels) are normative (data-model.md, contracts/
@@ -159,5 +169,69 @@ static_assert(
     }(),
     "kPdsParams ids must be dense and in-order (row i must have ParamId{i}) so the "
     "ParamId dispatch in ProgramDependentSaturationEffect stays aligned with the Param enum");
+
+// ---------------------------------------------------------------------------
+// Stateless helpers for ProgramDependentSaturationEffect (moved out of
+// program-dependent-saturation-effect.h per FR-025/FR-028 — none of these
+// touch per-channel core state, so they are free functions rather than
+// members). See the SCOPE NOTE above for why toDynamicPreset/toStereoLink stay
+// on the effect instead of joining this list.
+// ---------------------------------------------------------------------------
+
+// float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy is a
+// register move) so the effect's cross-thread pending-parameter atomics are
+// provably lock-free.
+inline std::uint32_t floatBits(float f) noexcept {
+    std::uint32_t u = 0;
+    std::memcpy(&u, &f, sizeof(u));
+    return u;
+}
+inline float bitsFloat(std::uint32_t u) noexcept {
+    float f = 0.0f;
+    std::memcpy(&f, &u, sizeof(f));
+    return f;
+}
+
+// dB -> linear gain. MIRRORS SaturationEffect::dbToGain EXACTLY so the
+// modulated-drive orthogonality identity is byte-for-byte (setOutput takes a
+// linear gain; drive is passed to the core in dB — the core converts).
+inline float dbToGain(float db) noexcept { return std::pow(10.0f, db / 20.0f); }
+
+// Discrete bucket index -> enum (label-array order).
+inline SaturationVoicing toVoicing(float index) noexcept {
+    switch (static_cast<int>(index)) {
+    case 1: return SaturationVoicing::tape;
+    case 2: return SaturationVoicing::console;
+    case 3: return SaturationVoicing::tubePreamp;
+    default: return SaturationVoicing::softClip;
+    }
+}
+inline SaturationQuality toQuality(float index) noexcept {
+    switch (static_cast<int>(index)) {
+    case 2: return SaturationQuality::oversampled;
+    case 1: return SaturationQuality::adaa;
+    default: return SaturationQuality::naive;
+    }
+}
+inline DetectMode toDetectMode(float index) noexcept {
+    switch (static_cast<int>(index)) {
+    case 2: return DetectMode::peakHold;
+    case 1: return DetectMode::rms;
+    default: return DetectMode::peak;
+    }
+}
+inline Ballistics toBallistics(float index) noexcept {
+    return static_cast<int>(index) == 1 ? Ballistics::decoupled : Ballistics::branching;
+}
+inline Detection toDetection(float index) noexcept {
+    return static_cast<int>(index) == 1 ? Detection::feedBack : Detection::feedForward;
+}
+inline ModCurve toModCurve(float index) noexcept {
+    switch (static_cast<int>(index)) {
+    case 2: return ModCurve::exponential;
+    case 1: return ModCurve::logarithmic;
+    default: return ModCurve::linear;
+    }
+}
 
 } // namespace acfx

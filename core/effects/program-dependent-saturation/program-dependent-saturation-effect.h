@@ -2,10 +2,8 @@
 
 #include <array>
 #include <atomic>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 
 #include "dsp/audio-block.h"
 #include "dsp/effect.h"
@@ -15,6 +13,8 @@
 #include "dsp/span.h"
 #include "effects/program-dependent-saturation/program-dependent-saturation-core.h"
 #include "effects/program-dependent-saturation/program-dependent-saturation-parameters.h"
+#include "effects/program-dependent-saturation/program-dependent-saturation-presets.h"
+#include "effects/program-dependent-saturation/program-dependent-saturation-routing.h"
 
 // ProgramDependentSaturationEffect — the host-facing wrapper adding the Effect
 // contract on top of the ProgramDependentSaturationCore composition kernel.
@@ -28,15 +28,22 @@
 //
 // TONE PER-BLOCK (Decision 4): tone is modulated once per block via
 // core.newBlock(), fed the core's OWN most-recent normalized envelope from the
-// previous block (core.lastNorm()). That is a deliberate one-block (control-
-// rate) lag — the tilt for block N is driven by block N-1's final level —
-// inaudible for a slow spectral tilt, and it keeps the effect allocation-free
-// and stateless about detection. First block: lastNorm() is 0 (silence).
+// previous block (core.lastNorm()) — a deliberate one-block (control-rate) lag
+// (block N's tilt is driven by block N-1's final level), inaudible for a slow
+// spectral tilt. First block: lastNorm() is 0 (silence).
 //
-// DEFERRED: T030 fills the real DynamicPreset matrix (here `none` is a no-op,
-// the others are hooked-but-unfilled at applyDynamicPreset()); T034 plumbs the
-// external-key second block through process() (here key = main sample);
-// T036 applies StereoLink linking (here the value is stored only).
+// EXTERNAL KEY (FR-012, T034) + STEREO LINKING (FR-013, T036): process(io) is
+// keyless; process(io, sidechain) routes the matching sidechain channel as the
+// key (gated by the externalSidechain flag). perChannel detects+modulates each
+// channel independently; linked shares ONE detection driving a common modulation
+// across channels (image-stable). Both live in the routing free functions in
+// program-dependent-saturation-routing.h (FR-025 split); processBlock() forwards.
+//
+// DYNAMIC PRESETS (FR-014, T030): applyDynamicPreset() writes the documented
+// modulation matrix (program-dependent-saturation-presets.h) to every core;
+// `none` is the neutral baseline no-op (equal to the constructor defaults, so it
+// never clobbers a hand-dialed matrix). presetConfig() exposes the same table so
+// a test can assert the realized matrix equals the documentation.
 //
 // Thread-ownership (identical to SaturationEffect/CompressorEffect):
 // setParameter() is callable from ANY thread (publishes a lock-free atomic
@@ -44,23 +51,26 @@
 // prepare()/reset() mutate core state directly and must be called only while
 // the audio stream is stopped — the adapter's responsibility (FR-018).
 //
-// The descriptor table, option-label arrays, and the dense-id static_assert
-// live in program-dependent-saturation-parameters.h (split out per FR-025 to
-// keep this wrapper within budget). This file keeps the `Param` index enum, the
-// two effect-local enums (DynamicPreset/StereoLink), and the `kParams` alias.
+// SPLIT ACROSS FILES (FR-025, budget): the descriptor table, option-label
+// arrays, dense-id static_assert, and the stateless scalar/enum-converter
+// helpers (floatBits/bitsFloat/dbToGain/toVoicing/toQuality/toDetectMode/
+// toBallistics/toDetection/toModCurve) live in program-dependent-saturation-
+// parameters.h. This file keeps the `Param` enum, the two effect-local enums
+// (DynamicPreset/StereoLink) and their converters, `kParams`, and every method
+// touching per-channel core state.
 
 namespace acfx {
 
 class ProgramDependentSaturationEffect {
 public:
     // DynamicPreset (data-model.md "DynamicPreset") — an apply-once convenience
-    // that writes the modulation matrix; `none` is the neutral / orthogonality-
-    // baseline preset (all target depths 0). Real matrix applied in T030.
+    // that writes the modulation matrix (applyDynamicPreset); `none` is the
+    // neutral / orthogonality-baseline preset (all target depths 0).
     enum class DynamicPreset : std::uint8_t { none, opto, variMu, tapeComp };
 
     // StereoLink (data-model.md "StereoLink") — perChannel: independent
-    // detection/modulation per channel; linked: one detector value (max across
-    // channels) drives common modulation. Applied in T036.
+    // detection/modulation per channel; linked: one shared detection (max across
+    // channels) drives common modulation (see the routing header).
     enum class StereoLink : std::uint8_t { perChannel, linked };
 
     // Stable parameter ids — the dense index into kParams, in data-model.md's
@@ -118,6 +128,15 @@ public:
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
+    // The documented modulation-matrix configuration a DynamicPreset writes
+    // (program-dependent-saturation-presets.h). Exposed so a test (T029) can
+    // assert the realized matrix equals the documented preset definition (SC-008)
+    // and so the preset table is a single source of truth shared with
+    // writePreset(). Row order == the DynamicPreset enum, so the cast indexes it.
+    static constexpr const PdsPresetConfig& presetConfig(DynamicPreset preset) noexcept {
+        return kPdsPresetConfigs[static_cast<std::size_t>(preset)];
+    }
+
     // Audio stream must be stopped — see the thread-ownership note above.
     void prepare(const ProcessContext& ctx) noexcept {
         sampleRate_ = static_cast<float>(ctx.sampleRate);
@@ -134,19 +153,20 @@ public:
         applyAll();
     }
 
+    // In-place, keyless Effect-concept process() (each channel's main input
+    // doubles as the key); StereoLink is honored (FR-013); see processBlock().
     void process(AudioBlock& io) noexcept {
         applyPending(); // consume cross-thread parameter edits on the audio thread
-        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
-        const int samples = io.numSamples();
-        for (int ch = 0; ch < channels; ++ch) {
-            float* x = io.channel(ch);
-            ProgramDependentSaturationCore& core = cores_[static_cast<std::size_t>(ch)];
-            // Per-block tone tilt (Decision 4): drive newBlock() with the core's
-            // own last normalized envelope (one-block control-rate lag).
-            core.newBlock(core.lastNorm());
-            for (int n = 0; n < samples; ++n)
-                x[n] = core.process(x[n], x[n]); // external-key routing is T034 (key = main sample)
-        }
+        processBlock(io, nullptr);
+    }
+
+    // In-place with an EXTERNAL sidechain key (FR-012): when externalSidechain is
+    // ON the detector reads the matching sidechain channel, while the saturation
+    // still applies to `io`. Both overloads consume pending params at the top and
+    // are allocation-free / lock-free. Mapping + linking rules: keyAt()/processBlock().
+    void process(AudioBlock& io, const AudioBlock& sidechain) noexcept {
+        applyPending();
+        processBlock(io, &sidechain);
     }
 
     // Publish a normalized 0..1 value for a parameter. Callable from any thread;
@@ -164,60 +184,21 @@ private:
     static constexpr int kMaxChannels = 8;
     static constexpr std::size_t kNumParams = 24; // dense ids 0..23 (data-model.md)
 
-    // float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy is
-    // a register move) so the cross-thread atomics are provably lock-free.
-    static std::uint32_t floatBits(float f) noexcept {
-        std::uint32_t u = 0;
-        std::memcpy(&u, &f, sizeof(u));
-        return u;
-    }
-    static float bitsFloat(std::uint32_t u) noexcept {
-        float f = 0.0f;
-        std::memcpy(&f, &u, sizeof(f));
-        return f;
+    // Shared per-block routing for both process() overloads — external-key
+    // mapping (T034) + StereoLink perChannel/linked dispatch (T036). The routing
+    // logic (keyAt + the linked/perChannel passes) is a free function over the
+    // core array in program-dependent-saturation-routing.h (FR-025 split); this
+    // just forwards the effect's channel count + sidechain/link flags.
+    void processBlock(AudioBlock& io, const AudioBlock* sc) noexcept {
+        pds::processBlock(cores_, numChannels_, externalKey_,
+                          stereoLink_ == StereoLink::linked, io, sc);
     }
 
-    // dB -> linear gain. MIRRORS SaturationEffect::dbToGain EXACTLY so the
-    // modulated-drive orthogonality identity is byte-for-byte (setOutput takes a
-    // linear gain; drive is passed to the core in dB — the core converts).
-    static float dbToGain(float db) noexcept { return std::pow(10.0f, db / 20.0f); }
-
-    // Discrete bucket index -> enum (label-array order).
-    static SaturationVoicing toVoicing(float index) noexcept {
-        switch (static_cast<int>(index)) {
-        case 1: return SaturationVoicing::tape;
-        case 2: return SaturationVoicing::console;
-        case 3: return SaturationVoicing::tubePreamp;
-        default: return SaturationVoicing::softClip;
-        }
-    }
-    static SaturationQuality toQuality(float index) noexcept {
-        switch (static_cast<int>(index)) {
-        case 2: return SaturationQuality::oversampled;
-        case 1: return SaturationQuality::adaa;
-        default: return SaturationQuality::naive;
-        }
-    }
-    static DetectMode toDetectMode(float index) noexcept {
-        switch (static_cast<int>(index)) {
-        case 2: return DetectMode::peakHold;
-        case 1: return DetectMode::rms;
-        default: return DetectMode::peak;
-        }
-    }
-    static Ballistics toBallistics(float index) noexcept {
-        return static_cast<int>(index) == 1 ? Ballistics::decoupled : Ballistics::branching;
-    }
-    static Detection toDetection(float index) noexcept {
-        return static_cast<int>(index) == 1 ? Detection::feedBack : Detection::feedForward;
-    }
-    static ModCurve toModCurve(float index) noexcept {
-        switch (static_cast<int>(index)) {
-        case 2: return ModCurve::exponential;
-        case 1: return ModCurve::logarithmic;
-        default: return ModCurve::linear;
-        }
-    }
+    // floatBits/bitsFloat/dbToGain and the other index->enum converters live in
+    // program-dependent-saturation-parameters.h as free acfx functions (moved
+    // out per FR-025/FR-028); unqualified calls below resolve to those via
+    // namespace-scope lookup. toDynamicPreset/toStereoLink stay here because
+    // they return enums NESTED in this class (see that header's SCOPE NOTE).
     static DynamicPreset toDynamicPreset(float index) noexcept {
         switch (static_cast<int>(index)) {
         case 1: return DynamicPreset::opto;
@@ -396,18 +377,38 @@ private:
         for (int ch = 0; ch < numChannels_; ++ch)
             cores_[static_cast<std::size_t>(ch)].setCurve(target, curve);
     }
-    // DynamicPreset apply HOOK. `none` is a no-op (the orthogonality baseline —
-    // it must NOT overwrite manually-set depths); opto/variMu/tapeComp are T030
-    // (each writes the four target depth+curve pairs to every core). Unfilled
-    // here by design.
+    // DynamicPreset apply (T030 / FR-014). `none` is a no-op (byte-identical to
+    // the constructor defaults, so it never clobbers a hand-dialed matrix);
+    // opto/variMu/tapeComp write their documented matrix (program-dependent-
+    // saturation-presets.h) to every core — a starting point, not a lock.
     void applyDynamicPreset() noexcept {
-        switch (dynamicPreset_) {
-        case DynamicPreset::none:
-        case DynamicPreset::opto:
-        case DynamicPreset::variMu:
-        case DynamicPreset::tapeComp:
-            break; // T030: write the preset's modulation matrix (none == baseline no-op)
-        }
+        if (dynamicPreset_ == DynamicPreset::none)
+            return; // neutral baseline — see the header note
+        writePreset(kPdsPresetConfigs[static_cast<std::size_t>(dynamicPreset_)]);
+    }
+
+    // Write a preset's documented modulation matrix into cached member state AND
+    // push it to every channel core via the individual apply* helpers (audio
+    // thread only). attack/release convert ms->s here, matching applyPending().
+    void writePreset(const PdsPresetConfig& cfg) noexcept {
+        driveDepth_ = cfg.drive.depth; driveCurve_ = cfg.drive.curve;
+        biasDepth_  = cfg.bias.depth;  biasCurve_  = cfg.bias.curve;
+        toneDepth_  = cfg.tone.depth;  toneCurve_  = cfg.tone.curve;
+        mixDepth_   = cfg.mix.depth;   mixCurve_   = cfg.mix.curve;
+        detection_  = cfg.detection;
+        detectMode_ = cfg.detector;
+        ballistics_ = cfg.ballistics;
+        attackSeconds_  = cfg.attackMs * kMsToSec;
+        releaseSeconds_ = cfg.releaseMs * kMsToSec;
+        applyDepth(ModTarget::drive, driveDepth_); applyCurve(ModTarget::drive, driveCurve_);
+        applyDepth(ModTarget::bias, biasDepth_);   applyCurve(ModTarget::bias, biasCurve_);
+        applyDepth(ModTarget::tone, toneDepth_);   applyCurve(ModTarget::tone, toneCurve_);
+        applyDepth(ModTarget::mix, mixDepth_);     applyCurve(ModTarget::mix, mixCurve_);
+        applyDetection();
+        applyDetector();
+        applyBallistics();
+        applyAttack();
+        applyRelease();
     }
     void applyExternalKey() noexcept {
         for (int ch = 0; ch < numChannels_; ++ch)
@@ -453,8 +454,7 @@ private:
 
     // Applied parameter state — mutated only in prepare/reset/applyPending (the
     // first two require a stopped stream; the third runs on the audio thread).
-    // Defaults are the denormalized kParams defaults and match the core's own
-    // defaults (all modulation depths 0 => the static saturator).
+    // Defaults match the core's own defaults (all modulation depths 0).
     float driveDb_ = kParams[kDrive].defaultValue; // dB (the core converts to gain)
     SaturationVoicing voicing_ = SaturationVoicing::softClip;
     float tone_ = kParams[kTone].defaultValue;
@@ -481,8 +481,7 @@ private:
     StereoLink stereoLink_ = StereoLink::perChannel;
 
     // Cross-thread pending edits: any thread publishes, the audio thread
-    // consumes. Stored as the float's bit pattern in a uint32 so the atomic is
-    // provably lock-free (a bare std::atomic<float> can degrade to a libcall).
+    // consumes (bit-pattern storage keeps the atomic provably lock-free).
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
     static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
