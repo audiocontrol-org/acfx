@@ -136,6 +136,10 @@ add_executable(acfx_core_tests
   # story tasks fill assertions.
   # ---------------------------------------------------------------------------
   core/hysteresis-test.cpp
+  # T006-T009 solver/guard suites, split out of hysteresis-test.cpp to stay
+  # under the Constitution VII per-file line budget (shares
+  # hysteresis-test-support.h's friend accessor + helpers).
+  core/hysteresis-solver-test.cpp
   core/tape-dynamics-effect-test.cpp
   core/tape-dynamics-alias-test.cpp
 )
