@@ -185,7 +185,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-dynamic-systems
 
 ## design:feature/tape-dynamics
-- status: planned
+- status: in-flight
+- design-approved: yes
 - design: docs/superpowers/specs/2026-07-03-tape-dynamics-design.md
 - depends-on: multi:feature/phase-nonlinear-dsp
 - part-of: multi:feature/phase-dynamic-systems
