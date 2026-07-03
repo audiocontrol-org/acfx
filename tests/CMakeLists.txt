@@ -96,6 +96,17 @@ add_executable(acfx_core_tests
   core/envelope-follower-rms-test.cpp
   core/envelope-follower-hold-test.cpp
   core/envelope-follower-db-test.cpp
+  # ---------------------------------------------------------------------------
+  # Compressor test suites (compressors feature): T006–T013 authoring tasks.
+  # T006 setup: stubs to keep build green during development.
+  # ---------------------------------------------------------------------------
+  core/gain-computer-test.cpp
+  core/compressor-test.cpp
+  core/compressor-topology-test.cpp
+  core/compressor-sidechain-test.cpp
+  core/compressor-lookahead-test.cpp
+  core/compressor-makeup-link-test.cpp
+  core/compressor-effect-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

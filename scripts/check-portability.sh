@@ -49,6 +49,15 @@
 #   C-EF-LAB. Envelope-follower lab kernel headers (core/labs/envelope-follower/*.h,
 #      non-harness) are harness-free and platform-free — explicit named coverage per
 #      FR-021 (envelope-follower T005)
+#   C-CMP-PRIM. core/primitives/dynamics/gain-computer.h (when present) is gate-ready:
+#      platform-free, effects-free, harness-free — explicit named coverage per FR-027
+#      (compressor T007); passes vacuously until graduation (T009) lands the file
+#   C-CMP-LAB. Compressor lab kernel headers (core/labs/compressor/*.h, non-harness) are
+#      harness-free and platform-free — explicit named coverage per FR-027 (compressor T007)
+#   C-CMP-SFX. core/effects/compressor/ (when present) is gate-ready: platform-free,
+#      harness-free — explicit named coverage per FR-027 (compressor T007); passes
+#      vacuously when the directory is absent or empty (pre-implementation); MAY include
+#      core/dsp/ and the shipped primitives (that is allowed for effects)
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -349,6 +358,74 @@ else
     fi
   done <<< "$_ceflab_files"
   [ "$_ceflab_fail" -eq 0 ] && note "  OK: envelope-follower lab kernel headers are harness-free and platform-free"
+fi
+
+note "== C-CMP-PRIM. core/primitives/dynamics/gain-computer.h: gate-ready when present (FR-027) =="
+_ccmpprim_files=$(find core/primitives/dynamics -type f -name 'gain-computer.h' 2>/dev/null)
+if [ -z "$_ccmpprim_files" ]; then
+  note "  OK (vacuous): core/primitives/dynamics/gain-computer.h absent — gate ready for graduation (T009)"
+else
+  _ccmpprim_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: gain-computer primitive includes a platform header"
+      _ccmpprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*effects/' "$f" 2>/dev/null; then
+      note "  FAIL $f: gain-computer primitive includes an effects/ path"
+      _ccmpprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: gain-computer primitive includes a harness path"
+      _ccmpprim_fail=1
+      fail=1
+    fi
+  done <<< "$_ccmpprim_files"
+  [ "$_ccmpprim_fail" -eq 0 ] && note "  OK: core/primitives/dynamics/gain-computer.h is platform-free, effects-free, and harness-free"
+fi
+
+note "== C-CMP-LAB. Compressor lab kernel headers: harness-free + platform-free (FR-027) =="
+_ccmplab_files=$(find core/labs/compressor -type f -name '*.h' -not -path '*/harness/*' 2>/dev/null)
+if [ -z "$_ccmplab_files" ]; then
+  note "  OK (vacuous): core/labs/compressor/ has no non-harness kernel headers — gate ready"
+else
+  _ccmplab_fail=0
+  while IFS= read -r f; do
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: compressor kernel header includes a harness path"
+      _ccmplab_fail=1
+      fail=1
+    fi
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: compressor kernel header includes a platform header"
+      _ccmplab_fail=1
+      fail=1
+    fi
+  done <<< "$_ccmplab_files"
+  [ "$_ccmplab_fail" -eq 0 ] && note "  OK: compressor lab kernel headers are harness-free and platform-free"
+fi
+
+note "== C-CMP-SFX. core/effects/compressor: gate-ready when present (FR-027) =="
+_ccmpsfx_files=$(find core/effects/compressor -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_ccmpsfx_files" ]; then
+  note "  OK (vacuous): core/effects/compressor/ absent or empty — gate ready"
+else
+  _ccmpsfx_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: compressor effect includes a platform header"
+      _ccmpsfx_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: compressor effect includes a harness path"
+      _ccmpsfx_fail=1
+      fail=1
+    fi
+  done <<< "$_ccmpsfx_files"
+  [ "$_ccmpsfx_fail" -eq 0 ] && note "  OK: core/effects/compressor/ is platform-free and harness-free"
 fi
 
 if [ "$fail" -eq 0 ]; then
