@@ -8,12 +8,14 @@
 #include <cstring>
 
 #include "dsp/audio-block.h"
+#include "dsp/effect.h"
 #include "dsp/param-id.h"
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
 #include "effects/tape-dynamics/tape-dynamics-core.h"
 #include "effects/tape-dynamics/tape-dynamics-parameters.h"
+#include "primitives/nonlinear/hysteresis.h" // acfx::Solver
 
 // TapeDynamicsEffect — the host-facing wrapper adding the Effect contract on
 // top of the TapeDynamicsCore composition kernel. Mirrors the shipped
@@ -21,7 +23,7 @@
 // hot-path vtable; one constexpr ParameterDescriptor table as the single source
 // of parameter truth (FR-019); a lock-free atomic cross-thread parameter handoff
 // (FR-020). The wrapper owns per-channel TapeDynamicsCore instances for each
-// supported oversampling factor (2x/4x/8x/16x) and dispatches at process() time.
+// supported oversampling factor (2x/4x/8x) and dispatches at process() time.
 // All parameters denormalize → TapeDynamicsCore setters (same boilerplate shape
 // as CompressorEffect/SaturationEffect::applyPending).
 //
@@ -95,11 +97,14 @@ public:
         sampleRate_ = static_cast<float>(ctx.sampleRate);
         numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
 
-        // Prepare all three cores (dispatched at process() time via oversamplingIndex_).
-        // Stub implementation: later tasks fill in oversampler-factor setup.
-        core2x_.prepare(sampleRate_, numChannels_);
-        core4x_.prepare(sampleRate_, numChannels_);
-        core8x_.prepare(sampleRate_, numChannels_);
+        // Prepare ALL THREE cores (2x/4x/8x) — cheap; only the one selected by
+        // the oversampling parameter is exercised per block (dispatched in
+        // processBlock() via oversamplingIndex_). Keeping every factor
+        // continuously prepared means a mid-session oversampling switch never
+        // hits an unprepared core.
+        core2x_.prepare(static_cast<double>(sampleRate_), numChannels_);
+        core4x_.prepare(static_cast<double>(sampleRate_), numChannels_);
+        core8x_.prepare(static_cast<double>(sampleRate_), numChannels_);
 
         applyAll();
     }
@@ -136,47 +141,218 @@ private:
     static constexpr int kMaxChannels = 32;
 
     // Cores for each oversampling factor (Oversampler supports 2, 4, 8 only).
+    // ALL THREE stay prepared and carry the same applied parameter state at all
+    // times (applyPending()/applyAll() push every setter to every core); only
+    // oversamplingIndex_ selects which one processBlock() actually runs, so a
+    // mid-session oversampling switch never hits a stale or unprepared core.
     TapeDynamicsCore<2> core2x_;
     TapeDynamicsCore<4> core4x_;
     TapeDynamicsCore<8> core8x_;
 
     float sampleRate_ = 48000.0f;
     int numChannels_ = 1;
-    int oversamplingIndex_ = 2; // 0=2x, 1=4x, 2=8x; default 8x
+    int oversamplingIndex_ = 2; // 0=2x, 1=4x, 2=8x (kTapeDynamicsOversamplingLabels order); default 8x
 
     // Pending parameter state (lock-free, atomic handoff from setParameter()).
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;
 
-    // Cached denormalized parameter values.
-    float drive_ = 0.0f;
-    float saturation_ = 1.0f;
-    float width_ = 1.0f;
-    std::uint8_t solver_ = 1; // default rk4
-    std::uint8_t oversampling_ = 2; // default 8x (index 2)
+    // Applied parameter state — mutated only in prepare/reset/applyPending (the
+    // first two require a stopped stream; the third runs on the audio thread).
+    // Defaults are the denormalized kParams defaults (mirrors CompressorEffect/
+    // SaturationEffect).
+    float driveDb_ = kParams[kDrive].defaultValue;
+    float saturation_ = kParams[kSaturation].defaultValue;
+    float width_ = kParams[kWidth].defaultValue;
+    Solver solver_ = Solver::rk4;
     bool trimEnabled_ = false;
-    float trimAttack_ = 0.01f;
-    float trimRelease_ = 0.1f;
-    float trimAmount_ = 0.5f;
-    float mix_ = 1.0f;
-    float output_ = 0.0f;
+    float trimAttack_ = kParams[kTrimAttack].defaultValue;
+    float trimRelease_ = kParams[kTrimRelease].defaultValue;
+    float trimAmount_ = kParams[kTrimAmount].defaultValue;
+    float mix_ = kParams[kMix].defaultValue;
+    float outputDb_ = kParams[kOutput].defaultValue;
 
-    // Consume pending parameter edits and denormalize into cached values,
-    // then dispatch to the active core's setters (stub for now).
+    // float <-> uint32 bit reinterpretation (allocation-free; a 4-byte memcpy is
+    // a register move) so the cross-thread atomics are provably lock-free
+    // (mirrors CompressorEffect/SaturationEffect's floatBits/bitsFloat).
+    static float bitsFloat(std::uint32_t u) noexcept {
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    }
+
+    float pendingValue(Param p) const noexcept {
+        return bitsFloat(pendingBits_[p].load(std::memory_order_relaxed));
+    }
+
+    // Discrete solver bucket index -> Solver enum (kTapeDynamicsSolverLabels
+    // order: {"rk2", "rk4", "newtonRaphson"}).
+    static Solver toSolver(float index) noexcept {
+        switch (static_cast<int>(index)) {
+        case 0:
+            return Solver::rk2;
+        case 2:
+            return Solver::newtonRaphson;
+        case 1:
+        default:
+            return Solver::rk4;
+        }
+    }
+
+    // Discrete oversampling bucket index -> which prepared core processBlock()
+    // dispatches to (kTapeDynamicsOversamplingLabels order: {"2x","4x","8x"}).
+    // Clamped defensively — denormalize() already rounds into [0, count-1] for a
+    // well-formed descriptor, but an out-of-range bucket must never index past
+    // the three cores.
+    static int toOversamplingIndex(float index) noexcept {
+        int i = static_cast<int>(index);
+        if (i < 0)
+            i = 0;
+        if (i > 2)
+            i = 2;
+        return i;
+    }
+
+    // Consume pending parameter edits and denormalize into cached values, then
+    // dispatch to every core's matching setter (kOversampling instead selects
+    // WHICH core processBlock() dispatches to; trim.attack/release/amount are
+    // cached only — TapeDynamicsCore has no setter for them yet, the T026 seam).
     void applyPending() noexcept {
-        // Stub: later tasks implement parameter denormalization and core setter dispatch.
+        if (pendingDirty_[kDrive].exchange(0u, std::memory_order_acquire)) {
+            driveDb_ = denormalize(kParams[kDrive], pendingValue(kDrive));
+            applyDrive();
+        }
+        if (pendingDirty_[kSaturation].exchange(0u, std::memory_order_acquire)) {
+            saturation_ = denormalize(kParams[kSaturation], pendingValue(kSaturation));
+            applySaturation();
+        }
+        if (pendingDirty_[kWidth].exchange(0u, std::memory_order_acquire)) {
+            width_ = denormalize(kParams[kWidth], pendingValue(kWidth));
+            applyWidth();
+        }
+        if (pendingDirty_[kSolver].exchange(0u, std::memory_order_acquire)) {
+            solver_ = toSolver(denormalize(kParams[kSolver], pendingValue(kSolver)));
+            applySolver();
+        }
+        if (pendingDirty_[kOversampling].exchange(0u, std::memory_order_acquire)) {
+            oversamplingIndex_ =
+                toOversamplingIndex(denormalize(kParams[kOversampling], pendingValue(kOversampling)));
+            // Not a per-core setter: selects which already-prepared core
+            // processBlock() runs (see processBlock()).
+        }
+        if (pendingDirty_[kTrimEnabled].exchange(0u, std::memory_order_acquire)) {
+            trimEnabled_ = denormalize(kParams[kTrimEnabled], pendingValue(kTrimEnabled)) >= 0.5f;
+            applyTrimEnabled();
+        }
+        if (pendingDirty_[kTrimAttack].exchange(0u, std::memory_order_acquire)) {
+            // T026 seam: cached for the future trim-ballistics EnvelopeFollower;
+            // TapeDynamicsCore has no setTrimAttack() yet (no-op passthrough).
+            trimAttack_ = denormalize(kParams[kTrimAttack], pendingValue(kTrimAttack));
+        }
+        if (pendingDirty_[kTrimRelease].exchange(0u, std::memory_order_acquire)) {
+            trimRelease_ = denormalize(kParams[kTrimRelease], pendingValue(kTrimRelease)); // T026 seam
+        }
+        if (pendingDirty_[kTrimAmount].exchange(0u, std::memory_order_acquire)) {
+            trimAmount_ = denormalize(kParams[kTrimAmount], pendingValue(kTrimAmount)); // T026 seam
+        }
+        if (pendingDirty_[kMix].exchange(0u, std::memory_order_acquire)) {
+            mix_ = denormalize(kParams[kMix], pendingValue(kMix));
+            applyMix();
+        }
+        if (pendingDirty_[kOutput].exchange(0u, std::memory_order_acquire)) {
+            outputDb_ = denormalize(kParams[kOutput], pendingValue(kOutput));
+            applyOutput();
+        }
     }
 
-    // Apply all cached parameter values to the active core (called by prepare/reset).
+    // Each apply* pushes the cached value into ALL THREE cores (not just the
+    // active one) so switching oversamplingIndex_ mid-session lands on a core
+    // that already carries the full current parameter state.
+    void applyDrive() noexcept {
+        core2x_.setDrive(driveDb_);
+        core4x_.setDrive(driveDb_);
+        core8x_.setDrive(driveDb_);
+    }
+    void applySaturation() noexcept {
+        core2x_.setSaturation(saturation_);
+        core4x_.setSaturation(saturation_);
+        core8x_.setSaturation(saturation_);
+    }
+    void applyWidth() noexcept {
+        core2x_.setWidth(width_);
+        core4x_.setWidth(width_);
+        core8x_.setWidth(width_);
+    }
+    void applySolver() noexcept {
+        core2x_.setSolver(solver_);
+        core4x_.setSolver(solver_);
+        core8x_.setSolver(solver_);
+    }
+    void applyTrimEnabled() noexcept {
+        core2x_.setTrimEnabled(trimEnabled_);
+        core4x_.setTrimEnabled(trimEnabled_);
+        core8x_.setTrimEnabled(trimEnabled_);
+    }
+    void applyMix() noexcept {
+        core2x_.setMix(mix_);
+        core4x_.setMix(mix_);
+        core8x_.setMix(mix_);
+    }
+    void applyOutput() noexcept {
+        core2x_.setOutput(outputDb_);
+        core4x_.setOutput(outputDb_);
+        core8x_.setOutput(outputDb_);
+    }
+
+    // Apply all cached parameter values to every core (called by prepare()/
+    // reset(), which re-prepare the composed primitives and so must
+    // re-establish the full applied parameter state). oversamplingIndex_ and
+    // the trim.attack/release/amount caches need no core push (see
+    // applyPending()'s note).
     void applyAll() noexcept {
-        // Stub: later tasks apply all parameters to the active core.
+        applyDrive();
+        applySaturation();
+        applyWidth();
+        applySolver();
+        applyTrimEnabled();
+        applyMix();
+        applyOutput();
     }
 
-    // Process the audio block through the active core.
+    // Dispatch the block to the core matching oversamplingIndex_ (2x/4x/8x)
+    // and process every channel in place. RT-safe: no heap allocation, no
+    // locks — just the bounded per-sample TapeDynamicsCore::processSample()
+    // call already proven RT-safe in tape-dynamics-core.h.
     void processBlock(AudioBlock& io) noexcept {
-        // Stub: dispatch to the active core (oversamplingIndex_) and process
-        // the audio block in place.
+        const int channels = io.numChannels() < numChannels_ ? io.numChannels() : numChannels_;
+        const int samples = io.numSamples();
+        switch (oversamplingIndex_) {
+        case 0:
+            runCore(core2x_, io, channels, samples);
+            break;
+        case 1:
+            runCore(core4x_, io, channels, samples);
+            break;
+        case 2:
+        default:
+            runCore(core8x_, io, channels, samples);
+            break;
+        }
+    }
+
+    template <typename Core>
+    static void runCore(Core& core, AudioBlock& io, int channels, int samples) noexcept {
+        for (int ch = 0; ch < channels; ++ch) {
+            float* x = io.channel(ch);
+            for (int n = 0; n < samples; ++n)
+                x[n] = core.processSample(x[n], ch);
+        }
     }
 };
+
+#if defined(__cpp_concepts) && __cpp_concepts >= 201907L
+static_assert(Effect<TapeDynamicsEffect>,
+              "TapeDynamicsEffect must satisfy the Effect contract (dsp/effect.h)");
+#endif
 
 } // namespace acfx
