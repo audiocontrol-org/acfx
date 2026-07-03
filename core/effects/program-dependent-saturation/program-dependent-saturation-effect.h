@@ -16,48 +16,29 @@
 #include "effects/program-dependent-saturation/program-dependent-saturation-presets.h"
 #include "effects/program-dependent-saturation/program-dependent-saturation-routing.h"
 
-// ProgramDependentSaturationEffect — the host-facing wrapper adding the Effect
-// contract on top of the ProgramDependentSaturationCore composition kernel.
-// Mirrors the shipped saturation-effect.h / compressor-effect.h idiom EXACTLY:
-// no base class, no hot-path vtable; one constexpr ParameterDescriptor table as
-// the single source of parameter truth (FR-003); a lock-free atomic cross-thread
-// parameter handoff (FR-017). The wrapper owns per-channel
-// ProgramDependentSaturationCore state and is allocation-free in process().
-// All 24 parameters denormalize -> ProgramDependentSaturationCore setter (same
-// boilerplate shape as SaturationEffect::applyPending).
+// ProgramDependentSaturationEffect — host-facing Effect wrapper over the
+// ProgramDependentSaturationCore kernel. Mirrors saturation-effect.h /
+// compressor-effect.h EXACTLY: no base class / hot-path vtable; one constexpr
+// ParameterDescriptor table as the single source of parameter truth (FR-003);
+// a lock-free atomic cross-thread parameter handoff (FR-017); per-channel core
+// state; allocation-free process(). 24 params denormalize -> core setter.
 //
-// TONE PER-BLOCK (Decision 4): tone is modulated once per block via
-// core.newBlock(), fed the core's OWN most-recent normalized envelope from the
-// previous block (core.lastNorm()) — a deliberate one-block (control-rate) lag
-// (block N's tilt is driven by block N-1's final level), inaudible for a slow
-// spectral tilt. First block: lastNorm() is 0 (silence).
-//
-// EXTERNAL KEY (FR-012, T034) + STEREO LINKING (FR-013, T036): process(io) is
-// keyless; process(io, sidechain) routes the matching sidechain channel as the
-// key (gated by the externalSidechain flag). perChannel detects+modulates each
-// channel independently; linked shares ONE detection driving a common modulation
-// across channels (image-stable). Both live in the routing free functions in
-// program-dependent-saturation-routing.h (FR-025 split); processBlock() forwards.
-//
-// DYNAMIC PRESETS (FR-014, T030): applyDynamicPreset() writes the documented
-// modulation matrix (program-dependent-saturation-presets.h) to every core;
-// `none` is the neutral baseline no-op (equal to the constructor defaults, so it
-// never clobbers a hand-dialed matrix). presetConfig() exposes the same table so
-// a test can assert the realized matrix equals the documentation.
-//
-// Thread-ownership (identical to SaturationEffect/CompressorEffect):
-// setParameter() is callable from ANY thread (publishes a lock-free atomic
-// pending value, consumed on the audio thread at the top of process(), FR-017);
-// prepare()/reset() mutate core state directly and must be called only while
-// the audio stream is stopped — the adapter's responsibility (FR-018).
-//
-// SPLIT ACROSS FILES (FR-025, budget): the descriptor table, option-label
-// arrays, dense-id static_assert, and the stateless scalar/enum-converter
-// helpers (floatBits/bitsFloat/dbToGain/toVoicing/toQuality/toDetectMode/
-// toBallistics/toDetection/toModCurve) live in program-dependent-saturation-
-// parameters.h. This file keeps the `Param` enum, the two effect-local enums
-// (DynamicPreset/StereoLink) and their converters, `kParams`, and every method
-// touching per-channel core state.
+// TONE PER-BLOCK (Decision 4): core.newBlock() modulates tone once per block from
+// the core's own previous-block normalized envelope (core.lastNorm()) — a
+// one-block control-rate lag, inaudible for a slow tilt; first block lastNorm()=0.
+// EXTERNAL KEY (FR-012) + LINKING (FR-013): process(io) keyless; process(io,
+// sidechain) routes the sidechain channel as key (gated by externalSidechain).
+// perChannel vs linked (one shared detection -> common modulation) live in the
+// routing free functions (FR-025 split); processBlock() forwards.
+// PRESETS (FR-014): applyDynamicPreset() writes the documented matrix
+// (…-presets.h) to every core; `none` is the neutral no-op. presetConfig()
+// exposes the table for tests.
+// THREAD-OWNERSHIP (as SaturationEffect): setParameter() any-thread lock-free
+// publish, consumed atop process() (FR-017); prepare()/reset() mutate core state
+// directly, stream-stopped only (FR-018).
+// FR-025 SPLIT: descriptor table, labels, dense-id static_assert, and the
+// stateless scalar/enum converters live in …-parameters.h; this file keeps the
+// Param enum, the effect-local enums, kParams, and the core-touching methods.
 
 namespace acfx {
 
