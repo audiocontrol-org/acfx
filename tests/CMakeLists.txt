@@ -142,6 +142,11 @@ add_executable(acfx_core_tests
   core/hysteresis-solver-test.cpp
   core/tape-dynamics-effect-test.cpp
   core/tape-dynamics-alias-test.cpp
+  # T015 focused suite: TapeDynamicsCore<Factor> composed OS+JA signal path
+  # (finite output, drive nonlinearity, mix/bypass, JA loop memory, reset
+  # determinism). Kept separate from tape-dynamics-effect-test.cpp's T017
+  # placeholder.
+  core/tape-dynamics-core-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
