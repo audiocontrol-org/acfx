@@ -75,10 +75,10 @@ bounded — Constitution VI).
 **Independent test**: `tests/core/program-dependent-saturation-test.cpp` — THD rises with input level per the analytic `depth·curve(env)` drive-offset model; modulation ~63% within the attack time.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T012 [US1] [tier:powerful] `tests/core/program-dependent-saturation-test.cpp` — with +driveDepth, feedforward, assert measured harmonic content (THD) increases monotonically with input level per the analytic drive-offset model within tolerance, and a level step drives the modulation to ~63% within the attack time (recovers at release), reusing the measurement stimulus/response + harmonic-analysis + `svf-reference` named-tolerance patterns (SC-001, SC-005).
+- [x] T012 [US1] [tier:powerful] `tests/core/program-dependent-saturation-test.cpp` — with +driveDepth, feedforward, assert measured harmonic content (THD) increases monotonically with input level per the analytic drive-offset model within tolerance, and a level step drives the modulation to ~63% within the attack time (recovers at release), reusing the measurement stimulus/response + harmonic-analysis + `svf-reference` named-tolerance patterns (SC-001, SC-005).
 
 ### Implementation
-- [ ] T013 [US1] [tier:balanced] Verify/complete the feedforward drive-target modulation path end-to-end in `ProgramDependentSaturationCore` (shared `EnvelopeFollower` attack/release; other target depths 0; static voicing/output defaults) so T012 passes (FR-005, FR-006, FR-009).
+- [x] T013 [US1] [tier:balanced] Verify/complete the feedforward drive-target modulation path end-to-end in `ProgramDependentSaturationCore` (shared `EnvelopeFollower` attack/release; other target depths 0; static voicing/output defaults) so T012 passes (FR-005, FR-006, FR-009).
 
 **Checkpoint**: US1 is a fully functional, independently testable dynamic saturator (MVP).
 
@@ -122,10 +122,10 @@ bounded — Constitution VI).
 **Goal**: bias/tone/mix are independently modulated from the shared envelope with no cross-talk.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T019 [US4] [tier:powerful] `tests/core/program-dependent-saturation-matrix-test.cpp` — for each target in {bias, tone, mix} (others at depth 0), assert the corresponding `SaturationCore` parameter is offset by the analytic `depth·curve(env)` amount (bias via even-harmonic measurement; tone via spectral tilt; mix via wet/dry ratio) and the untargeted parameters stay at their static bases; independent multi-target depths show no cross-talk (SC-003).
+- [x] T019 [US4] [tier:powerful] `tests/core/program-dependent-saturation-matrix-test.cpp` — for each target in {bias, tone, mix} (others at depth 0), assert the corresponding `SaturationCore` parameter is offset by the analytic `depth·curve(env)` amount (bias via even-harmonic measurement; tone via spectral tilt; mix via wet/dry ratio) and the untargeted parameters stay at their static bases; independent multi-target depths show no cross-talk (SC-003).
 
 ### Implementation
-- [ ] T020 [US4] [tier:balanced] Verify/complete the bias/tone/mix modulation wiring in `ProgramDependentSaturationCore` (per-sample bias/mix; per-block tone via `newBlock()`), each fed by its own `DynamicsModulator` from the shared envelope, so T019 passes (FR-006, FR-010a).
+- [x] T020 [US4] [tier:balanced] Verify/complete the bias/tone/mix modulation wiring in `ProgramDependentSaturationCore` (per-sample bias/mix; per-block tone via `newBlock()`), each fed by its own `DynamicsModulator` from the shared envelope, so T019 passes (FR-006, FR-010a).
 
 **Checkpoint**: the full four-target modulation matrix works.
 
@@ -136,10 +136,10 @@ bounded — Constitution VI).
 **Goal**: signed depth (up/down) and `linear`/`log`/`exp` curves per target.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T021 [US5] [tier:powerful] Extend `tests/core/program-dependent-saturation-test.cpp` and `tests/core/dynamics-modulator-test.cpp` — a negative drive depth decreases THD with level (mirror-image of positive); equal-magnitude opposite-sign trajectories mirror about the static base; the three curves produce distinguishable analytic offset-vs-env shapes (SC-004).
+- [x] T021 [US5] [tier:powerful] Extend `tests/core/program-dependent-saturation-test.cpp` and `tests/core/dynamics-modulator-test.cpp` — a negative drive depth decreases THD with level (mirror-image of positive); equal-magnitude opposite-sign trajectories mirror about the static base; the three curves produce distinguishable analytic offset-vs-env shapes (SC-004).
 
 ### Implementation
-- [ ] T022 [US5] [tier:balanced] Confirm/refine the signed-depth and `ModCurve` handling in `DynamicsModulator` and its use in `ProgramDependentSaturationCore` so the direction/curve tests pass (FR-002, FR-003).
+- [x] T022 [US5] [tier:balanced] Confirm/refine the signed-depth and `ModCurve` handling in `DynamicsModulator` and its use in `ProgramDependentSaturationCore` so the direction/curve tests pass (FR-002, FR-003).
 
 **Checkpoint**: direction and response shaping correct for every target.
 
@@ -150,10 +150,10 @@ bounded — Constitution VI).
 **Goal**: `feedBack` reads the previous final output `y`; settles to a stable fixed point.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T023 [US6] [tier:powerful] `tests/core/program-dependent-saturation-topology-test.cpp` — feedback: a steady input settles to the analytic detector→modulation→saturation fixed point (± tol) and is stable (no divergence/oscillation), with a defined cold start; feedforward vs feedback trajectories differ per their analytic models (SC-006).
+- [x] T023 [US6] [tier:powerful] `tests/core/program-dependent-saturation-topology-test.cpp` — feedback: a steady input settles to the analytic detector→modulation→saturation fixed point (± tol) and is stable (no divergence/oscillation), with a defined cold start; feedforward vs feedback trajectories differ per their analytic models (SC-006).
 
 ### Implementation
-- [ ] T024 [US6] [tier:powerful] Complete the `feedBack` path in `ProgramDependentSaturationCore` (detector reads `prevOutput`, the final-output tap; defined cold-start floor) so T023 passes; confirm the stability/clamp guard (FR-008, FR-010).
+- [x] T024 [US6] [tier:powerful] Complete the `feedBack` path in `ProgramDependentSaturationCore` (detector reads `prevOutput`, the final-output tap; defined cold-start floor) so T023 passes; confirm the stability/clamp guard (FR-008, FR-010).
 
 **Checkpoint**: feedforward and feedback both work; feedback is stable.
 
@@ -164,10 +164,10 @@ bounded — Constitution VI).
 **Goal**: peak/rms/peakHold detection, branching/decoupled ballistics, attack/release — delegated to `EnvelopeFollower`.
 
 ### Tests (write FIRST — must FAIL)
-- [ ] T025 [US7] [tier:balanced] Extend `tests/core/program-dependent-saturation-test.cpp` — peak vs rms on the same transient produce the characterized faster/sharper vs smoother/slower modulation; a configured attack/release yields the ~63%-in-τ step response on the modulation (SC-005).
+- [x] T025 [US7] [tier:balanced] Extend `tests/core/program-dependent-saturation-test.cpp` — peak vs rms on the same transient produce the characterized faster/sharper vs smoother/slower modulation; a configured attack/release yields the ~63%-in-τ step response on the modulation (SC-005).
 
 ### Implementation
-- [ ] T026 [US7] [tier:balanced] Wire `setDetectorMode`/`setBallistics`/`setAttack`/`setRelease` in `ProgramDependentSaturationCore` through to the shared `EnvelopeFollower` so T025 passes (FR-009).
+- [x] T026 [US7] [tier:balanced] Wire `setDetectorMode`/`setBallistics`/`setAttack`/`setRelease` in `ProgramDependentSaturationCore` through to the shared `EnvelopeFollower` so T025 passes (FR-009).
 
 **Checkpoint**: the full detector catalog is selectable and shapes the modulation.
 
