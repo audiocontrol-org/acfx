@@ -43,13 +43,16 @@
 // mirroring SaturationEffect's / CompressorEffect's kParams disclaimer.
 //
 // NOTE on the time-valued attack/release units: ParamUnit (core/dsp/param-id.h)
-// has no milliseconds enumerator. data-model.md lists attack/release ranges in
-// ms (0.1..200 / 1..2000); this table stores those SAME ms magnitudes and tags
-// them ParamUnit::seconds (the nearest time unit). The effect converts ms->s
-// (×0.001) at apply time before forwarding to EnvelopeFollower::setAttack/
-// setRelease, which take seconds. (CompressorEffect made the opposite choice —
-// storing seconds directly — but data-model.md pins THIS feature's placeholder
-// ranges in ms, so the ms magnitudes are preserved here for a faithful table.)
+// has no milliseconds enumerator, only `seconds`. So — matching CompressorEffect
+// exactly — this table stores attack/release in SECONDS and tags them
+// ParamUnit::seconds, HONESTLY: a host reading the descriptor sees the real unit
+// and range (0.0001..0.2 s attack, 0.001..2.0 s release), not ms magnitudes
+// mislabelled as seconds. No ms<->s conversion happens on the descriptor path;
+// the values forward straight to EnvelopeFollower::setAttack/setRelease (which
+// take seconds). data-model.md's ms ranges (0.1..200 / 1..2000 ms) are the same
+// spans expressed in ms. (Preset configs still carry ms magnitudes internally —
+// PdsPresetConfig.attackMs/releaseMs — and convert via kMsToSec in writePreset;
+// that is not a host-facing descriptor, so the ms form stays for readability.)
 
 namespace acfx {
 
@@ -89,8 +92,8 @@ inline constexpr std::array<std::string_view, 2> kPdsStereoLinkLabels = {
 //   6  quality:           discrete {naive, adaa, oversampled}, default adaa
 //   7  detector:          discrete {peak, rms, peakHold}, default rms
 //   8  ballistics:        discrete {branching, decoupled}, default branching
-//   9  attack:            ms (see unit note), 0.1..200, default 10
-//   10 release:           ms (see unit note), 1..2000, default 100
+//   9  attack:            seconds, 0.0001..0.2 (0.1..200 ms), default 0.01
+//   10 release:           seconds, 0.001..2.0 (1..2000 ms), default 0.1
 //   11 detection:         discrete {feedForward, feedBack}, default feedForward
 //   12 driveDepth:        linear, -1..1, default 0
 //   13 driveCurve:        discrete {linear, log, exp}, default linear
@@ -123,9 +126,9 @@ inline constexpr std::array<ParameterDescriptor, 24> kPdsParams = {{
      ParamKind::discrete, 3, kPdsDetectorLabels},
     {ParamId{8}, "ballistics", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear,
      ParamKind::discrete, 2, kPdsBallisticsLabels},
-    {ParamId{9}, "attack", ParamUnit::seconds, 0.1f, 200.0f, 10.0f, ParamSkew::linear,
+    {ParamId{9}, "attack", ParamUnit::seconds, 0.0001f, 0.2f, 0.01f, ParamSkew::linear,
      ParamKind::continuous, 0},
-    {ParamId{10}, "release", ParamUnit::seconds, 1.0f, 2000.0f, 100.0f, ParamSkew::linear,
+    {ParamId{10}, "release", ParamUnit::seconds, 0.001f, 2.0f, 0.1f, ParamSkew::linear,
      ParamKind::continuous, 0},
     {ParamId{11}, "detection", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear,
      ParamKind::discrete, 2, kPdsDetectionLabels},

@@ -245,11 +245,11 @@ private:
             applyBallistics();
         }
         if (pendingDirty_[kAttack].exchange(0u, std::memory_order_acquire)) {
-            attackSeconds_ = denormalize(kParams[kAttack], pendingValue(kAttack)) * kMsToSec;
+            attackSeconds_ = denormalize(kParams[kAttack], pendingValue(kAttack)); // descriptor is seconds
             applyAttack();
         }
         if (pendingDirty_[kRelease].exchange(0u, std::memory_order_acquire)) {
-            releaseSeconds_ = denormalize(kParams[kRelease], pendingValue(kRelease)) * kMsToSec;
+            releaseSeconds_ = denormalize(kParams[kRelease], pendingValue(kRelease)); // descriptor is seconds
             applyRelease();
         }
         if (pendingDirty_[kDetection].exchange(0u, std::memory_order_acquire)) {
@@ -433,7 +433,7 @@ private:
         // stereoLink_ has no per-core setter (composed across channels in T036).
     }
 
-    static constexpr float kMsToSec = 0.001f; // attack/release descriptors hold ms; cores take seconds
+    static constexpr float kMsToSec = 0.001f; // only for PdsPresetConfig ms fields (descriptors are seconds)
 
     std::array<ProgramDependentSaturationCore, kMaxChannels> cores_{};
     float sampleRate_ = 48000.0f;
@@ -451,8 +451,8 @@ private:
     SaturationQuality quality_ = SaturationQuality::adaa;
     DetectMode detectMode_ = DetectMode::rms;
     Ballistics ballistics_ = Ballistics::branching;
-    float attackSeconds_ = kParams[kAttack].defaultValue * kMsToSec;
-    float releaseSeconds_ = kParams[kRelease].defaultValue * kMsToSec;
+    float attackSeconds_ = kParams[kAttack].defaultValue;  // descriptor is seconds
+    float releaseSeconds_ = kParams[kRelease].defaultValue;
     Detection detection_ = Detection::feedForward;
     float driveDepth_ = kParams[kDriveDepth].defaultValue;
     ModCurve driveCurve_ = ModCurve::linear;

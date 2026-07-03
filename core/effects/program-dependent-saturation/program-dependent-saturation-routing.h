@@ -69,37 +69,57 @@ inline void processBlock(std::array<ProgramDependentSaturationCore, MaxChannels>
         core.newBlock(core.lastNorm());
     }
 
-    // KNOWN LIMITATION (mirrors CompressorEffect F7): in linked mode only the
-    // designated core (channel 0) advances its detector / SC-HPF state; the
-    // others sit idle. A linked -> perChannel switch therefore re-converges those
-    // idle detectors over the attack/release time — a brief transient, NOT a
-    // wrong steady state. Warming every detector was rejected: in feedBack
-    // topology it would tap each channel's own previous output, reintroducing the
-    // per-channel image drift linked mode exists to remove.
+    // LINKED (FR-013/SC-011): one shared detection drives a common modulation on
+    // every channel from the LARGEST-MAGNITUDE detector source ACROSS the linked
+    // channels — so the loudest channel governs the whole group and the stereo
+    // image stays stable. The cross-channel max is taken in the domain the active
+    // topology detects in:
+    //   feedForward — the resolved INPUT (externalKey ? key : mainInput). The
+    //                 designated core (0) runs the shared detection incl. its
+    //                 SC-HPF (detectNorm), passing the source as both args so the
+    //                 core's own key fork is a no-op.
+    //   feedBack    — the previous OUTPUT. Each core tracks its own prevOutput();
+    //                 the max across channels (last sample's outputs) is the
+    //                 shared feedback source, run through detectNormShared (no
+    //                 SC-HPF on a fed-back output, matching per-channel feedback).
+    // Only the designated core (0) advances the shared detector state; a linked ->
+    // perChannel switch re-converges the idle detectors over the attack/release
+    // time — a brief transient, not a wrong steady state.
     if (linked && channels > 0) {
+        const bool feedback = cores[0].feedbackDetection();
         for (int n = 0; n < samples; ++n) {
-            // Detect pass: resolve each channel's detection source with the SAME
-            // rule the core uses (externalKey ? key : mainInput), then take the
-            // largest-magnitude source across channels.
-            float maxSrc = 0.0f;
-            float maxMag = -1.0f;
-            for (int ch = 0; ch < channels; ++ch) {
-                const float keySample = keyAt(mainCh, sc, scChannels, scSamples, ch, n);
-                const float src =
-                    externalKey ? keySample : mainCh[static_cast<std::size_t>(ch)][n];
-                const float mag = std::fabs(src);
-                if (mag > maxMag) {
-                    maxMag = mag;
-                    maxSrc = src;
+            float norm;
+            if (feedback) {
+                // Cross-channel max of the PREVIOUS outputs (output domain).
+                float maxOut = 0.0f;
+                float maxMag = -1.0f;
+                for (int ch = 0; ch < channels; ++ch) {
+                    const float out = cores[static_cast<std::size_t>(ch)].prevOutput();
+                    const float mag = std::fabs(out);
+                    if (mag > maxMag) {
+                        maxMag = mag;
+                        maxOut = out;
+                    }
                 }
+                norm = cores[0].detectNormShared(maxOut);
+            } else {
+                // Cross-channel max of the resolved inputs (input domain).
+                float maxSrc = 0.0f;
+                float maxMag = -1.0f;
+                for (int ch = 0; ch < channels; ++ch) {
+                    const float keySample = keyAt(mainCh, sc, scChannels, scSamples, ch, n);
+                    const float src =
+                        externalKey ? keySample : mainCh[static_cast<std::size_t>(ch)][n];
+                    const float mag = std::fabs(src);
+                    if (mag > maxMag) {
+                        maxMag = mag;
+                        maxSrc = src;
+                    }
+                }
+                norm = cores[0].detectNorm(maxSrc, maxSrc);
             }
-            // One shared detection on the designated core; passing the already-
-            // resolved source as BOTH args makes the core's internal
-            // `externalKey_ ? key : x` a no-op (both branches == maxSrc). In
-            // feedBack topology detectNorm ignores maxSrc and taps core 0's
-            // previous output — the documented linked feedback state (channel 0).
-            const float norm = cores[0].detectNorm(maxSrc, maxSrc);
-            // Apply pass: the SAME norm modulates every channel (image-stable).
+            // Apply pass: the SAME norm modulates every channel (image-stable);
+            // each core's prevOutput() updates here, feeding next sample's max.
             for (int ch = 0; ch < channels; ++ch) {
                 float* x = mainCh[static_cast<std::size_t>(ch)];
                 x[n] = cores[static_cast<std::size_t>(ch)].processWithNorm(x[n], norm);

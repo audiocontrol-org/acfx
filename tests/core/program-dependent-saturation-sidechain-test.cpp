@@ -130,8 +130,8 @@ void setParam(ProgramDependentSaturationEffect& fx, std::uint8_t paramIndex, flo
 // static drive 0 dB, ONLY driveDepth engaged (see makeCore()'s rationale).
 void configureEffect(ProgramDependentSaturationEffect& fx, int numChannels) {
     fx.prepare(ProcessContext{static_cast<double>(kSampleRate), kTotalSamples, numChannels});
-    setParam(fx, ProgramDependentSaturationEffect::kAttack, kAttackSeconds * 1000.0f);
-    setParam(fx, ProgramDependentSaturationEffect::kRelease, kReleaseSeconds * 1000.0f);
+    setParam(fx, ProgramDependentSaturationEffect::kAttack, kAttackSeconds);   // descriptor is seconds
+    setParam(fx, ProgramDependentSaturationEffect::kRelease, kReleaseSeconds);
     setParam(fx, ProgramDependentSaturationEffect::kDrive, 0.0f);
     setParam(fx, ProgramDependentSaturationEffect::kDriveDepth, 1.0f);
 }
@@ -374,4 +374,65 @@ TEST_CASE("ProgramDependentSaturationEffect::process(io) - linked stereo mode "
     // (perChannel) or dominates (linked, as the cross-channel max) its own
     // detection, so its modulation should not materially differ between them.
     CHECK(std::abs(thdLeftLinked - thdLeftPerChannel) < kStableTolerance);
+}
+
+// ---------------------------------------------------------------------------
+// T035 (US12) — linked + FEEDBACK uses the cross-channel max of the previous
+// OUTPUTS, so a loud transient in a NON-primary channel (channel 1) still drives
+// the shared modulation (FR-013/SC-011). Regression for the code-review finding
+// that linked feedback previously tapped only channel 0's output.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("ProgramDependentSaturationEffect::process(io) - linked + feedback drives "
+          "the shared modulation from the loud channel even when it is NOT channel 0 "
+          "(cross-channel max of outputs) (T035/US12, SC-011)") {
+    constexpr double kQuietFreqHz  = 1000.0;
+    constexpr double kQuietAmp     = 0.02;  // quiet channel
+    constexpr double kLoudFreqHz   = 700.0;
+    constexpr double kLoudAmp      = 0.5;   // loud channel
+    constexpr double kModulationPresent = 0.05;
+    constexpr double kSymmetryRatio     = 0.5; // the two cases must be within ~2x
+
+    // Symmetry test: the shared feedback detection is the cross-channel MAX of
+    // the previous outputs, so which channel carries the loud signal must not
+    // matter. Case A puts the loud signal in channel 0 (the designated core);
+    // Case B puts it in channel 1 (non-primary). We measure the LOUD channel's
+    // own saturation THD in each: its drive is set by the shared modulation,
+    // which only reflects it if its output feeds the shared detection. Before the
+    // fix (linked feedback tapped ONLY channel 0's output), Case B's loud channel
+    // 1 could not raise the shared norm, so it would saturate far less than Case
+    // A — the asymmetry that exposes the bug. (The quiet channel is a poor probe:
+    // it receives the same shared drive, but its far smaller input stays below
+    // the softClip knee, so its THD reads ~0 regardless.)
+
+    // Case A: loud in channel 0 — measure channel 0.
+    ProgramDependentSaturationEffect fxA;
+    configureEffect(fxA, 2);
+    setParam(fxA, ProgramDependentSaturationEffect::kDetection, 1.0f);  // feedBack
+    setParam(fxA, ProgramDependentSaturationEffect::kStereoLink, 1.0f); // linked
+    const StereoRun runA =
+        runStereoEffect(fxA, kLoudFreqHz, kLoudAmp, kQuietFreqHz, kQuietAmp);
+    const double loudThdA = thdTail(runA.left, kLoudFreqHz, kMeasureSamples);
+
+    // Case B: loud in channel 1 (non-primary) — measure channel 1.
+    ProgramDependentSaturationEffect fxB;
+    configureEffect(fxB, 2);
+    setParam(fxB, ProgramDependentSaturationEffect::kDetection, 1.0f);  // feedBack
+    setParam(fxB, ProgramDependentSaturationEffect::kStereoLink, 1.0f); // linked
+    const StereoRun runB =
+        runStereoEffect(fxB, kQuietFreqHz, kQuietAmp, kLoudFreqHz, kLoudAmp);
+    const double loudThdB = thdTail(runB.right, kLoudFreqHz, kMeasureSamples);
+
+    INFO("loudThdA(loud@ch0)=" << loudThdA << " loudThdB(loud@ch1)=" << loudThdB);
+    REQUIRE(std::isfinite(loudThdA));
+    REQUIRE(std::isfinite(loudThdB));
+
+    // The loud channel saturates (its output feeds the shared detection) in both.
+    CHECK(loudThdA > kModulationPresent);
+    CHECK(loudThdB > kModulationPresent);
+    // Position independence (the load-bearing assertion): a loud NON-primary
+    // channel 1 raises the shared modulation just as a loud channel 0 does — the
+    // shared detection is the max ACROSS channels' outputs, not channel 0 alone.
+    CHECK(loudThdB > loudThdA * kSymmetryRatio);
+    CHECK(loudThdA > loudThdB * kSymmetryRatio);
 }

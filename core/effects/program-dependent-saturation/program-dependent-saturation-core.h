@@ -248,15 +248,25 @@ public:
         if (scHpfActive_)
             src = scFilter_.process(src);
         const float det = (detection_ == Detection::feedBack) ? prevOutput_ : src;
-        const float envDb = detector_.process(det);
-        const float denom = refHi_ - refLo_;
-        // Guard a degenerate (zero-width or inverted) window to a bounded 0 —
-        // never a divide-by-zero / NaN (Constitution V: no silent degeneracy).
-        float norm = (denom > 0.0f) ? (envDb - refLo_) / denom : 0.0f;
-        norm = clampf(norm, 0.0f, 1.0f);
-        lastNorm_ = norm; // control-rate carry for the effect's per-block newBlock()
-        return norm;
+        return normalizedFrom(det);
     }
+
+    // Linked stereo shared-detection path (FR-013/SC-011). The routing supplies
+    // the cross-channel detection source it chose — in feedforward the largest-
+    // magnitude input, in feedBack the largest-magnitude previous OUTPUT across
+    // the linked channels — and this runs the detector + window normalize on it.
+    // The per-channel key/HPF/topology fork is intentionally NOT re-applied: the
+    // routing already resolved the source, and (matching per-channel feedback,
+    // which taps the un-HPF'd previous output) the SC-HPF does not apply to a
+    // fed-back output. One shared norm still drives every channel, so the stereo
+    // image stays stable — the max is over channels, not a per-channel detector.
+    float detectNormShared(float sharedSrc) noexcept { return normalizedFrom(sharedSrc); }
+
+    // Cross-thread-free accessors used by the linked routing (control/audio
+    // thread; pure reads). prevOutput() is the feedback tap value; feedback
+    // topology selects the output-domain cross-channel max in linked mode.
+    float prevOutput() const noexcept { return prevOutput_; }
+    bool feedbackDetection() const noexcept { return detection_ == Detection::feedBack; }
 
     // Apply the modulation half for a pre-computed normalized envelope `norm`.
     // perChannel passes each channel's OWN detectNorm result; linked passes ONE
@@ -293,6 +303,20 @@ private:
         return std::min(std::max(v, lo), hi);
     }
 
+    // Run the detector on a resolved detection source and normalize its dB
+    // envelope over the reference window into [0,1]; carry lastNorm_ for the
+    // effect's per-block newBlock(). Shared by detectNorm (per-channel) and
+    // detectNormShared (linked). A degenerate (zero-width or inverted) window is
+    // guarded to a bounded 0 — never a divide-by-zero / NaN (Constitution V).
+    float normalizedFrom(float det) noexcept {
+        const float envDb = detector_.process(det);
+        const float denom = refHi_ - refLo_;
+        float norm = (denom > 0.0f) ? (envDb - refLo_) / denom : 0.0f;
+        norm = clampf(norm, 0.0f, 1.0f);
+        lastNorm_ = norm;
+        return norm;
+    }
+
     // (Re)configure the sidechain highpass from scHpfHz_. hz<=0 bypasses (the
     // flag short-circuits scFilter_ in process()). A positive cutoff is clamped
     // just under DaisySP's sampleRate/3 stability bound (mirrors SaturationCore's
@@ -322,6 +346,15 @@ private:
     // descriptor; bias/tone the ±1 half-span from center; mix across the whole
     // 0..1 range). All get clamped to the native range afterward.
     // -------------------------------------------------------------------
+    // Modulation spans (tuning-pass placeholders). NEGATIVE-DEPTH NOTE (TASK-5):
+    // with a negative drive depth the drive offset falls with level at slope
+    // kDriveSpanDb / windowWidthDb dB per input-dB. At the default −60..0 dBFS
+    // window that is 48/60 = 0.8 < 1, so rising input level (1 dB/dB) outpaces the
+    // drive reduction — negative depth SLOWS the THD rise rather than reversing
+    // it. Genuine "less saturation as it gets louder" softening requires a window
+    // NARROWER than the drive span (e.g. −30..0 via setRefWindow). This is a
+    // tuning characteristic of the window/span relationship, not a correctness
+    // guarantee; reconciling the default is a captured tuning-pass decision.
     static constexpr float kDriveSpanDb = 48.0f; // full drive descriptor range
     static constexpr float kBiasSpan    = 1.0f;  // ±1 half-span from center
     static constexpr float kToneSpan    = 1.0f;  // ±1 half-span from center

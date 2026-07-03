@@ -259,9 +259,9 @@ TEST_CASE("T038/SC-014: extreme modulation depth (all targets, both signs, every
 TEST_CASE("T038/SC-014: very short attack/release at a low sample rate stays finite and bounded") {
     effectBattery("short-tau @ 8kHz", 8000.0, 64, 1, [](ProgramDependentSaturationEffect& fx) {
         fx.setParameter(ParamId{ProgramDependentSaturationEffect::kAttack},
-                        normFor(ProgramDependentSaturationEffect::kAttack, 0.1f));   // ms (min)
+                        normFor(ProgramDependentSaturationEffect::kAttack, 0.0001f));   // s (min)
         fx.setParameter(ParamId{ProgramDependentSaturationEffect::kRelease},
-                        normFor(ProgramDependentSaturationEffect::kRelease, 1.0f));  // ms (min)
+                        normFor(ProgramDependentSaturationEffect::kRelease, 0.001f));    // s (min)
         fx.setParameter(ParamId{ProgramDependentSaturationEffect::kDrive},
                         normFor(ProgramDependentSaturationEffect::kDrive, 18.0f));
         setAllDepths(fx, 1.0f, 2.0f); // full depth, exp curve: hardest on the coeffs
