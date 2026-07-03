@@ -17,6 +17,16 @@
 
 **Input**: Design record: `docs/superpowers/specs/2026-07-03-tape-dynamics-design.md` (approved 2026-07-03). Roadmap item: `design:feature/tape-dynamics`, part-of `multi:feature/phase-dynamic-systems`, depends-on `multi:feature/phase-nonlinear-dsp` (closed, validated).
 
+## Clarifications
+
+### Session 2026-07-03
+
+- Q: OQ1 — Which numerical solver(s) ship in the first implementation cut? → A: All three — RK2, RK4, and Newton-Raphson — in the first cut (the selectable-solver tradeoff is the feature's core numerical-methods lesson; shipping all three delivers it fully).
+- Q: OQ2 — Does the optional explicit envelope-driven trim (US6 / FR-011) land in the first cut? → A: Yes — included in the first cut (bit-exact no-op when disabled; completes the "both, layered" compression identity).
+- Q: OQ4 — Which oversampling factors are exposed, and what is the default? → A: Menu {2×, 4×, 8×, 16×}, default 8× (exact sweet spot still tuned against the alias-sweep harness during implementation).
+- Q: OQ3 — Concrete parameter ranges/mapping for the physics macros? → A: Deferred to implementation — musically useful ranges tuned against harness measurements (as the `saturation` voicings were); not an architecture-blocking decision.
+- Q: OQ5 — Does `Hysteresis` get its own `tests/core/` unit file in addition to the lab harness? → A: Yes — a dedicated `tests/core/hysteresis-test.cpp`, mirroring `tests/core/delay-line-test.cpp`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" of this feature is threefold, matching the platform's audience framing (as in `compressors` / `program-dependent-saturation`):
@@ -157,7 +167,7 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 - **FR-002**: The primitive MUST expose the five physical parameters — `Ms` (saturation magnetization / ceiling), `a` (anhysteretic shape), `α` (inter-domain coupling), `k` (coercivity → loop width / memory), `c` (reversibility → loop openness) — via per-parameter setters.
 - **FR-003**: The primitive MUST hold runtime state (magnetization `M`, previous field `H`, and the field rate `dH/dt` as required by the model) and provide `reset()` to return all state to a defined initial condition and `prepare(sampleRate)` to configure the integrator step size.
 - **FR-004**: The primitive MUST provide a per-sample `float process(float H)` that advances the model by one step and returns the updated magnetization-derived output.
-- **FR-005**: The primitive MUST support a selectable numerical solver via a `Solver` enum with at least **RK2**, **RK4** (explicit), and **Newton-Raphson** (implicit) members, selectable at runtime.
+- **FR-005**: The primitive MUST support a selectable numerical solver via a `Solver` enum with **RK2**, **RK4** (explicit), and **Newton-Raphson** (implicit) members, selectable at runtime. All three MUST be implemented in the first cut (clarified 2026-07-03, OQ1).
 - **FR-006**: The primitive MUST guard the stiff-solver state: on any step that would produce a non-finite or out-of-range result, it MUST resolve to a defined, stable state (clamp/deNaN) and MUST NOT propagate NaN/Inf.
 - **FR-007**: The primitive MUST hold no platform dependencies (standard library only; no JUCE/libDaisy/Teensy) and MUST be RT-safe: no heap allocation or locks in `process()`, O(1) bounded work per sample, all state preallocated in `prepare()`.
 
@@ -165,8 +175,8 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 
 - **FR-008**: The system MUST provide a `TapeDynamicsEffect` under `core/effects/tape-dynamics/` (split into core / effect / parameters / presets) conforming to the platform `Effect` concept: `prepare(ProcessContext)` and `process(AudioBlock)`.
 - **FR-009**: The effect MUST run the Jiles-Atherton integration under the shipped `Oversampler<Factor>`, passing the per-sample JA step as the `evalAtHighRate` callable of `Oversampler<Factor>::process(x, eval)` — reusing the existing oversampler without modification.
-- **FR-010**: The effect MUST expose host-facing macro parameters that map to the physics: `drive` (input gain into the magnetics), `saturation`/`ceiling` (→ `Ms`), `width` (→ `k`), `solver` (RK2/RK4/Newton), `oversampling` (factor select), `mix` (dry/wet), and `output` (makeup gain).
-- **FR-011**: The effect MUST provide an **optional** explicit envelope-driven trim composing the shipped `EnvelopeFollower` and `GainComputer`, controlled by `trim.enabled`, `trim.attack`, `trim.release`, and `trim.amount`. When `trim.enabled` is false, the signal path MUST equal the magnetics-only core path exactly.
+- **FR-010**: The effect MUST expose host-facing macro parameters that map to the physics: `drive` (input gain into the magnetics), `saturation`/`ceiling` (→ `Ms`), `width` (→ `k`), `solver` (RK2/RK4/Newton), `oversampling` (factor select), `mix` (dry/wet), and `output` (makeup gain). The `oversampling` parameter MUST expose the factor menu **{2×, 4×, 8×, 16×}** with a default of **8×** (clarified 2026-07-03, OQ4). Concrete numeric ranges/mappings for the physics macros are tuned during implementation against the analysis harness (OQ3, deferred).
+- **FR-011**: The effect MUST provide an **optional** explicit envelope-driven trim composing the shipped `EnvelopeFollower` and `GainComputer`, controlled by `trim.enabled`, `trim.attack`, `trim.release`, and `trim.amount`. When `trim.enabled` is false, the signal path MUST equal the magnetics-only core path exactly. This layer is **included in the first cut** (clarified 2026-07-03, OQ2).
 - **FR-012**: The effect MUST NOT expose emergent dynamic compression as a parameter; it is an inherent property of the saturating magnetics, surfaced only through the level response and lab measurement.
 - **FR-013**: The effect MUST provide named presets (starting points) in `tape-dynamics-presets.h`.
 - **FR-014**: The effect MUST be RT-safe (FR-007 conditions) and provide a defined unity passthrough at `drive` = 0 / bypass.
@@ -184,6 +194,7 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 - **FR-020**: The system MUST validate emergent compression: with the explicit trim disabled, the output-vs-input level curve is monotonic and compressive above a threshold, and a dynamic-range-reduction metric increases with `drive`.
 - **FR-021**: The system MUST validate THD/aliasing versus the oversampling factor, reusing the existing analysis harness (`host/analysis/thdn.h`, `alias-sweep.h`).
 - **FR-022**: The system MUST validate passthrough and guards: `drive` = 0 / bypass ≈ unity gain, and output remains NaN/Inf-free under extreme drive and parameter sweeps.
+- **FR-024**: The system MUST provide a dedicated `tests/core/hysteresis-test.cpp` unit test for the graduated primitive (in addition to the lab harness), mirroring `tests/core/delay-line-test.cpp` (clarified 2026-07-03, OQ5).
 
 **Out of scope (explicitly deferred — MUST NOT front-run later phases)**
 
@@ -216,12 +227,12 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 - **Host-side validation only**: no hardware/DAW dependency in the acceptance path (Principle VIII); DAW/hardware acceptance, if any, is a separate downstream step.
 - **Parameter mapping/ranges** use reasonable musical defaults to be tuned against harness measurements during implementation (as the `saturation` voicings were), pending the clarify pass below.
 
-### Open questions deferred to `/speckit-clarify` (sequencing, not scope)
+### Open questions — resolved in the 2026-07-03 clarify session
 
-Per the capture-over-YAGNI house rule these are *sequencing* decisions, not scope cuts — the full surface is specified above; the clarify pass decides first-cut ordering:
+All five sequencing open questions are now resolved (see `## Clarifications`); recorded here for traceability:
 
-- **OQ1**: which solver(s) ship in the first implementation cut (e.g. RK4-only first, or RK2 + RK4 + Newton together).
-- **OQ2**: whether the optional explicit-trim compression layer (US6 / FR-011) lands in the first cut or a follow-up.
-- **OQ3**: concrete parameter ranges/mapping for the physics macros (`drive`, `saturation`→`Ms`, `width`→`k`).
-- **OQ4**: default oversampling factor and the exposed factor menu (which `Oversampler<Factor>` instantiations to build), bounded by embedded CPU targets.
-- **OQ5**: whether `Hysteresis` warrants its own `tests/core/` unit file in addition to the lab harness (expected yes, mirroring `delay-line-test.cpp`).
+- **OQ1** → **Resolved**: all three solvers (RK2 + RK4 + Newton) ship in the first cut (FR-005).
+- **OQ2** → **Resolved**: the optional explicit-trim layer is included in the first cut (FR-011, US6).
+- **OQ3** → **Deferred to implementation**: physics-macro ranges/mappings tuned against the analysis harness (FR-010); not architecture-blocking.
+- **OQ4** → **Resolved**: oversampling menu {2×, 4×, 8×, 16×}, default 8× (FR-010).
+- **OQ5** → **Resolved**: a dedicated `tests/core/hysteresis-test.cpp` in addition to the lab harness (FR-024).
