@@ -360,13 +360,15 @@ private:
         for (int ch = 0; ch < numChannels_; ++ch)
             cores_[static_cast<std::size_t>(ch)].setCurve(target, curve);
     }
-    // DynamicPreset apply (T030 / FR-014). `none` is a no-op (byte-identical to
-    // the constructor defaults, so it never clobbers a hand-dialed matrix);
-    // opto/variMu/tapeComp write their documented matrix (program-dependent-
-    // saturation-presets.h) to every core — a starting point, not a lock.
+    // DynamicPreset apply (T030 / FR-014). Selecting ANY preset — including
+    // `none` — writes its documented matrix (…-presets.h) to every core.
+    // Re-selecting `none` therefore RESETS the matrix to the neutral all-zero
+    // baseline (SC-008), rather than leaving a prior preset's matrix in effect.
+    // Each preset is a starting point, not a lock: a subsequent manual per-param
+    // edit still overrides (the preset applies FIRST in applyPending()). A
+    // hand-dialed matrix that never (re)selects a preset is untouched, since
+    // applyDynamicPreset() only fires on a dynamicPreset edit.
     void applyDynamicPreset() noexcept {
-        if (dynamicPreset_ == DynamicPreset::none)
-            return; // neutral baseline — see the header note
         writePreset(kPdsPresetConfigs[static_cast<std::size_t>(dynamicPreset_)]);
     }
 

@@ -146,7 +146,15 @@ public:
         switch (target) {
         case ModTarget::drive: driveMod_.setDepth(signedDepth); break;
         case ModTarget::bias:  biasMod_.setDepth(signedDepth); break;
-        case ModTarget::tone:  toneMod_.setDepth(signedDepth); toneDepth_ = signedDepth; break;
+        case ModTarget::tone:
+            toneMod_.setDepth(signedDepth);
+            toneDepth_ = signedDepth;
+            // Disabling tone modulation must REVERT saturation_ to the static
+            // tilt (FR-007): newBlock() no-ops at depth 0, so without this the
+            // tone would freeze at its last modulated value. Control-thread only.
+            if (signedDepth == 0.0f)
+                saturation_.setTone(staticTone_);
+            break;
         case ModTarget::mix:   mixMod_.setDepth(signedDepth); break;
         }
     }

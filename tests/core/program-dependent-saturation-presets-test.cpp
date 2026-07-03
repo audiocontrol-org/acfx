@@ -288,3 +288,89 @@ TEST_CASE("a manual setParameter after a preset selection overrides that preset 
         CHECK(repeat[i] == doctest::Approx(overridden[i]));
     }
 }
+
+// ---------------------------------------------------------------------------
+// TEST 4: Re-selecting `none` after a named preset RESETS the matrix to the
+// neutral all-zero baseline (T029, US9, SC-008) — not a no-op that leaves the
+// prior preset's matrix in effect. Regression for the code-review finding.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("re-selecting `none` after a named preset resets the matrix to neutral "
+          "(T029, US9, SC-008)") {
+    constexpr int kBlockSize = 4800;
+    constexpr float kSampleRate = 48000.0f;
+
+    // Render several blocks and keep the LAST, so the saturator's internal
+    // transients (DC blocker, shaper/tilt history) settle — the comparison is on
+    // STEADY output, isolating the matrix state from warm-vs-cold filter state.
+    auto settled = [&](ProgramDependentSaturationEffect& e) {
+        std::vector<float> last;
+        for (int b = 0; b < 8; ++b)
+            last = renderTone(e, kBlockSize, kSampleRate);
+        return last;
+    };
+
+    // Fresh `none` baseline (the neutral static saturator), settled.
+    ProgramDependentSaturationEffect baselineFx;
+    baselineFx.prepare(ProcessContext{static_cast<double>(kSampleRate), kBlockSize, 1});
+    const std::vector<float> baseline = settled(baselineFx);
+
+    // opto (engages a nonzero drive matrix), THEN none (must reset to neutral).
+    ProgramDependentSaturationEffect fx;
+    fx.prepare(ProcessContext{static_cast<double>(kSampleRate), kBlockSize, 1});
+    selectPreset(fx, DynamicPreset::opto);
+    (void)settled(fx);
+    selectPreset(fx, DynamicPreset::none);
+    const std::vector<float> afterNone = settled(fx);
+
+    REQUIRE(afterNone.size() == baseline.size());
+    for (float v : afterNone)
+        REQUIRE(std::isfinite(v));
+    const double diff = maxAbsDiff(afterNone, baseline);
+    INFO("opto->none vs fresh-none settled baseline maxdiff=" << diff);
+    CHECK(diff < 1.0e-5); // matrix fully reset — no residual opto modulation
+}
+
+// ---------------------------------------------------------------------------
+// TEST 5: Disabling tone depth (toneDepth -> 0) REVERTS the tone tilt to its
+// static value (FR-007) — newBlock() no-ops at depth 0, so the setDepth path
+// must restore saturation_'s static tilt. Regression for the code-review finding.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("disabling tone depth reverts the tone tilt to its static value (FR-007)") {
+    constexpr int kBlockSize = 4800;
+    constexpr float kSampleRate = 48000.0f;
+
+    auto settled = [&](ProgramDependentSaturationEffect& e) {
+        std::vector<float> last;
+        for (int b = 0; b < 8; ++b)
+            last = renderTone(e, kBlockSize, kSampleRate);
+        return last;
+    };
+
+    // Reference: a nonzero STATIC tone, tone modulation never engaged, settled.
+    ProgramDependentSaturationEffect refFx;
+    refFx.prepare(ProcessContext{static_cast<double>(kSampleRate), kBlockSize, 1});
+    refFx.setParameter(ParamId{ProgramDependentSaturationEffect::kTone},
+                       normFor(ProgramDependentSaturationEffect::kTone, 0.5f));
+    const std::vector<float> ref = settled(refFx);
+
+    // Same static tone; engage tone modulation, then disable it.
+    ProgramDependentSaturationEffect fx;
+    fx.prepare(ProcessContext{static_cast<double>(kSampleRate), kBlockSize, 1});
+    fx.setParameter(ParamId{ProgramDependentSaturationEffect::kTone},
+                    normFor(ProgramDependentSaturationEffect::kTone, 0.5f));
+    fx.setParameter(ParamId{ProgramDependentSaturationEffect::kToneDepth},
+                    normFor(ProgramDependentSaturationEffect::kToneDepth, 0.8f));
+    (void)settled(fx); // tone modulated away from 0.5
+    fx.setParameter(ParamId{ProgramDependentSaturationEffect::kToneDepth},
+                    normFor(ProgramDependentSaturationEffect::kToneDepth, 0.0f));
+    const std::vector<float> afterDisable = settled(fx);
+
+    REQUIRE(afterDisable.size() == ref.size());
+    for (float v : afterDisable)
+        REQUIRE(std::isfinite(v));
+    const double diff = maxAbsDiff(afterDisable, ref);
+    INFO("tone depth->0 vs static-tone reference maxdiff=" << diff);
+    CHECK(diff < 1.0e-4); // tone reverted to the static tilt
+}

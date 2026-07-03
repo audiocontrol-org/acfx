@@ -63,7 +63,11 @@ public:
     // (FR-021). depth is clamped to [-1,+1]; its sign selects direction
     // (positive grows with envelope, negative falls) and its magnitude scales.
     void setDepth(float signedDepth) noexcept {
-        depth_ = signedDepth < -1.0f ? -1.0f
+        // NaN maps to 0 (all comparisons with NaN are false, so a bare clamp
+        // ternary would pass it through and modulate() would emit NaN — the
+        // silent degeneracy FR-021 forbids). Guard it explicitly.
+        depth_ = !(signedDepth == signedDepth) ? 0.0f
+               : signedDepth < -1.0f ? -1.0f
                : signedDepth >  1.0f ?  1.0f
                : signedDepth;
     }

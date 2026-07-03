@@ -23,9 +23,10 @@
 // OVERRIDE SEMANTICS (US9 Deferred): a preset is a STARTING POINT, not a lock.
 // Selecting a preset writes this matrix; a subsequent manual setParameter on any
 // depth/curve (or detector/timing) param overrides that individual value on the
-// next process() — the preset does not re-assert itself. (`none` is the neutral
-// baseline: it equals the effect's constructor defaults, so it is applied as a
-// no-op that never clobbers a hand-dialed matrix — see applyDynamicPreset.)
+// next process() — the preset does not re-assert itself. Selecting `none` writes
+// its all-zero row here, RESETTING the matrix to the neutral baseline (SC-008),
+// not a no-op. A hand-dialed matrix that never (re)selects a preset is untouched,
+// since applyDynamicPreset() fires only on a dynamicPreset edit.
 //
 // THE NUMERIC DEPTHS / CURVES / TOPOLOGY / TIMINGS BELOW ARE TUNING-PASS
 // PLACEHOLDERS (research.md Decision 7 "Open (tuning-pass)"): the CHARACTER each
