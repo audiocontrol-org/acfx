@@ -135,6 +135,19 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   target_link_libraries(acfx_lab_saturation_harness PRIVATE acfx_core acfx_analysis)
   target_compile_features(acfx_lab_saturation_harness PRIVATE cxx_std_20)
 
+  # Program-dependent saturation lab harness — same linkage as
+  # acfx_lab_saturation_harness. Minimal stub (task T005: Setup phase); real
+  # measurement evidence (task T039) will extend this with orthogonality/THD-vs-
+  # level/step-response measurements via the shared measurement infrastructure
+  # (tests/core/measurement-support.h). Header-only dependency, so only the
+  # include path is needed.
+  add_executable(acfx_lab_program_dependent_saturation_harness
+    core/labs/program-dependent-saturation/harness/program-dependent-saturation-harness.cpp
+  )
+  target_include_directories(acfx_lab_program_dependent_saturation_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+  target_link_libraries(acfx_lab_program_dependent_saturation_harness PRIVATE acfx_core acfx_analysis)
+  target_compile_features(acfx_lab_program_dependent_saturation_harness PRIVATE cxx_std_20)
+
   # Envelope-follower lab harness — same linkage as acfx_lab_saturation_harness,
   # plus the tests/ include root: like the saturation harness, this harness
   # drives its measurements through the SHARED measurement infrastructure

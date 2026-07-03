@@ -108,6 +108,18 @@ add_executable(acfx_core_tests
   core/compressor-makeup-link-test.cpp
   core/compressor-effect-test.cpp
   core/compressor-no-allocation-test.cpp
+  # ---------------------------------------------------------------------------
+  # Program-dependent-saturation test suites (program-dependent-saturation
+  # feature): T006 registration; story tasks fill assertions.
+  # ---------------------------------------------------------------------------
+  core/dynamics-modulator-test.cpp
+  core/program-dependent-saturation-orthogonality-test.cpp
+  core/program-dependent-saturation-test.cpp
+  core/program-dependent-saturation-matrix-test.cpp
+  core/program-dependent-saturation-topology-test.cpp
+  core/program-dependent-saturation-presets-test.cpp
+  core/program-dependent-saturation-sidechain-test.cpp
+  core/program-dependent-saturation-effect-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
