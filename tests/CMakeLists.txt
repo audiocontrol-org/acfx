@@ -108,6 +108,29 @@ add_executable(acfx_core_tests
   core/compressor-makeup-link-test.cpp
   core/compressor-effect-test.cpp
   core/compressor-no-allocation-test.cpp
+  # ---------------------------------------------------------------------------
+  # Program-dependent-saturation test suites (program-dependent-saturation
+  # feature): T006 registration; story tasks fill assertions.
+  # ---------------------------------------------------------------------------
+  core/dynamics-modulator-test.cpp
+  core/program-dependent-saturation-orthogonality-test.cpp
+  core/program-dependent-saturation-test.cpp
+  core/program-dependent-saturation-matrix-test.cpp
+  core/program-dependent-saturation-topology-test.cpp
+  core/program-dependent-saturation-presets-test.cpp
+  core/program-dependent-saturation-sidechain-test.cpp
+  core/program-dependent-saturation-effect-test.cpp
+  # T037 -- the ProgramDependentSaturationEffect::process() no-allocation
+  # invariant (SC-013), split out of no-allocation-test.cpp for the module
+  # budget (mirrors compressor-no-allocation-test.cpp).
+  core/program-dependent-saturation-no-allocation-test.cpp
+  # T038 -- SC-014 numerical-safety battery (no NaN/Inf + bounded output for
+  # pathological stimuli x configs; modulated params stay in SaturationCore's
+  # valid range via the FR-010 clamps).
+  core/program-dependent-saturation-safety-test.cpp
+  # Review round 2 -- compile-time guard that the compressor and PDS effect
+  # headers coexist in one TU (no acfx-scope enum redefinition, e.g. Detection).
+  core/pds-compressor-coexist-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

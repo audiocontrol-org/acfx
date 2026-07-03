@@ -58,6 +58,17 @@
 #      harness-free — explicit named coverage per FR-027 (compressor T007); passes
 #      vacuously when the directory is absent or empty (pre-implementation); MAY include
 #      core/dsp/ and the shipped primitives (that is allowed for effects)
+#   C-PDS-PRIM. core/primitives/dynamics/dynamics-modulator.h (when present) is
+#      gate-ready: platform-free, effects-free, harness-free — explicit named coverage
+#      per FR-024 (program-dependent-saturation T007), for parity with C-CMP-PRIM;
+#      passes vacuously until graduation (T009) lands the file
+#   C-PDS-LAB. program-dependent-saturation lab kernel headers
+#      (core/labs/program-dependent-saturation/*.h, non-harness) are harness-free and
+#      platform-free — explicit named coverage per FR-024 (T007)
+#   C-PDS-SFX. core/effects/program-dependent-saturation/ (when present) is gate-ready:
+#      platform-free, harness-free — explicit named coverage per FR-024 (T007); passes
+#      vacuously when the directory is absent or empty (pre-implementation); MAY include
+#      the shipped primitives + core/effects/saturation (SaturationCore)
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -426,6 +437,74 @@ else
     fi
   done <<< "$_ccmpsfx_files"
   [ "$_ccmpsfx_fail" -eq 0 ] && note "  OK: core/effects/compressor/ is platform-free and harness-free"
+fi
+
+note "== C-PDS-PRIM. core/primitives/dynamics/dynamics-modulator.h: gate-ready when present (FR-024) =="
+_cpdsprim_files=$(find core/primitives/dynamics -type f -name 'dynamics-modulator.h' 2>/dev/null)
+if [ -z "$_cpdsprim_files" ]; then
+  note "  OK (vacuous): core/primitives/dynamics/dynamics-modulator.h absent — gate ready for graduation (T009)"
+else
+  _cpdsprim_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: dynamics-modulator primitive includes a platform header"
+      _cpdsprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*effects/' "$f" 2>/dev/null; then
+      note "  FAIL $f: dynamics-modulator primitive includes an effects/ path"
+      _cpdsprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: dynamics-modulator primitive includes a harness path"
+      _cpdsprim_fail=1
+      fail=1
+    fi
+  done <<< "$_cpdsprim_files"
+  [ "$_cpdsprim_fail" -eq 0 ] && note "  OK: core/primitives/dynamics/dynamics-modulator.h is platform-free, effects-free, and harness-free"
+fi
+
+note "== C-PDS-LAB. program-dependent-saturation lab kernel headers: harness-free + platform-free (FR-024) =="
+_cpdslab_files=$(find core/labs/program-dependent-saturation -type f -name '*.h' -not -path '*/harness/*' 2>/dev/null)
+if [ -z "$_cpdslab_files" ]; then
+  note "  OK (vacuous): core/labs/program-dependent-saturation/ has no non-harness kernel headers — gate ready"
+else
+  _cpdslab_fail=0
+  while IFS= read -r f; do
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: program-dependent-saturation kernel header includes a harness path"
+      _cpdslab_fail=1
+      fail=1
+    fi
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: program-dependent-saturation kernel header includes a platform header"
+      _cpdslab_fail=1
+      fail=1
+    fi
+  done <<< "$_cpdslab_files"
+  [ "$_cpdslab_fail" -eq 0 ] && note "  OK: program-dependent-saturation lab kernel headers are harness-free and platform-free"
+fi
+
+note "== C-PDS-SFX. core/effects/program-dependent-saturation: gate-ready when present (FR-024) =="
+_cpdssfx_files=$(find core/effects/program-dependent-saturation -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_cpdssfx_files" ]; then
+  note "  OK (vacuous): core/effects/program-dependent-saturation/ absent or empty — gate ready"
+else
+  _cpdssfx_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: program-dependent-saturation effect includes a platform header"
+      _cpdssfx_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: program-dependent-saturation effect includes a harness path"
+      _cpdssfx_fail=1
+      fail=1
+    fi
+  done <<< "$_cpdssfx_files"
+  [ "$_cpdssfx_fail" -eq 0 ] && note "  OK: core/effects/program-dependent-saturation/ is platform-free and harness-free"
 fi
 
 if [ "$fail" -eq 0 ]; then
