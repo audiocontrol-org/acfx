@@ -109,7 +109,7 @@ void configurePdSaturationCore(acfx::ProgramDependentSaturationCore& core,
     core.setBallistics(Ballistics::branching);
     core.setAttack(kAttackMs / 1000.0f);
     core.setRelease(kReleaseMs / 1000.0f);
-    core.setDetection(Detection::feedForward);
+    core.setDetection(PdsDetection::feedForward);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ void runThdVsLevelTest() {
 
         // Enable feedforward drive modulation (depth = 1.0 means full swing)
         core.setDepth(ModTarget::drive, 1.0f);
-        core.setDetection(Detection::feedForward);
+        core.setDetection(PdsDetection::feedForward);
 
         // Warm up through transient
         for (int i = 0; i < kTransientSamples; ++i) {
@@ -227,7 +227,7 @@ void runStepResponseTest() {
 
     // Enable feedforward drive modulation
     core.setDepth(ModTarget::drive, 0.8f);
-    core.setDetection(Detection::feedForward);
+    core.setDetection(PdsDetection::feedForward);
 
     // Step response: quiet -> loud -> quiet
     const float quietLevel = 0.01f;   // -40 dBFS

@@ -49,7 +49,7 @@
 namespace acfx {
 
 enum class ModTarget : std::uint8_t { drive, bias, tone, mix };
-enum class Detection : std::uint8_t { feedForward, feedBack };
+enum class PdsDetection : std::uint8_t { feedForward, feedBack };
 
 class ProgramDependentSaturationCore {
 public:
@@ -129,7 +129,7 @@ public:
     void setBallistics(Ballistics ballistics) noexcept { detector_.setBallistics(ballistics); }
     void setAttack(float seconds) noexcept { detector_.setAttack(seconds); }
     void setRelease(float seconds) noexcept { detector_.setRelease(seconds); }
-    void setDetection(Detection detection) noexcept { detection_ = detection; }
+    void setDetection(PdsDetection detection) noexcept { detection_ = detection; }
     // Normalization window (default −60..0 dBFS). Degenerate (lo==hi) windows are
     // tolerated: process() guards the zero-width divide to a bounded norm of 0.
     void setRefWindow(float loDb, float hiDb) noexcept {
@@ -247,7 +247,7 @@ public:
         float src = externalKey_ ? key : x;
         if (scHpfActive_)
             src = scFilter_.process(src);
-        const float det = (detection_ == Detection::feedBack) ? prevOutput_ : src;
+        const float det = (detection_ == PdsDetection::feedBack) ? prevOutput_ : src;
         return normalizedFrom(det);
     }
 
@@ -266,7 +266,7 @@ public:
     // thread; pure reads). prevOutput() is the feedback tap value; feedback
     // topology selects the output-domain cross-channel max in linked mode.
     float prevOutput() const noexcept { return prevOutput_; }
-    bool feedbackDetection() const noexcept { return detection_ == Detection::feedBack; }
+    bool feedbackDetection() const noexcept { return detection_ == PdsDetection::feedBack; }
 
     // Apply the modulation half for a pre-computed normalized envelope `norm`.
     // perChannel passes each channel's OWN detectNorm result; linked passes ONE
@@ -388,7 +388,7 @@ private:
     // -------------------------------------------------------------------
     // Detector / sidechain / topology configuration.
     // -------------------------------------------------------------------
-    Detection detection_   = Detection::feedForward;
+    PdsDetection detection_   = PdsDetection::feedForward;
     float     refLo_       = -60.0f; // normalization window low (dBFS)
     float     refHi_       = 0.0f;   // normalization window high (dBFS)
     bool      externalKey_ = false;

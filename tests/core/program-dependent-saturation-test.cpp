@@ -107,7 +107,7 @@ void configureDriveThdCore(ProgramDependentSaturationCore& core,
     core.setQuality(SaturationQuality::adaa);
     core.setDetectorMode(DetectMode::rms);
     core.setBallistics(Ballistics::branching);
-    core.setDetection(Detection::feedForward);
+    core.setDetection(PdsDetection::feedForward);
     core.setAttack(0.010f);
     core.setRelease(0.100f);
     core.setRefWindow(refLoDb, refHiDb);
@@ -201,7 +201,7 @@ void configureStepCore(ProgramDependentSaturationCore& core, DetectMode mode,
     core.setQuality(SaturationQuality::adaa);
     core.setDetectorMode(mode);
     core.setBallistics(Ballistics::branching);
-    core.setDetection(Detection::feedForward);
+    core.setDetection(PdsDetection::feedForward);
     core.setAttack(attackSeconds);
     core.setRelease(releaseSeconds);
     core.setStaticDrive(12.0f);

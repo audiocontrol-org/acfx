@@ -52,7 +52,7 @@ struct PdsPresetConfig {
     PdsPresetTargetConfig bias;
     PdsPresetTargetConfig tone;
     PdsPresetTargetConfig mix;
-    Detection  detection  = Detection::feedForward;
+    PdsDetection  detection  = PdsDetection::feedForward;
     DetectMode detector   = DetectMode::rms;
     Ballistics ballistics = Ballistics::branching;
     float      attackMs   = 10.0f;
@@ -69,7 +69,7 @@ inline constexpr std::array<PdsPresetConfig, 4> kPdsPresetConfigs = {{
                     {0.0f, ModCurve::linear},
                     {0.0f, ModCurve::linear},
                     {0.0f, ModCurve::linear},
-                    Detection::feedForward, DetectMode::rms, Ballistics::branching,
+                    PdsDetection::feedForward, DetectMode::rms, Ballistics::branching,
                     10.0f, 100.0f},
 
     // opto — optical character: slow, level-smoothed DOWNWARD drive softening.
@@ -80,7 +80,7 @@ inline constexpr std::array<PdsPresetConfig, 4> kPdsPresetConfigs = {{
                     {0.0f, ModCurve::linear},
                     {0.0f, ModCurve::linear},
                     {0.0f, ModCurve::linear},
-                    Detection::feedBack, DetectMode::rms, Ballistics::decoupled,
+                    PdsDetection::feedBack, DetectMode::rms, Ballistics::decoupled,
                     50.0f, 500.0f},
 
     // variMu — vari-mu tube character: level-dependent BIAS + DRIVE push. Both
@@ -91,7 +91,7 @@ inline constexpr std::array<PdsPresetConfig, 4> kPdsPresetConfigs = {{
                     {0.40f, ModCurve::linear},
                     {0.0f, ModCurve::linear},
                     {0.0f, ModCurve::linear},
-                    Detection::feedBack, DetectMode::rms, Ballistics::branching,
+                    PdsDetection::feedBack, DetectMode::rms, Ballistics::branching,
                     20.0f, 300.0f},
 
     // tapeComp — tape character: DRIVE push + MIX self-compression. Positive
@@ -103,7 +103,7 @@ inline constexpr std::array<PdsPresetConfig, 4> kPdsPresetConfigs = {{
                     {0.0f, ModCurve::linear},
                     {0.0f, ModCurve::linear},
                     {0.30f, ModCurve::linear},
-                    Detection::feedForward, DetectMode::peak, Ballistics::decoupled,
+                    PdsDetection::feedForward, DetectMode::peak, Ballistics::decoupled,
                     15.0f, 250.0f},
 }};
 

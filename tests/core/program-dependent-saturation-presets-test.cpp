@@ -107,7 +107,7 @@ TEST_CASE("presetConfig() realizes the documented per-preset matrix (T029, US9, 
         CHECK(none.bias.curve == ModCurve::linear);
         CHECK(none.tone.curve == ModCurve::linear);
         CHECK(none.mix.curve == ModCurve::linear);
-        CHECK(none.detection == Detection::feedForward);
+        CHECK(none.detection == PdsDetection::feedForward);
         CHECK(none.detector == DetectMode::rms);
         CHECK(none.ballistics == Ballistics::branching);
         CHECK(none.attackMs == doctest::Approx(10.0f));
@@ -126,7 +126,7 @@ TEST_CASE("presetConfig() realizes the documented per-preset matrix (T029, US9, 
         CHECK(opto.bias.depth == doctest::Approx(0.0f));
         CHECK(opto.tone.depth == doctest::Approx(0.0f));
         CHECK(opto.mix.depth == doctest::Approx(0.0f));
-        CHECK(opto.detection == Detection::feedBack);
+        CHECK(opto.detection == PdsDetection::feedBack);
         CHECK(opto.detector == DetectMode::rms);
         CHECK(opto.ballistics == Ballistics::decoupled);
         CHECK(opto.attackMs == doctest::Approx(50.0f));
@@ -148,7 +148,7 @@ TEST_CASE("presetConfig() realizes the documented per-preset matrix (T029, US9, 
         CHECK(variMu.bias.curve == ModCurve::linear);
         CHECK(variMu.tone.depth == doctest::Approx(0.0f));
         CHECK(variMu.mix.depth == doctest::Approx(0.0f));
-        CHECK(variMu.detection == Detection::feedBack);
+        CHECK(variMu.detection == PdsDetection::feedBack);
         CHECK(variMu.detector == DetectMode::rms);
         CHECK(variMu.ballistics == Ballistics::branching);
         CHECK(variMu.attackMs == doctest::Approx(20.0f));
@@ -169,7 +169,7 @@ TEST_CASE("presetConfig() realizes the documented per-preset matrix (T029, US9, 
         CHECK(tapeComp.mix.curve == ModCurve::linear);
         CHECK(tapeComp.bias.depth == doctest::Approx(0.0f));
         CHECK(tapeComp.tone.depth == doctest::Approx(0.0f));
-        CHECK(tapeComp.detection == Detection::feedForward);
+        CHECK(tapeComp.detection == PdsDetection::feedForward);
         CHECK(tapeComp.detector == DetectMode::peak);
         CHECK(tapeComp.ballistics == Ballistics::decoupled);
         CHECK(tapeComp.attackMs == doctest::Approx(15.0f));

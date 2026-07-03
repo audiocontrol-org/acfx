@@ -353,7 +353,7 @@ TEST_CASE("T038/SC-014: feedback cold start -- the first sample is finite and th
     core.setDepth(ModTarget::bias, 1.0f);
     core.setDepth(ModTarget::mix, 1.0f);
     core.setCurve(ModTarget::drive, ModCurve::exponential);
-    core.setDetection(Detection::feedBack);
+    core.setDetection(PdsDetection::feedBack);
     core.setBallistics(Ballistics::decoupled);
     core.setAttack(0.0001f);
     core.setRelease(0.001f);
@@ -401,7 +401,7 @@ TEST_CASE("T038/SC-014: degenerate reference windows (zero-width and inverted) s
         core.setStaticDrive(18.0f);
         core.setDepth(ModTarget::drive, 1.0f);
         core.setDepth(ModTarget::mix, 1.0f);
-        core.setDetection(Detection::feedBack);
+        core.setDetection(PdsDetection::feedBack);
         core.setRefWindow(0.0f, -60.0f); // hi < lo -> denom < 0, guarded to norm 0
     });
 }

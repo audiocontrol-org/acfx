@@ -184,7 +184,7 @@ void configureBaseline(ProgramDependentSaturationCore& core) {
     core.setBallistics(Ballistics::branching);
     core.setAttack(0.005f);
     core.setRelease(0.050f);
-    core.setDetection(Detection::feedForward);
+    core.setDetection(PdsDetection::feedForward);
     core.setRefWindow(-60.0f, 0.0f);
 
     core.setStaticDrive(0.0f);  // dB

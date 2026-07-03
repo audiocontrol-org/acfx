@@ -46,7 +46,7 @@
 //   * Convergence is a RELATIVE bound (delta as a fraction of the RMS), never an
 //     absolute magic number, so it survives gain-compensation / voicing changes.
 
-using acfx::Detection;
+using acfx::PdsDetection;
 using acfx::ModTarget;
 using acfx::ProgramDependentSaturationCore;
 
@@ -96,7 +96,7 @@ inline constexpr double kMinTrajSeparation = 1.0e-3;
 // ---------------------------------------------------------------------------
 // Build a core wired for the topology comparison, freshly reset (cold start).
 // ---------------------------------------------------------------------------
-ProgramDependentSaturationCore makeCore(Detection detection) {
+ProgramDependentSaturationCore makeCore(PdsDetection detection) {
     ProgramDependentSaturationCore core;
     core.prepare(kSampleRate);
     core.setStaticDrive(kBaseDriveDb);
@@ -118,7 +118,7 @@ struct SteadyRun {
     bool bounded   = true;
 };
 
-SteadyRun driveSteady(Detection detection, int totalSamples) {
+SteadyRun driveSteady(PdsDetection detection, int totalSamples) {
     ProgramDependentSaturationCore core = makeCore(detection);
 
     SteadyRun r;
@@ -201,7 +201,7 @@ double signalRms(const std::vector<float>& v) {
 // ===========================================================================
 
 TEST_CASE("T023/US6 feedback topology settles to a stable, bounded fixed point (SC-006)") {
-    const SteadyRun run = driveSteady(Detection::feedBack, kTotalSamples);
+    const SteadyRun run = driveSteady(PdsDetection::feedBack, kTotalSamples);
 
     // Finite + bounded across the ENTIRE > 200k-sample run: the one-sample-delayed,
     // gain-compensated loop neither diverges nor oscillates (research.md Decision 3).
@@ -220,7 +220,7 @@ TEST_CASE("T023/US6 feedback cold start yields finite output from sample 0 (AC-2
     // A freshly prepared/reset core: prevOutput_ == 0 (a defined floor, never
     // uninitialized). The first sample reads that floor through the detector; the
     // whole first block must be finite with no NaN/Inf from the cold feedback tap.
-    ProgramDependentSaturationCore core = makeCore(Detection::feedBack);
+    ProgramDependentSaturationCore core = makeCore(PdsDetection::feedBack);
 
     const double w = kTwoPi * kSineHz / static_cast<double>(kSampleRate);
 
@@ -241,8 +241,8 @@ TEST_CASE("T023/US6 feedback cold start yields finite output from sample 0 (AC-2
 // ===========================================================================
 
 TEST_CASE("T023/US6 feedforward and feedback trajectories differ yet both converge (SC-006)") {
-    const SteadyRun ff = driveSteady(Detection::feedForward, kTotalSamples);
-    const SteadyRun fb = driveSteady(Detection::feedBack, kTotalSamples);
+    const SteadyRun ff = driveSteady(PdsDetection::feedForward, kTotalSamples);
+    const SteadyRun fb = driveSteady(PdsDetection::feedBack, kTotalSamples);
 
     // Both topologies are finite, bounded, and settle to a stable fixed point.
     checkConverged(ff);

@@ -128,6 +128,9 @@ add_executable(acfx_core_tests
   # pathological stimuli x configs; modulated params stay in SaturationCore's
   # valid range via the FR-010 clamps).
   core/program-dependent-saturation-safety-test.cpp
+  # Review round 2 -- compile-time guard that the compressor and PDS effect
+  # headers coexist in one TU (no acfx-scope enum redefinition, e.g. Detection).
+  core/pds-compressor-coexist-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

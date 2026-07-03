@@ -181,7 +181,7 @@ target's native units — does the unit conversion.
 
 ### Detection topology: feedforward versus feedback
 
-`Detection` selects **what signal the shared detector reads**, and the two
+`PdsDetection` selects **what signal the shared detector reads**, and the two
 choices produce audibly different character:
 
 - **`feedForward`** — the default. The detector reads the (optionally

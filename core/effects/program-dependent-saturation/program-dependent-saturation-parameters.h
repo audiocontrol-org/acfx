@@ -33,7 +33,7 @@
 // toStereoLink() (which return those nested enums) stay member functions of
 // the effect — every OTHER index->enum converter below returns a type owned by
 // an included primitive/core header (SaturationVoicing, SaturationQuality,
-// DetectMode, Ballistics, Detection, ModCurve), so it is free to live here as
+// DetectMode, Ballistics, PdsDetection, ModCurve), so it is free to live here as
 // a plain acfx free function.
 //
 // PARAMETER RANGES ARE A TUNING-PASS OPEN QUESTION. The descriptor shapes
@@ -226,8 +226,8 @@ inline DetectMode toDetectMode(float index) noexcept {
 inline Ballistics toBallistics(float index) noexcept {
     return static_cast<int>(index) == 1 ? Ballistics::decoupled : Ballistics::branching;
 }
-inline Detection toDetection(float index) noexcept {
-    return static_cast<int>(index) == 1 ? Detection::feedBack : Detection::feedForward;
+inline PdsDetection toDetection(float index) noexcept {
+    return static_cast<int>(index) == 1 ? PdsDetection::feedBack : PdsDetection::feedForward;
 }
 inline ModCurve toModCurve(float index) noexcept {
     switch (static_cast<int>(index)) {

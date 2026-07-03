@@ -453,7 +453,7 @@ private:
     Ballistics ballistics_ = Ballistics::branching;
     float attackSeconds_ = kParams[kAttack].defaultValue;  // descriptor is seconds
     float releaseSeconds_ = kParams[kRelease].defaultValue;
-    Detection detection_ = Detection::feedForward;
+    PdsDetection detection_ = PdsDetection::feedForward;
     float driveDepth_ = kParams[kDriveDepth].defaultValue;
     ModCurve driveCurve_ = ModCurve::linear;
     float biasDepth_ = kParams[kBiasDepth].defaultValue;

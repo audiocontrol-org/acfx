@@ -66,7 +66,7 @@ struct PdsSweepConfig {
     ModCurve toneCurve;
     float mixDepth;
     ModCurve mixCurve;
-    Detection detection;
+    PdsDetection detection;
     PdsEffect::DynamicPreset preset;
     bool overrideToneAfterPreset;
     bool externalSidechain;
@@ -78,40 +78,40 @@ constexpr PdsSweepConfig kSc013Sweep[] = {
     // driveDepth+linear, feedForward, no preset, hpfOff, perChannel, internalKey.
     {"drive+0.5/linear/feedForward/hpfOff/perChannel/internalKey",
      0.5f, ModCurve::linear, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear,
-     Detection::feedForward, PdsEffect::DynamicPreset::none, false, false, 0.0f,
+     PdsDetection::feedForward, PdsEffect::DynamicPreset::none, false, false, 0.0f,
      PdsEffect::StereoLink::perChannel},
     // biasDepth+logarithmic, feedBack, hpfOn, linked, externalKey.
     {"bias-0.5/logarithmic/feedBack/hpfOn/linked/externalKey",
      0.0f, ModCurve::linear, -0.5f, ModCurve::logarithmic, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear,
-     Detection::feedBack, PdsEffect::DynamicPreset::none, false, true, 200.0f,
+     PdsDetection::feedBack, PdsEffect::DynamicPreset::none, false, true, 200.0f,
      PdsEffect::StereoLink::linked},
     // toneDepth+exponential (exercises newBlock's real per-block SVF-recompute
     // path, not the zero-depth skip guard), feedForward, hpfOff, perChannel,
     // internalKey.
     {"tone+0.6/exponential/feedForward/hpfOff/perChannel/internalKey",
      0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.6f, ModCurve::exponential, 0.0f, ModCurve::linear,
-     Detection::feedForward, PdsEffect::DynamicPreset::none, false, false, 0.0f,
+     PdsDetection::feedForward, PdsEffect::DynamicPreset::none, false, false, 0.0f,
      PdsEffect::StereoLink::perChannel},
     // mixDepth+linear, feedBack, hpfOn, linked, externalKey.
     {"mix-0.4/linear/feedBack/hpfOn/linked/externalKey",
      0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear, -0.4f, ModCurve::linear,
-     Detection::feedBack, PdsEffect::DynamicPreset::none, false, true, 150.0f,
+     PdsDetection::feedBack, PdsEffect::DynamicPreset::none, false, true, 150.0f,
      PdsEffect::StereoLink::linked},
     // Stress: every target modulated with a different curve at once, feedBack,
     // hpfOn, linked, externalKey.
     {"stress: all 4 targets/mixed curves/feedBack/hpfOn/linked/externalKey",
      0.7f, ModCurve::logarithmic, 0.3f, ModCurve::exponential, -0.4f, ModCurve::linear, 0.2f,
-     ModCurve::logarithmic, Detection::feedBack, PdsEffect::DynamicPreset::none, false, true, 100.0f,
+     ModCurve::logarithmic, PdsDetection::feedBack, PdsEffect::DynamicPreset::none, false, true, 100.0f,
      PdsEffect::StereoLink::linked},
     // opto preset (pure), hpfOff, perChannel, internalKey.
     {"preset=opto/hpfOff/perChannel/internalKey",
      0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear,
-     Detection::feedForward, PdsEffect::DynamicPreset::opto, false, false, 0.0f,
+     PdsDetection::feedForward, PdsEffect::DynamicPreset::opto, false, false, 0.0f,
      PdsEffect::StereoLink::perChannel},
     // tapeComp preset (pure), hpfOff, perChannel, internalKey.
     {"preset=tapeComp/hpfOff/perChannel/internalKey",
      0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.0f, ModCurve::linear,
-     Detection::feedForward, PdsEffect::DynamicPreset::tapeComp, false, false, 0.0f,
+     PdsDetection::feedForward, PdsEffect::DynamicPreset::tapeComp, false, false, 0.0f,
      PdsEffect::StereoLink::perChannel},
     // opto preset + a manual tone-depth override (US9 override semantics: the
     // preset writes toneDepth==0, the override below applies AFTER and must
@@ -119,7 +119,7 @@ constexpr PdsSweepConfig kSc013Sweep[] = {
     // sidechain/link/HPF in one row.
     {"preset=opto + tone override/externalKey/linked/hpfOn",
      0.0f, ModCurve::linear, 0.0f, ModCurve::linear, 0.5f, ModCurve::exponential, 0.0f, ModCurve::linear,
-     Detection::feedForward, PdsEffect::DynamicPreset::opto, true, true, 300.0f,
+     PdsDetection::feedForward, PdsEffect::DynamicPreset::opto, true, true, 300.0f,
      PdsEffect::StereoLink::linked},
 };
 
