@@ -151,6 +151,12 @@ add_executable(acfx_core_tests
   # (US3, SC-002, contract C4), exercised through TapeDynamicsCore<Factor> so
   # the OVERSAMPLED integrator dt is genuinely on the test's axis.
   core/tape-dynamics-solver-test.cpp
+  # T021 -- US4/SC-003/FR-012 emergent-compression acceptance: monotonic
+  # compressive level curve + DRR-rises-with-drive at trim OFF, plus a
+  # compile-time guard that no compression/ratio/threshold parameter exists.
+  # Split out of tape-dynamics-effect-test.cpp to stay under the per-file
+  # line budget.
+  core/tape-dynamics-compression-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
