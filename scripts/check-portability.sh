@@ -69,6 +69,17 @@
 #      platform-free, harness-free — explicit named coverage per FR-024 (T007); passes
 #      vacuously when the directory is absent or empty (pre-implementation); MAY include
 #      the shipped primitives + core/effects/saturation (SaturationCore)
+#   C-TD-PRIM. core/primitives/nonlinear/hysteresis.h (when present) is gate-ready:
+#      platform-free, effects-free, harness-free — explicit named coverage per FR-017
+#      (tape-dynamics T004), for parity with C-CMP-PRIM/C-PDS-PRIM; passes vacuously
+#      until the primitive lands (FR-001/FR-016 graduation)
+#   C-TD-LAB. tape-dynamics lab kernel headers (core/labs/tape-dynamics/**/*.h,
+#      non-harness) are harness-free and platform-free — explicit named coverage per
+#      FR-015/FR-017 (tape-dynamics T004); passes vacuously while only the harness and
+#      an empty kernel/ placeholder exist (pre-T011)
+#   C-TD-SFX. core/effects/tape-dynamics/ (when present) is gate-ready: platform-free,
+#      harness-free — explicit named coverage per FR-008/FR-017 (tape-dynamics T004);
+#      passes vacuously when the directory is absent or empty
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -505,6 +516,74 @@ else
     fi
   done <<< "$_cpdssfx_files"
   [ "$_cpdssfx_fail" -eq 0 ] && note "  OK: core/effects/program-dependent-saturation/ is platform-free and harness-free"
+fi
+
+note "== C-TD-PRIM. core/primitives/nonlinear/hysteresis.h: gate-ready when present (FR-017) =="
+_ctdprim_files=$(find core/primitives/nonlinear -type f -name 'hysteresis.h' 2>/dev/null)
+if [ -z "$_ctdprim_files" ]; then
+  note "  OK (vacuous): core/primitives/nonlinear/hysteresis.h absent — gate ready for graduation"
+else
+  _ctdprim_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: hysteresis primitive includes a platform header"
+      _ctdprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*effects/' "$f" 2>/dev/null; then
+      note "  FAIL $f: hysteresis primitive includes an effects/ path"
+      _ctdprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: hysteresis primitive includes a harness path"
+      _ctdprim_fail=1
+      fail=1
+    fi
+  done <<< "$_ctdprim_files"
+  [ "$_ctdprim_fail" -eq 0 ] && note "  OK: core/primitives/nonlinear/hysteresis.h is platform-free, effects-free, and harness-free"
+fi
+
+note "== C-TD-LAB. tape-dynamics lab kernel headers: harness-free + platform-free (FR-015/017) =="
+_ctdlab_files=$(find core/labs/tape-dynamics -type f -name '*.h' -not -path '*/harness/*' 2>/dev/null)
+if [ -z "$_ctdlab_files" ]; then
+  note "  OK (vacuous): core/labs/tape-dynamics/ has no non-harness kernel headers — gate ready"
+else
+  _ctdlab_fail=0
+  while IFS= read -r f; do
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: tape-dynamics kernel header includes a harness path"
+      _ctdlab_fail=1
+      fail=1
+    fi
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: tape-dynamics kernel header includes a platform header"
+      _ctdlab_fail=1
+      fail=1
+    fi
+  done <<< "$_ctdlab_files"
+  [ "$_ctdlab_fail" -eq 0 ] && note "  OK: tape-dynamics lab kernel headers are harness-free and platform-free"
+fi
+
+note "== C-TD-SFX. core/effects/tape-dynamics: gate-ready when present (FR-008/017) =="
+_ctdsfx_files=$(find core/effects/tape-dynamics -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_ctdsfx_files" ]; then
+  note "  OK (vacuous): core/effects/tape-dynamics/ absent or empty — gate ready"
+else
+  _ctdsfx_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: tape-dynamics effect includes a platform header"
+      _ctdsfx_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: tape-dynamics effect includes a harness path"
+      _ctdsfx_fail=1
+      fail=1
+    fi
+  done <<< "$_ctdsfx_files"
+  [ "$_ctdsfx_fail" -eq 0 ] && note "  OK: core/effects/tape-dynamics/ is platform-free and harness-free"
 fi
 
 if [ "$fail" -eq 0 ]; then
