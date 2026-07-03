@@ -131,6 +131,13 @@ add_executable(acfx_core_tests
   # Review round 2 -- compile-time guard that the compressor and PDS effect
   # headers coexist in one TU (no acfx-scope enum redefinition, e.g. Detection).
   core/pds-compressor-coexist-test.cpp
+  # ---------------------------------------------------------------------------
+  # Tape-dynamics test suites (tape-dynamics feature): T003 registration;
+  # story tasks fill assertions.
+  # ---------------------------------------------------------------------------
+  core/hysteresis-test.cpp
+  core/tape-dynamics-effect-test.cpp
+  core/tape-dynamics-alias-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
