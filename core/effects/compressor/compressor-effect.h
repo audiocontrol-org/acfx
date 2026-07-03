@@ -23,18 +23,21 @@
 // parameter handoff (FR-020). The wrapper owns per-channel CompressorCore
 // state and is allocation-free in process() (FR-022).
 //
-// This is a SKELETON (task T004): the parameter table + static_assert +
-// Effect-contract method signatures are in place and the file compiles, but
-// two things are deliberately left for later tasks:
-//   - latencySamples() always reports 0 here; wiring it to the actual
-//     lookahead (round(lookaheadSeconds * sampleRate)) is T011/FR-021.
-//   - StereoLink cross-channel composition (FR-017, linked -> common gain
-//     from the cross-channel max) is NOT implemented: this skeleton runs
-//     every channel independently regardless of the stereoLink_ value. The
-//     full cross-channel wiring is a later task (T011/T026).
-// Per-parameter denormalize -> CompressorCore setter forwarding for the other
-// 16 parameters IS implemented below (it is the same boilerplate shape as
-// SaturationEffect::applyPending and does not need to wait for a later task).
+// Finalized (task T011): the parameter table + static_assert + Effect-contract
+// methods (prepare/process/reset), the full per-parameter denormalize ->
+// CompressorCore setter forwarding, and the lookahead latency report are all
+// live end-to-end against the complete CompressorCore (T010). One behavior is
+// deliberately left for a later task:
+//   - StereoLink cross-channel composition (FR-017, linked -> common gain from
+//     the cross-channel max) is NOT wired yet: every channel runs its detection
+//     independently regardless of the stored stereoLink_ value. The stereoLink
+//     parameter is denormalized and stored, but not composed across channels;
+//     that is task T038 (US12). perChannel behavior is correct today.
+//   - External-key sidechain routing (T032): process() is keyless here, so the
+//     main input doubles as the detector key (key = x per channel).
+// Per-parameter denormalize -> CompressorCore setter forwarding for all 17
+// parameters IS implemented below (the same boilerplate shape as
+// SaturationEffect::applyPending).
 //
 // Thread-ownership boundary (identical to SaturationEffect/SvfEffect):
 //   - setParameter() may be called from ANY thread (a UI loop, a MIDI
@@ -232,9 +235,10 @@ public:
     }
 
     // Reported latency = round(lookaheadSeconds * sampleRate) (FR-021).
-    // SKELETON: not yet wired to the applied lookahead value — always 0 here;
-    // a later task (T011) establishes it in prepare()/applyLookahead().
-    int latencySamples() const noexcept { return 0; }
+    // Established in prepare() (via applyAll -> applyLookahead) and kept current
+    // whenever the lookahead parameter is applied. The lookahead DelayLine is the
+    // only latency source in the chain; every other stage is zero-latency.
+    int latencySamples() const noexcept { return latencySamples_; }
 
 private:
     static constexpr int kMaxChannels = 8;
@@ -411,6 +415,7 @@ private:
     }
     void applyLookahead() noexcept {
         const int samples = static_cast<int>(std::lround(lookaheadSeconds_ * sampleRate_));
+        latencySamples_ = samples; // the reported host latency (FR-021)
         for (int ch = 0; ch < numChannels_; ++ch)
             cores_[static_cast<std::size_t>(ch)].setLookahead(samples);
     }
@@ -452,6 +457,7 @@ private:
     std::array<CompressorCore, kMaxChannels> cores_{};
     float sampleRate_ = 48000.0f;
     int numChannels_ = 0;
+    int latencySamples_ = 0; // round(lookaheadSeconds_ * sampleRate_); see applyLookahead()
 
     // Applied parameter state — mutated only in prepare/reset/applyPending
     // (the first two require a stopped stream; the third runs on the audio
