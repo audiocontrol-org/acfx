@@ -25,9 +25,9 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Create the primitive subfolder `core/primitives/circuit/tone-stack/` and the lab tree `core/labs/passive-tone-stacks/{solver,harness}/` (empty placeholders to be filled by later tasks).
+- [x] T001 Create the primitive subfolder `core/primitives/circuit/tone-stack/` and the lab tree `core/labs/passive-tone-stacks/{solver,harness}/` (empty placeholders to be filled by later tasks).
 - [ ] T002 [P] Register the three new host tests (`tone-stack-taper-test.cpp`, `tone-stack-builder-test.cpp`, `tone-stack-ac-test.cpp`) in `tests/CMakeLists.txt`, and add the lab harness target `acfx_lab_passive_tone_stacks_harness` (source `core/labs/passive-tone-stacks/harness/passive-tone-stacks-harness.cpp`, C++20) in the root `CMakeLists.txt`, mirroring the `component-abstractions` lab-harness registration.
-- [ ] T003 [P] Write the lab boundary note `core/labs/passive-tone-stacks/README.md` (host-only, non-normative, `.ac` not MNA, isolation guarantee) — mirrors `core/labs/component-abstractions/README.md`.
+- [x] T003 [P] Write the lab boundary note `core/labs/passive-tone-stacks/README.md` (host-only, non-normative, `.ac` not MNA, isolation guarantee) — mirrors `core/labs/component-abstractions/README.md`.
 
 ---
 
@@ -35,7 +35,7 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 **Blocks US1 and US2** — the pot math is the shared prerequisite both builders and the taper tests consume.
 
-- [ ] T004 Implement `core/primitives/circuit/tone-stack/taper.h`: `enum class Taper { Linear, Log }`, `struct WiperSplit { double rTop, rBottom; }`, constants `kEndResistanceOhms = 10.0` and `kLogTaperBase = 10.0`, `wiper(rTrack, pos, Taper)` (taper law → fraction `f`; `rBottom=f·rTrack`, `rTop=(1-f)·rTrack`; per-leg `max(leg, 10.0)` floor) and `rheostat(rTrack, pos, Taper)` (single floored leg). Throw `std::invalid_argument` on `pos ∉ [0,1]` or `rTrack ≤ 0`. Header-only, C++17, standard-library only, ≤ ~300 lines. Contract: `contracts/potentiometer.md`.
+- [x] T004 Implement `core/primitives/circuit/tone-stack/taper.h`: `enum class Taper { Linear, Log }`, `struct WiperSplit { double rTop, rBottom; }`, constants `kEndResistanceOhms = 10.0` and `kLogTaperBase = 10.0`, `wiper(rTrack, pos, Taper)` (taper law → fraction `f`; `rBottom=f·rTrack`, `rTop=(1-f)·rTrack`; per-leg `max(leg, 10.0)` floor) and `rheostat(rTrack, pos, Taper)` (single floored leg). Throw `std::invalid_argument` on `pos ∉ [0,1]` or `rTrack ≤ 0`. Header-only, C++17, standard-library only, ≤ ~300 lines. Contract: `contracts/potentiometer.md`.
 
 **Checkpoint**: `taper.h` compiles standalone; US1 and US2 can begin.
 
@@ -70,11 +70,11 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 ### Tests for User Story 2
 
-- [ ] T011 [P] [US2] `tests/core/tone-stack-taper-test.cpp`: `pos=0.5` Linear → equal legs summing to `rTrack`; `Log` matches the reference exponential fraction at ≥2 positions; away from extremes `rTop+rBottom == rTrack`; `pos=0` and `pos=1` → each leg exactly 10 Ω, never 0; `rheostat()` returns the single floored leg; `pos ∉ [0,1]` and `rTrack ≤ 0` throw `std::invalid_argument`.
+- [x] T011 [P] [US2] `tests/core/tone-stack-taper-test.cpp`: `pos=0.5` Linear → equal legs summing to `rTrack`; `Log` matches the reference exponential fraction at ≥2 positions; away from extremes `rTop+rBottom == rTrack`; `pos=0` and `pos=1` → each leg exactly 10 Ω, never 0; `rheostat()` returns the single floored leg; `pos ∉ [0,1]` and `rTrack ≤ 0` throw `std::invalid_argument`.
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] Apply any `taper.h` refinements surfaced by T011 (exact `Log` fraction form, per-leg floor/sum edge behavior at extremes) while keeping `taper.h` ≤ ~300 lines and the contract in `contracts/potentiometer.md` accurate.
+- [x] T012 [US2] Apply any `taper.h` refinements surfaced by T011 (exact `Log` fraction form, per-leg floor/sum edge behavior at extremes) while keeping `taper.h` ≤ ~300 lines and the contract in `contracts/potentiometer.md` accurate.
 
 **Checkpoint**: the pot control surface is proven in isolation.
 
