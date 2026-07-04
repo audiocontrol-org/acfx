@@ -237,39 +237,61 @@ against.
   values → `std::invalid_argument` on the build thread. AC solver: a singular
   complex system at some `ω` → descriptive `std::runtime_error` naming `ω`,
   never a silent wrong `H` (mirrors `LinearSolver`'s zero-pivot policy).
-- **D8 — Pot end-resistance floor.** Endpoints (`pos=0`/`1`) clamp each leg to a
-  small modelled wiper end-resistance so a literal 0-Ω `Resistor` cannot create
-  a degenerate node that trips `Netlist::prepare()`. Documented as physical, not
-  a fallback. Exact value is OQ1.
+- **D8 — Pot end-resistance floor (resolved, design review 2026-07-04).** A
+  **fixed physical contact/end resistance of 10 Ω** floors each wiper leg, so a
+  literal 0-Ω `Resistor` cannot create a degenerate node that trips
+  `Netlist::prepare()`. Fixed Ω (not fraction-of-track) because contact
+  resistance is a physical property of the wiper, not proportional to track
+  value — correct across a stack mixing 10 kΩ (mid) and 1 MΩ (bass) pots. Clamp
+  semantics: `leg = max(computed, floor)` applied to **each leg independently**,
+  so the floor bites only at the extremes and mid-travel is untouched;
+  consequently `rTop + rBottom` may exceed `rTrack` by up to one floor near an
+  endpoint — physically correct (series end resistance, not stolen from the
+  track). Documented as a modelled physical value, never a fallback.
 - **D9 — Two-tier tests, shared assertions** (mirrors `component-abstractions`):
   Tier-1 portable primitive tests (`tests/core/`) prove wiper math + builder
   topology with **no solver**; Tier-2 lab harness + `tone-stack-ac-test.cpp`
   prove `solveAC` on RC/divider sanity networks, then FMV/Baxandall `|H(f)|,∠H(f)`
   vs analytic at ≥3 control settings each incl. the mid-scoop. Lab-isolation is
   itself a success criterion.
+- **D10 — Taper laws (resolved, design review 2026-07-04).** v1 ships
+  `Taper{ Linear, Log }` — linear plus a simple exponential audio/log law.
+  **`Antilog` is omitted entirely**, not stubbed: an unvalidated enum case that
+  throws would be exactly the stub/fallback the repo bans, and it is not needed
+  (passive Baxandall/James uses *linear* pots by design — the network shapes the
+  response, not the taper — so no v1 exemplar reaches for antilog). Antilog is
+  *added* if and when a future named stack requires mirrored controls, never
+  carried as a dead case.
+- **D11 — Following-stage load modelled explicitly (resolved, design review
+  2026-07-04).** The stack's response is load-dependent, so the load is a
+  first-class `rLoad` value in `FMVValues` (and symmetrically in
+  `BaxandallValues`) — the following-stage input impedance, wired
+  **output-node-to-ground** (a tube grid / op-amp input is an AC load to
+  ground). Never a hidden constant.
 
 ## Open questions
 
-Recorded for `/speckit-clarify`; none blocks spec authoring.
+### Resolved in design review (2026-07-04)
 
-1. **OQ1 — Wiper end-resistance floor.** Exact value/form (fixed small Ω vs. a
-   fraction of `rTrack`); physical realism vs. numerical safety.
-2. **OQ2 — Taper law form.** Pure-exponential audio taper vs. the common
-   two-segment linear approximation real pots use; and whether `Antilog` is v1
-   or captured.
-3. **OQ3 — AC solver home.** Stay in `core/labs/passive-tone-stacks/` (D6) vs.
-   graduate beside `LinearSolver` as shared Phase-4 machinery that
-   `diode-clippers` / `opamp-stages` could also consume.
-4. **OQ4 — Frequency grid & tolerance.** Log-spaced grid density and the dB match
-   tolerance for the analytic cross-check — tight enough to catch topology bugs,
-   loose enough for honest floating-point.
-5. **OQ5 — Baxandall variant.** Passive James network (v1) vs. the active op-amp
-   Baxandall — the active form needs the deferred controlled-source/op-amp
-   element (OQ4 of `component-abstractions`) and would push to `opamp-stages`.
-   v1 takes the **passive** one.
-6. **OQ6 — FMV output loading.** Whether the builder models the following-stage
-   input impedance (`rL`) as a fixed load or exposes it as a parameter, since the
-   stack's response depends on its load.
+- **OQ1 — Wiper end-resistance floor** → **D8**: fixed 10 Ω physical
+  contact/end resistance, per-leg `max(computed, floor)` clamp.
+- **OQ2 — Taper law form** → **D10**: v1 = `Linear + Log`; `Antilog` omitted
+  entirely (not stubbed) until a stack needs it.
+- **OQ3 — AC solver home** → **D6**: stays in `core/labs/passive-tone-stacks/`;
+  graduate only on a second consumer.
+- **OQ5 — Baxandall variant** → v1 takes the **passive James** network; the
+  active op-amp Baxandall needs the deferred op-amp element (→ `opamp-stages`).
+  Reinforced by D10 (passive Baxandall uses linear pots).
+- **OQ6 — FMV output loading** → **D11**: explicit `rLoad`
+  (following-stage input impedance, output-node-to-ground) in `FMVValues` /
+  `BaxandallValues`; never a hidden constant.
+
+### Remaining for `/speckit-clarify` (numeric, not design-load-bearing)
+
+- **OQ4 — Frequency grid & tolerance.** Log-spaced grid density and the dB match
+  tolerance for the analytic cross-check — tight enough to catch topology bugs,
+  loose enough for honest floating-point. A validation-detail knob; does not
+  block spec authoring.
 
 ## Provenance
 
