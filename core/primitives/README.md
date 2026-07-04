@@ -96,6 +96,25 @@ Labs: `core/labs/waveshaping/`, `core/labs/tape-dynamics/` (each persists as REA
 
 **Diode-curve altitude boundary (research.md Decision 6)**: `diodeCurve` is a memoryless transfer curve — a pure `float → float` closed form in `namespace acfx::shape`, explicitly distinct from the stateful circuit-solved diode clipper in `phase-circuit-modeling`'s `diode-clippers` item (FR-004). See `core/labs/waveshaping/README.md` for the complete altitude boundary explanation.
 
+### `circuit/`
+
+Electronic circuit-element abstractions — the solver-neutral typed vocabulary (components own their physics; solvers are adapters). First deliverable of Phase 4 (Circuit Modeling).
+
+| Primitive | Description |
+|---|---|
+| `circuit/node.h` | NodeId node handle (ground = node 0) + validators. |
+| `circuit/components.h` | `Component` = std::variant of the six element types + isLinear/isReactive/isNonlinear classifiers (heap-free, vtable-free). |
+| `circuit/netlist.h` | `Netlist<MaxNodes,MaxComponents>` fixed-capacity container + prepare()-time topology validation (missing-ground / floating-node / over-capacity). |
+| `circuit/models/resistor.h` | Linear resistor, admittance() = 1/R. |
+| `circuit/models/capacitor.h` | Capacitor with backward-Euler companion; uses shared Companion return type (defined in `models/companion.h`). |
+| `circuit/models/inductor.h` | Inductor (dual of capacitor). |
+| `circuit/models/sources.h` | Ideal independent voltage + current sources. |
+| `circuit/models/diode.h` | Shockley diode (nonlinear), evaluate()->{current,conductance} + pnjlim voltage limiter. |
+
+Consumers: (Phase 4 deliverables will consume; none in-repo yet).
+Lab: `core/labs/component-abstractions/` (reference solver + harness).
+Tests: `tests/core/circuit-components-test.cpp`, `circuit-netlist-test.cpp`, `circuit-solver-test.cpp`.
+
 ---
 
 ## Prospectus Families (documented only -- no folder on disk yet)
@@ -113,12 +132,6 @@ family is intended to land (SC-007).
 Analog-circuit-inspired building blocks that do not rise to full circuit
 simulation. Intended inhabitants: one-pole smoothers, leaky integrators,
 analog-style filter prototypes.
-
-### `circuit/`
-
-Nodal or component-level circuit models. Intended inhabitants: transistor
-stages, op-amp models, RC/LC ladder networks derived from component
-simulation rather than transfer-function approximation.
 
 ### `convolution/`
 

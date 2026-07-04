@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **tape-dynamics**.
+Active Spec Kit feature: **component-abstractions**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/tape-dynamics/plan.md` (spec: `specs/tape-dynamics/spec.md`).
+current plan at `specs/component-abstractions/plan.md` (spec: `specs/component-abstractions/spec.md`).
 <!-- SPECKIT END -->

@@ -80,6 +80,17 @@
 #   C-TD-SFX. core/effects/tape-dynamics/ (when present) is gate-ready: platform-free,
 #      harness-free — explicit named coverage per FR-008/FR-017 (tape-dynamics T004);
 #      passes vacuously when the directory is absent or empty
+#   C-CIRC-PRIM. core/primitives/circuit/ (when present) is gate-ready: C++17-clean,
+#      platform-free, effects-free, harness-free, and lab-free — explicit named coverage
+#      per FR-018 (component-abstractions T003); passes vacuously when the directory is
+#      absent or empty (pre-T004 primitive category creation)
+#   C-CA-LAB. component-abstractions lab kernel headers
+#      (core/labs/component-abstractions/**/*.h, non-harness) are harness-free and
+#      platform-free — explicit named coverage per FR-018 (component-abstractions T003);
+#      passes vacuously while only the harness/solver scaffold exists (pre-kernel-header)
+#   C-CA-ISO. component-abstractions lab isolation (FR-018): the lab must not be included
+#      by any primitive/effect, and the primitive must not depend on the lab — explicit
+#      named coverage for the load-bearing seam (component-abstractions T003)
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -584,6 +595,66 @@ else
     fi
   done <<< "$_ctdsfx_files"
   [ "$_ctdsfx_fail" -eq 0 ] && note "  OK: core/effects/tape-dynamics/ is platform-free and harness-free"
+fi
+
+note "== C-CIRC-PRIM. core/primitives/circuit: gate-ready when present (FR-018) =="
+_ccircprim_files=$(find core/primitives/circuit -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+if [ -z "$_ccircprim_files" ]; then
+  note "  OK (vacuous): core/primitives/circuit/ absent or empty — gate ready for T004"
+else
+  _ccircprim_fail=0
+  while IFS= read -r f; do
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: circuit primitive includes a platform header"
+      _ccircprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*effects/' "$f" 2>/dev/null; then
+      note "  FAIL $f: circuit primitive includes an effects/ path"
+      _ccircprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: circuit primitive includes a harness path"
+      _ccircprim_fail=1
+      fail=1
+    fi
+    if grep -En '#include.*labs/component-abstractions/' "$f" 2>/dev/null; then
+      note "  FAIL $f: circuit primitive depends on the component-abstractions lab"
+      _ccircprim_fail=1
+      fail=1
+    fi
+  done <<< "$_ccircprim_files"
+  [ "$_ccircprim_fail" -eq 0 ] && note "  OK: core/primitives/circuit/ is platform-free, effects-free, harness-free, and lab-free"
+fi
+
+note "== C-CA-LAB. component-abstractions lab kernel headers: harness-free + platform-free (FR-018) =="
+_calab_files=$(find core/labs/component-abstractions -type f -name '*.h' -not -path '*/harness/*' 2>/dev/null)
+if [ -z "$_calab_files" ]; then
+  note "  OK (vacuous): core/labs/component-abstractions/ has no non-harness kernel headers — gate ready"
+else
+  _calab_fail=0
+  while IFS= read -r f; do
+    if grep -En '#include.*labs/[^/]*/harness/' "$f" 2>/dev/null; then
+      note "  FAIL $f: component-abstractions kernel header includes a harness path"
+      _calab_fail=1
+      fail=1
+    fi
+    if grep -En 'juce|libDaisy|daisy_seed|<Audio\.h>|<Arduino\.h>' "$f" 2>/dev/null; then
+      note "  FAIL $f: component-abstractions kernel header includes a platform header"
+      _calab_fail=1
+      fail=1
+    fi
+  done <<< "$_calab_files"
+  [ "$_calab_fail" -eq 0 ] && note "  OK: component-abstractions lab kernel headers are harness-free and platform-free"
+fi
+
+note "== C-CA-ISO. component-abstractions lab isolation: not included by primitive/effect (FR-018) =="
+if grep -rEn '#include.*labs/component-abstractions/' core/primitives core/effects 2>/dev/null; then
+  note "  FAIL: core/primitives/ or core/effects/ includes the component-abstractions lab"
+  fail=1
+else
+  note "  OK: core/primitives/ and core/effects/ do not include the component-abstractions lab"
 fi
 
 if [ "$fail" -eq 0 ]; then
