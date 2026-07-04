@@ -181,6 +181,7 @@ add_executable(acfx_core_tests
   # Tier-2 (lab AC solver): FMV/Baxandall analytic match.
   # ---------------------------------------------------------------------------
   core/tone-stack-taper-test.cpp
+  core/tone-stack-ac-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
