@@ -206,7 +206,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-circuit-modeling
 
 ## design:primitive/passive-tone-stacks
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/passive-tone-stacks
 - design-approved: yes
