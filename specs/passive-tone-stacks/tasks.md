@@ -48,14 +48,14 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 ### Tests for User Story 1
 
-- [ ] T005 [P] [US1] `tests/core/tone-stack-builder-test.cpp`: for FMV and Baxandall, assert `prepare()` succeeds at all-0 / all-1 / mixed / design-center controls; component and node counts equal the BOM; every held component is `Resistor`/`Capacitor`/`VoltageSource` (frozen vocabulary); and a compile-level check that `tone-stack.h`/`taper.h` include nothing under `core/labs/` (isolation, FR-016). Tests fail until T006–T009 land.
+- [x] T005 [P] [US1] `tests/core/tone-stack-builder-test.cpp`: for FMV and Baxandall, assert `prepare()` succeeds at all-0 / all-1 / mixed / design-center controls; component and node counts equal the BOM; every held component is `Resistor`/`Capacitor`/`VoltageSource` (frozen vocabulary); and a compile-level check that `tone-stack.h`/`taper.h` include nothing under `core/labs/` (isolation, FR-016). Tests fail until T006–T009 land.
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] In `core/primitives/circuit/tone-stack/tone-stack.h`, define the value structs `FMVValues`/`FMVControls`, `BaxandallValues`/`BaxandallControls` and the per-topology capacity constants `kFmvNodes`/`kFmvComponents`, `kBaxNodes`/`kBaxComponents` per `data-model.md`.
-- [ ] T007 [US1] Implement `toneStackFMV(...)` in `tone-stack.h`: wire the Duncan FMV topology — input `VoltageSource`, slope `r1`, caps `c1..c3`, treble & bass pots as `wiper()` dividers, mid pot as `rheostat()` to ground, explicit `rLoad` output-to-ground — then `prepare()` and return. Report the input/output node ids for the AC probe.
-- [ ] T008 [US1] Implement `toneStackBaxandall(...)` in `tone-stack.h`: wire the passive James 2-band topology (bass/treble `wiper()` dividers, shelving caps, explicit `rLoad`), `prepare()`, return.
-- [ ] T009 [US1] Add builder input validation: any non-positive `*Values` field or any control `∉ [0,1]` → descriptive `std::invalid_argument` naming the field (FR-010).
+- [x] T006 [US1] In `core/primitives/circuit/tone-stack/tone-stack.h`, define the value structs `FMVValues`/`FMVControls`, `BaxandallValues`/`BaxandallControls` and the per-topology capacity constants `kFmvNodes`/`kFmvComponents`, `kBaxNodes`/`kBaxComponents` per `data-model.md`.
+- [x] T007 [US1] Implement `toneStackFMV(...)` in `tone-stack.h`: wire the Duncan FMV topology — input `VoltageSource`, slope `r1`, caps `c1..c3`, treble & bass pots as `wiper()` dividers, mid pot as `rheostat()` to ground, explicit `rLoad` output-to-ground — then `prepare()` and return. Report the input/output node ids for the AC probe.
+- [x] T008 [US1] Implement `toneStackBaxandall(...)` in `tone-stack.h`: wire the passive James 2-band topology (bass/treble `wiper()` dividers, shelving caps, explicit `rLoad`), `prepare()`, return.
+- [x] T009 [US1] Add builder input validation: any non-positive `*Values` field or any control `∉ [0,1]` → descriptive `std::invalid_argument` naming the field (FR-010).
 - [ ] T010 [P] [US1] Update `core/primitives/README.md` to register the `circuit/tone-stack/` subfolder and the two builders.
 
 **Checkpoint**: US1 independently testable — MVP delivered (a solver-neutral tone-stack builder).
@@ -90,9 +90,9 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 - [x] T013 [US3] Implement `core/labs/passive-tone-stacks/solver/ac-solver.h`: `solveAC(netlist, ω, inNode, outNode) → std::complex<double>` — stamp admittances at `jω` (`R→1/R`, `C→jωC`, `L→1/(jωL)`), impose the ideal input source by fixed-node reduction (reuse the `LinearSolver` structure over `std::complex<double>`), complex Gaussian elimination with partial pivoting, heap-free (fixed `std::array` buffers). Singular pivot → `std::runtime_error` naming `ω` (FR-012). No MNA/Newton (FR-013). Contract: `contracts/ac-solver.md`.
 - [x] T014 [P] [US3] `tests/core/tone-stack-ac-test.cpp` sanity block: RC low-pass → `−20 dB/decade`, phase → `−90°`; resistive divider → flat `R2/(R1+R2)`; matched to closed form to ~1e-9 (SC-003).
-- [ ] T015 [US3] Encode the **independent analytic reference** transfer functions (Duncan FMV rational `H(s)` and the passive James response) used by the Tier-2 test/harness — derived separately from `solveAC` (FR-014 / R7). Place in the test/harness support (not the primitive).
-- [ ] T016 [US3] Extend `tone-stack-ac-test.cpp`: FMV `|H(f)|` within 0.1 dB of the analytic reference on a ~10-pts/decade log grid over 20 Hz–20 kHz at ≥3 control settings incl. a low-mid (scoop) setting; assert the scoop deepens monotonically as the mid pot lowers and HF magnitude rises monotonically with the treble pot (SC-004).
-- [ ] T017 [US3] Extend `tone-stack-ac-test.cpp`: Baxandall `|H(f)|` within 0.1 dB of the analytic James curve at ≥3 settings; bass/treble shelves move the expected asymptotes; center near-flat (SC-005).
+- [x] T015 [US3] Encode the **independent analytic reference** transfer functions (Duncan FMV rational `H(s)` and the passive James response) used by the Tier-2 test/harness — derived separately from `solveAC` (FR-014 / R7). Place in the test/harness support (not the primitive).
+- [x] T016 [US3] Extend `tone-stack-ac-test.cpp`: FMV `|H(f)|` within 0.1 dB of the analytic reference on a ~10-pts/decade log grid over 20 Hz–20 kHz at ≥3 control settings incl. a low-mid (scoop) setting; assert the scoop deepens monotonically as the mid pot lowers and HF magnitude rises monotonically with the treble pot (SC-004).
+- [x] T017 [US3] Extend `tone-stack-ac-test.cpp`: Baxandall `|H(f)|` within 0.1 dB of the analytic James curve at ≥3 settings; bass/treble shelves move the expected asymptotes; center near-flat (SC-005).
 - [ ] T018 [US3] Implement `core/labs/passive-tone-stacks/harness/passive-tone-stacks-harness.cpp` mirroring T014/T016/T017 assertions with PASS/FAIL measured-vs-expected prints; exits nonzero on any failure (FR-014).
 
 **Checkpoint**: the assembled tone stacks are validated against independent hand analysis.

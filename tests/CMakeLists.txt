@@ -181,6 +181,7 @@ add_executable(acfx_core_tests
   # Tier-2 (lab AC solver): FMV/Baxandall analytic match.
   # ---------------------------------------------------------------------------
   core/tone-stack-taper-test.cpp
+  core/tone-stack-builder-test.cpp
   core/tone-stack-ac-test.cpp
 )
 
