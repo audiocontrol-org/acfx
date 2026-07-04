@@ -160,7 +160,7 @@ TEST_CASE("TapeDynamicsEffect bypass/unity-passthrough semantics (US1.2, E2, FR-
     constexpr float kSampleRate = 48000.0f;
     constexpr int kBlockSize = 256;
 
-    SUBCASE("mix=0 bypass: output == input, bit-exact, regardless of drive/saturation/width") {
+    SUBCASE("mix=0 bypass: output == input delayed by the wet-path group delay (dry/wet alignment)") {
         TapeDynamicsEffect fx;
         fx.prepare(ProcessContext{static_cast<double>(kSampleRate), kBlockSize, 1});
 
@@ -183,16 +183,28 @@ TEST_CASE("TapeDynamicsEffect bypass/unity-passthrough semantics (US1.2, E2, FR-
         AudioBlock block(chans, 1, kBlockSize);
         fx.process(block); // applyPending() consumes drive/saturation/width/mix here
 
-        // TapeDynamicsCore::processSample(): y = mix*wet + (1-mix)*dry, then
-        // *outputGain (0 dB default -> 1.0 exactly). mix denormalized to
-        // EXACTLY 0.0f zeroes the wet term (0.0f*wet == 0.0f for any finite
-        // wet), leaving y == dry -- bit-for-bit, no artifacts. Named
-        // tolerance: 1e-6 epsilon, purely to absorb float-store rounding,
-        // not because any DSP tolerance is actually needed here.
+        // TapeDynamicsCore::processSample(): y = mix*wet + (1-mix)*dryAligned,
+        // then *outputGain (0 dB default -> 1.0 exactly). mix denormalized to
+        // EXACTLY 0.0f zeroes the wet term, leaving y == dryAligned. The dry
+        // path is now DELAY-COMPENSATED (dry/wet mix-comb fix): dryAligned is
+        // the input delayed by the wet path's group delay so mix in (0,1) blends
+        // time-aligned signals. At the default oversampling (8x) that delay is
+        //   Oversampler<8>::groupDelaySamples() = 2*kCenter*(Factor-1)/Factor
+        //                                        = 2*45*7/8 = 78.75 samples,
+        // read fractionally (linear interp) from a zero-initialized ring, so:
+        //   out[n] = 0.25*in[n-78] + 0.75*in[n-79]   (in[k<0] treated as 0).
+        // This asserts EXACTLY the new latency-aligned bypass -- a stronger,
+        // not weaker, contract than the earlier undelayed comb behavior. Named
+        // tolerance: 1e-6, purely float-store rounding (the test reproduces the
+        // core's own fractional-read arithmetic bit-for-bit).
+        constexpr int kDelayInt = 78;      // floor(78.75)
+        constexpr float kDelayFrac = 0.75f; // 78.75 - 78
         for (int i = 0; i < kBlockSize; ++i) {
+            const float newer = (i - kDelayInt >= 0) ? in[static_cast<std::size_t>(i - kDelayInt)] : 0.0f;
+            const float older = (i - kDelayInt - 1 >= 0) ? in[static_cast<std::size_t>(i - kDelayInt - 1)] : 0.0f;
+            const float expected = (1.0f - kDelayFrac) * newer + kDelayFrac * older;
             INFO("sample=" << i);
-            CHECK(out[static_cast<std::size_t>(i)] ==
-                  doctest::Approx(in[static_cast<std::size_t>(i)]).epsilon(1.0e-6));
+            CHECK(out[static_cast<std::size_t>(i)] == doctest::Approx(expected).epsilon(1.0e-6));
         }
     }
 
@@ -407,4 +419,73 @@ TEST_CASE("TapeDynamicsEffect prepare+process produces finite output for every o
 
         fx.reset();
     }
+}
+
+// ---------------------------------------------------------------------------
+// FR-013: named starting-point presets. applyPreset() writes the documented
+// configuration (tape-dynamics-presets.h) into the effect and pushes it to the
+// cores. This exercises the preset TABLE at runtime (so it is compiled, not
+// dead) and asserts each preset audibly changes the processed output relative
+// to the others -- `none` is the neutral baseline, `glue` colors moderately,
+// `saturate` colors hard. Also verifies the table/enum row alignment via
+// presetConfig().
+// ---------------------------------------------------------------------------
+
+TEST_CASE("TapeDynamicsEffect::applyPreset writes each documented preset and changes the output (FR-013)") {
+    constexpr float kSampleRate = 48000.0f;
+    constexpr int kN = 1024;
+
+    // Table/enum alignment sanity (also forces the preset table to be read at
+    // runtime, not merely compiled): the documented drive values are distinct
+    // and ordered none < glue < saturate.
+    const auto& noneCfg = TapeDynamicsEffect::presetConfig(TapeDynamicsEffect::TapeDynamicsPreset::none);
+    const auto& glueCfg = TapeDynamicsEffect::presetConfig(TapeDynamicsEffect::TapeDynamicsPreset::glue);
+    const auto& satCfg = TapeDynamicsEffect::presetConfig(TapeDynamicsEffect::TapeDynamicsPreset::saturate);
+    CHECK(noneCfg.drive == doctest::Approx(0.0f));
+    CHECK(glueCfg.drive < satCfg.drive);
+    CHECK(glueCfg.drive > noneCfg.drive);
+
+    // A moderate tone; the same stimulus is processed through every preset.
+    std::vector<float> stimulus(static_cast<std::size_t>(kN));
+    for (int n = 0; n < kN; ++n) {
+        const float t = static_cast<float>(n) / kSampleRate;
+        stimulus[static_cast<std::size_t>(n)] = 0.5f * std::sin(kTwoPi * 300.0f * t);
+    }
+
+    auto runPreset = [&](TapeDynamicsEffect::TapeDynamicsPreset preset) {
+        TapeDynamicsEffect fx;
+        fx.prepare(ProcessContext{static_cast<double>(kSampleRate), kN, 1});
+        fx.applyPreset(preset); // writes the documented config into every core
+        std::vector<float> buf = stimulus;
+        float* chans[1] = {buf.data()};
+        AudioBlock block(chans, 1, kN);
+        fx.process(block); // applyPending() has no pending edits, so the preset stands
+        return buf;
+    };
+
+    const auto noneOut = runPreset(TapeDynamicsEffect::TapeDynamicsPreset::none);
+    const auto glueOut = runPreset(TapeDynamicsEffect::TapeDynamicsPreset::glue);
+    const auto satOut = runPreset(TapeDynamicsEffect::TapeDynamicsPreset::saturate);
+
+    for (float v : noneOut) REQUIRE(std::isfinite(v));
+    for (float v : glueOut) REQUIRE(std::isfinite(v));
+    for (float v : satOut) REQUIRE(std::isfinite(v));
+
+    // Each preset must produce a MEASURABLY different signal from the others:
+    // if applyPreset() were a no-op (the pre-fix dead-code state), all three
+    // outputs would be identical. Max abs sample difference over the settled
+    // tail (past the group-delay warm-up), well above any float-rounding floor.
+    auto maxDiff = [](const std::vector<float>& a, const std::vector<float>& b) {
+        float m = 0.0f;
+        for (std::size_t n = a.size() / 2; n < a.size(); ++n)
+            m = std::max(m, std::fabs(a[n] - b[n]));
+        return m;
+    };
+    constexpr float kAudibleFloor = 1.0e-3f;
+    INFO("noneVsGlue=" << maxDiff(noneOut, glueOut)
+                        << " noneVsSat=" << maxDiff(noneOut, satOut)
+                        << " glueVsSat=" << maxDiff(glueOut, satOut));
+    CHECK(maxDiff(noneOut, glueOut) > kAudibleFloor);
+    CHECK(maxDiff(noneOut, satOut) > kAudibleFloor);
+    CHECK(maxDiff(glueOut, satOut) > kAudibleFloor);
 }

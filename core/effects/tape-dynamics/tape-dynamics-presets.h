@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint> // std::uint8_t (solver/oversampling bucket fields below)
 
 #include "effects/tape-dynamics/tape-dynamics-core.h"
 

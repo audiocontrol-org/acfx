@@ -15,6 +15,7 @@
 #include "dsp/span.h"
 #include "effects/tape-dynamics/tape-dynamics-core.h"
 #include "effects/tape-dynamics/tape-dynamics-parameters.h"
+#include "effects/tape-dynamics/tape-dynamics-presets.h" // kTapeDynamicsPresetConfigs (FR-013)
 #include "primitives/nonlinear/hysteresis.h" // acfx::Solver
 
 // TapeDynamicsEffect — the host-facing wrapper adding the Effect contract on
@@ -61,6 +62,14 @@ public:
         kOutput = 10
     };
 
+    // Named starting-point presets (FR-013) — an apply-once convenience that
+    // writes a documented parameter configuration (tape-dynamics-presets.h) to
+    // every core via applyPreset(). Row order MUST match kTapeDynamicsPresetConfigs
+    // (none, glue, saturate), so a preset value indexes its config directly.
+    // `none` writes the neutral baseline row (RESETTING to defaults), not a no-op.
+    // Mirrors ProgramDependentSaturationEffect::DynamicPreset.
+    enum class TapeDynamicsPreset : std::uint8_t { none = 0, glue = 1, saturate = 2 };
+
     static constexpr int kNumParams = 11;
 
     // The single source of parameter truth (FR-019), defined in
@@ -91,6 +100,61 @@ public:
         "(max>min; logarithmic => min>0; discrete => count>=2 and choices.size()==count)");
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+
+    // Build-time guard the presets header itself flagged as future work: the
+    // documented preset table's row count must match the TapeDynamicsPreset enum
+    // (none, glue, saturate) so `kTapeDynamicsPresetConfigs[static_cast<size_t>
+    // (preset)]` can never index out of range.
+    static_assert(kTapeDynamicsPresetConfigs.size() ==
+                      static_cast<std::size_t>(TapeDynamicsPreset::saturate) + 1,
+                  "kTapeDynamicsPresetConfigs row count must match the "
+                  "TapeDynamicsPreset enum (none, glue, saturate)");
+
+    // The documented parameter configuration a preset writes
+    // (tape-dynamics-presets.h). Exposed so a test can assert the realized state
+    // equals the documented preset definition, and so the table is a single
+    // source of truth shared with applyPreset(). Row order == the enum, so the
+    // cast indexes it. Mirrors ProgramDependentSaturationEffect::presetConfig().
+    static constexpr const TapeDynamicsPresetConfig& presetConfig(TapeDynamicsPreset preset) noexcept {
+        return kTapeDynamicsPresetConfigs[static_cast<std::size_t>(preset)];
+    }
+
+    // Apply a named preset (FR-013): write its documented parameter configuration
+    // into the cached applied-parameter state AND push it to every core via the
+    // apply* helpers, mirroring ProgramDependentSaturationEffect::writePreset().
+    // A preset is a STARTING POINT, not a lock: a subsequent setParameter() edit
+    // still overrides the individual value at the next process(). Selecting `none`
+    // writes the neutral baseline row, resetting drive/saturation/width/solver/
+    // oversampling/trim to defaults (mix/output are NOT part of the preset table
+    // and are left untouched).
+    //
+    // Audio stream must be stopped — like prepare()/reset(), this mutates core
+    // state directly and is NOT synchronized against process() (the adapter's
+    // responsibility, per the thread-ownership note above).
+    void applyPreset(TapeDynamicsPreset preset) noexcept {
+        const TapeDynamicsPresetConfig& cfg = presetConfig(preset);
+        driveDb_ = cfg.drive;
+        saturation_ = cfg.saturation;
+        width_ = cfg.width;
+        solver_ = toSolver(static_cast<float>(cfg.solver));
+        trimEnabled_ = cfg.trimEnabled;
+        trimAttack_ = cfg.trimAttack;
+        trimRelease_ = cfg.trimRelease;
+        trimAmount_ = cfg.trimAmount;
+        applyDrive();
+        applySaturation();
+        applyWidth();
+        applySolver();
+        applyTrimEnabled();
+        applyTrimAttack();
+        applyTrimRelease();
+        applyTrimAmount();
+        // Selecting the preset's oversampling factor lands on a different core
+        // whose signal state has been frozen since prepare(); reset it so it
+        // starts clean rather than stepping from stale/zero mid-program state
+        // (same rationale as the oversampling-switch reset in applyPending()).
+        setOversamplingIndex(toOversamplingIndex(static_cast<float>(cfg.oversampling)));
+    }
 
     // Audio stream must be stopped — see the thread-ownership note above.
     void prepare(const ProcessContext& ctx) noexcept {
@@ -218,6 +282,38 @@ private:
         return i;
     }
 
+    // Select which prepared core (2x/4x/8x) processBlock() dispatches to. When
+    // the index actually CHANGES, reset the newly-selected core's signal state:
+    // its Hprev_/M_, oversampler delay lines, trim follower, and dry-alignment
+    // ring have been frozen since prepare() (or the last time it ran), so
+    // stepping straight into it would present a huge spurious dH = H - 0 to the
+    // hysteresis integrator — an audible click plus wrong loop memory. A clean
+    // reset() (which preserves the already-pushed applied parameters — see
+    // TapeDynamicsCore::reset(), Hysteresis::reset(), and EnvelopeFollower::reset(),
+    // none of which discard configured parameters) starts it from a defined
+    // zero state instead of stale/zero mid-program state. A full state migration
+    // between cores is deliberately out of scope; the clean reset avoids the
+    // thump without it. The param-sync invariant is intact: applyAll()/every
+    // apply* already push all parameters to ALL cores, so the reset core still
+    // carries the full current parameter set.
+    void setOversamplingIndex(int index) noexcept {
+        if (index == oversamplingIndex_)
+            return;
+        oversamplingIndex_ = index;
+        switch (oversamplingIndex_) {
+        case 0:
+            core2x_.reset();
+            break;
+        case 1:
+            core4x_.reset();
+            break;
+        case 2:
+        default:
+            core8x_.reset();
+            break;
+        }
+    }
+
     // Consume pending parameter edits and denormalize into cached values, then
     // dispatch to every core's matching setter (kOversampling instead selects
     // WHICH core processBlock() dispatches to).
@@ -239,10 +335,12 @@ private:
             applySolver();
         }
         if (pendingDirty_[kOversampling].exchange(0u, std::memory_order_acquire)) {
-            oversamplingIndex_ =
-                toOversamplingIndex(denormalize(kParams[kOversampling], pendingValue(kOversampling)));
             // Not a per-core setter: selects which already-prepared core
-            // processBlock() runs (see processBlock()).
+            // processBlock() runs (see processBlock()). setOversamplingIndex()
+            // additionally RESETS the newly-selected core's signal state when the
+            // index actually changes (see below).
+            setOversamplingIndex(
+                toOversamplingIndex(denormalize(kParams[kOversampling], pendingValue(kOversampling))));
         }
         if (pendingDirty_[kTrimEnabled].exchange(0u, std::memory_order_acquire)) {
             trimEnabled_ = denormalize(kParams[kTrimEnabled], pendingValue(kTrimEnabled)) >= 0.5f;

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 #include "primitives/dynamics/envelope-follower.h"
@@ -51,10 +53,23 @@ public:
 
         // The oversampler runs at the BASE rate (it does the up/down itself);
         // the JA hysteresis step runs INSIDE the oversampler at the high rate,
-        // so its integrator step size dt = 1/fs must be configured for the
-        // OVERSAMPLED rate (sampleRate * Factor) — otherwise the JA physics
-        // would be integrated with the wrong dt. This is the crux of composing
-        // Hysteresis under Oversampler<Factor> (FR-009, contract E4).
+        // so Hysteresis is prepared at the OVERSAMPLED rate (sampleRate * Factor).
+        //
+        // WHY the oversampled rate matters here — the ACTUAL mechanism (do NOT
+        // mistake this for a time-domain dt correction): Hysteresis integrates
+        // in the FIELD variable H, one step of width dH = H - Hprev per input
+        // sample — it is an H-DOMAIN step, not a time-domain one, and its stored
+        // dt_ (= 1/oversampledRate) is NOT consulted by any RK/Newton stepper
+        // (verified: hysteresis.h's steppers take only Hprev/M/dH). Running the
+        // JA step at Factor x more samples per second means each step spans a
+        // proportionally SMALLER dH, which (a) reduces the per-step integration
+        // error of the explicit RK/implicit Newton solvers and (b) pushes the
+        // nonlinearity's harmonics above the base Nyquist so the oversampler's
+        // half-band decimation can reject the aliases (FR-009, contract E4). It
+        // is the finer dH per step — not a differently-scaled dt — that buys the
+        // accuracy/anti-aliasing. prepare(osRate) is kept because Hysteresis owns
+        // its own rate-derived state (dt_/sampleRate_) as a matter of contract,
+        // even though the current steppers are purely H-domain.
         const double osRate = sampleRate_ * static_cast<double>(Factor);
         for (int ch = 0; ch < numChannels_; ++ch) {
             oversampler_[static_cast<std::size_t>(ch)].init(
@@ -67,6 +82,16 @@ public:
             trimFollower_[static_cast<std::size_t>(ch)].init(
                 static_cast<float>(sampleRate_));
         }
+
+        // Cache the wet-path group delay (constant per Factor: 45/67.5/78.75
+        // base-rate samples at 2x/4x/8x) so processSample() can align the dry
+        // term without recomputing it. All channels share one Factor, so
+        // channel 0's oversampler reports the value for every channel.
+        dryDelaySamples_ = oversampler_[0].groupDelaySamples();
+        // Clear the per-channel dry-alignment rings (sized statically below; no
+        // heap — Constitution VI). Fixed capacity exceeds the max group delay
+        // (78.75) plus the fractional read's one-sample reach.
+        clearDryRings();
 
         // Re-push the cached macro→physics coefficients into every channel's
         // Hysteresis so prepare() re-establishes exactly the applied parameter
@@ -106,8 +131,21 @@ public:
         wet = applyTrim(wet, dry, ch);
 
         // 4. Dry/wet mix (mix=1 -> fully wet; mix=0 -> dry passthrough) then
-        //    post output trim gain.
-        float y = mix_ * wet + (1.0f - mix_) * dry;
+        //    post output trim gain. TIME-ALIGNED: the wet path carries the
+        //    Oversampler<Factor> group delay (45/67.5/78.75 base-rate samples at
+        //    2x/4x/8x), so the dry term is delayed by the SAME exact (fractional)
+        //    amount before the blend — otherwise an undelayed dry combs against
+        //    the delayed wet at any mix in (0,1). Mirrors saturation-core.h's
+        //    dry/wet alignment (which delays dry by oversampler_.groupDelaySamples()).
+        //    Consequences: mix=1 (fully wet, the default) zeroes the dry term, so
+        //    this is a true no-op there (E7 bit-exact contract unaffected); mix=0
+        //    (pure "bypass") now emits the dry delayed by the effect's constant
+        //    latency rather than a zero-latency copy — the correct behavior for a
+        //    latency-compensated effect (no comb, phase-consistent with the wet
+        //    tiers), replacing the earlier undelayed-dry comb.
+        dryWrite(dry, c);
+        const float dryAligned = dryRead(dryDelaySamples_, c);
+        float y = mix_ * wet + (1.0f - mix_) * dryAligned;
         y *= outputGain_;
         return y;
     }
@@ -197,6 +235,7 @@ public:
             hysteresis_[ch].reset();
             trimFollower_[ch].reset();
         }
+        clearDryRings();
     }
 
 private:
@@ -296,6 +335,37 @@ private:
         }
     }
 
+    // Zero every channel's dry-alignment ring and park its write head at 0.
+    // Off the audio path (prepare()/reset()); bounded, allocation-free.
+    void clearDryRings() noexcept {
+        for (std::size_t ch = 0; ch < static_cast<std::size_t>(kMaxChannels); ++ch) {
+            dryRing_[ch].fill(0.0f);
+            dryWrite_[ch] = 0;
+        }
+    }
+
+    // Push one dry sample into channel `c`'s ring (advance write head, wrap).
+    // RT-safe: fixed-size array, no heap, bounded.
+    void dryWrite(float x, std::size_t c) noexcept {
+        dryRing_[c][static_cast<std::size_t>(dryWrite_[c])] = x;
+        dryWrite_[c] = (dryWrite_[c] + 1) % kDryDelayCap;
+    }
+
+    // Read channel `c`'s ring delayed by `d` samples (fractional, linear-
+    // interpolated), matching DelayLine::readFractional's convention: d is
+    // clamped to [0, cap-1]; d==0 returns the just-written sample. RT-safe.
+    [[nodiscard]] float dryRead(float d, std::size_t c) const noexcept {
+        const float clamped =
+            std::min(std::max(d, 0.0f), static_cast<float>(kDryDelayCap - 1));
+        const int i = static_cast<int>(clamped);
+        const float f = clamped - static_cast<float>(i);
+        const int w = dryWrite_[c];
+        const int newer = (w - 1 - i + 2 * kDryDelayCap) % kDryDelayCap;
+        const int older = (w - 2 - i + 2 * kDryDelayCap) % kDryDelayCap;
+        return (1.0f - f) * dryRing_[c][static_cast<std::size_t>(newer)]
+             + f * dryRing_[c][static_cast<std::size_t>(older)];
+    }
+
     double sampleRate_ = 48000.0;
     int numChannels_ = 1;
 
@@ -303,6 +373,23 @@ private:
     std::array<Hysteresis, kMaxChannels> hysteresis_;
     std::array<EnvelopeFollower, kMaxChannels> trimFollower_;
     GainComputer trimGain_; // stateless; one shared instance (fixed curve, see above)
+
+    // Per-channel dry-path delay for dry/wet mix alignment: the wet path carries
+    // the Oversampler<Factor> group delay (dryDelaySamples_, cached in prepare()),
+    // so the dry term of the mix is delayed by the SAME exact (fractional) amount
+    // — no comb filtering at mix in (0,1). Mirrors saturation-core.h's alignment.
+    //
+    // Implemented as a SELF-CONTAINED ring (std::array + per-channel write index,
+    // no pointers) rather than the pointer-binding DelayLine primitive — the SAME
+    // choice, for the SAME reason, saturation-core.h documents: a core must stay
+    // trivially copyable (a member DelayLine bound to a sibling storage array
+    // would dangle its pointer on copy), and a fixed-size array keeps it heap-free
+    // (Constitution VI). Capacity exceeds the max group delay (78.75 @ 8x) plus
+    // the fractional read's one-sample reach.
+    static constexpr int kDryDelayCap = 128;
+    std::array<std::array<float, static_cast<std::size_t>(kDryDelayCap)>, kMaxChannels> dryRing_{};
+    std::array<int, kMaxChannels> dryWrite_{};
+    float dryDelaySamples_ = 0.0f; // cached in prepare() == oversampler group delay
 
     // Cached macro→physics parameter state (set off the audio path via the
     // setters / applyToHysteresis()). Defaults: 0 dB drive (unity into the

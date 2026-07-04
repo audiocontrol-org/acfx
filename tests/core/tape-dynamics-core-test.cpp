@@ -108,7 +108,7 @@ TEST_CASE("TapeDynamicsCore<8> — composed OS+JA signal path (T015)") {
         CHECK(wetCrest < 1.40);
     }
 
-    SUBCASE("mix = 0 is a dry passthrough regardless of drive") {
+    SUBCASE("mix = 0 is a dry passthrough (latency-aligned) regardless of drive") {
         TapeDynamicsCore<8> core;
         core.prepare(kFs, 1);
         core.setDrive(24.0f);   // heavy drive...
@@ -117,14 +117,25 @@ TEST_CASE("TapeDynamicsCore<8> — composed OS+JA signal path (T015)") {
 
         const float amp = 0.7f;
         const auto y = driveSine(core, 512, kFreq, kFs, amp);
-        // mix=0 -> y = dry = x exactly (output 0 dB -> unity), for every sample.
+        // mix=0 -> y = dryAligned (output 0 dB -> unity). The dry path is now
+        // DELAY-COMPENSATED to the wet path's group delay (dry/wet mix-comb fix)
+        // so mix in (0,1) blends time-aligned signals. For Oversampler<8> that
+        // delay is 2*45*7/8 = 78.75 samples, read fractionally from a zero-
+        // initialized ring, so y[n] = 0.25*x[n-78] + 0.75*x[n-79] (x[k<0] = 0).
+        // Asserting exactly the aligned dry is a stronger contract than the old
+        // undelayed comb; tolerance is float-store rounding only.
         const double twoPiFOverFs =
             2.0 * 3.14159265358979323846 * static_cast<double>(kFreq) / kFs;
+        auto xAt = [&](int n) {
+            return (n >= 0) ? amp * static_cast<float>(std::sin(twoPiFOverFs * n)) : 0.0f;
+        };
+        constexpr int kDelayInt = 78;
+        constexpr float kDelayFrac = 0.75f;
         bool exact = true;
         for (int n = 0; n < 512; ++n) {
-            const float xin =
-                amp * static_cast<float>(std::sin(twoPiFOverFs * n));
-            if (std::fabs(y[static_cast<std::size_t>(n)] - xin) > 1.0e-6f) {
+            const float expected =
+                (1.0f - kDelayFrac) * xAt(n - kDelayInt) + kDelayFrac * xAt(n - kDelayInt - 1);
+            if (std::fabs(y[static_cast<std::size_t>(n)] - expected) > 1.0e-6f) {
                 exact = false;
                 break;
             }
