@@ -17,6 +17,12 @@
 
 **Input**: Design record: `docs/superpowers/specs/2026-07-04-passive-tone-stacks-design.md` (approved 2026-07-04, design-to-spec exit gate 7/7). Roadmap item: `design:primitive/passive-tone-stacks`, part-of `multi:feature/phase-circuit-modeling`, depends-on `multi:feature/phase-dynamic-systems` (shipped). Second deliverable of Phase 4 (Circuit Modeling), following `component-abstractions`.
 
+## Clarifications
+
+### Session 2026-07-04
+
+- Q: OQ4 — magnitude-match tolerance and frequency grid for the FMV/Baxandall vs analytic (Duncan) cross-check (SC-004/SC-005)? → A: **0.1 dB tolerance on a log-spaced grid of ~10 points/decade over 20 Hz–20 kHz.** Tight enough to catch a topology or component-value error, loose enough to stay honest against double-precision rounding and the 10 Ω modelled end-resistance floor (which perturbs the ideal-pot analytic curve slightly near pot extremes). (Rejected: 0.01 dB / 25 pts/decade — the end-resistance floor offset can exceed 0.01 dB near extremes, risking false-failure flakiness unless the analytic reference also models the floor; and 0.5 dB / 5 pts/decade — robust but could miss a subtle few-tenths-dB value/taper error.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" of this feature is threefold, matching the platform's audience framing (as in `component-abstractions` / `svf-vertical-slice` / `tape-dynamics`):
@@ -136,14 +142,14 @@ The lab reader (and the future solver author) wants to see an assembled passive 
 - **SC-001**: For both FMV and Baxandall, the builder returns a `prepare()`-valid `Netlist` at every one of the extreme control settings (all pots 0, all pots 1, a mixed setting) and the design-center setting — 100% of tested settings, zero `prepare()` failures.
 - **SC-002**: The wiper legs sum to `rTrack` within the end-resistance floor; `pos = 0.5` with `Linear` yields equal legs; `Log` matches its reference fraction at the tested positions; at `pos = 0` and `pos = 1` each leg equals the 10 Ω floor, never 0.
 - **SC-003**: `solveAC` matches the closed-form magnitude/phase of the RC low-pass (−20 dB/decade slope; phase → −90°) and the resistive divider (flat at `R2/(R1+R2)`) to a tight numeric tolerance (≈ 1e-9) — the solver is validated before being trusted on a tone stack.
-- **SC-004**: FMV `|H(f)|` matches the analytic FMV transfer function within the stated dB tolerance across the audio band at ≥3 control settings including a low-mid (mid-scoop) setting; the scoop depth increases monotonically as the mid pot lowers and HF magnitude increases monotonically as the treble pot rises.
-- **SC-005**: Baxandall `|H(f)|` matches its analytic curve within the stated tolerance at ≥3 control settings; the bass/treble shelves move the expected asymptotes and the center setting is near-flat.
+- **SC-004**: FMV `|H(f)|` matches the analytic FMV transfer function within **0.1 dB** on a **log-spaced grid of ~10 points/decade over 20 Hz–20 kHz** at ≥3 control settings including a low-mid (mid-scoop) setting; the scoop depth increases monotonically as the mid pot lowers and HF magnitude increases monotonically as the treble pot rises.
+- **SC-005**: Baxandall `|H(f)|` matches its analytic curve within **0.1 dB** on the same grid at ≥3 control settings; the bass/treble shelves move the expected asymptotes and the center setting is near-flat.
 - **SC-006**: With `core/labs/passive-tone-stacks/` deleted, the tone-stack primitive and its Tier-1 tests build and pass (isolation is itself a verified outcome).
 - **SC-007**: No heap in the builder path — `core/primitives/circuit/tone-stack/` contains no `new`/`delete`/`std::vector`; capacities are compile-time `Netlist` template parameters.
 
 ## Assumptions
 
-- **Frequency grid & tolerance (OQ4 — the one open numeric knob, a `/speckit-clarify` target).** Pending clarification, the analytic cross-check assumes a **log-spaced grid of ~10 points/decade over 20 Hz–20 kHz** and a **magnitude match tolerance on the order of 0.1 dB** — tight enough to catch a topology error, loose enough for honest floating-point. `/speckit-clarify` may refine both; nothing else in the spec depends on the exact values.
+- **Frequency grid & tolerance (OQ4 — resolved in the 2026-07-04 clarify session).** The analytic cross-check uses a **log-spaced grid of ~10 points/decade over 20 Hz–20 kHz** and a **magnitude match tolerance of 0.1 dB** (see Clarifications). Tight enough to catch a topology error, loose enough for honest double-precision plus the 10 Ω end-resistance floor offset.
 - **Analytic reference.** The published Duncan Tone Stack Calculator transfer functions (FMV) and the standard passive Baxandall/James response are the accepted independent cross-check; the analytic form is derived separately from the solver (not the solver graded against itself).
 - **Baxandall variant = passive James** with **linear** pots; the active op-amp Baxandall is deferred to `opamp-stages` (needs the deferred op-amp element).
 - **Canonical component values.** Representative FMV and Baxandall bills of materials are drawn from published references; the exact BOM constants are finalized in the plan/implementation, and the deliverable's correctness is defined by the analytic-match, not by any single vendor's part list.

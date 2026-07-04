@@ -37,10 +37,10 @@
 
 ## Notes
 
-- The single open numeric knob (OQ4 — frequency-grid density and dB match tolerance) is
-  captured as a documented **assumption with a reasonable default**, not a `[NEEDS CLARIFICATION]`
-  marker, and is flagged as the `/speckit-clarify` target. Nothing else in the spec depends on
-  its exact value, so the spec is complete and unblocked for planning.
+- OQ4 (frequency-grid density and dB match tolerance) was **resolved in the 2026-07-04
+  `/speckit-clarify` session**: 0.1 dB tolerance on a ~10 pts/decade log grid over 20 Hz–20 kHz
+  (see the Clarifications section). SC-004/SC-005 now carry the concrete values. No open
+  clarification markers remain.
 - All four load-bearing design decisions and the design-review resolutions (D8/D10/D11) are
   encoded as FRs (FR-006..FR-009) and success criteria; the spec is a faithful projection of the
   approved design record.
