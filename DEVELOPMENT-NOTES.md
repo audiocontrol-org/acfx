@@ -2,23 +2,34 @@
 
 ---
 
-## 2026-07-04: <!-- session title -->
+## 2026-07-04: component-abstractions — full lifecycle (design → ship PR) for the Phase-4 circuit-element vocabulary
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take up `design:primitive/component-abstractions` (first deliverable of Phase 4, Circuit Modeling) and drive it end-to-end through the stack-control lifecycle — design, spec, plan, tasks, analyze, implement, govern, and open the ship PR — building the solver-neutral typed vocabulary that Phase-4 deliverables assemble and Phase-5 MNA / Phase-6 WDF later adapt.
 
 **Accomplished:**
-- <!-- compose -->
+- Full lifecycle in one session: design record (2 crux decisions delegated + a third-party review folded in) → spec (4 user stories, 22 FR, 8 SC) → clarify (numeric precision: double solve / float boundary) → plan (+ research/data-model/3 contracts/quickstart) → tasks (23, tiered) → analyze-clean → implement all 23 → govern (HIGH found + fixed) → `/code-review` stop-gap → PR #16 against `main`.
+- The load-bearing seam holds: **components own their physics, solvers are adapters.** Primitive vocabulary (`core/primitives/circuit/`: node, R/C/L/V/I/diode, `std::variant` container, `Netlist<N,M>`) is header-only, C++17, heap-free, vtable-free, and provably solver-independent (compiles + its component/netlist tests pass with the lab absent, SC-007).
+- Reference solver isolated in the lab (`core/labs/component-abstractions/`): fixed-node reduction for ideal sources (exact, not gmin, not MNA), partial-pivot Gaussian elimination, backward-Euler companions, bounded voltage-limited Newton for a single/antiparallel clipper with a hard ≥2-nonlinearity refusal.
+- Validation is genuine cross-checks: divider exact 1e-9; RC vs the closed-form backward-Euler recurrence ~2e-14; RLC overshoot matching analytic ζ≈0.158; diode clipper vs an independent bisection root-find ~3e-13; diode conductance vs a finite-difference derivative; no-alloc on the post-prepare read path. 468-case suite green; harness all-pass; portability gates exit 0.
+- Model-sized dispatch across 23 fresh per-task subagents (haiku scaffolds, sonnet standard impl+tests, opus for the numerics), each reviewed and ledgered, committed+pushed at every phase boundary.
 
 **Didn't Work:**
-- <!-- compose -->
+- The cross-model `govern` barrage could not fully reconcile in-sandbox — killed by the runtime ceiling (~7 min) before the final pass; the `sonnet` lane timed out, degrading the fleet on some chunks. Closed via operator-approved `--override` after the operator-selected `/code-review` stop-gap. (Same class of sandbox friction as tape-dynamics, different symptom.)
+- A pre-existing `saturation-voicings` flake (3 cases fail only inside the full suite, pass in isolation) surfaced mid-govern; verified independent of this feature via `git stash` and captured as backlog TASK-10 rather than scope-crept.
 
 **Course Corrections:**
-- <!-- compose -->
+- The barrage caught a genuine HIGH: `Netlist::prepare()` never range-checked terminal node-ids, so a terminal in `[nodeCount, MaxNodes)` silently united with ground and a malformed netlist passed validation. Fixed with a Check-0 pass (via the unused-but-present `isValidNode`) + regression tests for both channels; the `/code-review` primitive finder then independently re-confirmed the fix closes the gap with no new gap.
+- Two dispatch-brief corrections mid-run: the test framework is **doctest**, not GoogleTest (my first brief was wrong; corrected the running subagent); and I reordered the build so `components.h` (the `std::variant`) is authored after its member types compile, rather than the literal task numbering.
+- Design-review pushback: kept the inductor L in v1 (reviewer proposed deferring it) to exercise the reactive-companion seam twice and enable the RLC validation circuit — near-zero marginal cost.
 
 **Insights:**
-- <!-- compose -->
+- The solver-neutral seam is the whole point of the feature and it paid off immediately: the reference solver, MNA (Phase 5), and WDF (Phase 6) are all just alternative readers of one immutable vocabulary — the primitive never learns what a matrix or a wave is.
+- Cross-model agreement is a strong signal: the terminal-range HIGH was flagged independently by the claude AND codex lanes, and a third finder re-confirmed the fix — far more convincing than any single reviewer.
+- Centralizing commits at the orchestrator (subagents write, don't commit) cleanly avoided git-index races across parallel dispatch, while still committing at every phase boundary.
+- Genuine cross-checks (independent root-finds, finite-difference derivatives, closed-form BE recurrences) catch real bugs that "compare the solver to itself" tolerances never would.
 
 **Quantitative (auto-derived from git; verify before publishing):**
+- Note: boundary is the implementation+govern slice (`77b256f..HEAD`); the same session also authored the earlier design record, spec, plan, tasks, and roadmap markers (commits before 77b256f).
 - Commits: 11
   - docs(audit): record /code-review stop-gap results — 1 LOW fixed, HIGH corroborated
   - fix(component-abstractions): /code-review stop-gap — validate Newton tolerances + simplify
