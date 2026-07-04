@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <variant>
 
 // Netlist<MaxNodes, MaxComponents> — the fixed-capacity, heap-free container
 // that owns circuit topology (data-model.md "Netlist"; contracts/netlist.md;
@@ -49,6 +51,38 @@
 
 namespace acfx {
 
+// The two terminal nodes of a component, regardless of element kind. Every v1
+// element is two-terminal, but the field names differ (a/b, p/n,
+// anode/cathode); this normalizes them so topology validation can treat any
+// Component uniformly. Used by prepare() for both the missing-ground scan and
+// the floating-node connectivity build. No allocation, no throw.
+inline std::pair<NodeId, NodeId> terminalsOf(const Component& c) noexcept {
+    if (const auto* r = std::get_if<Resistor>(&c)) return {r->a, r->b};
+    if (const auto* cap = std::get_if<Capacitor>(&c)) return {cap->a, cap->b};
+    if (const auto* l = std::get_if<Inductor>(&c)) return {l->a, l->b};
+    if (const auto* v = std::get_if<VoltageSource>(&c)) return {v->p, v->n};
+    if (const auto* i = std::get_if<CurrentSource>(&c)) return {i->p, i->n};
+    const auto& d = std::get<Diode>(c);
+    return {d.anode, d.cathode};
+}
+
+// True iff the element guarantees a conductive path between its two terminals
+// in the discretized backward-Euler system, and therefore contributes an edge
+// to the floating-node connectivity check (contracts/netlist.md; FR-010):
+//   - Resistor      -> 1/R
+//   - Inductor      -> dt/L   (companion conductance)
+//   - Capacitor     -> C/dt   (companion conductance)
+//   - VoltageSource -> pins its two nodes together
+// CurrentSource and Diode are deliberately EXCLUDED: a current source into an
+// otherwise-isolated node, or a lone reverse-biased diode, does not guarantee
+// a DC/operating path, so neither counts toward reachability to ground.
+inline bool contributesConductivePath(const Component& c) noexcept {
+    return std::holds_alternative<Resistor>(c) ||
+           std::holds_alternative<Inductor>(c) ||
+           std::holds_alternative<Capacitor>(c) ||
+           std::holds_alternative<VoltageSource>(c);
+}
+
 template <int MaxNodes, int MaxComponents>
 class Netlist {
 public:
@@ -82,17 +116,86 @@ public:
         ++count_;
     }
 
-    // Finalize the build. Minimal for now: it exists so the build/solve seam
-    // is stable and callers can already say "I'm done adding". No allocation,
-    // and (once T013 lands) it is the ONLY place that validates topology, so
-    // the per-sample solve path stays throw-free / alloc-free (FR-011).
+    // Finalize the build and validate topology. This is the ONLY place that
+    // validates the circuit, so the per-sample solve path that consumes a
+    // prepared Netlist stays throw-free / alloc-free (FR-011). Every check
+    // runs against the in-use prefix; on the FIRST failing check prepare()
+    // raises a DISTINCT, descriptive exception (contracts/netlist.md,
+    // FR-010/011) — no fallback, no silent repair.
+    //
+    // Checks, in order:
+    //   1. Missing ground — node 0 must be touched by at least one component
+    //      terminal, else the system has no reference (std::invalid_argument).
+    //   2. Floating node — every non-ground node in [1, nodeCount()) must have
+    //      a conductive path to ground through Resistor / Inductor / Capacitor
+    //      / VoltageSource edges (std::invalid_argument naming the node).
+    // Over-capacity is already enforced at add()/addNode() time
+    // (std::out_of_range), so the three failure modes stay distinct and
+    // independently assertable.
+    //
+    // Allocation: STACK only — union-find parent[] is a std::array sized by the
+    // MaxNodes template parameter, so prepare() never touches the heap.
     void prepare() {
-        // T013: floating-node + missing-ground validation lands here.
-        // (contracts/netlist.md prepare() contract: on the first failing
-        // check raise a distinct, descriptive error — "missing ground
-        // reference" / "floating node N" / "netlist over capacity". Until
-        // then prepare() is a no-op finalizer that neither throws nor
-        // allocates.)
+        // Check 1: missing ground. Any terminal of any component kind counts
+        // as a reference to ground (kGround == node 0).
+        bool groundReferenced = false;
+        for (int i = 0; i < count_; ++i) {
+            const auto t = terminalsOf(components_[static_cast<std::size_t>(i)]);
+            if (t.first == kGround || t.second == kGround) {
+                groundReferenced = true;
+                break;
+            }
+        }
+        if (!groundReferenced) {
+            throw std::invalid_argument(
+                "component-abstractions netlist: missing ground reference "
+                "(no component connected to node 0)");
+        }
+
+        // Check 2: floating node. Union-find over conductive edges; then every
+        // non-ground node must share ground's connected component.
+        std::array<int, static_cast<std::size_t>(MaxNodes)> parent{};
+        for (int i = 0; i < nodeCount_; ++i) {
+            parent[static_cast<std::size_t>(i)] = i;
+        }
+
+        // Iterative find with path halving (no recursion, no allocation).
+        const auto find = [&parent](int x) noexcept {
+            while (parent[static_cast<std::size_t>(x)] != x) {
+                const int grand =
+                    parent[static_cast<std::size_t>(
+                        parent[static_cast<std::size_t>(x)])];
+                parent[static_cast<std::size_t>(x)] = grand;
+                x = grand;
+            }
+            return x;
+        };
+        const auto unite = [&parent, &find](int a, int b) noexcept {
+            const int ra = find(a);
+            const int rb = find(b);
+            if (ra != rb) {
+                parent[static_cast<std::size_t>(ra)] = rb;
+            }
+        };
+
+        for (int i = 0; i < count_; ++i) {
+            const Component& c = components_[static_cast<std::size_t>(i)];
+            if (!contributesConductivePath(c)) {
+                continue;
+            }
+            const auto t = terminalsOf(c);
+            unite(t.first, t.second);
+        }
+
+        const int groundRoot = find(kGround);
+        for (int n = 1; n < nodeCount_; ++n) {
+            if (find(n) != groundRoot) {
+                throw std::invalid_argument(
+                    "component-abstractions netlist: floating node " +
+                    std::to_string(n) +
+                    " (no conductive path to ground)");
+            }
+        }
     }
 
     // Number of nodes, INCLUDING implicit ground (so >= 1 always).
