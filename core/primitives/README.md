@@ -88,10 +88,11 @@ Waveshapers, saturators, and distortion kernels. Graduated from `core/labs/waves
 | `nonlinear/waveshaper.h` | Stateful `Waveshaper` wrapper: drive/bias/DC-block/gain-comp staging around the memoryless catalog; supports `closedForm` and `lut` evaluation backends; RT-safe. |
 | `nonlinear/waveshaper-lut.h` | `WaveshaperLut` fixed-size table (512 points, linear interpolation, edge-clamp); built in `init()`, never in `process()`; error bound `kMaxDeviation = 1e-3`. |
 | `nonlinear/adaa-waveshaper.h` | `ADAAWaveshaper` first-order antiderivative anti-aliasing variant; refuses uncovered shapes with a descriptive error; same drive/bias/DC-block/gain-comp staging as `Waveshaper`. |
+| `nonlinear/hysteresis.h` | Jiles-Atherton magnetic hysteresis with curve-state memory; selectable solver (RK2/RK4/Newton); state carries across samples; antialiasing via oversampling (ADAA not applicable); RT-safe, allocation-free. First stateful inhabitant of `nonlinear/`. |
 
-Consumers: none yet — the saturation/distortion effects in later phases will consume these.
-Tests: `tests/core/waveshaper-test.cpp`, `waveshaper-harmonics-test.cpp`, `waveshaper-shapes-test.cpp`, `waveshaper-lut-test.cpp`, `waveshaper-adaa-test.cpp`, `waveshaper-antiderivatives-test.cpp`.
-Lab: `core/labs/waveshaping/` (persists as README + harness driving the graduated primitive).
+Consumers: `core/effects/tape-dynamics/` (hysteresis model). Waveshaper family: none yet — planned for saturation/distortion effects in future phases.
+Tests: `tests/core/waveshaper-test.cpp`, `waveshaper-harmonics-test.cpp`, `waveshaper-shapes-test.cpp`, `waveshaper-lut-test.cpp`, `waveshaper-adaa-test.cpp`, `waveshaper-antiderivatives-test.cpp`, `tests/core/hysteresis-test.cpp`.
+Labs: `core/labs/waveshaping/`, `core/labs/tape-dynamics/` (each persists as README + harness driving its graduated primitive).
 
 **Diode-curve altitude boundary (research.md Decision 6)**: `diodeCurve` is a memoryless transfer curve — a pure `float → float` closed form in `namespace acfx::shape`, explicitly distinct from the stateful circuit-solved diode clipper in `phase-circuit-modeling`'s `diode-clippers` item (FR-004). See `core/labs/waveshaping/README.md` for the complete altitude boundary explanation.
 

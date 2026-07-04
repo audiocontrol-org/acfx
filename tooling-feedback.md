@@ -38,3 +38,6 @@
 - agent-context after_specify/after_plan hook cannot run: PyYAML not importable in the python3 env, so the CLAUDE.md SPECKIT marker had to be updated by hand each time.
 - speckit check-prerequisites.sh rejects the descriptive branch name (TF-09); active spec dir resolves via .specify/feature.json / CLAUDE.md marker instead of the branch.
 - govern --mode implement cross-model barrage killed by the sandbox runtime ceiling (~10min) before reconciling; terminated via operator-approved --override after a /code-review high-effort stop-gap that itself caught 2 HIGH bugs.
+
+## session-end 2026-07-04
+- govern --mode implement FATALs on the 24576-byte per-file envelope when a touched file exceeds it, even for legitimately-large NON-code files (spec.md 26KB; the shared scripts/check-portability.sh 27.6KB, which every feature grows). It refuses to hunk-split and blocks the whole barrage. No path-exclude/doc-skip flag exists; the only terminal is operator --override. A code file that large is a real smell, but a spec doc and a shared gate script are not.

@@ -131,6 +131,43 @@ add_executable(acfx_core_tests
   # Review round 2 -- compile-time guard that the compressor and PDS effect
   # headers coexist in one TU (no acfx-scope enum redefinition, e.g. Detection).
   core/pds-compressor-coexist-test.cpp
+  # ---------------------------------------------------------------------------
+  # Tape-dynamics test suites (tape-dynamics feature): T003 registration;
+  # story tasks fill assertions.
+  # ---------------------------------------------------------------------------
+  core/hysteresis-test.cpp
+  # T006-T009 solver/guard suites, split out of hysteresis-test.cpp to stay
+  # under the Constitution VII per-file line budget (shares
+  # hysteresis-test-support.h's friend accessor + helpers).
+  core/hysteresis-solver-test.cpp
+  core/tape-dynamics-effect-test.cpp
+  core/tape-dynamics-alias-test.cpp
+  # T015 focused suite: TapeDynamicsCore<Factor> composed OS+JA signal path
+  # (finite output, drive nonlinearity, mix/bypass, JA loop memory, reset
+  # determinism). Kept separate from tape-dynamics-effect-test.cpp's T017
+  # placeholder.
+  core/tape-dynamics-core-test.cpp
+  # T019 -- solver-selection agreement + convergence-under-oversampling
+  # (US3, SC-002, contract C4), exercised through TapeDynamicsCore<Factor> so
+  # the OVERSAMPLED integrator dt is genuinely on the test's axis.
+  core/tape-dynamics-solver-test.cpp
+  # T021 -- US4/SC-003/FR-012 emergent-compression acceptance: monotonic
+  # compressive level curve + DRR-rises-with-drive at trim OFF, plus a
+  # compile-time guard that no compression/ratio/threshold parameter exists.
+  # Split out of tape-dynamics-effect-test.cpp to stay under the per-file
+  # line budget.
+  core/tape-dynamics-compression-test.cpp
+  # T023 -- the TapeDynamicsEffect::process() no-allocation / RT-safety
+  # invariant (US5, SC-007), split out per Constitution VII (mirrors
+  # compressor-no-allocation-test.cpp / program-dependent-saturation-
+  # no-allocation-test.cpp).
+  core/tape-dynamics-no-allocation-test.cpp
+  # T027 -- US6/contract E7 trim acceptance suite: trim-disabled bit-exact
+  # (core AND effect black-box), trim-enabled gain reduction scaling with
+  # trim.amount, and attack/release ballistics timing. New file (T026's
+  # tape-dynamics-core-test.cpp addition is one focused check, not the full
+  # suite) to stay under the per-file line budget.
+  core/tape-dynamics-trim-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
