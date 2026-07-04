@@ -188,12 +188,20 @@ concept/template style.
   non-convergence yields a bounded iteration count and a reported residual/status,
   never a silent fallback or mock output.
 
-- **D8 — Full component taxonomy is captured now; v1 inhabitant scope is the
-  operator's `/define` pass.** Captured (per capture-over-YAGNI): R, C, L;
-  independent V and I sources; controlled sources VCVS/VCCS/CCVS/CCCS; diode
-  (Shockley) as the reference nonlinearity; ideal op-amp (nullor). Captured but
-  deferred as inhabitants: BJT, MOSFET, triode/pentode, op-amp macromodels. Which
-  subset becomes actual v1 inhabitants is decided during spec authoring, not here.
+- **D8 — Full component taxonomy is captured now; the v1 inhabitant set is fixed
+  by third-party review (see Open questions, resolved).** Captured (per
+  capture-over-YAGNI): R, C, L; independent V and I sources; controlled sources
+  VCVS/VCCS/CCVS/CCCS; diode (Shockley) as the reference nonlinearity; ideal op-amp
+  (nullor). Captured but deferred as inhabitants: BJT, MOSFET, triode/pentode,
+  op-amp macromodels.
+  **v1 inhabitants (decided): R, C, L, independent voltage source, independent
+  current source, diode.** Controlled sources / op-amp / nullor are deferred until
+  the op-amp-stages deliverable needs them (the next two Phase 4 deliverables —
+  passive-tone-stacks and diode-clippers — do not). L is retained despite not being
+  strictly required by those two, because it exercises the reactive-companion seam
+  a second time (guarding against over-fitting the abstraction to the capacitor)
+  and enables the RLC analytic-validation circuit (D9) at near-zero marginal cost
+  (L is the dual of C's companion).
 
 - **D9 — Validation is analytic where a closed form exists.** Voltage divider
   (exact), RC low-pass (analytic magnitude/phase), RLC, diode clipper (static
@@ -204,32 +212,38 @@ concept/template style.
 
 ## Open questions
 
-These are captured for the spec-authoring / scoping pass; none blocks the design.
+OQ1–OQ4 were **resolved by a third-party design review** (2026-07-03) and are
+recorded here as decided so `/stack-control:define` inherits them; OQ5 remains
+open for measurement. None blocks the design.
 
-- **OQ1 — Reactive discretization for the lab solver.** Backward Euler (simple,
-  unconditionally stable, slightly lossy) vs trapezoidal (more accurate, can ring
-  on stiff nodes). Leaning backward Euler for the naive lab; trapezoidal and the
-  general treatment are Phase 5 (implicit integration).
+- **OQ1 — Reactive discretization for the lab solver. → RESOLVED: backward Euler.**
+  Simple, unconditionally stable, slightly lossy; explicitly marked **non-normative**
+  (the lab's naive choice). Trapezoidal and the general treatment are Phase 5
+  (implicit integration).
 
-- **OQ2 — How far the lab's bounded Newton goes before it is "really Phase 5."**
-  Proposed boundary: the lab solves the single-diode / antiparallel-diode clipper
-  with a fixed ≤N-iteration Newton; anything with multiple interacting
-  nonlinearities waits for Phase 5 MNA/Newton. Exact N and the residual tolerance
-  are a spec-time detail.
+- **OQ2 — How far the lab's bounded Newton goes. → RESOLVED: hold the line at the
+  clipper.** The lab solves only voltage divider / RC / RLC (linear) and the
+  single-diode or antiparallel-diode clipper (a fixed ≤N-iteration Newton). Anything
+  with multiple interacting nonlinearities waits for Phase 5 MNA/Newton — the lab
+  must not become MNA. Exact N and residual tolerance are a spec-time detail.
 
-- **OQ3 — Capacity limits.** Fixed maxima (e.g. 32 nodes / 64 components) vs
-  templating the netlist/solver on capacity. Templating avoids a hard ceiling at
-  the cost of some code-size/instantiation complexity on Teensy.
+- **OQ3 — Capacity limits. → RESOLVED: templated fixed capacity.** Use
+  `Netlist<MaxNodes, MaxComponents>` (and a matching fixed-size solver matrix)
+  rather than hard-coded global limits — no hard ceiling, heap-free by construction.
+  Spec-time note: each distinct `<N,M>` instantiation is separate code, so pick sane
+  defaults and watch Teensy code size (feeds OQ5).
 
-- **OQ4 — Controlled sources now or deferred.** VCVS/VCCS/CCVS/CCCS are needed for
-  the op-amp-stages deliverable. Land them as inhabitants in this primitive, or
-  defer to the op-amp-stages feature and keep this primitive to R/C/L + diode +
-  sources? Affects how "complete" the ideal op-amp (nullor) support is here.
+- **OQ4 — Controlled sources now or deferred. → RESOLVED: defer.** VCVS/VCCS/CCVS/
+  CCCS, the ideal op-amp, and the nullor are deferred until the op-amp-stages
+  deliverable needs them; they are captured in the taxonomy but are not v1
+  inhabitants. The v1 inhabitant set is R, C, L, independent V/I sources, diode
+  (see D8).
 
 - **OQ5 — `std::variant` vs a hand-rolled tagged union on the C++17/Teensy
-  target.** `std::variant` is C++17 and expected to be fine; confirm code-size and
-  `std::visit` cost on the embedded target, and keep a hand-rolled tagged union as
-  a fallback shape if measurement demands it.
+  target. → OPEN.** `std::variant` is C++17 and expected to be fine; confirm
+  code-size and `std::visit` cost on the embedded target (now also weighing the
+  templated-capacity instantiation cost from OQ3), and keep a hand-rolled tagged
+  union as a fallback shape if measurement demands it.
 
 ---
 
@@ -255,6 +269,12 @@ These are captured for the spec-authoring / scoping pass; none blocks the design
   operator** to the design frontend during the in-session brainstorm; resolved to
   the solver-neutral netlist (D1) and the naive-solver-in-the-lab (D3) with the
   reasoning recorded above.
+- **Third-party design review (2026-07-03):** resolved OQ1 (backward Euler,
+  non-normative), OQ2 (lab solver held at the clipper; never MNA), OQ3 (templated
+  `Netlist<MaxNodes, MaxComponents>`), and OQ4 (defer controlled sources / op-amp /
+  nullor). The one point pushed back on and adjusted: the inductor L is **retained**
+  in the v1 set (reviewer proposed deferring it) for reactive-seam generality and
+  the RLC validation circuit, at near-zero marginal cost.
 - **Terminal handoff:** `/stack-control:define` to author the Spec Kit spec from
   this record (the `design-to-spec` transition), after the operator records the
   `design-approved:` marker.
