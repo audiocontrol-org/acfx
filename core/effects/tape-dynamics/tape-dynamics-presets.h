@@ -41,7 +41,7 @@ struct TapeDynamicsPresetConfig {
     float saturation = 1.0f;
     float width = 1.0f;
     std::uint8_t solver = 1; // 0=rk2, 1=rk4, 2=newtonRaphson; default rk4
-    std::uint8_t oversampling = 2; // 0=2x, 1=4x, 2=8x, 3=16x; default 8x
+    std::uint8_t oversampling = 2; // 0=2x, 1=4x, 2=8x; default 8x
     bool trimEnabled = false;
     float trimAttack = 0.01f;
     float trimRelease = 0.1f;
@@ -62,7 +62,7 @@ inline constexpr std::array<TapeDynamicsPresetConfig, 3> kTapeDynamicsPresetConf
     TapeDynamicsPresetConfig{6.0f, 1.2f, 0.8f, 1, 2, true, 0.05f, 0.2f, 0.4f},
 
     // saturate — aggressive tape character: high drive, steep saturation,
-    // fast attack, tight loop width, for pronounced nonlinear distortion.
+    // fast attack, wide loop width (memory), for pronounced nonlinear distortion.
     TapeDynamicsPresetConfig{18.0f, 1.8f, 1.5f, 2, 2, true, 0.01f, 0.1f, 0.8f},
 }};
 
