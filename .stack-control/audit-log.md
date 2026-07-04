@@ -44,3 +44,30 @@ Terminal note: the barrage cannot fully reconcile in this sandbox (runtime ceili
 times out → degraded fleet on some chunks). Substantive finding fixed above; remaining items are
 acknowledged with reasons. Operator-approved `--override` is the sanctioned terminal for the
 convergence record (per the govern-convergence-tail discipline).
+
+### /code-review stop-gap (2026-07-04, operator-selected)
+
+Ran the lighter multi-agent `/code-review` over the whole-feature diff (`77b256f..HEAD`) as the
+operator-chosen stop-gap for the un-reconcilable barrage. Three finder angles (primitive
+correctness, solver correctness, cleanup/altitude/conventions), each independent:
+
+- **Primitive-correctness finder: 0 findings.** Verified all physics matches references exactly
+  (admittance, C/L companions incl. the relative sign, Shockley current/conductance, vCrit, pnjlim);
+  independently CONFIRMED the AUDIT-BARRAGE-01 Check-0 fix closes the silent-grounding gap with no
+  new gap (negative ids, `== nodeCount`, `>= MaxNodes`, ground-only all handled); union-find + path
+  halving correct.
+- **Solver-correctness finder: 1 LOW.** `NewtonClipper` validated `maxIterations >= 1` but not
+  `voltageTol/currentTol > 0`; a non-positive tolerance silently made a well-posed clipper report
+  permanent non-convergence. → **fixed** (throw at construction + regression test). It otherwise
+  cleared every subtle hazard: Geq→0 handled (stamps 0 conductance, prepare() guarantees a non-diode
+  path to ground so the matrix stays non-singular), Geq→∞ unreachable (pnjlim bounds the bias),
+  companion RHS signs, fixed-node reduction (both grounded cases), Gaussian elim/pivoting/back-sub,
+  reactive-history order, refusal logic, and array bounds — all verified correct.
+- **Cleanup finder: 0 correctness, 0 CLAUDE.md violations.** Three trivial simplifications
+  applied (redundant convergence branch, unused `stampComponents` param, discarded return); two
+  efficiency items (per-iteration augmented-netlist rebuild; one redundant `dt/L` divide) accepted
+  as documented non-normative-lab tradeoffs. Confirmed correct reuse of `acfx::span`; files within
+  size budget; no fallbacks; no AI attribution.
+
+Net: the stop-gap surfaced one LOW (fixed) and independently corroborated the barrage's HIGH fix.
+No confirmed correctness defect remains in the feature.
