@@ -450,3 +450,17 @@ TEST_CASE("NewtonClipper - refuses a netlist with two independent (different-nod
     CHECK_MESSAGE(clipper.voltage(nodeA) == 0.0,
                   "scope refusal must not silently perform a partial solve");
 }
+
+// Regression (code-review LOW): the constructor must reject a non-positive
+// convergence tolerance up front. |Δv| >= 0 can never satisfy `< tol` when
+// tol <= 0, so accepting it would silently make a well-posed clipper report
+// permanent non-convergence. Fail loud, matching the iteration-bound check.
+TEST_CASE("NewtonClipper - rejects a non-positive convergence tolerance at construction") {
+    CHECK_THROWS_AS((NewtonClipper<8, 8>(50, 0.0)), std::invalid_argument);
+    CHECK_THROWS_AS((NewtonClipper<8, 8>(50, -1e-9)), std::invalid_argument);
+    CHECK_THROWS_AS((NewtonClipper<8, 8>(50, 1e-9, 0.0)), std::invalid_argument);
+    // The iteration-bound guard still holds too.
+    CHECK_THROWS_AS((NewtonClipper<8, 8>(0)), std::invalid_argument);
+    // A valid configuration constructs cleanly.
+    CHECK_NOTHROW((NewtonClipper<8, 8>(50, 1e-9, 1e-12)));
+}

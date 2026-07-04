@@ -87,7 +87,7 @@ public:
         const int n = nodeCount - 1;
 
         zeroSystem(n);
-        stampComponents(nl, dt, n);
+        stampComponents(nl, dt);
         imposeVoltageSources(nl, n);
         gaussianSolve(n);
         advanceHistory(nl, dt, nodeCount);
@@ -171,9 +171,8 @@ private:
     // reduction). Diodes are NOT stamped: nonlinearity is the Newton layer's
     // job (T017 newton-clipper), which drives its own linearized companion; a
     // pure linear solve does not touch the diode.
-    void stampComponents(const Netlist<MaxNodes, MaxComponents>& nl, double dt,
-                         int n) noexcept {
-        (void)n;
+    void stampComponents(const Netlist<MaxNodes, MaxComponents>& nl,
+                         double dt) noexcept {
         const auto comps = nl.components();
         for (std::size_t i = 0; i < comps.size(); ++i) {
             const Component& c = comps[i];

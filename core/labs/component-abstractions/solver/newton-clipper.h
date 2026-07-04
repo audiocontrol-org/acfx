@@ -112,6 +112,14 @@ public:
             throw std::invalid_argument(
                 "newton-clipper: iteration bound N must be >= 1");
         }
+        if (voltageTol_ <= 0.0 || currentTol_ <= 0.0) {
+            // A non-positive tolerance can never be met by |Δv| / |Δi| >= 0, so
+            // it would silently render even a well-posed clipper unsolvable
+            // (all N iterations, converged == false). Fail loud on bad config,
+            // matching the iteration-bound check above.
+            throw std::invalid_argument(
+                "newton-clipper: voltage/current tolerances must be > 0");
+        }
         reset();
     }
 
@@ -138,8 +146,7 @@ public:
                 "newton-clipper: timestep dt must be > 0");
         }
 
-        const int diodeCount = collectClipper(nl);
-        (void)diodeCount;
+        collectClipper(nl);  // records diodeCount_ + the clipper port as members
 
         double v = warmStart_;
         NewtonStatus status;
@@ -170,13 +177,11 @@ public:
             status.voltageResidual = dv;
             status.currentResidual = di;
 
-            if (dv < voltageTol_ && di < currentTol_) {
-                status.converged = true;
-                break;
-            }
             if (dv < voltageTol_) {
                 // Voltage settled; accept even if the tiny reverse-saturation
-                // current residual never drops below currentTol_.
+                // current residual never drops below currentTol_. (A separate
+                // dv<voltageTol_ && di<currentTol_ branch would be redundant —
+                // it is strictly subsumed by this one.)
                 status.converged = true;
                 break;
             }
