@@ -11,11 +11,19 @@
 // validation is runnable/readable outside the test framework as a small,
 // educational CI check (exits nonzero if anything fails).
 //
+// Also validates the diode clipper (T019; US4/SC-004/SC-005; contracts/
+// reference-solver.md SS Nonlinear/Scope): a single-diode clipper and an
+// antiparallel diode pair, each checked against an INDEPENDENT bisection
+// reference over the clipper's own transcendental equation (not the solver
+// graded against itself).
+//
 // Include root: core/ (see the acfx_lab_component_abstractions_harness CMake
 // target). Compile with -std=c++20.
 
 #include "labs/component-abstractions/solver/linear-solver.h"
+#include "labs/component-abstractions/solver/newton-clipper.h"
 #include "primitives/circuit/components.h"
+#include "primitives/circuit/models/diode.h"
 #include "primitives/circuit/netlist.h"
 #include "primitives/circuit/node.h"
 
@@ -23,6 +31,7 @@
 #include <cstdio>
 
 using acfx::Capacitor;
+using acfx::Diode;
 using acfx::Inductor;
 using acfx::kGround;
 using acfx::Netlist;
@@ -30,6 +39,8 @@ using acfx::NodeId;
 using acfx::Resistor;
 using acfx::VoltageSource;
 using acfx::labs::component_abstractions::LinearSolver;
+using acfx::labs::component_abstractions::NewtonClipper;
+using acfx::labs::component_abstractions::NewtonStatus;
 
 namespace {
 
@@ -188,6 +199,203 @@ bool runSeriesRlc() {
     return allPassed;
 }
 
+// ---------------------------------------------------------------------------
+// Diode-clipper validation (T019; US4/SC-004/SC-005), mirroring the doctest
+// cases in tests/core/circuit-solver-test.cpp. The independent references
+// below come from a standalone bisection root-finder over the clipper's own
+// transcendental equation -- NOT from re-running NewtonClipper -- so this is
+// a genuine cross-check, not the solver graded against itself.
+// ---------------------------------------------------------------------------
+
+// Well-damped standalone bisection root-finder (see the mirrored doctest
+// helper for the derivation). Assumes `f` is monotonically non-decreasing
+// over [lo, hi] with a root inside; halves the bracket to width < tol.
+template <typename F>
+double bisectRoot(F f, double lo, double hi, double tol = 1e-12) {
+    double flo = f(lo);
+    double fhi = f(hi);
+    if (!(flo <= 0.0 && fhi >= 0.0)) {
+        std::printf("bisectRoot: root not bracketed over [%.6g, %.6g]: f(lo)=%.6g f(hi)=%.6g\n",
+                     lo, hi, flo, fhi);
+    }
+    while (hi - lo > tol) {
+        const double mid = 0.5 * (lo + hi);
+        const double fmid = f(mid);
+        if (fmid <= 0.0) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return 0.5 * (lo + hi);
+}
+
+// Independent reference for the single-diode clipper: 0 = v + R*Is*(exp(v/
+// (n*Vt)) - 1) - Vin.
+double independentSingleDiodeClipper(double Vin, double R, double Is, double n, double Vt) {
+    const double nVt = n * Vt;
+    const auto f = [&](double v) {
+        return v + R * Is * (std::exp(v / nVt) - 1.0) - Vin;
+    };
+    return bisectRoot(f, -3.0, 3.0);
+}
+
+// Independent reference for the antiparallel-pair clipper: the two diodes'
+// "-1" terms cancel, leaving 0 = v + 2*R*Is*sinh(v/(n*Vt)) - Vin.
+double independentAntiparallelClipper(double Vin, double R, double Is, double n, double Vt) {
+    const double nVt = n * Vt;
+    const auto f = [&](double v) {
+        return v + 2.0 * R * Is * std::sinh(v / nVt) - Vin;
+    };
+    return bisectRoot(f, -3.0, 3.0);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Single-diode clipper (US4.1/US4.3/SC-004): Vin --VoltageSource--
+//    node1 --R-- node2 --Diode(anode=node2, cathode=ground)-- ground. Swept
+//    over Vin in [-2, 2] V: must converge within the iteration bound at
+//    every bias, match the independent transcendental reference, and
+//    forward-saturate near the diode drop (well under Vin) rather than
+//    passing the full swing through.
+// ---------------------------------------------------------------------------
+bool runSingleDiodeClipper() {
+    std::puts("-- Single-diode clipper (US4.1/SC-004) --");
+    bool allPassed = true;
+
+    const double R = 1000.0;
+    const double Is = 1.0e-14;
+    const double n = 1.0;
+    const double Vt = 0.02585;
+    const double dt = 1.0e-5;  // purely resistive port: dt does not affect the answer
+
+    NewtonClipper<8, 8> clipper;
+
+    bool allConverged = true;
+    int maxIterationsSeen = 0;
+    double maxError = 0.0;
+
+    for (double Vin = -2.0; Vin <= 2.0 + 1e-9; Vin += 0.1) {
+        Netlist<8, 8> nl;
+        const NodeId node1 = nl.addNode();
+        const NodeId node2 = nl.addNode();
+        nl.add(VoltageSource{node1, kGround, Vin});
+        nl.add(Resistor{node1, node2, R});
+        nl.add(Diode{node2, kGround, Is, n, Vt});
+        nl.prepare();
+
+        const NewtonStatus status = clipper.solve(nl, dt);
+        if (!status.converged) {
+            allConverged = false;
+        }
+        if (status.iterations > maxIterationsSeen) {
+            maxIterationsSeen = status.iterations;
+        }
+
+        const double expected = independentSingleDiodeClipper(Vin, R, Is, n, Vt);
+        const double err = std::fabs(clipper.voltage(node2) - expected);
+        if (err > maxError) {
+            maxError = err;
+        }
+    }
+
+    report(allConverged, "clipper: Newton converged at every swept Vin in [-2,2]V",
+           allConverged ? 1.0 : 0.0, 1.0, allPassed);
+    report(maxIterationsSeen <= clipper.maxIterations(),
+           "clipper: iterations stayed within the configured bound",
+           maxIterationsSeen, clipper.maxIterations(), allPassed);
+    report(maxError < 1e-6,
+           "clipper: v matches independent transcendental reference (SC-004), max err",
+           maxError, 1e-6, allPassed);
+
+    // Saturation sanity: a deep forward drive clips well under Vin (soft
+    // clip near the diode's forward drop), unlike a linear pass-through.
+    Netlist<8, 8> nlHigh;
+    const NodeId h1 = nlHigh.addNode();
+    const NodeId h2 = nlHigh.addNode();
+    nlHigh.add(VoltageSource{h1, kGround, 2.0});
+    nlHigh.add(Resistor{h1, h2, R});
+    nlHigh.add(Diode{h2, kGround, Is, n, Vt});
+    nlHigh.prepare();
+    clipper.solve(nlHigh, dt);
+    const double vHigh = clipper.voltage(h2);
+    report(vHigh < 1.0, "clipper: forward saturation stays well under Vin=2V (soft-clipped)",
+           vHigh, 1.0, allPassed);
+
+    return allPassed;
+}
+
+// ---------------------------------------------------------------------------
+// 5. Antiparallel diode pair (US4.2/SC-004): same port, two diodes of
+//    opposite orientation. Transfer must be symmetric (output(-Vin) ==
+//    -output(Vin)) and match the independent antiparallel reference.
+// ---------------------------------------------------------------------------
+bool runAntiparallelClipper() {
+    std::puts("-- Antiparallel diode pair (US4.2/SC-004) --");
+    bool allPassed = true;
+
+    const double R = 1000.0;
+    const double Is = 1.0e-14;
+    const double n = 1.0;
+    const double Vt = 0.02585;
+    const double dt = 1.0e-5;
+
+    NewtonClipper<8, 8> clipper;
+
+    bool allConverged = true;
+    double maxSymmetryError = 0.0;
+    double maxReferenceError = 0.0;
+
+    for (double Vin = 0.1; Vin <= 2.0 + 1e-9; Vin += 0.1) {
+        Netlist<8, 8> nlPos;
+        const NodeId p1 = nlPos.addNode();
+        const NodeId p2 = nlPos.addNode();
+        nlPos.add(VoltageSource{p1, kGround, Vin});
+        nlPos.add(Resistor{p1, p2, R});
+        nlPos.add(Diode{p2, kGround, Is, n, Vt});
+        nlPos.add(Diode{kGround, p2, Is, n, Vt});
+        nlPos.prepare();
+        const NewtonStatus statusPos = clipper.solve(nlPos, dt);
+        if (!statusPos.converged) {
+            allConverged = false;
+        }
+        const double vPos = clipper.voltage(p2);
+
+        Netlist<8, 8> nlNeg;
+        const NodeId m1 = nlNeg.addNode();
+        const NodeId m2 = nlNeg.addNode();
+        nlNeg.add(VoltageSource{m1, kGround, -Vin});
+        nlNeg.add(Resistor{m1, m2, R});
+        nlNeg.add(Diode{m2, kGround, Is, n, Vt});
+        nlNeg.add(Diode{kGround, m2, Is, n, Vt});
+        nlNeg.prepare();
+        const NewtonStatus statusNeg = clipper.solve(nlNeg, dt);
+        if (!statusNeg.converged) {
+            allConverged = false;
+        }
+        const double vNeg = clipper.voltage(m2);
+
+        const double symErr = std::fabs(vPos + vNeg);
+        if (symErr > maxSymmetryError) {
+            maxSymmetryError = symErr;
+        }
+
+        const double expected = independentAntiparallelClipper(Vin, R, Is, n, Vt);
+        const double refErr = std::fabs(vPos - expected);
+        if (refErr > maxReferenceError) {
+            maxReferenceError = refErr;
+        }
+    }
+
+    report(allConverged, "antiparallel: Newton converged at every swept |Vin| in (0,2]V",
+           allConverged ? 1.0 : 0.0, 1.0, allPassed);
+    report(maxSymmetryError < 1e-6,
+           "antiparallel: output(-Vin) == -output(Vin), max err", maxSymmetryError, 1e-6, allPassed);
+    report(maxReferenceError < 1e-6,
+           "antiparallel: v matches independent reference, max err", maxReferenceError, 1e-6, allPassed);
+
+    return allPassed;
+}
+
 }  // namespace
 
 int main() {
@@ -196,6 +404,8 @@ int main() {
     allPassed = runResistiveDivider() && allPassed;
     allPassed = runRcLowPass() && allPassed;
     allPassed = runSeriesRlc() && allPassed;
+    allPassed = runSingleDiodeClipper() && allPassed;
+    allPassed = runAntiparallelClipper() && allPassed;
 
     std::puts(allPassed ? "\ncomponent-abstractions-harness: ALL CHECKS PASSED"
                          : "\ncomponent-abstractions-harness: FAILURES DETECTED");
