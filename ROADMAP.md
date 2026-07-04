@@ -197,6 +197,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:primitive/component-abstractions
 - status: planned
+- design: docs/superpowers/specs/2026-07-03-component-abstractions-design.md
 - depends-on: multi:feature/phase-dynamic-systems
 - part-of: multi:feature/phase-circuit-modeling
 
