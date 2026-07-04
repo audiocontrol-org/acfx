@@ -27,6 +27,11 @@
 - Q: OQ3 — Concrete parameter ranges/mapping for the physics macros? → A: Deferred to implementation — musically useful ranges tuned against harness measurements (as the `saturation` voicings were); not an architecture-blocking decision.
 - Q: OQ5 — Does `Hysteresis` get its own `tests/core/` unit file in addition to the lab harness? → A: Yes — a dedicated `tests/core/hysteresis-test.cpp`, mirroring `tests/core/delay-line-test.cpp`.
 
+### Session 2026-07-03 (PR review)
+
+- Q: Does `drive` = 0 mean bypass / unity passthrough? → A: **No — the original spec conflated two distinct things.** `drive` is a **dB input-gain** control; `drive` = 0 dB is unity *input gain* into the **always-on** magnetics, which still impart tape character (a tape effect colors even at unity drive — the correct musical model). The **bypass** is a separate control, **`mix` = 0**, which is a bit-exact unity passthrough of the dry signal (aligned to the effect's constant internal latency). FR-014/FR-022/SC-005 and US1.2 updated accordingly; the implementation already behaves this way and the tests assert it. Making `drive` = 0 a hard magnetics-bypass was rejected: a dB gain control at 0 dB means unity gain, not off, and a bottom-of-range bypass cliff would be a discontinuity.
+- Note (gain-staging, → measured-tuning backlog): at `drive` = 0 dB the harness measures ~−15 dB of level drop (the Langevin small-signal slope + `Ms`/output staging). Whether a neutral setting should be normalized toward ~unity **output** level is a measured-tuning question (OQ3), captured in the backlog, not an architectural change.
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" of this feature is threefold, matching the platform's audience framing (as in `compressors` / `program-dependent-saturation`):
@@ -48,7 +53,7 @@ An effect author routes audio through a tape-dynamics effect whose core is a **J
 **Acceptance Scenarios**:
 
 1. **Given** a prepared effect at a known sample rate, **When** a full-scale sinusoid is processed at moderate `drive`, **Then** the output is a smoothly saturated, band-limited signal whose transfer traces a closed hysteresis loop (rising and falling branches differ).
-2. **Given** `drive` = 0 (or bypass), **When** any signal is processed, **Then** output ≈ input at unity gain (defined passthrough; no pitch/level artifacts).
+2. **Given** `mix` = 0 (bypass), **When** any signal is processed, **Then** output ≈ input at unity gain (bit-exact dry, aligned to the effect's constant internal latency; no artifacts). *At `drive` = 0 dB with `mix` = 1 the magnetics run at unity **input gain** but still impart tape character — that is not a bypass (see Clarifications).*
 3. **Given** a hot transient that would destabilize a stiff integrator, **When** it is processed, **Then** the output remains finite (no NaN/Inf) and the effect recovers to stable operation (D9 guard).
 
 ---
@@ -151,7 +156,7 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 ### Edge Cases
 
 - **Hot transient / stiff divergence**: a large, fast input must not blow the integrator to NaN/Inf; the state is clamped/deNaN'd to a defined stable value and recovers (D9). This holds for every solver.
-- **`drive` = 0 / bypass**: defined unity passthrough, no artifacts.
+- **Bypass (`mix` = 0)**: bit-exact unity passthrough (dry signal, aligned to the effect's constant latency), no artifacts. **`drive` = 0 dB** is a distinct case: unity **input gain** into the always-on magnetics — still colored, not a bypass.
 - **Extreme parameters**: `Ms`/`width`/`drive` at range extremes remain finite and stable (guarded).
 - **Sample-rate changes / re-prepare**: `prepare()` at a new sample rate reconfigures the integrator step size; `reset()` clears memory state so there is no carryover click.
 - **Block-size variation**: correct, click-free output for 1-sample and large blocks; no allocation in `process()`.
@@ -179,7 +184,7 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 - **FR-011**: The effect MUST provide an **optional** explicit envelope-driven trim composing the shipped `EnvelopeFollower` and `GainComputer`, controlled by `trim.enabled`, `trim.attack`, `trim.release`, and `trim.amount`. When `trim.enabled` is false, the signal path MUST equal the magnetics-only core path exactly. This layer is **included in the first cut** (clarified 2026-07-03, OQ2).
 - **FR-012**: The effect MUST NOT expose emergent dynamic compression as a parameter; it is an inherent property of the saturating magnetics, surfaced only through the level response and lab measurement.
 - **FR-013**: The effect MUST provide named presets (starting points) in `tape-dynamics-presets.h`.
-- **FR-014**: The effect MUST be RT-safe (FR-007 conditions) and provide a defined unity passthrough at `drive` = 0 / bypass.
+- **FR-014**: The effect MUST be RT-safe (FR-007 conditions) and provide a defined **bit-exact unity passthrough at `mix` = 0** (the bypass: the dry signal, aligned to the effect's constant internal latency). Note: `drive` = 0 dB is unity **input gain** into the always-on magnetics (which still impart tape character), which is NOT a bypass — `drive` is a dB input-gain control, not an on/off (clarified 2026-07-03, review).
 
 **Lab & graduation (three-layer vertical, Principle IX)**
 
@@ -193,7 +198,7 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 - **FR-019**: The system MUST validate solver agreement and stability: RK2/RK4/Newton converge to the same loop within a stated tolerance as the oversampling factor rises, and none diverge on a hot transient.
 - **FR-020**: The system MUST validate emergent compression: with the explicit trim disabled, the output-vs-input level curve is monotonic and compressive above a threshold, and a dynamic-range-reduction metric increases with `drive`.
 - **FR-021**: The system MUST validate THD/aliasing versus the oversampling factor, reusing the existing analysis harness (`host/analysis/thdn.h`, `alias-sweep.h`).
-- **FR-022**: The system MUST validate passthrough and guards: `drive` = 0 / bypass ≈ unity gain, and output remains NaN/Inf-free under extreme drive and parameter sweeps.
+- **FR-022**: The system MUST validate passthrough and guards: **`mix` = 0 (bypass)** ≈ unity gain (bit-exact dry, latency-aligned), and output remains NaN/Inf-free under extreme drive and parameter sweeps.
 - **FR-024**: The system MUST provide a dedicated `tests/core/hysteresis-test.cpp` unit test for the graduated primitive (in addition to the lab harness), mirroring `tests/core/delay-line-test.cpp` (clarified 2026-07-03, OQ5).
 
 **Out of scope (explicitly deferred — MUST NOT front-run later phases)**
@@ -215,7 +220,7 @@ The author selects the oversampling factor at which the magnetics run (reusing t
 - **SC-002**: Across RK2/RK4/Newton at a fixed oversampling factor, the produced hysteresis loops agree within a stated tolerance, and the agreement tolerance tightens monotonically as the oversampling factor increases.
 - **SC-003**: With the explicit trim disabled, the measured output-vs-input level curve is monotonic and compressive above a threshold, and the dynamic-range-reduction metric at a high `drive` exceeds that at a low `drive`.
 - **SC-004**: Aliased spectral content (alias-sweep metric) at a fixed hot tone decreases monotonically as the oversampling factor increases.
-- **SC-005**: Under a full parameter sweep and hot transients, the primitive and effect produce zero non-finite (NaN/Inf) output samples; at `drive` = 0 / bypass the output equals the input within unity-gain tolerance.
+- **SC-005**: Under a full parameter sweep and hot transients, the primitive and effect produce zero non-finite (NaN/Inf) output samples; at **`mix` = 0 (bypass)** the output equals the input (bit-exact dry, aligned to the effect's constant latency) within unity-gain tolerance.
 - **SC-006**: The three-layer graduation is complete and verifiable: `core/primitives/nonlinear/hysteresis.h` exists, `core/primitives/README.md` lists it (noting first stateful member), the lab contains README + kernel + host-only harness, and the portability gate passes over the new paths.
 - **SC-007**: `process()` performs no heap allocation and takes no locks (verified host-side), consistent with the platform's RT-safety convention.
 
