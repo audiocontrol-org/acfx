@@ -172,7 +172,7 @@ TEST_CASE("CircuitNetlist - add() beyond MaxComponents throws out_of_range witho
 // Both must throw a descriptive std::invalid_argument, distinct from the
 // missing-ground / floating-node / over-capacity errors.
 // ---------------------------------------------------------------------------
-TEST_CASE("CircuitNetlist - a terminal in [nodeCount, MaxNodes) is rejected (not silently grounded)") {
+TEST_CASE("CircuitNetlist - a terminal at-or-above nodeCount but below MaxNodes is rejected (not silently grounded)") {
     Netlist<8, 8> nl;               // nodes 0..7 addressable by the array...
     const NodeId node1 = nl.addNode();  // ...but only node 1 is actually in use (nodeCount()==2)
     nl.add(Resistor{acfx::kGround, node1, 1000.0});  // valid, references ground
@@ -182,7 +182,7 @@ TEST_CASE("CircuitNetlist - a terminal in [nodeCount, MaxNodes) is rejected (not
     CHECK_THROWS_WITH(nl.prepare(), doctest::Contains("out-of-range node"));
 }
 
-TEST_CASE("CircuitNetlist - a terminal >= MaxNodes is rejected before any out-of-bounds access") {
+TEST_CASE("CircuitNetlist - a terminal at or beyond MaxNodes is rejected before any out-of-bounds access") {
     Netlist<4, 8> nl;
     const NodeId node1 = nl.addNode();
     nl.add(Resistor{acfx::kGround, node1, 1000.0});
