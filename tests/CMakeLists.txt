@@ -175,6 +175,14 @@ add_executable(acfx_core_tests
   core/circuit-components-test.cpp
   core/circuit-netlist-test.cpp
   core/circuit-solver-test.cpp
+  # ---------------------------------------------------------------------------
+  # Passive-tone-stacks test suites (passive-tone-stacks feature): registered
+  # per phase as each file lands. Tier-1 (no solver): taper + builder topology.
+  # Tier-2 (lab AC solver): FMV/Baxandall analytic match.
+  # ---------------------------------------------------------------------------
+  core/tone-stack-taper-test.cpp
+  core/tone-stack-builder-test.cpp
+  core/tone-stack-ac-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

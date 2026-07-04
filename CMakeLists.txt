@@ -117,6 +117,15 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   target_link_libraries(acfx_lab_component_abstractions_harness PRIVATE acfx_core)
   target_compile_features(acfx_lab_component_abstractions_harness PRIVATE cxx_std_20)
 
+  # Passive-tone-stacks lab harness — mirrors acfx_lab_component_abstractions_harness
+  # exactly (same linkage and feature). Drives the complex .ac solver over the
+  # FMV/Baxandall stacks the tone-stack primitive builds; prints PASS/FAIL.
+  add_executable(acfx_lab_passive_tone_stacks_harness
+    core/labs/passive-tone-stacks/harness/passive-tone-stacks-harness.cpp
+  )
+  target_link_libraries(acfx_lab_passive_tone_stacks_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_passive_tone_stacks_harness PRIVATE cxx_std_20)
+
   # Waveshaping lab harness — mirrors acfx_lab_svf_harness exactly (same
   # linkage and feature). The harness is a required, completed deliverable;
   # a missing source file should fail configure, not silently drop the target.

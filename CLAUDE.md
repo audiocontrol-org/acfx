@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **component-abstractions**.
+Active Spec Kit feature: **passive-tone-stacks**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/component-abstractions/plan.md` (spec: `specs/component-abstractions/spec.md`).
+current plan at `specs/passive-tone-stacks/plan.md` (spec: `specs/passive-tone-stacks/spec.md`).
 <!-- SPECKIT END -->
