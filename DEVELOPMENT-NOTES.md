@@ -2,21 +2,30 @@
 
 ---
 
-## 2026-07-04: <!-- session title -->
+## 2026-07-04: tape-dynamics — full lifecycle (design → shipped-ready) for the Jiles-Atherton hysteresis feature
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take up the eponymous `tape-dynamics` feature and drive it end-to-end through the stack-control lifecycle: design, spec, plan, tasks, analyze, implement, review, govern, and open the ship PR.
 
 **Accomplished:**
-- <!-- compose -->
+- Full lifecycle: design record → spec (7 user stories, 24 FR, 7 SC) → clarify (OQ1–OQ5) → plan (+ research/data-model/contracts/quickstart) → tasks (31, tiered) → analyze-clean → implement all 31 tasks → code-review + fixes → govern (overridden) → PR #15 opened against `main`.
+- Delivered the three-layer vertical: stateful `Hysteresis` primitive (JA `dM/dH`, RK2/RK4/Newton, stiff + well-posedness guards; first stateful `nonlinear/` member), `TapeDynamicsEffect` (Oversampler-composed, {2,4,8}×, delay-compensated dry/wet, optional envelope trim, wired presets), and the lab (README + kernel + measurement harness).
+- Validation is measurable and green: closed-loop area ≈0.24 vs tanh ≈4e-16; solver agreement tightens ~16× 2×→8×; emergent DRR −0.6→+2.8 dB; aliasing falls 2–5 orders 2×→8×; zero-alloc across 54 configs. Feature suite fully green; portability gate exit 0.
 
 **Didn't Work:**
-- <!-- compose -->
+- The cross-model `govern` barrage could not run in-sandbox — it FATALs on a 24576-byte per-file envelope hit by `spec.md` and the shared `check-portability.sh` (both legitimately-large non-code). Closed via operator-approved `--override` after a 4-angle `/code-review` stop-gap.
+- Three opus fix-subagents returned empty (0 tool uses) mid-run; re-dispatch worked twice, but the primitive well-posedness fix I ultimately authored directly rather than keep retrying.
+- 3 pre-existing suite failures on `main` (compressor-sidechain ×2, pds-presets ×1) persist — unrelated to this feature; may show CI red.
 
 **Course Corrections:**
-- <!-- compose -->
+- Re-scoped from an initial "integrated tape chain" to a hysteresis-focused feature (progressive-learning discipline — don't front-run wow/flutter, convolution loss, or the reference deck).
+- OQ4 corrected mid-implementation: 16× oversampling dropped to {2,4,8} — the shipped `Oversampler` `static_assert`s Factor ∈ {2,4,8}.
+- T026's trim introduced a stack-overflow (kMaxChannels=32 → ~110 KB stack fixture tripping the canary); root-caused and fixed to 8 (the sibling convention).
+- PR review: `drive=0` was spec'd as unity passthrough but the impl (correctly) makes `drive=0` dB unity *input gain* into always-on magnetics; bypass is `mix=0`. Fixed the spec (the conflation), not the code; filed TASK-8 (gain-staging tuning) and TASK-9 (host-PDC latency).
 
 **Insights:**
-- <!-- compose -->
+- The loop-area test is the load-bearing validation for this phase: it objectively separates "nonlinearity with memory" from a static waveshaper — no other assertion does.
+- Model-sized dispatch worked well: opus for the JA math/solvers/composition, sonnet for standard impl+tests, haiku for scaffolds; adversarial per-task review (test-first, honest defect reporting) caught real bugs the assembled review then confirmed.
+- The govern per-file byte envelope is a real friction: a shared gate script that every feature grows will keep tripping it — captured for the tool maintainers.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 42
