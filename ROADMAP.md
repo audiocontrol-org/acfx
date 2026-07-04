@@ -62,7 +62,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/progressive-dsp-platform
 
 ## multi:feature/phase-dynamic-systems
-- status: planned
+- status: closed
+- validated: yes
 - depends-on: multi:feature/phase-nonlinear-dsp
 - part-of: multi:feature/progressive-dsp-platform
 
@@ -185,7 +186,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-dynamic-systems
 
 ## design:feature/tape-dynamics
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/tape-dynamics
 - design-approved: yes
