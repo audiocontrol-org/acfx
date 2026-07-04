@@ -197,6 +197,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:primitive/component-abstractions
 - status: in-flight
+- validated: yes
 - analyze-clean: yes
 - spec: specs/component-abstractions
 - design-approved: yes
