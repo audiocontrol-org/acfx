@@ -34,30 +34,33 @@ The result of a 3-terminal divider wiper: `rTop` is the leg from the track's hig
 
 ```
 struct FMVValues {
-    double r1;          // slope resistor (Ω)
-    double c1, c2, c3;  // treble / bass / mid capacitors (F)
-    double rTreble;     // treble pot track (Ω)   — 3-terminal divider
-    double rBass;       // bass pot track (Ω)      — 3-terminal divider
-    double rMid;        // mid pot track (Ω)        — rheostat to ground
-    double rLoad;       // following-stage input impedance to ground (Ω) — explicit (FR-009)
+    double r1;       // slope resistor (Ω)
+    double c1, c2;   // treble / bass capacitors (F)  — basic Bassman form (no mid cap)
+    double rTreble;  // treble pot track (Ω) — 3-terminal divider, wiper = output
+    double rBass;    // bass pot track (Ω)   — rheostat (bass branch to ground)
+    double rMid;     // mid pot track (Ω)     — rheostat (shunt to ground)
+    double rLoad;    // following-stage input impedance to ground (Ω) — explicit (FR-009)
 };
 struct FMVControls { double bass; double mid; double treble; };  // each ∈ [0,1]
 ```
 
 Validation (build thread, FR-010): every field `> 0`; every control `∈ [0,1]`; otherwise `std::invalid_argument` naming the offending field/control. No silent clamp.
 
-**Node roles (FMV, per the Duncan model — R1):** input (driven by the ideal `VoltageSource`), the slope-resistor junction, the treble-pot top, the treble wiper (= output tap into `rLoad`), the bass-pot top, and the bass/mid junction (mid rheostat to ground). The precise edge list is wired from the canonical schematic during implementation; the node/component **counts** are fixed by the capacities below.
+**Node roles (FMV):** input (driven by the ideal `VoltageSource`), the treble-cap node (treble pot top), the slope-resistor junction (treble pot bottom), the output (treble wiper, into `rLoad`), the bass-cap node, and the bass/mid junction (mid rheostat to ground — the mid-scoop mechanism). The treble pot is a 3-terminal divider (`wiper()`); the bass and mid pots are rheostats (`rheostat()`). The node/component **counts** are fixed by the capacities below. (The mid cap of some variants is omitted in this basic Bassman form; exact vendor-BOM fidelity is the later `fender-tone-stack` feature.)
 
 ## BaxandallValues / BaxandallControls
 
 ```
 struct BaxandallValues {
-    double rIn;             // input/series resistor(s) (Ω)   [count finalized against the James schematic]
-    double cBass, cTreble;  // bass / treble shelving capacitors (F)
-    double rBass, rTreble;  // bass / treble pot tracks (Ω) — 3-terminal dividers, linear taper
-    double rLoad;           // following-stage input impedance to ground (Ω) — explicit (FR-009)
+    double rBass;       // bass pot track (Ω) — 3-terminal divider
+    double cBass;       // bass cap (F) — bypasses the bass pot top at HF (low shelf)
+    double rBassOut;    // bass wiper -> output mixing resistor (Ω)
+    double cTreble;     // treble cap (F) — couples HF into the treble pot (high shelf)
+    double rTreble;     // treble pot track (Ω) — 3-terminal divider
+    double rTrebleOut;  // treble wiper -> output mixing resistor (Ω)
+    double rLoad;       // following-stage input impedance to ground (Ω) — explicit (FR-009)
 };
-struct BaxandallControls { double bass; double treble; };  // each ∈ [0,1]
+struct BaxandallControls { double bass; double treble; };  // each ∈ [0,1] — linear taper
 ```
 
 Validation identical in spirit to FMV (all `> 0`, controls `∈ [0,1]`, else `std::invalid_argument`). Baxandall/James pots are conventionally **linear** taper (R2).
@@ -66,10 +69,10 @@ Validation identical in spirit to FMV (all `> 0`, controls `∈ [0,1]`, else `st
 
 Per-topology constants sized exactly to each bill of materials with small headroom; the builder emits a fixed component set so over-capacity cannot occur at runtime (and `Netlist::add`/`addNode` still throw `std::out_of_range` if a future edit exceeds them):
 
-| Topology | Nodes (incl. ground) | Components |
-|---|---|---|
-| FMV | `kFmvNodes` (≈ 6–7) | `kFmvComponents` (≈ 11–12): `VoltageSource` + `r1` + `c1..c3` + treble legs (2) + bass legs (2) + mid leg (1) + `rLoad` |
-| Baxandall | `kBaxNodes` (≈ 5) | `kBaxComponents` (≈ 8–9): `VoltageSource` + series R(s) + `cBass`/`cTreble` + bass legs (2) + treble legs (2) + `rLoad` |
+| Topology | Nodes used (incl. ground) | Components used | Capacities (with headroom) |
+|---|---|---|---|
+| FMV | 7 | 9: `VoltageSource` + `r1` + `c1`/`c2` + treble divider (2 legs) + bass rheostat + mid rheostat + `rLoad` | `kFmvNodes = 8`, `kFmvComponents = 12` |
+| Baxandall | 6 | 10: `VoltageSource` + bass divider (2 legs) + `cBass` + `rBassOut` + `cTreble` + treble divider (2 legs) + `rTrebleOut` + `rLoad` | `kBaxNodes = 7`, `kBaxComponents = 12` |
 
 Exact constants are set in `tone-stack.h` against the wired schematic and asserted by the Tier-1 builder test (component/node counts match the BOM, SC-001).
 

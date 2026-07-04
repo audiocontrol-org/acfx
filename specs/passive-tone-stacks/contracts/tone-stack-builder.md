@@ -5,20 +5,21 @@ Solver-neutral topology builders. Portable, header-only, C++17, standard-library
 ## Shape
 
 ```
-struct FMVValues { double r1, c1, c2, c3, rTreble, rBass, rMid, rLoad; };
+struct FMVValues { double r1, c1, c2, rTreble, rBass, rMid, rLoad; };
 struct FMVControls { double bass, mid, treble; };            // each ∈ [0,1]
 
-struct BaxandallValues { double rIn, cBass, cTreble, rBass, rTreble, rLoad; };
+struct BaxandallValues { double rBass, cBass, rBassOut, cTreble, rTreble, rTrebleOut, rLoad; };
 struct BaxandallControls { double bass, treble; };           // each ∈ [0,1]
 
-Netlist<kFmvNodes, kFmvComponents>
+// Each builder returns a ToneStack<N,M> { Netlist netlist; NodeId inNode, outNode; }
+ToneStack<kFmvNodes, kFmvComponents>
   toneStackFMV(const FMVValues&, const FMVControls&, Taper);
 
-Netlist<kBaxNodes, kBaxComponents>
+ToneStack<kBaxNodes, kBaxComponents>
   toneStackBaxandall(const BaxandallValues&, const BaxandallControls&, Taper);
 ```
 
-Each builder also exposes the **input and output node ids** for the AC probe (as named constants or a small returned struct; finalized in implementation) so the lab reads `H = V_out/V_in`.
+Each builder returns a `ToneStack` carrying the prepared netlist plus the **input and output node ids** so the lab reads `H = V(outNode)/V(inNode)`.
 
 ## Builder contract
 

@@ -26,7 +26,7 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 ## Phase 1: Setup (Shared Infrastructure)
 
 - [x] T001 Create the primitive subfolder `core/primitives/circuit/tone-stack/` and the lab tree `core/labs/passive-tone-stacks/{solver,harness}/` (empty placeholders to be filled by later tasks).
-- [ ] T002 [P] Register the three new host tests (`tone-stack-taper-test.cpp`, `tone-stack-builder-test.cpp`, `tone-stack-ac-test.cpp`) in `tests/CMakeLists.txt`, and add the lab harness target `acfx_lab_passive_tone_stacks_harness` (source `core/labs/passive-tone-stacks/harness/passive-tone-stacks-harness.cpp`, C++20) in the root `CMakeLists.txt`, mirroring the `component-abstractions` lab-harness registration.
+- [x] T002 [P] Register the three new host tests (`tone-stack-taper-test.cpp`, `tone-stack-builder-test.cpp`, `tone-stack-ac-test.cpp`) in `tests/CMakeLists.txt`, and add the lab harness target `acfx_lab_passive_tone_stacks_harness` (source `core/labs/passive-tone-stacks/harness/passive-tone-stacks-harness.cpp`, C++20) in the root `CMakeLists.txt`, mirroring the `component-abstractions` lab-harness registration.
 - [x] T003 [P] Write the lab boundary note `core/labs/passive-tone-stacks/README.md` (host-only, non-normative, `.ac` not MNA, isolation guarantee) — mirrors `core/labs/component-abstractions/README.md`.
 
 ---
@@ -56,7 +56,7 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 - [x] T007 [US1] Implement `toneStackFMV(...)` in `tone-stack.h`: wire the Duncan FMV topology — input `VoltageSource`, slope `r1`, caps `c1..c3`, treble & bass pots as `wiper()` dividers, mid pot as `rheostat()` to ground, explicit `rLoad` output-to-ground — then `prepare()` and return. Report the input/output node ids for the AC probe.
 - [x] T008 [US1] Implement `toneStackBaxandall(...)` in `tone-stack.h`: wire the passive James 2-band topology (bass/treble `wiper()` dividers, shelving caps, explicit `rLoad`), `prepare()`, return.
 - [x] T009 [US1] Add builder input validation: any non-positive `*Values` field or any control `∉ [0,1]` → descriptive `std::invalid_argument` naming the field (FR-010).
-- [ ] T010 [P] [US1] Update `core/primitives/README.md` to register the `circuit/tone-stack/` subfolder and the two builders.
+- [x] T010 [P] [US1] Update `core/primitives/README.md` to register the `circuit/tone-stack/` subfolder and the two builders.
 
 **Checkpoint**: US1 independently testable — MVP delivered (a solver-neutral tone-stack builder).
 
@@ -93,7 +93,7 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 - [x] T015 [US3] Encode the **independent analytic reference** transfer functions (Duncan FMV rational `H(s)` and the passive James response) used by the Tier-2 test/harness — derived separately from `solveAC` (FR-014 / R7). Place in the test/harness support (not the primitive).
 - [x] T016 [US3] Extend `tone-stack-ac-test.cpp`: FMV `|H(f)|` within 0.1 dB of the analytic reference on a ~10-pts/decade log grid over 20 Hz–20 kHz at ≥3 control settings incl. a low-mid (scoop) setting; assert the scoop deepens monotonically as the mid pot lowers and HF magnitude rises monotonically with the treble pot (SC-004).
 - [x] T017 [US3] Extend `tone-stack-ac-test.cpp`: Baxandall `|H(f)|` within 0.1 dB of the analytic James curve at ≥3 settings; bass/treble shelves move the expected asymptotes; center near-flat (SC-005).
-- [ ] T018 [US3] Implement `core/labs/passive-tone-stacks/harness/passive-tone-stacks-harness.cpp` mirroring T014/T016/T017 assertions with PASS/FAIL measured-vs-expected prints; exits nonzero on any failure (FR-014).
+- [x] T018 [US3] Implement `core/labs/passive-tone-stacks/harness/passive-tone-stacks-harness.cpp` mirroring T014/T016/T017 assertions with PASS/FAIL measured-vs-expected prints; exits nonzero on any failure (FR-014).
 
 **Checkpoint**: the assembled tone stacks are validated against independent hand analysis.
 
@@ -101,9 +101,9 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T019 [P] Verify isolation (SC-006 / FR-016): in a throwaway checkout, `rm -rf core/labs/passive-tone-stacks` → the `tone-stack/` primitive and the Tier-1 tests still build and pass; record the check in the lab README.
-- [ ] T020 [P] No-heap audit (SC-007): confirm no `new`/`delete`/`std::vector` under `core/primitives/circuit/tone-stack/`; capacities are compile-time `Netlist` parameters.
-- [ ] T021 [P] Full green + hygiene: `make test` and the harness both pass; each new file ≤ ~500 lines (Constitution VII); the `component-abstractions` `circuit/` vocabulary is unmodified (FR-003).
+- [x] T019 [P] Verify isolation (SC-006 / FR-016): in a throwaway checkout, `rm -rf core/labs/passive-tone-stacks` → the `tone-stack/` primitive and the Tier-1 tests still build and pass; record the check in the lab README.
+- [x] T020 [P] No-heap audit (SC-007): confirm no `new`/`delete`/`std::vector` under `core/primitives/circuit/tone-stack/`; capacities are compile-time `Netlist` parameters.
+- [x] T021 [P] Full green + hygiene: `make test` and the harness both pass; each new file ≤ ~500 lines (Constitution VII); the `component-abstractions` `circuit/` vocabulary is unmodified (FR-003).
 
 ---
 

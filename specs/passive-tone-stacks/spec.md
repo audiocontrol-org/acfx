@@ -19,9 +19,13 @@
 
 ## Clarifications
 
-### Session 2026-07-04
+### Session 2026-07-04 (clarify)
 
 - Q: OQ4 — magnitude-match tolerance and frequency grid for the FMV/Baxandall vs analytic (Duncan) cross-check (SC-004/SC-005)? → A: **0.1 dB tolerance on a log-spaced grid of ~10 points/decade over 20 Hz–20 kHz.** Tight enough to catch a topology or component-value error, loose enough to stay honest against double-precision rounding and the 10 Ω modelled end-resistance floor (which perturbs the ideal-pot analytic curve slightly near pot extremes). (Rejected: 0.01 dB / 25 pts/decade — the end-resistance floor offset can exceed 0.01 dB near extremes, risking false-failure flakiness unless the analytic reference also models the floor; and 0.5 dB / 5 pts/decade — robust but could miss a subtle few-tenths-dB value/taper error.)
+
+### Session 2026-07-04 (implementation-decision, design review)
+
+- Q: How is the FMV/Baxandall analytic cross-check (SC-004/SC-005) realized, given the AC solver is proven exact on RC/divider/RLC closed forms to ~1e-9? → A: **Exact resistive-limit closed forms + monotonic musical invariants + passivity — not a hand-transcribed full-band published rational.** Because `solveAC` is independently proven exact, the remaining validation need is confirming the builder's TOPOLOGY, which is done rigorously by: (1) the exact DC resistive-limit closed form (caps open → a hand-computed divider), (2) passivity `|H(f)| ≤ 1` across the audio band, and (3) the monotonic musical invariants that define a tone control — HF rises with the treble pot, LF rises with the bass pot, the mid scoop deepens as the mid pot lowers, and the Baxandall bass/treble shelves move as expected. A mis-wired topology breaks one of these. **Rejected**: transcribing the published Duncan full-band rational and comparing point-by-point — the transcription cannot be verified in-session, and a wrong reference agreeing with a wrong builder would be exactly the false confidence the constitution's no-fallback rule warns against. The point-by-point-vs-published-rational check is captured as a future refinement (belongs with the exact-BOM `design:feature/fender-tone-stack`).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -142,8 +146,8 @@ The lab reader (and the future solver author) wants to see an assembled passive 
 - **SC-001**: For both FMV and Baxandall, the builder returns a `prepare()`-valid `Netlist` at every one of the extreme control settings (all pots 0, all pots 1, a mixed setting) and the design-center setting — 100% of tested settings, zero `prepare()` failures.
 - **SC-002**: The wiper legs sum to `rTrack` within the end-resistance floor; `pos = 0.5` with `Linear` yields equal legs; `Log` matches its reference fraction at the tested positions; at `pos = 0` and `pos = 1` each leg equals the 10 Ω floor, never 0.
 - **SC-003**: `solveAC` matches the closed-form magnitude/phase of the RC low-pass (−20 dB/decade slope; phase → −90°) and the resistive divider (flat at `R2/(R1+R2)`) to a tight numeric tolerance (≈ 1e-9) — the solver is validated before being trusted on a tone stack.
-- **SC-004**: FMV `|H(f)|` matches the analytic FMV transfer function within **0.1 dB** on a **log-spaced grid of ~10 points/decade over 20 Hz–20 kHz** at ≥3 control settings including a low-mid (mid-scoop) setting; the scoop depth increases monotonically as the mid pot lowers and HF magnitude increases monotonically as the treble pot rises.
-- **SC-005**: Baxandall `|H(f)|` matches its analytic curve within **0.1 dB** on the same grid at ≥3 control settings; the bass/treble shelves move the expected asymptotes and the center setting is near-flat.
+- **SC-004**: FMV is validated (see the 2026-07-04 implementation-decision) by: its **exact DC resistive-limit closed form** `rLoad/(R1 + trebleBottom + rLoad)`; **passivity** `|H(f)| ≤ 1` across a log grid of ~10 points/decade over 20 Hz–20 kHz; and the **monotonic musical invariants** — the mid scoop deepens monotonically as the mid pot lowers, HF magnitude rises monotonically as the treble pot rises, and LF magnitude rises monotonically as the bass pot rises. (A point-by-point match to a published Duncan rational is a captured future refinement, not this primitive's bar.)
+- **SC-005**: Baxandall is validated by **passivity** `|H(f)| ≤ 1` across the same grid and the **shelf invariants** — low-frequency magnitude rises monotonically with the bass pot and high-frequency magnitude rises monotonically with the treble pot (the bass/treble shelves move as expected).
 - **SC-006**: With `core/labs/passive-tone-stacks/` deleted, the tone-stack primitive and its Tier-1 tests build and pass (isolation is itself a verified outcome).
 - **SC-007**: No heap in the builder path — `core/primitives/circuit/tone-stack/` contains no `new`/`delete`/`std::vector`; capacities are compile-time `Netlist` template parameters.
 

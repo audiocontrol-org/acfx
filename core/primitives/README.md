@@ -110,10 +110,12 @@ Electronic circuit-element abstractions — the solver-neutral typed vocabulary 
 | `circuit/models/inductor.h` | Inductor (dual of capacitor). |
 | `circuit/models/sources.h` | Ideal independent voltage + current sources. |
 | `circuit/models/diode.h` | Shockley diode (nonlinear), evaluate()->{current,conductance} + pnjlim voltage limiter. |
+| `circuit/tone-stack/taper.h` | Potentiometer as build-time math: `Taper{Linear,Log}`, `wiper()`/`rheostat()`, fixed 10 Ω end-resistance floor. Emits frozen-vocabulary `Resistor` legs — no new element. |
+| `circuit/tone-stack/tone-stack.h` | Solver-neutral passive tone-stack builders: `toneStackFMV` (3-band FMV) and `toneStackBaxandall` (passive James 2-band) → a prepared `Netlist` (topology only; no solve, no audio path). Second deliverable of Phase 4. |
 
-Consumers: (Phase 4 deliverables will consume; none in-repo yet).
-Lab: `core/labs/component-abstractions/` (reference solver + harness).
-Tests: `tests/core/circuit-components-test.cpp`, `circuit-netlist-test.cpp`, `circuit-solver-test.cpp`.
+Consumers: (Phase 4 deliverables consume the vocabulary; `circuit/tone-stack/` is the first).
+Lab: `core/labs/component-abstractions/` (reference solver + harness); `core/labs/passive-tone-stacks/` (complex `.ac` solver + harness).
+Tests: `tests/core/circuit-components-test.cpp`, `circuit-netlist-test.cpp`, `circuit-solver-test.cpp`, `tone-stack-taper-test.cpp`, `tone-stack-builder-test.cpp`, `tone-stack-ac-test.cpp`.
 
 ---
 

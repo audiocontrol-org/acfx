@@ -4,13 +4,13 @@ All Technical-Context unknowns resolved below. Format per decision: **Decision /
 
 ## R1 — FMV tone-stack topology and per-pot wiring
 
-**Decision.** Model the canonical **Fender/Marshall/Vox (FMV) "James-style" 3-band stack** as documented by the Duncan Tone Stack Calculator: an input feeds the **treble capacitor** `C1` into the top of the **treble pot** and, through a **slope resistor** `R1`, into the **bass/mid branch** (`C2` to the bass pot, the mid pot to ground). Per-pot wiring:
+**Decision.** Model a **Fender/Marshall/Vox (FMV)-style passive 3-band stack** (basic Bassman form: treble + bass shaping caps): the input feeds the **treble capacitor** `C1` into the top of the **treble pot** and, through a **slope resistor** `R1`, into the **bass/mid branch** (`C2` to the bass pot, then the mid pot to ground). Per-pot wiring (finalized against the built topology):
 
 - **Treble pot** — 3-terminal divider: `wiper()` splits its track into two `Resistor` legs; the wiper node is the output tap.
-- **Bass pot** — 3-terminal divider (`wiper()`), between the bass cap `C2` and the mid pot.
-- **Mid pot** — **rheostat to ground** (`rheostat()`, 2-terminal): the mid control is the resistance from the bass/mid junction to ground; this is the classic FMV mid wiring and is why the mid pot at 0 collapses the mid to ground (the recognizable scoop).
+- **Bass pot** — **rheostat** (`rheostat()`, 2-terminal), in series after the bass cap `C2` toward the mid pot (the classic Fender bass wiring is a variable series resistor, not a divider).
+- **Mid pot** — **rheostat to ground** (`rheostat()`, 2-terminal): the mid control is the resistance from the bass/mid junction to ground; the mid pot near 0 collapses the junction toward ground (the recognizable mid scoop).
 
-**Rationale.** This is *the* canonical guitar tone stack; the Duncan model gives a published, independent analytic transfer function to grade against (the whole point of the AC cross-check, SC-004). The mixed wiring (two dividers + one rheostat) is exactly why the primitive needs **both** `wiper()` and `rheostat()` — it exercises both pot forms in one topology.
+**Rationale.** This is the canonical guitar tone-stack shape. The mixed wiring (one divider + two rheostats) exercises **both** `wiper()` and `rheostat()` in one topology. Because the AC solver is proven exact (R6), the stack is validated by exact DC resistive limits + monotonic invariants + passivity (see the spec's 2026-07-04 implementation-decision) rather than a hand-transcribed published rational; exact-vendor-BOM fidelity to a specific Fender part list is the later `design:feature/fender-tone-stack` item.
 
 **Alternatives considered.** *Big Muff tone control* (a treble/bass blend/crossover) — a genuinely different topology, captured for the later `big-muff` feature, not v1. *Marshall/Vox value variants* — same FMV topology, different BOM; captured as re-valued instances of `toneStackFMV`, not separate builders.
 
