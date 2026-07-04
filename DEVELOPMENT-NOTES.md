@@ -2,6 +2,69 @@
 
 ---
 
+## 2026-07-04: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 42
+  - spec(tape-dynamics): distinguish mix=0 bypass (bit-exact unity) from drive=0dB (unity input gain into always-on magnetics) per PR review; backlog OQ3 tuning + latency-PDC
+  - fix(tape-dynamics): floor JA feedback denominator positive (well-posedness); correct stale primitive comments
+  - fix(tape-dynamics): wire presets (FR-013), delay-compensate dry/wet, reset core on oversampling switch
+  - refactor(tape-dynamics): trim hysteresis-kernel comments under audit byte-ceiling (theory in README)
+  - tasks(tape-dynamics): mark all 31 tasks complete (implemented + validated)
+  - feat(tape-dynamics): T028 finalize named presets
+  - fix(tape-dynamics): align kMaxChannels to the effect convention (32 -> 8) — repair no-allocation/block-size crash introduced by T026 trim
+  - test(tape-dynamics): T027 optional trim acceptance (E7 bit-exact off, envelope-driven GR on)
+  - feat(tape-dynamics): T026 optional explicit envelope-driven trim (EnvelopeFollower+GainComputer)
+  - test(tape-dynamics): T025 aliasing decreases with oversampling (SC-004)
+  - test(tape-dynamics): T023 no-allocation / RT-safety acceptance (SC-007)
+  - test(tape-dynamics): T021 emergent compression acceptance (SC-003, FR-012)
+  - feat(tape-dynamics): T020 lab harness measurements (loop area, DRR, THD/alias)
+  - test(tape-dynamics): T019 solver agreement + oversampling convergence (SC-002)
+  - test(tape-dynamics): T017 US1 effect acceptance suite (loop, unity passthrough, transient finiteness)
+  - feat(tape-dynamics): T016 TapeDynamicsEffect wrapper (Effect concept, param handoff, factor dispatch)
+  - feat(tape-dynamics): T015 TapeDynamicsCore — Oversampler composed with JA hysteresis
+  - feat(tape-dynamics): T014 TapeDynamicsParameters descriptor table
+  - docs(tape-dynamics): T010 lab README — JA hysteresis theory + solver tradeoff + ADAA contrast
+  - refactor(tape-dynamics): split hysteresis-test into support header + solver suite (Constitution VII file budget)
+  - fix(tape-dynamics): reword hysteresis.h comment tripping portability grep
+  - feat(tape-dynamics): T011 lab hysteresis kernel (graduation source)
+  - docs(tape-dynamics): T013 list hysteresis primitive (first stateful nonlinear member)
+  - test(tape-dynamics): T012 hysteresis loop-area + reproducibility + param-response suite
+  - feat(tape-dynamics): T009 stiff-solver stability guard (FR-006)
+  - feat(tape-dynamics): T008 Newton-Raphson implicit solver
+  - feat(tape-dynamics): T007 RK2/RK4 explicit solvers
+  - feat(tape-dynamics): T006 Jiles-Atherton dMdH derivative
+  - feat(tape-dynamics): T005 Hysteresis types + class shell
+  - chore(tape-dynamics): T004 extend portability gate to new paths
+  - test(tape-dynamics): T003 register test skeletons
+  - feat(tape-dynamics): T002 scaffold lab + harness target
+  - fix(tape-dynamics): OQ4 oversampling menu 16x -> {2,4,8} (shipped Oversampler caps at Factor 8); ledger T001
+  - feat(tape-dynamics): T001 scaffold effect module skeleton headers
+  - tasks(tape-dynamics): declare per-task model tiers for model-sized dispatch
+  - workflow(tape-dynamics): record analyze-clean (spec/plan/tasks consistent); specifying complete
+  - tasks(tape-dynamics): 31 tasks across 10 phases, organized by user story (runnable)
+  - plan(tape-dynamics): plan + research + data-model + contracts + quickstart; point speckit marker
+  - clarify(tape-dynamics): resolve OQ1-OQ5 (all 3 solvers + explicit trim in cut 1; 2/4/8/16 default 8x; dedicated unit test)
+  - spec(tape-dynamics): author feature spec from approved design record (specify)
+  - workflow(tape-dynamics): design approved, advance planned -> in-flight (designing)
+  - design(tape-dynamics): capstone hysteresis + emergent compression design record
+- Files changed: 38
+- Backlog touched: (none)
+
 ## 2026-07-03: Compressors — design → ship (PR #13) through the stack-control front door
 
 **Goal:** Drive `design:feature/compressors` end-to-end through the front door —
