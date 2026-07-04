@@ -28,9 +28,12 @@
 //
 // End-resistance floor (research.md R4, design D8): a real pot never reaches
 // 0 ohm. Each returned leg is floored at a FIXED 10 ohm modelled contact/end
-// resistance via `leg = max(leg, 10)`, applied PER LEG — so the floor bites
-// only at the extremes (`pos = 0` / `pos = 1`) and mid-travel is untouched.
-// Near an endpoint `rTop + rBottom` may exceed `rTrack` by up to one floor;
+// resistance via `leg = max(leg, 10)`, applied PER LEG — so (for any real tone
+// pot, where `rTrack` >> 2*kEndResistanceOhms) the floor bites only at the
+// extremes (`pos = 0` / `pos = 1`) and mid-travel is untouched. (For a
+// pathologically small `rTrack` < ~2*floor the floor can also bite mid-travel;
+// no real tone pot — 10k..1M — is anywhere near that.) Near an endpoint
+// `rTop + rBottom` may exceed `rTrack` by up to one floor;
 // that is physically correct (series end resistance, not stolen from the
 // track). The floor is a documented physical value, never a bug-hiding
 // fallback: it keeps a built netlist from ever holding a 0-ohm short that would
@@ -63,6 +66,12 @@ inline constexpr double kLogTaperBase = 10.0;
 
 // Map a mechanical position in [0, 1] to an electrical fraction f in [0, 1].
 // Linear: f = pos. Log: exponential audio taper, f(0)=0, f(1)=1.
+//
+// PRECONDITION: `pos` in [0, 1] — UNCHECKED here (noexcept). The public callers
+// wiper()/rheostat() validate `pos` first (FR-010); this is the shared taper
+// kernel behind that gate. A direct caller passing `pos` outside [0, 1] gets an
+// extrapolated fraction with no error, so validate before calling if you invoke
+// it directly.
 inline double taperFraction(double pos, Taper taper) noexcept {
     if (taper == Taper::Log) {
         return (std::pow(kLogTaperBase, pos) - 1.0) / (kLogTaperBase - 1.0);

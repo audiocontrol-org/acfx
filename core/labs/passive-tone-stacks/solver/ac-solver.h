@@ -5,6 +5,7 @@
 #include "primitives/circuit/node.h"
 
 #include <array>
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <stdexcept>
@@ -37,8 +38,13 @@
 // NO HEAP (contracts/ac-solver.md): every working buffer is a fixed-size
 // std::array sized by the Netlist template parameters — no new/delete, no
 // std::vector, no allocation anywhere in solveAC. Descriptive std::exceptions
-// are thrown for an unsupported floating source or a singular reduced system —
-// never a silent wrong answer or a fabricated fallback (repo standard).
+// are thrown for out-of-contract arguments (non-positive/non-finite ω, an
+// invalid transfer-function node), an unsupported floating source, or an
+// EXACTLY/catastrophically singular reduced system (a zero pivot) — never a
+// silent wrong answer or a fabricated fallback (repo standard). Note: the zero-
+// pivot guard catches an exactly-singular system, not a merely ill-conditioned
+// one; the well-posed FMV/Baxandall stacks this lab validates never approach
+// that regime.
 //
 // std::complex<double> throughout. This is HOST-ONLY lab code (it is not
 // required to be platform-independent), but it stays standard-library-only and
@@ -72,6 +78,24 @@ Complex solveAC(const Netlist<MaxNodes, MaxComponents>& nl, double omega,
     using Idx = std::size_t;
 
     const int nodeCount = nl.nodeCount();
+
+    // Fail loud on out-of-contract arguments before touching the system — never
+    // a silent wrong answer (AUDIT-BARRAGE codex-01/02). `omega` must be finite
+    // and > 0 (the phasor admittances jωC and 1/(jωL) are meaningless at ω = 0),
+    // and the requested transfer-function nodes must be real nodes of `nl`
+    // (a stale/invalid outNode must not fabricate H = 0, and node ≥ MaxNodes
+    // must not read out of bounds).
+    if (!std::isfinite(omega) || !(omega > 0.0)) {
+        throw std::invalid_argument(
+            "ac-solver: omega must be finite and > 0 (got " +
+            std::to_string(omega) + ")");
+    }
+    if (!isValidNode(inNode, nodeCount) || !isValidNode(outNode, nodeCount)) {
+        throw std::invalid_argument(
+            "ac-solver: inNode/outNode out of range [0, nodeCount = " +
+            std::to_string(nodeCount) + ")");
+    }
+
     // Number of unknown (non-ground) node rows; node k maps to local k-1.
     const int n = nodeCount - 1;
 

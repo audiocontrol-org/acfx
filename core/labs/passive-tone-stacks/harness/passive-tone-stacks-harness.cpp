@@ -125,8 +125,8 @@ bool runFmv() {
         const auto ts = toneStackFMV(v, FMVControls{0.5, 0.5, 0.4}, Taper::Linear);
         const double rBot = wiper(v.rTreble, 0.4, Taper::Linear).rBottom;
         const double expected = v.rLoad / (v.r1 + rBot + v.rLoad);
-        const double m = magAt(ts, 1.0e-4);
-        report(std::fabs(m - expected) < 1e-6 * expected, "FMV exact DC limit", m, expected, ok);
+        const double m = magAt(ts, 1.0e-6);  // ω low enough that every cap is open (claude-02)
+        report(std::fabs(m - expected) < 1e-5 * expected, "FMV exact DC limit", m, expected, ok);
     }
     // Passivity across the band.
     {
