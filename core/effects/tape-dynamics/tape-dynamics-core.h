@@ -200,7 +200,15 @@ public:
     }
 
 private:
-    static constexpr int kMaxChannels = 32;
+    // Max processed channels. Matches the shipped effect convention
+    // (SvfEffect / SaturationEffect / CompressorEffect / ProgramDependent-
+    // SaturationEffect / ModulatedDelayEffect all use 8): the per-channel
+    // composition state (Oversampler + Hysteresis + EnvelopeFollower per
+    // channel) is held inline as std::array<…, kMaxChannels>, so this bound
+    // is also the per-core inline-state footprint. 32 made a single
+    // TapeDynamicsEffect (three cores) ~110 KB — large enough to break the
+    // stack-resident test fixtures — for channel counts no adapter delivers.
+    static constexpr int kMaxChannels = 8;
 
     // Fixed trim GainComputer curve (not exposed as top-level trim macros —
     // only trim.attack/release/amount are user-controlled; see

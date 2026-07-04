@@ -138,7 +138,12 @@ public:
     }
 
 private:
-    static constexpr int kMaxChannels = 32;
+    // Must match TapeDynamicsCore::kMaxChannels and the shipped effect
+    // convention (all sibling effects use 8). This clamps the channel count
+    // passed to every core's prepare(), so a divergence here would let the
+    // wrapper hand a core more channels than its inline per-channel arrays
+    // hold. See TapeDynamicsCore for the footprint rationale.
+    static constexpr int kMaxChannels = 8;
 
     // Cores for each oversampling factor (Oversampler supports 2, 4, 8 only).
     // ALL THREE stay prepared and carry the same applied parameter state at all
