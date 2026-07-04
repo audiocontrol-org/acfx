@@ -163,6 +163,36 @@ TEST_CASE("CircuitNetlist - add() beyond MaxComponents throws out_of_range witho
 }
 
 // ---------------------------------------------------------------------------
+// Regression (cross-model audit HIGH): prepare() MUST reject a component that
+// references a node id outside [0, nodeCount()). Two channels:
+//   (a) terminal in [nodeCount(), MaxNodes) — would otherwise read a
+//       value-initialized union-find slot (== 0) and SILENTLY unite with
+//       ground, letting a malformed/floating netlist pass validation;
+//   (b) terminal >= MaxNodes — would otherwise be an out-of-bounds array read.
+// Both must throw a descriptive std::invalid_argument, distinct from the
+// missing-ground / floating-node / over-capacity errors.
+// ---------------------------------------------------------------------------
+TEST_CASE("CircuitNetlist - a terminal in [nodeCount, MaxNodes) is rejected (not silently grounded)") {
+    Netlist<8, 8> nl;               // nodes 0..7 addressable by the array...
+    const NodeId node1 = nl.addNode();  // ...but only node 1 is actually in use (nodeCount()==2)
+    nl.add(Resistor{acfx::kGround, node1, 1000.0});  // valid, references ground
+    nl.add(Resistor{node1, 5, 2000.0});              // node 5 is in [2, 8) but never addNode()'d
+
+    CHECK_THROWS_AS(nl.prepare(), std::invalid_argument);
+    CHECK_THROWS_WITH(nl.prepare(), doctest::Contains("out-of-range node"));
+}
+
+TEST_CASE("CircuitNetlist - a terminal >= MaxNodes is rejected before any out-of-bounds access") {
+    Netlist<4, 8> nl;
+    const NodeId node1 = nl.addNode();
+    nl.add(Resistor{acfx::kGround, node1, 1000.0});
+    nl.add(Resistor{node1, 9, 2000.0});  // 9 >= MaxNodes (4): must throw, never index parent[9]
+
+    CHECK_THROWS_AS(nl.prepare(), std::invalid_argument);
+    CHECK_THROWS_WITH(nl.prepare(), doctest::Contains("out-of-range node"));
+}
+
+// ---------------------------------------------------------------------------
 // SC-006 - the post-prepare() read path (a solver reading admittance() /
 // companion() / evaluate() over components()) allocates nothing on the heap.
 // Mirrors the AllocationSentinel pattern used across the suite (see

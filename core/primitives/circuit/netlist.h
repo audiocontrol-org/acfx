@@ -136,6 +136,25 @@ public:
     // Allocation: STACK only — union-find parent[] is a std::array sized by the
     // MaxNodes template parameter, so prepare() never touches the heap.
     void prepare() {
+        // Check 0: every component terminal must reference an in-use node in
+        // [0, nodeCount_). This runs FIRST, before the union-find below indexes
+        // parent[terminal]: a terminal in [nodeCount_, MaxNodes) would otherwise
+        // read a value-initialized parent slot (== 0) and silently unite with
+        // ground, letting a malformed/floating netlist pass validation; a
+        // terminal >= MaxNodes would be out-of-bounds. node.h::isValidNode is
+        // exactly this predicate. (Audit AUDIT-BARRAGE-01, cross-model HIGH.)
+        for (int i = 0; i < count_; ++i) {
+            const auto t = terminalsOf(components_[static_cast<std::size_t>(i)]);
+            if (!isValidNode(t.first, nodeCount_) ||
+                !isValidNode(t.second, nodeCount_)) {
+                throw std::invalid_argument(
+                    "component-abstractions netlist: component " +
+                    std::to_string(i) +
+                    " references an out-of-range node (valid range is [0, " +
+                    std::to_string(nodeCount_) + "))");
+            }
+        }
+
         // Check 1: missing ground. Any terminal of any component kind counts
         // as a reference to ground (kGround == node 0).
         bool groundReferenced = false;
