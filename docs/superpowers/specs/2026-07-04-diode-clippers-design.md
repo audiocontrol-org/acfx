@@ -110,8 +110,10 @@ tone interaction a `float → float` curve structurally cannot.
 Four orthogonal choices, each with the chosen option and the rejected
 alternatives (and why each was rejected). The operator's directive — *"look at the
 tone stack implementation, mirror that"* — fixes the first choice; the operator
-selected the reactive lab-solver charter; the exemplar count and the solver's
-history-separation structure were delegated to this design frontend.
+selected the reactive lab-solver charter; the solver's history-separation
+structure was delegated to this design frontend; the exemplar count and the
+solver's bound (templated `MaxDiodes`, Newton defaults, non-convergence contract)
+were settled by the operator's design review (2026-07-04, recorded below).
 
 ### Chosen — Solver-neutral builder family + host-only transient nonlinear lab solver (mirror tone-stacks)
 
@@ -152,23 +154,36 @@ reactive+nonlinear):** `LinearSolver` advances its reactive history on *every*
 times per sample and corrupt the transient. The chosen structure separates the
 loops (below).
 
-### Rejected exemplar set — A single topology (over-fit risk)
+### Chosen v1 sequencing — Two shunt exemplars first, series as the designated topology-axis closer
 
-Ship only the symmetric shunt clipper. **Rejected:** the ≥2-exemplar discipline
-(from tone-stacks) exists to keep the abstraction and solver from over-fitting one
-circuit; a single exemplar cannot demonstrate generality across either variation
-axis.
+Diode clippers vary on *two* independent axes — transfer symmetry (odd vs even
+harmonics + DC) and topology / reactance placement (shunt-to-ground vs
+series-inline). The design captures three exemplars (symmetric shunt, asymmetric
+shunt, series) but **ships two in v1 — symmetric + asymmetric shunt — and defers
+series** (design review 2026-07-04). The reasoning is sequencing by risk: the new,
+risky artifact is the **transient solver**, not the builder (the builder only
+composes frozen primitives). The symmetric+asymmetric shunt pair stresses the
+*solver* hardest — it forces the diode cap past the existing `kMaxDiodes = 2` and
+exercises asymmetric / DC-offset convergence — so it is the correct pair to *prove
+the solver*. The series exemplar is mostly a *builder-topology* change (low solver
+risk); it is the designated closer of the topology/reactance-placement axis and
+follows once the solver is proven.
 
-### Rejected exemplar set — Two exemplars pinning one axis
+**Honest limitation recorded:** because both v1 exemplars are shunt topologies,
+v1 pins the *symmetry* axis but leaves the *topology* axis unexercised until series
+lands — weaker anti-over-fit than tone-stacks' FMV+Baxandall (genuinely distinct
+networks). This is an accepted, bounded trade because the abstraction at
+over-fit risk (the solver) *is* exercised across the diode-count / asymmetry
+dimension; the deferred series builder is tracked as the axis-closer, not dropped.
 
-Two builders (e.g. symmetric + asymmetric shunt, *or* shunt + series).
-**Rejected as insufficient (design-frontend judgment):** diode clippers vary on
-*two* independent axes — transfer symmetry (odd vs even harmonics + DC) and
-topology / reactance placement (shunt-to-ground vs series-inline). Any
-two-exemplar pair pins only one axis and leaves the other unexercised. Three
-exemplars pin both while keeping each exemplar's novelty isolable for debugging.
-(Retained as the fallback if scoping trims v1 — dropping the series builder yields
-the symmetric+asymmetric shunt pair.)
+### Rejected exemplar set — A single topology (over-fit risk), or all-three-at-once
+
+Ship only the symmetric shunt clipper (**rejected:** a single exemplar cannot
+demonstrate generality across either variation axis; violates the ≥2-exemplar
+anti-over-fit discipline). Or ship all three exemplars in one v1 (**rejected by
+design review:** couples the unproven transient solver to the extra
+builder-topology surface before the solver is validated; series is cleaner as a
+fast-follow once the shunt family proves the solver).
 
 ---
 
@@ -188,15 +203,19 @@ the symmetric+asymmetric shunt pair.)
   `std::invalid_argument` on the build thread (mirrors tone-stacks
   `requirePositive` / `validatePot`).
 
-- **D3 — Three v1 exemplar builders: symmetric shunt, asymmetric shunt, series**
-  (design-frontend judgment; operator delegated). Symmetric shunt (matched
-  antiparallel pair to ground after a series R, filter cap across the diodes → odd
-  harmonics) is the baseline and the static cross-check anchor. Asymmetric shunt
-  (unequal population, e.g. 2-up / 1-down → even harmonics + DC offset) isolates
-  the *symmetry* axis and forces the solver past the existing two-diode cap.
-  Series clipper (diodes inline in the signal path, coupling cap in series)
-  isolates the *topology / reactance-placement* axis. Trimmable to two
-  (drop series) at operator direction.
+- **D3 — Two v1 exemplar builders: symmetric shunt + asymmetric shunt; series
+  captured and deferred as the topology-axis closer** (design review 2026-07-04,
+  sequencing by solver risk). Symmetric shunt (matched antiparallel pair to ground
+  after a series R, filter cap across the diodes → odd harmonics) is the baseline
+  and the static cross-check anchor. Asymmetric shunt (unequal population, e.g.
+  2-up / 1-down → even harmonics + DC offset) isolates the *symmetry* axis and
+  forces the solver past the existing two-diode cap. This pair stresses the new
+  transient solver hardest and is the right set to *prove* it. The series clipper
+  (diodes inline, coupling cap in series) is captured in the design and deferred to
+  the immediate fast-follow — it is the designated closer of the *topology /
+  reactance-placement* axis, added once the solver is proven on the shunt family
+  (not dropped; see Solution space and OQ4). v1 therefore pins the symmetry axis;
+  the topology axis is exercised when series lands.
 
 - **D4 — New host-only transient nonlinear lab solver with separated timestep /
   Newton loops.** `core/labs/diode-clippers/solver/transient-clipper.h`:
@@ -210,14 +229,24 @@ the symmetric+asymmetric shunt pair.)
     voltage through `Diode::limitJunctionVoltage` (pnjlim), test `|Δv| < tol`.
   Reports a per-sample `NewtonStatus { converged, iterations, voltageResidual,
   currentResidual }`; non-convergence is reported, never faked (no fallback,
-  no fabricated output).
+  no fabricated output). **The non-convergence status is a first-class,
+  test-surfaced contract** (design review 2026-07-04): it must be threaded through
+  to the harness/tests and observable, never swallowed — see D9. Newton defaults
+  are held at the static solver's values initially (`maxIterations = 50`,
+  `voltageTol = 1e-9`, `currentTol = 1e-12`); they are *not* pre-tuned for reactive
+  stiffness — measure first, tune only if a real case fails to converge (OQ2).
 
 - **D5 — The transient solver stays bounded and non-MNA.** Single clipper port; a
-  single nonlinearity *location* (one node pair carrying the diode string); the
-  diode-per-port cap is raised beyond the existing `kMaxDiodes = 2` to admit the
-  asymmetric string (exact cap → OQ1). It never becomes a general nonlinear
-  engine; ≥2 *interacting* nonlinearities (distinct node pairs) remain a Phase-5
-  refusal, mirroring the existing lab's FR-016 line.
+  single nonlinearity *location* (one node pair carrying the diode string). The
+  diode-per-port cap is a **template parameter**
+  `TransientClipper<MaxNodes, MaxComponents, MaxDiodes>` with **default
+  `MaxDiodes = 4`** (design review 2026-07-04) — comfortably admits the 2-up /
+  1-down asymmetric string with headroom; the internal augmented netlist is sized
+  `MaxComponents + 2·MaxDiodes` for the per-iteration companion stamps (each diode
+  linearizes to a `Resistor` + `CurrentSource`). It never becomes a general
+  nonlinear engine; ≥2 *interacting* nonlinearities (distinct node pairs) remain a
+  Phase-5 refusal, mirroring the existing lab's FR-016 line. This narrowness is
+  load-bearing: it is what keeps the lab from becoming Phase-5 MNA by accident.
 
 - **D6 — Reactive discretization is backward Euler, non-normative.** Reusing the
   primitive's existing companion hooks; explicitly the lab's naive choice (as in
@@ -235,18 +264,26 @@ the symmetric+asymmetric shunt pair.)
 - **D8 — Assembled-clipper invariants** (the behavior the static curve cannot
   show): symmetry (`y(−x) = −y(x)` for the symmetric clipper; explicit
   DC-offset / even-harmonic presence for the asymmetric); forward saturation
-  clamps near the diode drop for large input; the **reactive signature** —
-  increasing the filter cap `Cf` monotonically attenuates the high-frequency
-  content of the clipped signal (attack softening / frequency-dependent clipping);
-  passivity / energy bound (a passive clipper dissipates — output energy ≤ input,
-  no gain).
+  clamps near the diode drop for large input; passivity / energy bound (a passive
+  clipper dissipates — output energy ≤ input, no gain). The **reactive signature**
+  is the pinned, load-bearing invariant (design review 2026-07-04): **for a fixed
+  excitation and drive, increasing the filter cap `Cf` monotonically reduces the
+  post-clip high-frequency output energy** (attack softening / frequency-dependent
+  clipping). Measurement caveat to fix at spec time: because clipping itself
+  generates HF harmonics, the assertion is over the *output* HF energy above a
+  fixed band with excitation and drive held constant — the comparison is clean only
+  when those are pinned (OQ3).
 
 - **D9 — Two test tiers + a mirroring harness** (tone-stacks convention).
   Tier-1 (`diode-clipper-builder-test.cpp`, no solver): builders produce
   `prepare()`-valid netlists at representative BOMs, contain only frozen-vocabulary
   elements, counts match BOM, no lab include. Tier-2
   (`diode-clipper-transient-test.cpp`): the solver sanity + assembled-clipper
-  invariants above. A host-only `int main()` harness
+  invariants above, **plus an explicit non-convergence test** (design review
+  2026-07-04) — drive the solver into deliberate non-convergence (e.g. a starved
+  iteration budget against a stiff edge) and assert the returned `NewtonStatus`
+  reports `converged == false` with the residual, proving the status is surfaced
+  and never swallowed. A host-only `int main()` harness
   (`diode-clippers-harness.cpp`) mirrors the Tier-2 assertions as PASS/FAIL prints
   with measured-vs-expected numbers and exits nonzero on any failure.
 
@@ -267,32 +304,39 @@ the symmetric+asymmetric shunt pair.)
 
 ## Open questions
 
-None blocks the design; each is a spec-time (`/speckit-clarify`) detail.
+None blocks the design. OQ1 and OQ4 were resolved by the design review
+(2026-07-04) and are recorded here as decided so `/stack-control:define` inherits
+them; OQ2, OQ3, and OQ5 remain spec-time (`/speckit-clarify`) details.
 
-- **OQ1 — Exact diode-per-port cap.** The asymmetric exemplar (2-up / 1-down)
-  needs 3 diodes at the port; a general N-up / M-down population needs more. Pick a
-  sane fixed cap (candidate: a small templated `MaxDiodes`, default covering the
-  2:1 case) and watch the augmented-netlist / solver matrix size. Decide the
-  default and whether it is templated or fixed.
+- **OQ1 — Diode-per-port cap. → RESOLVED: templated `MaxDiodes`, default 4.** The
+  solver is `TransientClipper<MaxNodes, MaxComponents, MaxDiodes>` with
+  `MaxDiodes = 4` by default (fits 2-up / 1-down with headroom); the internal
+  augmented netlist is sized `MaxComponents + 2·MaxDiodes`. No global ceiling — a
+  builder needing more instantiates larger (D5).
 
-- **OQ2 — Newton tolerance / max-iteration defaults for the reactive case.** The
-  static `NewtonClipper` uses N=50, `voltageTol=1e-9`. A reactive network can be
-  stiffer (fast edges into a small cap); confirm the defaults hold or expose them,
-  and decide the non-convergence reporting contract at the harness level.
+- **OQ2 — Newton tolerance / max-iteration defaults for the reactive case. →
+  DECIDED initially, measurement-gated.** Hold the static solver's defaults
+  (`maxIterations = 50`, `voltageTol = 1e-9`, `currentTol = 1e-12`); do *not*
+  pre-tune for reactive stiffness. Non-convergence is a test-surfaced contract
+  (D4/D9). Open only as a *tuning* question if a real reactive case is measured to
+  fail to converge; then expose/raise the budget rather than hide the failure.
 
-- **OQ3 — Harness `dt` / sample rate and THD / spectral-tilt measurement window.**
-  The reactive-signature invariant (D8) needs a chosen excitation (swept tone or
-  edge), sample rate, and measurement band. A spec-time numeric-tolerance decision
-  (analogous to tone-stacks' 0.1 dB / 10-pts-per-decade clarification).
+- **OQ3 — Harness `dt` / sample rate, excitation, and HF measurement band.** The
+  reactive-signature invariant (D8) is pinned in *shape* (larger `Cf` → less
+  post-clip HF for fixed excitation + drive); the remaining numeric choices —
+  excitation (edge vs swept tone), sample rate / `dt`, the HF band and the
+  monotonic-decrease tolerance — are a spec-time decision (analogous to
+  tone-stacks' 0.1 dB / 10-pts-per-decade clarification).
 
-- **OQ4 — v1 exemplar count (3 vs 2).** Design-frontend call is three (D3);
-  recorded as an open scoping knob so the operator / `/speckit-clarify` can trim to
-  the symmetric+asymmetric shunt pair if v1 surface is to be minimized.
+- **OQ4 — v1 exemplar set. → RESOLVED: ship two (symmetric + asymmetric shunt),
+  defer series.** Series is captured and is the designated topology-axis closer,
+  added as the immediate fast-follow once the transient solver is proven on the
+  shunt family (D3, Solution space).
 
-- **OQ5 — Series-clipper reactance placement.** The series exemplar's cap can sit
-  as an input coupling cap or across the series diodes; pick the placement that
-  best isolates the topology axis without duplicating the shunt exemplar's
-  cap-across-diodes reactance. Spec-time detail.
+- **OQ5 — Series-clipper reactance placement (deferred with the series exemplar).**
+  When series lands, its cap sits as an input coupling cap or across the series
+  diodes; pick the placement that best isolates the topology axis without
+  duplicating the shunt exemplar's cap-across-diodes reactance. Not a v1 concern.
 
 ---
 
@@ -327,8 +371,20 @@ None blocks the design; each is a spec-time (`/speckit-clarify`) detail.
   builder + host-only lab shape, no realtime effect (D1); (2) lab-solver charter —
   selected the **transient nonlinear (reactive)** solver over static-only, making
   the reactive dimension the feature's validated increment (D4/D6/D8). The exemplar
-  count (D3) and the solver's history-separation structure (D4) were delegated to
+  count and the solver's history-separation structure (D4) were delegated to
   the design frontend and resolved with the reasoning recorded above.
+- **Design review (2026-07-04, operator):** narrowed the lab solver to keep it from
+  becoming Phase-5 MNA by accident. Resolutions folded in: (1) diode cap is a
+  templated `MaxDiodes` (default 4) rather than a fixed constant (D5, OQ1);
+  (2) v1 ships two shunt exemplars, series deferred as the topology-axis closer
+  (D3, OQ4) — sequencing by solver risk; (3) Newton defaults held at the static
+  values initially with non-convergence a first-class *test-surfaced* contract
+  (D4, D9, OQ2); (4) the reactive signature pinned as the load-bearing invariant —
+  larger `Cf` reduces post-clip HF for fixed excitation + drive (D8, OQ3). The
+  design frontend recorded one honest limitation in response: two shunt exemplars
+  pin the symmetry axis only, leaving the topology axis unexercised until series
+  lands — accepted because the at-risk artifact (the solver) is still fully
+  exercised across the diode-count / asymmetry dimension.
 - **Terminal handoff:** `/stack-control:define` to author the Spec Kit spec from
   this record (the `design-to-spec` transition), after the operator records the
   `design-approved:` marker on the roadmap node.
