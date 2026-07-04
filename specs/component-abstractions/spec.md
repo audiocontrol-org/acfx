@@ -27,6 +27,10 @@
 - Q: OQ4 — Controlled sources / op-amp / nullor as v1 inhabitants? → A: **Defer.** Captured in the taxonomy, not v1 inhabitants; they land when the op-amp-stages deliverable needs them. The v1 inhabitant set is R, C, L, independent V/I sources, diode.
 - Note: the inductor **L is retained** in v1 (design review proposed deferring it) so the reactive-companion seam is exercised by two distinct elements (guarding against over-fitting the abstraction to the capacitor) and so the RLC analytic-validation circuit exists — at near-zero marginal cost, L being the dual of C's companion.
 
+### Session 2026-07-03 (clarify)
+
+- Q: What numeric precision does the component physics and the solve use, given the audio path is `float`? → A: **Compute in `double` internally, convert at the `float` audio boundary.** Circuit solving is numerically sensitive (matrix conditioning, the diode's `exp`); `double` buys robustness where it matters, and the reference solver is a lab/validation artifact rather than the embedded hot path, so its `double` cost is acceptable. Audio I/O stays `float`, consistent with the rest of `core/`. (Rejected: `float` throughout — risks conditioning/`exp` precision loss and forces looser tolerances; and templating the numeric type — deferred, it compounds the open OQ5 code-size question without a present need.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" of this feature is threefold, matching the platform's audience framing (as in `svf-vertical-slice` / `tape-dynamics`):
@@ -152,6 +156,7 @@ The lab reader assembles a diode clipper (a single diode, or an antiparallel dio
 - **FR-019**: There MUST be **no fallbacks or mock data outside test code**; missing functionality raises a descriptive error.
 - **FR-020**: Each source file MUST stay within **~300–500 lines**; split by concern (e.g. per-component headers, netlist, models) as needed.
 - **FR-021**: The primitive taxonomy documentation (`core/primitives/README.md`) MUST be updated to register the new `circuit/` category and its inhabitants, consistent with the existing taxonomy discipline.
+- **FR-022**: Component physics and the reference solve MUST compute in **`double`** precision internally, converting to/from the platform's `float` audio sample type only at the audio boundary. The primitive MUST NOT force `float` precision into the solve.
 
 ### Key Entities
 
@@ -181,7 +186,7 @@ The lab reader assembles a diode clipper (a single diode, or an antiparallel dio
 - **Templated fixed capacity** `Netlist<MaxNodes, MaxComponents>` (OQ3, resolved) with operator-chosen sane default capacities for the lab's validation circuits; capacities are compile-time template parameters, not runtime limits.
 - **v1 inhabitant set is R, C, L, V, I, diode** (OQ4, resolved); controlled sources / op-amp / nullor deferred to the op-amp-stages deliverable.
 - **`std::variant` is the expected container** for the tagged value, but the choice between `std::variant` and a hand-rolled tagged union — and the code-size impact of templated-capacity instantiation on the Teensy target — is an **open measurement (OQ5)**, captured as a risk to measure during implementation, not pre-decided here.
-- **Node/parameter numeric type** follows the platform's existing convention (the audio/DSP sample and coefficient type already used across `core/`); this feature does not introduce a new numeric policy.
+- **Numeric precision** (clarified 2026-07-03): the physics and the reference solve compute in `double`; conversion to/from `float` happens only at the audio boundary (FR-022). The audio sample type remains the platform's `float`, consistent with the rest of `core/`.
 - **Validation is against analytic references** where a closed form exists (divider, RC, RLC, diode transfer); no external SPICE dependency is assumed.
 
 ## Dependencies
