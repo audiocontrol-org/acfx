@@ -11,12 +11,12 @@
 // (Constitution VI): all state compile-time-sized, no heap/locks in
 // process(); work is O(solver stages) bounded.
 //
-// This header formalizes the T001 scaffolding stub into the exact contract
-// surface (types + class shell). It does NOT implement the physics: dMdH()
-// is declared but not defined (T006 owns the body — Langevin anhysteretic +
-// irreversible/reversible split), and process() is a compiling PLACEHOLDER
-// that performs no integration (T007/T008 add the RK2/RK4/Newton-Raphson
-// steppers; T009 adds the stiff-solver stability guard).
+// This header implements the complete stateful Jiles-Atherton primitive:
+// dMdH() is the JA derivative (Langevin anhysteretic magnetization + the
+// irreversible/reversible split with effective-field feedback), process()
+// integrates it per sample under the selected Solver (RK2/RK4 explicit or
+// Newton-Raphson implicit), and a stiff-solver stability guard bounds the
+// state so no finite input yields NaN/Inf (FR-006, contract C3).
 //
 // See specs/tape-dynamics/contracts/hysteresis-api.md (the exact surface)
 // and specs/tape-dynamics/data-model.md, "Entity: Hysteresis" / "Entity:
@@ -184,6 +184,15 @@ private:
     static constexpr double kLangevinSmall = 1.0e-3;  // |x| below → series
     static constexpr double kLangevinLarge = 20.0;     // |x| above → asymptote
     static constexpr double kDenomFloor = 1.0e-12;     // divide-by-~0 guard
+    // The JA effective-field feedback denominator (1 - alpha*c*dMan/dHe) is
+    // POSITIVE only in the well-posed regime alpha*c*dMan/dHe < 1. Outside it
+    // (a caller sets an ill-posed alpha) a magnitude-only floor would let the
+    // denominator go negative and INVERT dM/dH (rising H -> falling M). Floor
+    // it to a small POSITIVE value instead so the derivative stays finite and
+    // correctly signed — a defined stability guard (Constitution V), not a
+    // fallback. The effect never exposes alpha (fixed default), so this only
+    // guards a direct ill-posed primitive-consumer configuration.
+    static constexpr double kFeedbackDenomFloor = 1.0e-6;  // > 0 (well-posedness)
 
     // Newton-Raphson implicit-stepper thresholds (T008). RT-safe: the iteration
     // count is a hard compile-time cap, never data-dependent/unbounded.
@@ -283,8 +292,11 @@ private:
         }
 
         // Combined reversible + irreversible with effective-field feedback.
+        // The feedback denominator MUST stay positive for a well-posed model;
+        // floor it to a small positive value (not guardDenom's magnitude floor)
+        // so an ill-posed alpha cannot invert the derivative's sign.
         const double num = (1.0 - c) * dMirr_dH + c * dMan_dHe;
-        const double den = guardDenom(1.0 - alpha * c * dMan_dHe);
+        const double den = std::fmax(1.0 - alpha * c * dMan_dHe, kFeedbackDenomFloor);
         return num / den;
     }
 
@@ -366,7 +378,13 @@ private:
             const double fMinus = dMdH(He, M1 - kNewtonFDEps, dH);
             const double dfdM = (fPlus - fMinus) / (2.0 * kNewtonFDEps);
 
-            // Jacobian dr/dM1 = 1 - dH * d(dMdH)/dM1, floored away from 0.
+            // Jacobian dr/dM1 = 1 - dH * d(dMdH)/dM1. Flooring the DIVISOR to a
+            // tiny magnitude does NOT bound the update — a near-singular Jacobian
+            // still yields a large step; that case is instead contained by the
+            // iteration cap + the RK4 divergence bail below. Note also that
+            // kNewtonFDEps is a fixed ABSOLUTE step: for large Ms the central
+            // difference loses precision, so Newton there effectively degrades to
+            // the RK4 fallback. Both are defined, stable degradations.
             double jac = 1.0 - dH * dfdM;
             if (std::fabs(jac) < kJacobianFloor) {
                 jac = (jac < 0.0) ? -kJacobianFloor : kJacobianFloor;

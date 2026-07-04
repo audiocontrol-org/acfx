@@ -267,3 +267,40 @@ TEST_CASE("Hysteresis::process — T009 stiff-solver stability guard (FR-006/C3)
         }
     }
 }
+
+// Well-posedness guard (code-review): the JA effective-field feedback
+// denominator (1 - alpha*c*dMan/dHe) is positive only for alpha*c*dMan/dHe < 1.
+// A caller may set an ill-posed alpha (setAlpha only requires >= 0); the
+// primitive floors the denominator POSITIVE so dM/dH stays finite and
+// correctly signed rather than inverting. alpha is NOT an effect macro, so
+// this only guards a direct primitive-consumer misconfiguration.
+TEST_CASE("Hysteresis::dMdH — ill-posed alpha does not invert the derivative") {
+    Hysteresis h;
+    h.prepare(48000.0);
+    // Ms=1, a=1, c=0.5, alpha=10 -> 1 - alpha*c*dMan/dHe near the origin is
+    // 1 - 10*0.5*(1/3) = -0.667 WITHOUT the floor: the pre-fix code would
+    // return a NEGATIVE derivative for a positive numerator (an inverted loop).
+    h.setMs(1.0);
+    h.setA(1.0);
+    h.setC(0.5);
+    h.setAlpha(10.0);
+
+    // At the origin driving upward (dH > 0) the anhysteretic-dominated slope
+    // must be finite and NON-NEGATIVE (rising H -> rising M), not inverted.
+    const double d0 = HysteresisTestAccess::dMdH(h, 0.0, 0.0, 1.0);
+    CHECK(std::isfinite(d0));
+    CHECK(d0 >= 0.0);
+
+    // A swept sinusoid through the full stepper/guard path stays finite and
+    // bounded under the ill-posed alpha (no NaN/Inf, no runaway).
+    for (const Solver solver : {Solver::rk2, Solver::rk4, Solver::newtonRaphson}) {
+        h.setSolver(solver);
+        h.reset();
+        for (int n = 0; n < 2048; ++n) {
+            const double H = 1.5 * std::sin(2.0 * 3.14159265358979 * n / 256.0);
+            const float out = h.process(static_cast<float>(H));
+            CHECK(std::isfinite(out));
+            CHECK(std::fabs(static_cast<double>(out)) <= 4.0);  // within the +/-4*Ms guard
+        }
+    }
+}

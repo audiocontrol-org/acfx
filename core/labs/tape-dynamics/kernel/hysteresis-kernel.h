@@ -196,6 +196,10 @@ private:
     // Floor applied to any denominator before dividing, so a ~0 denominator
     // yields a large-but-FINITE quotient instead of Inf/NaN.
     static constexpr double kDenomFloor = 1.0e-12;
+    // Well-posedness floor for the feedback denominator (see the primitive
+    // core/primitives/nonlinear/hysteresis.h): keep 1 - alpha*c*dMan/dHe > 0
+    // so an ill-posed alpha cannot invert dM/dH.
+    static constexpr double kFeedbackDenomFloor = 1.0e-6;
 
     // The stiff-solver guard's clamp bound is this multiple of the runtime
     // Ms (caller-configurable, not a fixed constant). 4x sits well above any
@@ -310,7 +314,9 @@ private:
         }
 
         const double num = (1.0 - c) * dMirr_dH + c * dMan_dHe;   // Step 5
-        const double den = guardDenom(1.0 - alpha * c * dMan_dHe); // Step 6
+        // Step 6: feedback denom floored POSITIVE (well-posedness — must not
+        // go negative and invert dM/dH; see the primitive's kFeedbackDenomFloor).
+        const double den = std::fmax(1.0 - alpha * c * dMan_dHe, kFeedbackDenomFloor);
         return num / den;
     }
 
