@@ -108,6 +108,15 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   target_link_libraries(acfx_lab_svf_harness PRIVATE acfx_core)
   target_compile_features(acfx_lab_svf_harness PRIVATE cxx_std_20)
 
+  # Component-abstractions lab harness — mirrors acfx_lab_svf_harness exactly
+  # (same linkage and feature). Minimal stub (task T001: Setup phase); real
+  # assembled-circuit validations are added in later tasks (T016/T019).
+  add_executable(acfx_lab_component_abstractions_harness
+    core/labs/component-abstractions/harness/component-abstractions-harness.cpp
+  )
+  target_link_libraries(acfx_lab_component_abstractions_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_component_abstractions_harness PRIVATE cxx_std_20)
+
   # Waveshaping lab harness — mirrors acfx_lab_svf_harness exactly (same
   # linkage and feature). The harness is a required, completed deliverable;
   # a missing source file should fail configure, not silently drop the target.

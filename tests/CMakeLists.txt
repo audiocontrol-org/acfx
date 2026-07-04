@@ -168,6 +168,13 @@ add_executable(acfx_core_tests
   # tape-dynamics-core-test.cpp addition is one focused check, not the full
   # suite) to stay under the per-file line budget.
   core/tape-dynamics-trim-test.cpp
+  # ---------------------------------------------------------------------------
+  # Component-abstractions test suites (component-abstractions feature): T002
+  # registration; story tasks fill assertions.
+  # ---------------------------------------------------------------------------
+  core/circuit-components-test.cpp
+  core/circuit-netlist-test.cpp
+  core/circuit-solver-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
