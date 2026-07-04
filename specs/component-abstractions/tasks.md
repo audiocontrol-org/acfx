@@ -39,9 +39,9 @@ wiring in root `CMakeLists.txt` (lab harness) and `tests/CMakeLists.txt` (test s
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 [tier:fast] Create the lab scaffold `core/labs/component-abstractions/` (`README.md` stub stating "deliberately-naive reference solver — Phase 5 MNA supersedes it", `solver/`, `harness/`) and register a host-only `acfx_lab_component_abstractions_harness` executable in `CMakeLists.txt`, mirroring the existing `acfx_lab_svf_harness` block.
-- [ ] T002 [P] [tier:fast] Create skeleton test files `tests/core/circuit-components-test.cpp`, `tests/core/circuit-netlist-test.cpp`, `tests/core/circuit-solver-test.cpp` (empty GoogleTest `TEST` stubs) and register all three in `tests/CMakeLists.txt`, mirroring `core/svf-test.cpp`.
-- [ ] T003 [P] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/primitives/circuit/` (must be C++17-clean, no JUCE/libDaisy/Teensy include) and to assert `core/labs/component-abstractions/` is host-only (lab isolation).
+- [x] T001 [tier:fast] Create the lab scaffold `core/labs/component-abstractions/` (`README.md` stub stating "deliberately-naive reference solver — Phase 5 MNA supersedes it", `solver/`, `harness/`) and register a host-only `acfx_lab_component_abstractions_harness` executable in `CMakeLists.txt`, mirroring the existing `acfx_lab_svf_harness` block.
+- [x] T002 [P] [tier:fast] Create skeleton test files `tests/core/circuit-components-test.cpp`, `tests/core/circuit-netlist-test.cpp`, `tests/core/circuit-solver-test.cpp` (empty GoogleTest `TEST` stubs) and register all three in `tests/CMakeLists.txt`, mirroring `core/svf-test.cpp`.
+- [x] T003 [P] [tier:balanced] Extend `scripts/check-portability.sh` to cover `core/primitives/circuit/` (must be C++17-clean, no JUCE/libDaisy/Teensy include) and to assert `core/labs/component-abstractions/` is host-only (lab isolation).
 
 ---
 
@@ -49,9 +49,9 @@ wiring in root `CMakeLists.txt` (lab harness) and `tests/CMakeLists.txt` (test s
 
 **Purpose**: the node + container + netlist skeleton every story builds on. Creating `node.h` is what materializes the `circuit/` category folder (inhabit-before-creating, FR-018).
 
-- [ ] T004 [tier:balanced] Create `core/primitives/circuit/node.h` — `NodeId` (integer handle, ground ≡ 0) and node-count helpers (data-model "NodeId"; FR-001). This is the `circuit/` category's first inhabitant.
-- [ ] T005 [tier:balanced] Create `core/primitives/circuit/components.h` — the empty-but-typed `Component = std::variant<Resistor, Capacitor, Inductor, VoltageSource, CurrentSource, Diode>` alias with forward-declared per-type headers, plus `isLinear`/`isReactive`/`isNonlinear` `std::visit` classifiers (data-model "Component (container form)"; FR-008, R4). No physics yet — just the closed type set and dispatch.
-- [ ] T006 [tier:powerful] Create `core/primitives/circuit/netlist.h` — `template <int MaxNodes, int MaxComponents> class Netlist` with `addNode()`, `add()` (over-capacity → descriptive throw), `prepare()` (stub validation for now), and immutable `components()`/counts accessors; `std::array`-backed, heap-free (contract `netlist.md`; FR-009).
+- [x] T004 [tier:balanced] Create `core/primitives/circuit/node.h` — `NodeId` (integer handle, ground ≡ 0) and node-count helpers (data-model "NodeId"; FR-001). This is the `circuit/` category's first inhabitant.
+- [x] T005 [tier:balanced] Create `core/primitives/circuit/components.h` — the empty-but-typed `Component = std::variant<Resistor, Capacitor, Inductor, VoltageSource, CurrentSource, Diode>` alias with forward-declared per-type headers, plus `isLinear`/`isReactive`/`isNonlinear` `std::visit` classifiers (data-model "Component (container form)"; FR-008, R4). No physics yet — just the closed type set and dispatch.
+- [x] T006 [tier:powerful] Create `core/primitives/circuit/netlist.h` — `template <int MaxNodes, int MaxComponents> class Netlist` with `addNode()`, `add()` (over-capacity → descriptive throw), `prepare()` (stub validation for now), and immutable `components()`/counts accessors; `std::array`-backed, heap-free (contract `netlist.md`; FR-009).
 
 **Checkpoint**: primitive compiles under `-std=c++17`; no story code yet.
 
@@ -62,12 +62,12 @@ wiring in root `CMakeLists.txt` (lab harness) and `tests/CMakeLists.txt` (test s
 **Goal**: each v1 component carries its own physics; no solver concept leaks in.
 **Independent test**: construct each component and query its physics directly against the closed form (no netlist, no solver).
 
-- [ ] T007 [P] [US1] [tier:balanced] Implement `core/primitives/circuit/models/resistor.h` — `Resistor{a,b,R}` with `admittance() = 1/R` and correct nodal signs (contract `component-physics.md` §Linear; FR-003).
-- [ ] T008 [P] [US1] [tier:balanced] Implement `core/primitives/circuit/models/sources.h` — `VoltageSource{p,n,V}` (ideal; marker for fixed-node reduction) and `CurrentSource{p,n,I}` (RHS contribution) (contract §Sources; FR-007).
-- [ ] T009 [P] [US1] [tier:powerful] Implement `core/primitives/circuit/models/diode.h` — `Diode{anode,cathode,Is,n,Vt}` with `evaluate(vAK) → {current, conductance}` = Shockley `Is*(exp(vAK/(n*Vt))-1)` and `dI/dV`, computed in `double`; include a `Vcrit`/limiting helper for the solver's Newton step (research R2; FR-004).
-- [ ] T010 [P] [US1] [tier:powerful] Implement `core/primitives/circuit/models/capacitor.h` — `Capacitor{a,b,C}` with `companion(dt, vPrev) → {Geq=C/dt, Ieq=Geq*vPrev}`; component holds no history (research R3; FR-005).
-- [ ] T011 [P] [US1] [tier:powerful] Implement `core/primitives/circuit/models/inductor.h` — `Inductor{a,b,L}` with `companion(dt, iPrev) → {Geq=dt/L, Ieq=-iPrev}`, the dual of the capacitor (research R3; FR-005).
-- [ ] T012 [US1] [tier:balanced] Fill `tests/core/circuit-components-test.cpp` — per-component physics vs closed form: resistor `G=1/R` exact; diode current + conductance at forward bias; capacitor & inductor companions for a chosen `dt`; and a grep/static assertion that no `stamp`/`scatter` symbol exists in `circuit/` (US1 acceptance 1–4; SC-001; FR-006).
+- [x] T007 [P] [US1] [tier:balanced] Implement `core/primitives/circuit/models/resistor.h` — `Resistor{a,b,R}` with `admittance() = 1/R` and correct nodal signs (contract `component-physics.md` §Linear; FR-003).
+- [x] T008 [P] [US1] [tier:balanced] Implement `core/primitives/circuit/models/sources.h` — `VoltageSource{p,n,V}` (ideal; marker for fixed-node reduction) and `CurrentSource{p,n,I}` (RHS contribution) (contract §Sources; FR-007).
+- [x] T009 [P] [US1] [tier:powerful] Implement `core/primitives/circuit/models/diode.h` — `Diode{anode,cathode,Is,n,Vt}` with `evaluate(vAK) → {current, conductance}` = Shockley `Is*(exp(vAK/(n*Vt))-1)` and `dI/dV`, computed in `double`; include a `Vcrit`/limiting helper for the solver's Newton step (research R2; FR-004).
+- [x] T010 [P] [US1] [tier:powerful] Implement `core/primitives/circuit/models/capacitor.h` — `Capacitor{a,b,C}` with `companion(dt, vPrev) → {Geq=C/dt, Ieq=Geq*vPrev}`; component holds no history (research R3; FR-005).
+- [x] T011 [P] [US1] [tier:powerful] Implement `core/primitives/circuit/models/inductor.h` — `Inductor{a,b,L}` with `companion(dt, iPrev) → {Geq=dt/L, Ieq=-iPrev}`, the dual of the capacitor (research R3; FR-005).
+- [x] T012 [US1] [tier:balanced] Fill `tests/core/circuit-components-test.cpp` — per-component physics vs closed form: resistor `G=1/R` exact; diode current + conductance at forward bias; capacitor & inductor companions for a chosen `dt`; and a grep/static assertion that no `stamp`/`scatter` symbol exists in `circuit/` (US1 acceptance 1–4; SC-001; FR-006).
 
 **Checkpoint**: US1 independently testable and green.
 
@@ -78,8 +78,8 @@ wiring in root `CMakeLists.txt` (lab harness) and `tests/CMakeLists.txt` (test s
 **Goal**: components compose into a validated, heap-free netlist.
 **Independent test**: a good divider validates; three ill-posed netlists each throw a distinct descriptive error.
 
-- [ ] T013 [US2] [tier:powerful] Implement `prepare()` topology validation in `core/primitives/circuit/netlist.h` — missing-ground, floating-node (names the node), and over-capacity checks, each a **distinct descriptive throw**; guarantee the post-`prepare()` solve path neither throws nor allocates (contract `netlist.md`; FR-010/011).
-- [ ] T014 [US2] [tier:balanced] Fill `tests/core/circuit-netlist-test.cpp` — good divider validates + reports counts; floating-node / missing-ground / over-capacity each raise their distinct error; wrap a representative solve loop in a **no-allocation assertion** (US2 acceptance 1–4; SC-005/006).
+- [x] T013 [US2] [tier:powerful] Implement `prepare()` topology validation in `core/primitives/circuit/netlist.h` — missing-ground, floating-node (names the node), and over-capacity checks, each a **distinct descriptive throw**; guarantee the post-`prepare()` solve path neither throws nor allocates (contract `netlist.md`; FR-010/011).
+- [x] T014 [US2] [tier:balanced] Fill `tests/core/circuit-netlist-test.cpp` — good divider validates + reports counts; floating-node / missing-ground / over-capacity each raise their distinct error; wrap a representative solve loop in a **no-allocation assertion** (US2 acceptance 1–4; SC-005/006).
 
 **Checkpoint**: US1+US2 = the MVP (the solver-independent vocabulary + validated assembly). Verify the primitive tests pass with `core/labs/component-abstractions/` absent (SC-007).
 
@@ -90,8 +90,8 @@ wiring in root `CMakeLists.txt` (lab harness) and `tests/CMakeLists.txt` (test s
 **Goal**: linear circuits run in the lab and match analytic references.
 **Independent test**: divider exact; RC/RLC within backward-Euler tolerance.
 
-- [ ] T015 [US3] [tier:powerful] Implement `core/labs/component-abstractions/solver/linear-solver.h` — assemble the reduced nodal system from component `admittance()`/`companion()`/current-source RHS, impose ideal `VoltageSource` by **fixed-node reduction** (research R1 — no gmin fallback, no MNA augmentation), solve by fixed-size Gaussian elimination with **no heap in the solve**; own per-node previous voltages + per-inductor previous currents for the companions (contract `reference-solver.md` §Linear; FR-013/R3).
-- [ ] T016 [US3] [tier:balanced] Add divider / RC-sweep / RLC validation cases to `core/labs/component-abstractions/harness/component-abstractions-harness.cpp` and mirror the assertions in `tests/core/circuit-solver-test.cpp` — divider exact ratio; RC magnitude/phase vs `1/(1+jωRC)`; RLC vs analytic 2nd-order; all within documented tolerance (US3 acceptance 1–4; SC-002/003).
+- [x] T015 [US3] [tier:powerful] Implement `core/labs/component-abstractions/solver/linear-solver.h` — assemble the reduced nodal system from component `admittance()`/`companion()`/current-source RHS, impose ideal `VoltageSource` by **fixed-node reduction** (research R1 — no gmin fallback, no MNA augmentation), solve by fixed-size Gaussian elimination with **no heap in the solve**; own per-node previous voltages + per-inductor previous currents for the companions (contract `reference-solver.md` §Linear; FR-013/R3).
+- [x] T016 [US3] [tier:balanced] Add divider / RC-sweep / RLC validation cases to `core/labs/component-abstractions/harness/component-abstractions-harness.cpp` and mirror the assertions in `tests/core/circuit-solver-test.cpp` — divider exact ratio; RC magnitude/phase vs `1/(1+jωRC)`; RLC vs analytic 2nd-order; all within documented tolerance (US3 acceptance 1–4; SC-002/003).
 
 **Checkpoint**: linear circuits validated end-to-end.
 
@@ -102,9 +102,9 @@ wiring in root `CMakeLists.txt` (lab harness) and `tests/CMakeLists.txt` (test s
 **Goal**: one nonlinearity resolved by bounded Newton; ≥2 refused.
 **Independent test**: single/antiparallel clipper transfer matches analytic soft-clip; ≥2-nonlinearity netlist refused.
 
-- [ ] T017 [US4] [tier:powerful] Implement `core/labs/component-abstractions/solver/newton-clipper.h` — bounded fixed-iteration, **voltage-limited** Newton around `Diode.evaluate` on top of the linear solver; report residual/status; on non-convergence within the bound, report — never fall back or fabricate (contract §Nonlinear; FR-015/R2).
-- [ ] T018 [US4] [tier:powerful] Enforce the scope boundary: the reference solver **refuses** a netlist with ≥2 interacting nonlinear components with the descriptive `"out of reference-solver scope — deferred to Phase 5"` error (contract §Scope; FR-016).
-- [ ] T019 [US4] [tier:balanced] Add single-diode + antiparallel clipper DC-sweep cases (vs analytic soft-clip) and the ≥2-nonlinearity refusal case to the harness and `tests/core/circuit-solver-test.cpp` (US4 acceptance 1–4; SC-004/005).
+- [x] T017 [US4] [tier:powerful] Implement `core/labs/component-abstractions/solver/newton-clipper.h` — bounded fixed-iteration, **voltage-limited** Newton around `Diode.evaluate` on top of the linear solver; report residual/status; on non-convergence within the bound, report — never fall back or fabricate (contract §Nonlinear; FR-015/R2).
+- [x] T018 [US4] [tier:powerful] Enforce the scope boundary: the reference solver **refuses** a netlist with ≥2 interacting nonlinear components with the descriptive `"out of reference-solver scope — deferred to Phase 5"` error (contract §Scope; FR-016).
+- [x] T019 [US4] [tier:balanced] Add single-diode + antiparallel clipper DC-sweep cases (vs analytic soft-clip) and the ≥2-nonlinearity refusal case to the harness and `tests/core/circuit-solver-test.cpp` (US4 acceptance 1–4; SC-004/005).
 
 **Checkpoint**: all four stories independently green.
 
@@ -112,10 +112,10 @@ wiring in root `CMakeLists.txt` (lab harness) and `tests/CMakeLists.txt` (test s
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T020 [P] [tier:fast] Update `core/primitives/README.md` — register the `circuit/` category and its six inhabitants (R, C, L, V, I, diode) with consumers/lab, matching the existing taxonomy discipline (FR-021; SC-008).
-- [ ] T021 [P] [tier:balanced] Write `core/labs/component-abstractions/README.md` — what the lab teaches, the fixed-node-reduction/backward-Euler/Newton choices, and the explicit "naive, non-normative, Phase-5-superseded" boundary.
-- [ ] T022 [tier:balanced] Verify + document **OQ5**: measure the `std::variant` + templated-`Netlist<N,M>` + `double` instantiation code-size/`std::visit` cost on the Teensy build (`make teensy` if toolchain present, else record the host `-Os` size delta and note the Teensy measurement as outstanding); record the finding in `research.md` (R4) — do not change the container unless the measurement demands it.
-- [ ] T023 [tier:fast] Full-suite green + isolation check: `make test` passes; re-confirm the primitive compiles under `-std=c++17` and its `circuit-components`/`circuit-netlist` tests pass with the lab directory temporarily excluded (SC-006/007).
+- [x] T020 [P] [tier:fast] Update `core/primitives/README.md` — register the `circuit/` category and its six inhabitants (R, C, L, V, I, diode) with consumers/lab, matching the existing taxonomy discipline (FR-021; SC-008).
+- [x] T021 [P] [tier:balanced] Write `core/labs/component-abstractions/README.md` — what the lab teaches, the fixed-node-reduction/backward-Euler/Newton choices, and the explicit "naive, non-normative, Phase-5-superseded" boundary.
+- [x] T022 [tier:balanced] Verify + document **OQ5**: measure the `std::variant` + templated-`Netlist<N,M>` + `double` instantiation code-size/`std::visit` cost on the Teensy build (`make teensy` if toolchain present, else record the host `-Os` size delta and note the Teensy measurement as outstanding); record the finding in `research.md` (R4) — do not change the container unless the measurement demands it.
+- [x] T023 [tier:fast] Full-suite green + isolation check: `make test` passes; re-confirm the primitive compiles under `-std=c++17` and its `circuit-components`/`circuit-netlist` tests pass with the lab directory temporarily excluded (SC-006/007).
 
 ---
 
