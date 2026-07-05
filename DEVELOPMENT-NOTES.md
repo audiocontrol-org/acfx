@@ -2,21 +2,28 @@
 
 ---
 
-## 2026-07-05: <!-- session title -->
+## 2026-07-05: diode-clippers — design → runnable spec (Phase-4 third feature deliverable)
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take up `design:feature/diode-clippers` and drive it through the stack-control front door from `planned` to a runnable spec — the designing phase (`/stack-control:design` → brainstorming) and the full specifying chain (`/stack-control:define` → native Spec Kit specify → clarify → plan → tasks → analyze) — stopping at the implementing boundary (`/stack-control:execute` is the operator's next, billable move).
 
 **Accomplished:**
-- <!-- compose -->
+- **Designing phase:** design record `docs/superpowers/specs/2026-07-04-diode-clippers-design.md`, written mirroring the shipped `passive-tone-stacks` shape (solver-neutral builders + host-only non-normative lab, no realtime effect). Reviewed twice, `design-approved` recorded, design-to-spec gate 7/7.
+- **Specifying chain (each `/speckit-*` step front-door-mediated via `stackctl front-door enter/exit`):** `spec.md` (3 user stories, FR-001..020, SC-001..008) → clarify (OQ3 reactive-signature test, OQ5 series coupling-cap) → `plan.md` (Constitution Check 11/11) + research/data-model/2 contracts/quickstart → `tasks.md` (22 tasks, US1 builders / US2 transient solver / US3 invariants) → analyze (0 CRITICAL/HIGH). `spec:` pointer set, `analyze-clean` recorded. Phase now `implementing`.
+- **The feature's shape:** three generic clipper builders (symmetric shunt, asymmetric shunt, series) + a bounded **transient** nonlinear lab solver (`TransientClipper<MaxNodes,MaxComponents,MaxDiodes=4>`) whose load-bearing idea is **separating the timestep loop from the Newton loop** — the fix for the reactive+nonlinear case `component-abstractions`' static solver deliberately refused. Validation mirrors tone-stacks: prove the solver exact first (analytic RC + independent bisection DC-limit oracle), then assembled invariants incl. the pinned `Cf`→HF reactive signature.
 
 **Didn't Work:**
-- <!-- compose -->
+- The `after_plan` agent-context hook (`update-agent-context.sh`) failed — **PyYAML missing** in the env — so it never updated the CLAUDE.md SPECKIT marker; worked around by editing the marker manually. Captured as tooling friction.
+- `check-prerequisites.sh` (speckit) rejects the **descriptive branch name** `diode-clippers` (wants numeric/timestamp prefixes) — the documented TF-09, in direct tension with acfx Commandment 3. `/speckit-analyze`'s own prereq call errored; completed the analysis on the `feature.json`-resolved paths manually. Captured as friction.
 
 **Course Corrections:**
-- <!-- compose -->
+- **Operator reversed the review's scope-narrowing.** My folded-in design review had proposed shipping two shunt exemplars first and deferring series; the operator rejected that ("scope-narrowing about shipping stuff later is not pertinent here"). Reverted to all three exemplars in v1 — the solver bound stays narrow, the deliverable's topology coverage does not. Recorded the reversal honestly in the design record's provenance.
+- **`/speckit-analyze` caught my own over-claim (I1).** SC-005/FR-017 asserted the reactive signature "for each clipper," but the series clipper has an input *coupling* cap (high-pass), not a filter `Cf` across the diodes. Scoped the invariant to the two shunt clippers in spec + tasks so they agree exactly.
+- Two design-frontend calls the operator delegated ("i don't know" / "you decide"): the three-exemplar count and the solver's history-separation structure — decided with reasoning recorded in the design record, then validated by the operator.
 
 **Insights:**
-- <!-- compose -->
+- Mirroring the immediately-prior sibling (`passive-tone-stacks`) end-to-end — module split, two-tier tests + harness, prove-solver-exact-first-then-invariants, the load-bearing-boundary README — made every artifact fast to author and internally consistent; the sibling is the best available spec/plan/tasks template.
+- The genuine increment over the already-shipped static single-diode clipper is the **reactive** dimension, and the whole design turns on one mechanism (timestep/Newton loop separation) — naming that crux early kept the lab solver bounded (single-port, non-MNA) instead of drifting toward Phase-5.
+- The front-door mediation (`enter`→drive `/speckit-*`→`exit`, literal token carried across separate Bash calls) worked cleanly per step; bracketing each mediated drive individually (rather than one marker for the whole chain) kept the window tight against staleness.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 10
