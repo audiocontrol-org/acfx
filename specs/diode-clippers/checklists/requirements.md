@@ -32,10 +32,10 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
-- Two informed-default assumptions (OQ3 reactive-signature measurement parameters; OQ5
-  series-clipper reactance placement) are documented in the Assumptions section and are the
-  intended targets of the next `/speckit-clarify` pass — the invariants' *shapes* are fixed by
-  the approved design record; only the numeric parameters remain to pin.
+- The two open items (OQ3 reactive-signature measurement parameters; OQ5 series-clipper
+  reactance placement) were **resolved in the 2026-07-05 `/speckit-clarify` session** (1 kHz
+  sine / 100 kHz / >5 kHz HF band / strict-monotonic-in-`Cf`; input coupling cap in series)
+  and folded into FR-003, FR-017, SC-005, and the Assumptions.
 - This spec carries the domain-specific vocabulary of the acfx circuit-modeling substrate
   (`Netlist`, `Diode`, backward-Euler companion, Newton) deliberately: the audience per the
   repo's framing is the circuit-model author / solver author / lab reader, not a general

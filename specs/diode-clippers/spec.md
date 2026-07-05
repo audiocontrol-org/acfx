@@ -17,6 +17,13 @@
 
 **Status**: Draft
 
+## Clarifications
+
+### Session 2026-07-05 (clarify)
+
+- Q: OQ3 — how is the reactive-signature invariant (FR-017/SC-005: larger `Cf` ⇒ less post-clip HF) measured for fixed excitation and drive? → A: **A 1 kHz sine driven into clipping at a fixed drive, solved at the existing lab convention `dt = 1e-5 s` (100 kHz), measuring output spectral energy above a 5 kHz cutoff, asserted to decrease strictly monotonically at each step of an ascending `Cf` sweep.** A musical fundamental with clear clipping-generated harmonics to attenuate; reuses `component-abstractions`' `dt` convention. (Rejected: a band-limited edge/step measured by rise-time or spectral centroid — a fuzzier scalar to pin monotonically; and a swept-sine chirp — broader but heavier and less pointed for a monotonic-in-`Cf` assertion. The exact numeric monotonic margin is a plan/implementation detail.)
+- Q: OQ5 — where does the series-clipper exemplar's capacitor sit? → A: **An input coupling capacitor in series, ahead of the inline diodes.** This places the reactance distinctly from the shunt exemplars (which put the cap across the diodes), so the series builder genuinely isolates the topology / reactance-placement axis — its reason for being the third exemplar. (Rejected: a cap across the series diodes — closer to the shunt exemplars' placement, partly duplicating that axis rather than isolating the topology axis.)
+
 ## User Scenarios & Testing *(mandatory)*
 
 The "user" of this feature is threefold, matching the platform's audience framing (as in `component-abstractions` / `passive-tone-stacks`):
@@ -98,7 +105,7 @@ With the solver proven, the lab reader confirms each assembled clipper behaves a
 
 - **FR-001**: The system MUST provide `symmetricShuntClipper(...)` returning a fixed-capacity `Netlist` of frozen-vocabulary components modelling a series-resistor → matched antiparallel diode pair to ground, with a filter capacitor across the diodes. It MUST produce topology only — **no** solved response and **no** audio-path / `process()` realization.
 - **FR-002**: The system MUST provide `asymmetricShuntClipper(...)` returning a `Netlist` for a shunt clipper with an **unequal** diode population (e.g. 2-up / 1-down), whose transfer is intentionally not odd-symmetric.
-- **FR-003**: The system MUST provide `seriesClipper(...)` returning a `Netlist` for an inline (series-path) diode clipper with a coupling capacitor — a topology distinct from the shunt family (different node structure and reactance placement).
+- **FR-003**: The system MUST provide `seriesClipper(...)` returning a `Netlist` for an inline (series-path) diode clipper whose capacitor is an **input coupling capacitor in series, ahead of the inline diodes** — a topology distinct from the shunt family (different node structure, and reactance placed in series rather than across the diodes, so it isolates the topology/reactance-placement axis).
 - **FR-004**: The builders MUST use **only** the frozen `component-abstractions` vocabulary (`Resistor`, `Capacitor`, `Diode`, `VoltageSource`, and `Netlist`) — introducing no new element type and modifying no existing one — and MUST include nothing under `core/labs/`.
 - **FR-005**: The builders MUST be **pure functions with no retained state**; a component-value change is expressed by rebuilding the netlist (control-rate). The returned `Netlist` MUST be heap-free (fixed compile-time capacities per topology; no `new`/`delete`/`std::vector`).
 - **FR-006**: The builders MUST return a `Netlist` that `prepare()`s cleanly (ground referenced, no floating node) across representative bills of materials for each topology.
@@ -118,7 +125,7 @@ With the solver proven, the lab reader confirms each assembled clipper behaves a
 
 - **FR-015**: The lab MUST prove the transient solver **exact first** on closed-form sanity networks before trusting it on a clipper: a linear-only RC network matches the analytic backward-Euler step response to ~1e-9, and a resistor-plus-diode network at DC steady state matches an **independent bisection root-find** oracle to ~1e-6 (and agrees with the existing static `NewtonClipper` curve).
 - **FR-016**: The lab MUST validate each assembled clipper by behavioral invariants: symmetry (`y(−x) = −y(x)` for the symmetric clipper; an explicit DC-offset / even-harmonic presence for the asymmetric clipper), forward saturation clamping near the diode drop, and a passivity/energy bound (output energy ≤ input energy).
-- **FR-017**: The lab MUST validate the **reactive signature** as a pinned invariant: with excitation and drive held fixed, increasing the filter capacitor `Cf` MUST monotonically reduce the post-clip high-frequency output energy (attack softening / frequency-dependent clipping) — the behavior a static transfer curve cannot represent.
+- **FR-017**: The lab MUST validate the **reactive signature** as a pinned invariant: with a **1 kHz sine driven into clipping at a fixed drive**, solved at `dt = 1e-5 s` (100 kHz), increasing the filter capacitor `Cf` MUST **strictly monotonically reduce the output spectral energy above a 5 kHz cutoff** at each step of an ascending `Cf` sweep (attack softening / frequency-dependent clipping) — the behavior a static transfer curve cannot represent.
 - **FR-018**: The lab MUST provide a host-only harness (`int main()`) that mirrors the Tier-2 assertions as PASS/FAIL lines with measured-vs-expected numbers, **including an explicit non-convergence check** (drive the solver to deliberate non-convergence and assert the status is surfaced), and exits nonzero on any failure.
 
 **Isolation & scope**
@@ -142,15 +149,15 @@ With the solver proven, the lab reader confirms each assembled clipper behaves a
 - **SC-002**: The transient solver reproduces the analytic backward-Euler RC step response to ≈1e-9 and matches the independent bisection DC-limit oracle (and the existing static `NewtonClipper` curve) to ≈1e-6 — the solver is validated before being trusted on a clipper.
 - **SC-003**: The symmetric clipper's measured transfer is odd-symmetric within tolerance (no DC offset); the asymmetric clipper's transfer carries a measurable DC-offset / even-harmonic component — the two are distinguishable by this invariant.
 - **SC-004**: Every clipper forward-saturates (output bounded near the diode drop under large drive) and is passive (output energy ≤ input energy over a bounded excitation) — 100% of tested clippers.
-- **SC-005**: For each clipper, increasing the filter capacitor `Cf` across an ascending sweep monotonically reduces the post-clip high-frequency output energy at fixed excitation and drive — the reactive signature holds for every step of the sweep.
+- **SC-005**: For each clipper, driven by a fixed 1 kHz sine at fixed drive (solved at `dt = 1e-5 s`), increasing the filter capacitor `Cf` across an ascending sweep strictly reduces the output energy above 5 kHz at every step — the reactive signature holds for the whole sweep.
 - **SC-006**: A deliberately non-converging timestep is surfaced as a reported `converged == false` status in both the Tier-2 test and the harness — the non-convergence contract is verified, not assumed.
 - **SC-007**: With `core/labs/diode-clippers/` deleted, the diode-clipper primitive and its Tier-1 tests build and pass (isolation is itself a verified outcome).
 - **SC-008**: No heap in the builder path — `core/primitives/circuit/diode-clipper/` contains no `new`/`delete`/`std::vector`; capacities are compile-time `Netlist` template parameters, and the solver is heap-free on the solve path.
 
 ## Assumptions
 
-- **Reactive-signature measurement parameters (OQ3 — informed default, refined in `/speckit-clarify`).** The FR-017 / SC-005 reactive-signature check uses a fixed periodic excitation driven into clipping at a fixed drive, a fixed high validation sample rate / `dt`, and measures output energy above a fixed high-frequency cutoff; the exact excitation waveform, sample rate, cutoff, and the monotonic-decrease margin are pinned in the clarify/plan pass (the analogue of `passive-tone-stacks`' grid/tolerance clarification). The invariant's *shape* — larger `Cf` ⇒ less post-clip HF for fixed excitation + drive — is fixed by the design.
-- **Series-clipper reactance placement (OQ5 — informed default, refined in `/speckit-clarify`).** The series exemplar places its capacitor as an input coupling cap in series (not across the diodes), so it isolates the topology / reactance-placement axis without duplicating the shunt exemplars' cap-across-diodes reactance.
+- **Reactive-signature measurement parameters (OQ3 — resolved 2026-07-05 clarify).** The FR-017 / SC-005 check uses a 1 kHz sine driven into clipping at a fixed drive, solved at `dt = 1e-5 s` (100 kHz), measuring output energy above a 5 kHz cutoff, asserted strictly decreasing across an ascending `Cf` sweep. The exact numeric monotonic margin is a plan/implementation detail.
+- **Series-clipper reactance placement (OQ5 — resolved 2026-07-05 clarify).** The series exemplar places its capacitor as an input coupling cap in series ahead of the inline diodes (not across the diodes), so it isolates the topology / reactance-placement axis without duplicating the shunt exemplars' cap-across-diodes reactance.
 - **Diode-population cap.** `MaxDiodes = 4` by default comfortably admits the 2-up / 1-down asymmetric string with headroom; a topology needing more instantiates the template larger. No global ceiling; heap-free by construction.
 - **Reactive discretization.** Backward Euler (reusing the primitive's existing `companion()` hooks) is the lab's deliberately-naive, non-normative choice; trapezoidal / the general treatment is Phase-5 implicit integration. The primitive never hard-codes an integration method.
 - **Canonical component values.** Representative bills of materials for each topology are drawn from standard passive clipper practice; the exact BOM constants are finalized in the plan/implementation, and correctness is defined by the invariants and the solver cross-check, not by any single vendor's part list.
