@@ -217,6 +217,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:feature/diode-clippers
 - status: planned
+- analyze-clean: yes
+- spec: specs/diode-clippers
 - design-approved: yes
 - design: docs/superpowers/specs/2026-07-04-diode-clippers-design.md
 - depends-on: multi:feature/phase-dynamic-systems
