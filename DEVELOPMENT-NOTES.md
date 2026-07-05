@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-07-05: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 10
+  - workflow(diode-clippers): set spec pointer + analyze-clean marker (specifying complete)
+  - spec(diode-clippers): scope reactive-signature invariant to shunt clippers (analyze I1)
+  - tasks(diode-clippers): dependency-ordered tasks.md (22 tasks, US1/US2/US3)
+  - plan(diode-clippers): implementation plan + Phase-0/1 artifacts
+  - spec(diode-clippers): clarify OQ3 reactive-signature test + OQ5 series cap placement
+  - spec(diode-clippers): author feature spec from approved design record
+  - workflow(diode-clippers): record design-approved marker (design-to-spec gate met)
+  - design(diode-clippers): ship all three exemplars — reverse ship-later narrowing
+  - design(diode-clippers): fold in operator design review — narrow the lab solver
+  - design(diode-clippers): design record — mirror tone-stacks, transient reactive lab solver
+- Files changed: 13
+- Backlog touched: (none)
+
 ## 2026-07-04: component-abstractions — full lifecycle (design → ship PR) for the Phase-4 circuit-element vocabulary
 
 **Goal:** Take up `design:primitive/component-abstractions` (first deliverable of Phase 4, Circuit Modeling) and drive it end-to-end through the stack-control lifecycle — design, spec, plan, tasks, analyze, implement, govern, and open the ship PR — building the solver-neutral typed vocabulary that Phase-4 deliverables assemble and Phase-5 MNA / Phase-6 WDF later adapt.
