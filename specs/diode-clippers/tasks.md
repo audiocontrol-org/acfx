@@ -99,9 +99,9 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T020 [P] Verify isolation (SC-007 / FR-019) at the **dependency level** (the substantive guarantee): the `diode-clipper/` primitive headers and the Tier-1 test (`diode-clipper-builder-test.cpp`) include **nothing** under `core/labs/` — grep-verified — so they compile independent of the lab. Only the Tier-2 `diode-clipper-transient-test.cpp` and the lab harness include the transient solver; those are the artifacts that "go away" when the lab is deleted. (As with `passive-tone-stacks` T019: Tier-1 and Tier-2 share one `acfx_core_tests` executable, so the guarantee asserted is the primitive's dependency-independence, not a single-target rebuild trick.)
-- [ ] T021 [P] No-heap audit (SC-008): confirm no `new`/`delete`/`std::vector` under `core/primitives/circuit/diode-clipper/`; the solver's `step()` path is `std::array`-backed; capacities are compile-time `Netlist`/template parameters.
-- [ ] T022 [P] Full green + hygiene: `make test` and the harness both pass; each new file ≤ ~500 lines (Constitution VII; split `transient-clipper.h` if it approaches the ceiling); the `component-abstractions` `circuit/` vocabulary is unmodified (FR-004).
+- [X] T020 [P] Verify isolation (SC-007 / FR-019) at the **dependency level** (the substantive guarantee): the `diode-clipper/` primitive headers and the Tier-1 test (`diode-clipper-builder-test.cpp`) include **nothing** under `core/labs/` — grep-verified — so they compile independent of the lab. Only the Tier-2 `diode-clipper-transient-test.cpp` and the lab harness include the transient solver; those are the artifacts that "go away" when the lab is deleted. (As with `passive-tone-stacks` T019: Tier-1 and Tier-2 share one `acfx_core_tests` executable, so the guarantee asserted is the primitive's dependency-independence, not a single-target rebuild trick.)
+- [X] T021 [P] No-heap audit (SC-008): confirm no `new`/`delete`/`std::vector` under `core/primitives/circuit/diode-clipper/`; the solver's `step()` path is `std::array`-backed; capacities are compile-time `Netlist`/template parameters.
+- [X] T022 [P] Full green + hygiene: `make test` and the harness both pass; each new file ≤ ~500 lines (Constitution VII; split `transient-clipper.h` if it approaches the ceiling); the `component-abstractions` `circuit/` vocabulary is unmodified (FR-004).
 
 ---
 
