@@ -133,21 +133,36 @@ inline AsymmetricShuntClipper asymmetricShuntClipper(const AsymmetricShuntValues
 }
 
 // ---------------------------------------------------------------------------
-// seriesClipper (FR-003) — Vin → input coupling Cc (series) → n1; `seriesCount`
-// inline Diode{n1,n2}; R n2 → gnd. The coupling cap blocks DC (output → 0 at
-// DC). Output n2; port (n1, n2). "Series" here means the diodes sit in the
-// series SIGNAL PATH (ahead of the shunt-to-ground R), NOT a node-chain of
-// diodes with intermediate nodes: all `seriesCount` diodes span the SAME port
-// node pair (n1, n2), summing their current at that single nonlinearity
-// location (FR-012). A node-chain would create distinct node pairs — a second
-// interacting nonlinearity the bounded transient solver deliberately refuses
-// (deferred to Phase 5).
+// seriesClipper (FR-003) — Vin → input coupling Cc (series) → n1; a single inline
+// Diode{n1,n2}; R n2 → gnd. The coupling cap blocks DC (output → 0 at DC). Output
+// n2; port (n1, n2). "Series" means the diode sits in the series SIGNAL PATH
+// (ahead of the shunt-to-ground R), distinct from the shunt family.
+//
+// v1 SCOPE — a single inline diode (seriesCount == 1). A multi-diode series
+// STRING is deliberately deferred for a load-bearing reason, not an oversight:
+//   - A TRUE series chain (n1 → D → nMid → D → n2) has a diode-only intermediate
+//     node nMid. The frozen Netlist::prepare() floating-node rule excludes diodes
+//     from conductive paths (a lone diode does not guarantee a DC path to
+//     ground), so nMid is flagged "floating" and prepare() REJECTS the chain — it
+//     cannot be a prepare()-valid topology (FR-006) without gmin / MNA (Phase 5).
+//   - STACKING seriesCount diodes across the SAME (n1, n2) pair would prepare()
+//     and solve, but that is electrically PARALLEL (one diode of seriesCount×
+//     area), not "series" — a misleading meaning for the field.
+// So v1 ships the unambiguous canonical: exactly one inline series diode. A
+// non-unit seriesCount is a descriptive throw, never a silently-wrong parallel
+// stamp. Multi-diode series strings are a Phase-5 refinement.
 // ---------------------------------------------------------------------------
 inline SeriesClipper seriesClipper(const SeriesValues& v, double vIn = 0.0) {
     detail::requirePositive(v.Cc, "seriesClipper Cc");
     detail::requirePositive(v.R, "seriesClipper R");
     detail::requireValidDiode(v.diode);
-    detail::requireDiodePopulation(v.seriesCount, "seriesClipper seriesCount");
+    if (v.seriesCount != 1) {
+        throw std::invalid_argument(
+            "seriesClipper: v1 supports exactly one inline series diode "
+            "(seriesCount == 1); a multi-diode series string needs intermediate "
+            "nodes the prepare() floating-node rule cannot admit (deferred to "
+            "Phase 5) — got seriesCount=" + std::to_string(v.seriesCount));
+    }
 
     SeriesClipper c{};
     const NodeId nIn = c.netlist.addNode();  // 1: driven input node
@@ -156,9 +171,7 @@ inline SeriesClipper seriesClipper(const SeriesValues& v, double vIn = 0.0) {
 
     c.netlist.add(VoltageSource{nIn, kGround, vIn});
     c.netlist.add(Capacitor{nIn, n1, v.Cc});
-    for (int i = 0; i < v.seriesCount; ++i) {
-        c.netlist.add(detail::diodeOf(v.diode, n1, n2));  // inline, port (n1,n2)
-    }
+    c.netlist.add(detail::diodeOf(v.diode, n1, n2));  // single inline diode, port (n1,n2)
     c.netlist.add(Resistor{n2, kGround, v.R});
     c.netlist.prepare();
 

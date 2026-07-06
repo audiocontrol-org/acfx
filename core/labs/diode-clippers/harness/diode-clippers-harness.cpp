@@ -98,11 +98,20 @@ double oracleAsymmetric(double Vin, double R, const DiodeSpec& d, int up, int do
         -5.0, 5.0);
 }
 
+// Convergence tracker: a non-converged solver iterate is not a physical answer
+// (FR-011), so a check that reads solver.voltage(...) after a non-converged
+// step() would be certifying stale output. Every expected-converged step() below
+// clears this flag on non-convergence; each run function resets it at entry and
+// reports it, so the harness cannot PASS on a non-converged measurement.
+bool gConverged = true;
+
 template <int N, int M, int D>
 double settlePortDC(TransientClipper<N, M, D>& solver, const Netlist<N, M>& nl, int steps) {
     solver.reset();
     for (int i = 0; i < steps; ++i) {
-        solver.step(nl, kDt);
+        if (!solver.step(nl, kDt).converged) {
+            gConverged = false;
+        }
     }
     return solver.clipperVoltage();
 }
@@ -115,8 +124,11 @@ void driveSine(TransientClipper<N, M, D>& solver, BuildFn build, double amp, dou
     for (int nStep = 0; nStep < total; ++nStep) {
         const double vIn = amp * std::sin(2.0 * kPi * freqHz * nStep * kDt);
         const auto clip = build(vIn);
-        solver.step(clip.netlist, kDt);
+        const auto st = solver.step(clip.netlist, kDt);
         if (nStep >= kWarmup) {
+            if (!st.converged) {
+                gConverged = false;
+            }
             in[static_cast<std::size_t>(nStep - kWarmup)] = vIn;
             out[static_cast<std::size_t>(nStep - kWarmup)] = solver.voltage(clip.outNode);
         }
@@ -164,16 +176,20 @@ bool runLinearRc() {
 
     TransientClipper<8, 8> solver;
     solver.reset();  // explicit cold start (match the helper-mediated paths)
+    gConverged = true;
     const double alpha = kDt / (kDt + R * C);
     double vAnalytic = 0.0, maxErr = 0.0;
     for (int step = 0; step < 2000; ++step) {
-        solver.step(nl, kDt);
+        if (!solver.step(nl, kDt).converged) {
+            gConverged = false;
+        }
         vAnalytic = alpha * Vin + (1.0 - alpha) * vAnalytic;
         maxErr = std::max(maxErr, std::fabs(solver.voltage(n2) - vAnalytic));
     }
     report(maxErr < 1e-9, "RC: max |solver - BE recurrence| over 2000 steps < 1e-9", maxErr, 1e-9, ok);
     report(std::fabs(solver.voltage(n2) - Vin) < 1e-6, "RC: DC steady state -> Vin",
            solver.voltage(n2), Vin, ok);
+    report(gConverged, "RC: every step() converged", gConverged ? 1.0 : 0.0, 1.0, ok);
     return ok;
 }
 
@@ -183,6 +199,7 @@ bool runDcLimits() {
     bool ok = true;
     const double R = 2200.0, Cf = 10.0e-9;
     const DiodeSpec d = diodeSpec();
+    gConverged = true;
 
     TransientClipper<4, 8> sym;
     NewtonClipper<4, 8> staticClipper;
@@ -221,10 +238,13 @@ bool runDcLimits() {
     const auto sclip = seriesClipper(SeriesValues{1.0e-6, 4700.0, d, 1}, 1.5);
     ser.reset();
     for (int i = 0; i < 200000; ++i) {
-        ser.step(sclip.netlist, kDt);
+        if (!ser.step(sclip.netlist, kDt).converged) {
+            gConverged = false;
+        }
     }
     report(std::fabs(ser.voltage(sclip.outNode)) < 1e-3, "series: coupling cap blocks DC (output -> 0)",
            ser.voltage(sclip.outNode), 0.0, ok);
+    report(gConverged, "DC limits: every step() converged", gConverged ? 1.0 : 0.0, 1.0, ok);
     return ok;
 }
 
@@ -234,6 +254,7 @@ bool runSymmetry() {
     bool ok = true;
     const double R = 2200.0, Cf = 10.0e-9;
     const DiodeSpec d = diodeSpec();
+    gConverged = true;
 
     TransientClipper<4, 8> sym, asym;
     double maxSym = 0.0, maxAsym = 0.0;
@@ -249,6 +270,7 @@ bool runSymmetry() {
     }
     report(maxSym < 1e-6, "symmetric: |y(+x)+y(-x)| ~ 0 (odd, no DC offset)", maxSym, 1e-6, ok);
     report(maxAsym > 1e-3, "asymmetric: |y(+x)+y(-x)| measurably > 0 (DC offset)", maxAsym, 1e-3, ok);
+    report(gConverged, "symmetry: every settled step() converged", gConverged ? 1.0 : 0.0, 1.0, ok);
     return ok;
 }
 
@@ -259,6 +281,7 @@ bool runSaturationPassivity() {
     const double R = 2200.0, Cf = 10.0e-9;
     const DiodeSpec d = diodeSpec();
     std::array<double, kWindow> in{}, out{};
+    gConverged = true;
 
     TransientClipper<4, 8> sym;
     const auto s = symmetricShuntClipper(SymmetricShuntValues{R, Cf, d}, 5.0);
@@ -286,6 +309,8 @@ bool runSaturationPassivity() {
     report(peak < 0.9, "series: AC output peak bounded near diode drop under 5 V drive", peak, 0.9, ok);
     report(energy(out) <= energy(in), "series: output energy <= input energy (passive)",
            energy(out), energy(in), ok);
+    report(gConverged, "saturation/passivity: every measured step() converged",
+           gConverged ? 1.0 : 0.0, 1.0, ok);
     return ok;
 }
 
@@ -297,6 +322,7 @@ bool runReactiveSignature() {
     const DiodeSpec d = diodeSpec();
     const std::array<double, 6> cfSweep{1.0e-9, 2.2e-9, 4.7e-9, 10.0e-9, 22.0e-9, 47.0e-9};
     std::array<double, kWindow> in{}, out{};
+    gConverged = true;
 
     TransientClipper<4, 8> sym;
     double prev = 1e300;
@@ -327,6 +353,8 @@ bool runReactiveSignature() {
     }
     report(asymMono, "asymmetric: HF(>5kHz) strictly decreasing across ascending Cf sweep",
            asymMono ? 1.0 : 0.0, 1.0, ok);
+    report(gConverged, "reactive signature: every measured step() converged",
+           gConverged ? 1.0 : 0.0, 1.0, ok);
     return ok;
 }
 

@@ -65,18 +65,12 @@ int diodeCount(const acfx::Netlist<N, M>& nl) {
 }
 
 // Every diode must span the reported clipper port node pair (in either
-// orientation) — the port IS the diode-string node pair (FR guarantees 3).
-//
-// This is the correct invariant for ALL three topologies, series included:
-// FR-012 bounds the solver to a SINGLE nonlinearity LOCATION — one node pair
-// carrying the whole diode string (up to MaxDiodes diodes summing at that pair).
-// The series exemplar's "in series" means in the series SIGNAL PATH (ahead of
-// the shunt-to-ground R), NOT a node-chain of diodes with intermediate nodes: a
-// chain would place diodes on DISTINCT node pairs, i.e. a second interacting
-// nonlinearity the transient solver deliberately refuses (a Phase-5 subject).
-// So seriesCount > 1 stacks diodes across the same (portP, portN) pair, and this
-// helper's same-pair requirement is exactly the in-scope guarantee, not a
-// mistaken parallel-vs-series conflation.
+// orientation) — the port IS the diode-string node pair. FR-012 bounds the
+// solver to a SINGLE nonlinearity LOCATION (one node pair): the shunt clippers
+// carry an antiparallel/asymmetric population across (shunt-node, ground), and
+// the series exemplar carries a single inline diode across (n1, n2). (A true
+// multi-diode series chain would need diode-only intermediate nodes that
+// prepare() rejects as floating — deferred to Phase 5; see seriesClipper.)
 template <int N, int M>
 bool everyDiodeSpansPort(const acfx::Netlist<N, M>& nl, NodeId portP, NodeId portN) {
     for (const Component& c : nl.components()) {
@@ -200,17 +194,13 @@ TEST_CASE("seriesClipper - inline topology, port is the diode node pair") {
     CHECK(everyDiodeSpansPort(clip.netlist, clip.portP, clip.portN));
 }
 
-TEST_CASE("seriesClipper - seriesCount=2 stacks a second diode on the SAME port pair") {
-    const auto clip = seriesClipper(seriesValues(2));
-    CHECK(clip.netlist.componentCount() == 5);  // Vin, Cc, 2 diodes, R
-    CHECK(diodeCount(clip.netlist) == 2);
-    // Both diodes span the SAME (portP, portN) pair — no intermediate node. This
-    // is the FR-012 single-nonlinearity-location scope, not a node-chain: the two
-    // diodes sum their current at the one clipper port (as the antiparallel pair
-    // does), which is exactly what the transient solver's single-port Newton
-    // handles. A true series node-chain is out of scope (see everyDiodeSpansPort).
-    CHECK(everyDiodeSpansPort(clip.netlist, clip.portP, clip.portN));
-    CHECK(clip.netlist.nodeCount() == 4);  // ground, in, n1, n2 — no extra node added
+TEST_CASE("seriesClipper - v1 refuses seriesCount != 1 (multi-diode series deferred)") {
+    // A true 2-in-series chain needs a diode-only intermediate node that
+    // prepare() rejects as floating; parallel-stacking would be misleading. So
+    // v1 admits exactly one inline diode and throws otherwise — never a
+    // silently-wrong parallel stamp (FR-007 fail-loud).
+    CHECK_THROWS_AS(seriesClipper(seriesValues(2)), std::invalid_argument);
+    CHECK_THROWS_AS(seriesClipper(seriesValues(0)), std::invalid_argument);
 }
 
 // ---------------------------------------------------------------------------
@@ -256,8 +246,10 @@ TEST_CASE("diode-clipper builders - invalid BOM input throws std::invalid_argume
                         std::invalid_argument);
     }
 
-    SUBCASE("series inline-diode count out of range") {
+    SUBCASE("series inline-diode count must be exactly 1 in v1") {
         CHECK_THROWS_AS(seriesClipper(SeriesValues{1e-8, 1000.0, good, 0}),
+                        std::invalid_argument);
+        CHECK_THROWS_AS(seriesClipper(SeriesValues{1e-8, 1000.0, good, 2}),
                         std::invalid_argument);
         CHECK_THROWS_AS(seriesClipper(SeriesValues{1e-8, 1000.0, good, 5}),
                         std::invalid_argument);

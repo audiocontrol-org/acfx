@@ -64,3 +64,61 @@ Blast radius: low. `runLinearRc` is self-verifying — non-zero initial capacito
 ---
 
 I checked the remaining surfaces and found them clean: the CMake target mirrors the sibling passive-tone-stacks harness (same linkage/features, guarded by `ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP`); the `main()` accumulator uses the `fn() && allPassed` ordering so every check runs regardless of prior failures (no short-circuit skip); the backward-Euler `alpha = dt/(dt+RC)` recurrence and the symmetric/asymmetric KCL oracles are algebraically correct; the 1000-sample / 10-period window aligns DFT bins to avoid leakage; and `bisectRoot` brackets a monotone residual over `[-5,5]`. Those are the reasons I did not surface findings there.
+
+## 2026-07-06 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260706-05 — Non-converged steps are still committed into solver history
+
+Finding-ID: AUDIT-20260706-05
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    core/labs/diode-clippers/solver/transient-clipper.h:119-180
+
+`step()` documents that it warm-starts from the previous converged sample, and `NewtonStatus` says a non-converged final iterate is not physically trustworthy. But after the loop, the solver unconditionally assigns `warmStart_ = v` and calls `advanceHistory(nl, dt)` even when `status.converged == false` at lines 177-180. That commits the failed iterate into both the next Newton initial guess and the reactive companion history.
+
+The blast radius is high because a caller can correctly inspect `converged == false`, avoid trusting that sample, then still have the next sample computed from contaminated internal state. A reasonable fix is to only advance warm-start/reactive history on convergence, or to make the failure contract explicit and provide a caller-controlled recovery path such as `reset()` before any future solve.
+
+### AUDIT-20260706-06 — Behavioral-invariant tests (T016–T018) discard `NewtonStatus`, so a non-converged solve can pass on loose bounds
+
+Finding-ID: AUDIT-20260706-06 (claude-01 + codex-01; cross-model)
+Status:     open
+Severity:   high
+Per-lane:   claude=high, codex=high
+Decision:   agreement (gate-counted high)
+Surface:    tests/core/diode-clipper-transient-test.cpp:100-108 (`settlePortDC`), 350-370 (`driveSine`), and every caller in T016/T017/T018
+
+`settlePortDC` (lines ~103-107) and `driveSine` (lines ~356-368) both call `solver.step(...)` and throw the returned `NewtonStatus` away. Every US3 invariant test — odd-symmetry (T016), forward-saturation/passivity (T017), reactive-signature (T018) — is built on these two helpers, so none of them ever asserts that the solver actually converged while producing the samples they measure. T015 (line ~232) explicitly proves the solver *can* return `converged == false` with a live residual, so this is a reachable state, not a hypothetical.
+
+The blast radius is a false-green on the suite's core deliverable: a regression that makes the transient solver silently stop converging during the sine sweep (e.g. a broken iteration cap, a NaN-poisoned residual, a companion-model sign error) would still leave the measured window populated with *whatever the solver last returned*. Because the invariant thresholds are deliberately loose (`|y(+x)+y(-x)| < 1e-6` on a clamped node that is near-zero anyway; `energy(out) <= energy(in)` which a stuck/zero output satisfies trivially; `peak < 0.9` which a collapsed output also satisfies), a non-converged solver can slide under them. The suite's stated contract is "prove exact, then validate invariants," but the invariant half never re-checks the convergence guarantee the exact half established.
+
+A reasonable fix: have `settlePortDC` and `driveSine` accumulate the max non-convergence over their loops and `CHECK(status.converged)` (or `CHECK(maxResidual < solver.voltageTolerance())`) at least on the measured/steady-state window, mirroring what T012 does at line ~78 (`CHECK(s.converged)`).
+
+---
+
+### AUDIT-20260706-07 — `seriesCount` stamps parallel diodes, not a series string
+
+Finding-ID: AUDIT-20260706-07
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    core/primitives/circuit/diode-clipper/diode-clipper.h:136-160
+
+`seriesClipper` documents `seriesCount` as inline series diodes, but the implementation adds every diode across the same `(n1, n2)` port pair: `detail::diodeOf(v.diode, n1, n2)` inside the loop. Electrically, `seriesCount=2` becomes two parallel duplicate diodes, not two diodes in series. That changes the transfer curve and effective conductance in a way a downstream solver will faithfully consume as topology.
+
+Blast radius is high because the public builder name and value field imply a configurable series diode count, and consumers acting on that surface will get the wrong circuit for `seriesCount > 1`. A reasonable fix is to either build an actual diode chain with intermediate nodes and capacity sized for `kMaxClipperDiodes`, or rename/re-spec the field as a parallel multiplier so the contract matches the implementation.
+
+### AUDIT-20260706-08 — Harness can certify non-converged solver outputs
+
+Finding-ID: AUDIT-20260706-08
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   single-model (gate-counted high)
+Surface:    core/labs/diode-clippers/harness/diode-clippers-harness.cpp:101-123, 169-172, 223-224
+
+The harness repeatedly calls `solver.step(...)` and discards the returned `NewtonStatus` in the normal validation paths. That matters because the solver contract says non-converged node voltages are the last iterate and “must not be trusted as a physical answer”; the harness then reads `solver.voltage(...)` / `solver.clipperVoltage()` as if convergence had been established. The affected helpers and loops are `settlePortDC()` at lines 101-107, `driveSine()` at lines 110-123, the RC recurrence loop at lines 169-172, and the series DC loop at lines 223-224.
+
+The blast radius is high because this file is presented as a standalone PASS/FAIL harness for the lab. A downstream consumer running only this harness can get “ALL CHECKS PASSED” from measurements taken from non-converged iterates if those stale/last-iterate voltages happen to satisfy the loose behavioral checks. A reasonable fix is to make every expected-converged `step()` call capture `NewtonStatus` and fail the current check immediately when `converged == false`, while preserving the explicit starved-budget non-convergence test as the one intentional exception.

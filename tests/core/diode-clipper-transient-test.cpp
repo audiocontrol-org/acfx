@@ -131,14 +131,19 @@ TEST_CASE("TransientClipper - linear RC matches the analytic BE recurrence (~1e-
 namespace {
 
 // Settle a built clipper to DC under a constant input by stepping the transient
-// solver to steady state, then return the port voltage.
+// solver to steady state, then return the port voltage. The measured answer is
+// trustworthy only if the solve CONVERGED (a non-converged final iterate is not
+// a physical answer, FR-011) — so assert the settled step converged rather than
+// silently reading a stale iterate that could satisfy a loose invariant bound.
 template <int N, int M, int D>
 double settlePortDC(TransientClipper<N, M, D>& solver,
                     const Netlist<N, M>& nl, double dt, int steps) {
     solver.reset();
+    NewtonStatus st;
     for (int i = 0; i < steps; ++i) {
-        solver.step(nl, dt);
+        st = solver.step(nl, dt);
     }
+    CHECK(st.converged);  // the measured steady state must be a converged solve
     return solver.clipperVoltage();
 }
 
@@ -304,15 +309,23 @@ void driveSine(TransientClipper<N, M, D>& solver, BuildFn build, double amp,
                std::array<double, kWindow>& out) {
     solver.reset();
     const int total = kWarmup + kWindow;
+    bool measuredAllConverged = true;
     for (int nStep = 0; nStep < total; ++nStep) {
         const double vIn = amp * std::sin(2.0 * kPi * freqHz * nStep * kDt);
         const auto clip = build(vIn);
-        solver.step(clip.netlist, kDt);
+        const NewtonStatus st = solver.step(clip.netlist, kDt);
         if (nStep >= kWarmup) {
+            if (!st.converged) {
+                measuredAllConverged = false;
+            }
             in[static_cast<std::size_t>(nStep - kWarmup)] = vIn;
             out[static_cast<std::size_t>(nStep - kWarmup)] = solver.voltage(clip.outNode);
         }
     }
+    // Every sample in the measured window must be a converged solve — otherwise
+    // the invariants below would be measuring stale, non-physical iterates that
+    // could slide under their (deliberately loose) bounds (FR-011).
+    CHECK(measuredAllConverged);
 }
 
 // Sum of squares (energy proxy) over a window.

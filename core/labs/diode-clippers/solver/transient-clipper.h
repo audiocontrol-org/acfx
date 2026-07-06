@@ -174,10 +174,17 @@ public:
             }
         }
 
-        warmStart_ = v;
-        // Advance the reactive history EXACTLY ONCE, from the final solved node
-        // voltages — the second half of the loop-separation mechanism (FR-009).
-        advanceHistory(nl, dt);
+        // Advance warm-start + reactive history EXACTLY ONCE, and ONLY on
+        // convergence (contract: "advanced exactly once, after Newton
+        // converges"). A non-converged step leaves solver state UNCHANGED — the
+        // failed iterate never contaminates the next sample's warm-start guess or
+        // the reactive companion history. The caller sees converged == false and
+        // must reset() (cold restart) or abort; the solver never silently commits
+        // an untrustworthy iterate into its state (no hidden fallback, FR-011).
+        if (status.converged) {
+            warmStart_ = v;
+            advanceHistory(nl, dt);
+        }
         return status;
     }
 

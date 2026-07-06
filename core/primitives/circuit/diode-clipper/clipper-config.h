@@ -82,15 +82,20 @@ struct AsymmetricShuntValues {
     int downCount;     // diodes oriented shunt node → anode (reversed)
 };
 
-// Series (inline) clipper: input coupling capacitor Cc in series ahead of
-// seriesCount inline diodes, a resistor R to ground. The coupling cap blocks DC
-// (output → 0 at DC). Output is the post-diode node. Validation: seriesCount in
-// [1, kMaxClipperDiodes].
+// Series (inline) clipper: input coupling capacitor Cc in series ahead of a
+// single inline diode, a resistor R to ground. The coupling cap blocks DC
+// (output → 0 at DC). Output is the post-diode node. Validation: seriesCount == 1
+// in v1 — a multi-diode series STRING needs diode-only intermediate nodes that
+// the frozen prepare() floating-node rule cannot admit (a true chain floats;
+// parallel-stacking on one node pair would be electrically misleading), so it is
+// deferred to Phase 5 (see seriesClipper in diode-clipper.h). The field is
+// retained for that forward compatibility; a non-unit value is a descriptive
+// throw, never a silently-wrong parallel stamp.
 struct SeriesValues {
     double Cc;         // input coupling capacitor in series (farad)
     double R;          // resistor to ground (ohm)
-    DiodeSpec diode;   // shared spec for the inline diode string
-    int seriesCount;   // number of inline diodes across the port node pair
+    DiodeSpec diode;   // spec for the inline series diode
+    int seriesCount;   // inline diode count — v1 requires exactly 1
 };
 
 // ---------------------------------------------------------------------------
