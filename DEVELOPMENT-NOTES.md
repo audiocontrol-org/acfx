@@ -1015,3 +1015,4 @@ workflow(graduate): design:feature/compressors merging -> validating
 workflow(graduate): design:feature/program-dependent-saturation merging -> validating
 workflow(graduate): design:feature/tape-dynamics merging -> validating
 workflow(graduate): design:primitive/passive-tone-stacks merging -> validating
+workflow(graduate): design:feature/diode-clippers merging -> validating
