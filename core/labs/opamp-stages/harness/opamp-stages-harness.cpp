@@ -396,6 +396,32 @@ bool runBoundedCharterRefusal() {
     }
     report(floatingThrew, "floating (non-grounded) VoltageSource: augmentation stays OpAmp-only (tripwire i)",
            floatingThrew ? 1.0 : 0.0, 1.0, ok);
+
+    // Tripwire (iii): an op-amp population beyond the instantiated MaxOpAmps
+    // capacity — the fixed bordered dimension has no dynamic growth. Two
+    // independent, well-posed op-amp stages solved by a MaxOpAmps=1 solver.
+    Netlist<5, 6> capNl;
+    const NodeId a = capNl.addNode();
+    const NodeId b = capNl.addNode();
+    const NodeId c = capNl.addNode();
+    const NodeId e = capNl.addNode();
+    capNl.add(Resistor{a, kGround, 1000.0});
+    capNl.add(OpAmp{kGround, a, b});
+    capNl.add(Resistor{b, a, 1000.0});
+    capNl.add(OpAmp{kGround, c, e});
+    capNl.add(Resistor{c, kGround, 1000.0});
+    capNl.add(Resistor{e, c, 1000.0});
+    capNl.prepare();
+
+    NullorSolver<5, 6, 1> capSolver;  // MaxOpAmps = 1, but capNl carries 2 op-amps
+    bool capThrew = false;
+    try {
+        capSolver.solve(capNl, kDt);
+    } catch (const std::runtime_error&) {
+        capThrew = true;
+    }
+    report(capThrew, "op-amp population beyond MaxOpAmps: fixed bordered dimension refuses (tripwire iii)",
+           capThrew ? 1.0 : 0.0, 1.0, ok);
     return ok;
 }
 
