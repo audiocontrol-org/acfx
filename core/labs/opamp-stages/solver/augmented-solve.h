@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <string>
 #include <variant>
 
 // AugmentedSolver — the low-level bordered-matrix engine behind NullorSolver
@@ -43,14 +44,33 @@ public:
     static constexpr std::size_t kDim =
         static_cast<std::size_t>(MaxNodes) + static_cast<std::size_t>(MaxOpAmps);
 
-    // Zero the working matrix and RHS over the active N x N bordered block.
-    void zeroSystem(int N) noexcept {
-        for (int r = 0; r < N; ++r) {
-            rhs_[static_cast<std::size_t>(r)] = 0.0;
-            auto& row = a_[static_cast<std::size_t>(r)];
-            for (int c = 0; c < N; ++c) {
-                row[static_cast<std::size_t>(c)] = 0.0;
-            }
+    // Zero the working matrix and RHS, and reset the grounded-source pin
+    // tracking, before a fresh stamp. `N` is the caller's intended bordered
+    // dimension; it must fit the instantiated capacity (throws otherwise —
+    // capacity guard, findings barrage).
+    //
+    // The clear spans the FULL kDim x kDim matrix (and full RHS), NOT just the
+    // active N x N block: this makes the [C,0] block's zero diagonal
+    // self-enforcing. borderOpAmps writes the C row and the B column of each
+    // op-amp branch but never touches a_[branch][branch]; clearing the whole
+    // array guarantees that diagonal is 0 regardless of the N the caller passes,
+    // so correctness no longer depends on the caller invoking zeroSystem with
+    // the FULL bordered dimension (an easy mistake). The array is small and this
+    // is the non-RT lab path, so the extra clearing is free.
+    void zeroSystem(int N) {
+        if (N > static_cast<int>(kDim)) {
+            throw std::runtime_error(
+                "opamp-stage-solver: bordered dimension N (" +
+                std::to_string(N) + ") exceeds the instantiated augmented "
+                "capacity kDim (" + std::to_string(kDim) +
+                ") — MaxNodes + MaxOpAmps is fixed at instantiation "
+                "(bounded-charter tripwire iii, no dynamic growth)");
+        }
+        for (std::size_t r = 0; r < kDim; ++r) {
+            rhs_[r] = 0.0;
+            a_[r].fill(0.0);
+            pinned_[r] = false;
+            pinnedValue_[r] = 0.0;
         }
     }
 
@@ -97,6 +117,29 @@ public:
     // -V(inMinus) = 0).
     void borderOpAmps(const Netlist<MaxNodes, MaxComponents>& nl, int n) {
         const auto comps = nl.components();
+
+        // Capacity guard (findings barrage): each op-amp #k claims branch index
+        // n + k, so the widest index touched is n + numOpAmps - 1. If
+        // n + numOpAmps overruns kDim the stamps below would write out of
+        // bounds — fail loud instead of a silent corrupt-memory write. This
+        // mirrors NullorSolver's tripwire-iii population check but also guards
+        // any direct or future caller of the low-level engine.
+        int numOpAmps = 0;
+        for (std::size_t i = 0; i < comps.size(); ++i) {
+            if (std::holds_alternative<OpAmp>(comps[i])) {
+                ++numOpAmps;
+            }
+        }
+        if (n + numOpAmps > static_cast<int>(kDim)) {
+            throw std::runtime_error(
+                "opamp-stage-solver: bordered dimension (" +
+                std::to_string(n) + " nodes + " + std::to_string(numOpAmps) +
+                " op-amp branches) exceeds the instantiated augmented capacity "
+                "kDim (" + std::to_string(kDim) +
+                ") — MaxNodes + MaxOpAmps is fixed at instantiation "
+                "(bounded-charter tripwire iii, no dynamic growth)");
+        }
+
         int k = 0;
         for (std::size_t i = 0; i < comps.size(); ++i) {
             const auto* op = std::get_if<OpAmp>(&comps[i]);
@@ -130,7 +173,26 @@ public:
     // AND nullor constraint rows), then overwrite row lp with v[lp] = value.
     // lp is always a node column (< n) and branch columns are never pinned,
     // so B/C stays intact.
-    void pinNode(int lp, double value, int N) noexcept {
+    void pinNode(int lp, double value, int N) {
+        // Conflict guard (findings barrage): pinNode overwrites node `lp`'s row
+        // and RHS, so two ideal voltage sources pinning the SAME node to
+        // DIFFERENT values would silently take the last one — a plausible-looking
+        // but physically-wrong solve of an ill-posed topology. Track each pinned
+        // node's value and fail loud on an INCOMPATIBLE repeat; an identical
+        // re-pin is idempotent (the column is already zeroed, the row already
+        // v[lp] = value) and stays allowed.
+        const std::size_t pi = static_cast<std::size_t>(lp);
+        if (pinned_[pi] && pinnedValue_[pi] != value) {
+            throw std::runtime_error(
+                "opamp-stage-solver: node pinned to conflicting voltages (" +
+                std::to_string(pinnedValue_[pi]) + " V then " +
+                std::to_string(value) + " V) — two grounded ideal voltage "
+                "sources drive the same node to different values, an ill-posed "
+                "topology; fail loud rather than silently taking the last pin");
+        }
+        pinned_[pi] = true;
+        pinnedValue_[pi] = value;
+
         for (int r = 0; r < N; ++r) {
             if (r == lp) {
                 continue;
@@ -158,6 +220,13 @@ public:
     void gaussianSolve(int N) {
         if (N <= 0) {
             return;
+        }
+        if (N > static_cast<int>(kDim)) {
+            throw std::runtime_error(
+                "opamp-stage-solver: solve dimension N (" +
+                std::to_string(N) + ") exceeds the instantiated augmented "
+                "capacity kDim (" + std::to_string(kDim) +
+                ") — the bordered arrays are sized at instantiation");
         }
 
         // Relative singular-pivot gate (R5 / FR-016): threshold the pivot
@@ -263,6 +332,13 @@ private:
     std::array<std::array<double, kDim>, kDim> a_{};
     std::array<double, kDim> rhs_{};
     std::array<double, kDim> solution_{};
+
+    // Grounded-source pin tracking (findings barrage): pinned_[lp] records
+    // whether node local-index lp has already been pinned this solve, and
+    // pinnedValue_[lp] its pinned voltage, so pinNode can reject a conflicting
+    // re-pin. Reset each solve by zeroSystem().
+    std::array<bool, kDim> pinned_{};
+    std::array<double, kDim> pinnedValue_{};
 };
 
 }  // namespace acfx::labs::opamp_stages

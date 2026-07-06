@@ -22,7 +22,7 @@
 using acfx::Capacitor;
 using acfx::Component;
 using acfx::Diode;
-using acfx::DiodeSpec;
+using acfx::opamp_stage::DiodeSpec;
 using acfx::Netlist;
 using acfx::NodeId;
 using acfx::OpAmp;
@@ -44,7 +44,7 @@ using acfx::invertingGain;
 using acfx::kMaxOpAmpClipperDiodes;
 using acfx::nonInvertingGain;
 using acfx::opAmpDiodeClipper;
-using acfx::siliconSignalDiode;
+using acfx::opamp_stage::siliconSignalDiode;
 
 // ---------------------------------------------------------------------------
 // T004 — the OpAmp element is constructible, classifies as linear, and reports

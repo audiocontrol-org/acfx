@@ -25,7 +25,7 @@
 
 using acfx::CurrentSource;
 using acfx::Diode;
-using acfx::DiodeSpec;
+using acfx::opamp_stage::DiodeSpec;
 using acfx::Netlist;
 using acfx::NodeId;
 using acfx::OpAmp;
@@ -42,7 +42,7 @@ using acfx::invertingGain;
 using acfx::kMaxOpAmpClipperDiodes;
 using acfx::nonInvertingGain;
 using acfx::opAmpDiodeClipper;
-using acfx::siliconSignalDiode;
+using acfx::opamp_stage::siliconSignalDiode;
 
 using acfx::labs::opamp_stages::NewtonStatus;
 using acfx::labs::opamp_stages::NullorSolver;
@@ -178,6 +178,24 @@ TEST_CASE("NullorSolver - floating (non-grounded) VoltageSource throws (tripwire
     nl.prepare();
 
     NullorSolver<3, 3, 1> solver;
+    CHECK_THROWS_AS(solver.solve(nl, 1.0e-5), std::runtime_error);
+}
+
+TEST_CASE("NullorSolver - two grounded sources pinning one node to different voltages throw (no silent last-wins)") {
+    // Both sources are grounded (fixed-node reduction applies to each) but drive
+    // the SAME node to DIFFERENT voltages — an ill-posed topology. pinNode would
+    // otherwise overwrite the node's row/RHS and silently take the last pin,
+    // yielding a plausible-but-wrong solve; instead it must fail loud (findings
+    // barrage HIGH). A resistor to ground keeps prepare()'s floating-node
+    // pre-filter satisfied so the conflict surfaces at solve time.
+    Netlist<3, 4> nl;
+    const NodeId n1 = nl.addNode();
+    nl.add(Resistor{n1, kGround, 1000.0});
+    nl.add(VoltageSource{n1, kGround, 5.0});
+    nl.add(VoltageSource{n1, kGround, 3.0});  // same node, incompatible value
+    nl.prepare();
+
+    NullorSolver<3, 4, 1> solver;
     CHECK_THROWS_AS(solver.solve(nl, 1.0e-5), std::runtime_error);
 }
 

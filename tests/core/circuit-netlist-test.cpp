@@ -192,6 +192,22 @@ TEST_CASE("CircuitNetlist - a terminal at or beyond MaxNodes is rejected before 
     CHECK_THROWS_WITH(nl.prepare(), doctest::Contains("out-of-range node"));
 }
 
+// Findings barrage (HIGH): terminalsOf(OpAmp) reports only {inPlus, inMinus}
+// (the connectivity span), deliberately omitting the norator-driven `out`. But
+// prepare() must still range-check `out` — otherwise an OpAmp whose `out` names
+// an unallocated/out-of-range node passes validation and then corrupts the
+// bordered solve (out-of-bounds matrix write). This asserts the `out` field is
+// range-validated even though it is NOT part of terminalsOf's contract.
+TEST_CASE("CircuitNetlist - an OpAmp out terminal above nodeCount is rejected at prepare() (terminalsOf omits it)") {
+    Netlist<8, 8> nl;
+    const NodeId in = nl.addNode();  // node 1; nodeCount()==2, valid ids {0,1}
+    nl.add(Resistor{acfx::kGround, in, 1000.0});     // valid conductive path
+    nl.add(acfx::OpAmp{acfx::kGround, in, 5});       // out=5 in [2,8) but never addNode()'d
+
+    CHECK_THROWS_AS(nl.prepare(), std::invalid_argument);
+    CHECK_THROWS_WITH(nl.prepare(), doctest::Contains("out-of-range node"));
+}
+
 // ---------------------------------------------------------------------------
 // SC-006 - the post-prepare() read path (a solver reading admittance() /
 // companion() / evaluate() over components()) allocates nothing on the heap.

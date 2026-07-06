@@ -73,6 +73,30 @@ inline std::pair<NodeId, NodeId> terminalsOf(const Component& c) noexcept {
     return {d.anode, d.cathode};
 }
 
+// True iff EVERY node-bearing field of `c` — including the OpAmp `out`
+// terminal that terminalsOf deliberately omits — references an in-range node in
+// [0, nodeCount). terminalsOf reports only each element's two-terminal
+// connectivity span (for an OpAmp, its input pair), because `out` is the
+// norator-driven output the solver's bordered augmentation handles, not a
+// passive edge. But prepare() must range-check ALL node references, or an OpAmp
+// whose `out` names an unallocated/out-of-range node would pass validation and
+// then corrupt the solve (out-of-bounds matrix write). This closes that gap
+// WITHOUT changing terminalsOf's connectivity contract or
+// contributesConductivePath: `out` stays excluded from reachability, but its
+// range is validated here. No allocation, no throw.
+inline bool allNodeIdsInRange(const Component& c, int nodeCount) noexcept {
+    const auto t = terminalsOf(c);
+    if (!isValidNode(t.first, nodeCount) || !isValidNode(t.second, nodeCount)) {
+        return false;
+    }
+    if (const auto* op = std::get_if<OpAmp>(&c)) {
+        if (!isValidNode(op->out, nodeCount)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // True iff the element guarantees a conductive path between its two terminals
 // in the discretized backward-Euler system, and therefore contributes an edge
 // to the floating-node connectivity check (contracts/netlist.md; FR-010):
@@ -156,10 +180,13 @@ public:
         // ground, letting a malformed/floating netlist pass validation; a
         // terminal >= MaxNodes would be out-of-bounds. node.h::isValidNode is
         // exactly this predicate. (Audit AUDIT-BARRAGE-01, cross-model HIGH.)
+        // allNodeIdsInRange covers EVERY node-bearing field, including the
+        // OpAmp `out` terminal that terminalsOf omits from the connectivity
+        // contract — an out-of-range `out` must still be rejected here rather
+        // than reaching the solve (findings barrage HIGH).
         for (int i = 0; i < count_; ++i) {
-            const auto t = terminalsOf(components_[static_cast<std::size_t>(i)]);
-            if (!isValidNode(t.first, nodeCount_) ||
-                !isValidNode(t.second, nodeCount_)) {
+            if (!allNodeIdsInRange(components_[static_cast<std::size_t>(i)],
+                                   nodeCount_)) {
                 throw std::invalid_argument(
                     "component-abstractions netlist: component " +
                     std::to_string(i) +

@@ -20,12 +20,12 @@
 // Each invariant runs on the now-proven-exact solver (T016-T020).
 
 using acfx::ActiveFirstOrderBom;
-using acfx::DiodeSpec;
+using acfx::opamp_stage::DiodeSpec;
 using acfx::OpAmpDiodeClipperBom;
 using acfx::activeFirstOrder;
 using acfx::kMaxOpAmpClipperDiodes;
 using acfx::opAmpDiodeClipper;
-using acfx::siliconSignalDiode;
+using acfx::opamp_stage::siliconSignalDiode;
 
 using acfx::labs::opamp_stages::NullorSolver;
 using acfx::labs::opamp_stages::OpAmpClipperSolver;

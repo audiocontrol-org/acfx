@@ -49,7 +49,7 @@
 
 using acfx::ActiveFirstOrderBom;
 using acfx::Diode;
-using acfx::DiodeSpec;
+using acfx::opamp_stage::DiodeSpec;
 using acfx::InvertingGainBom;
 using acfx::kGround;
 using acfx::kMaxOpAmpClipperDiodes;
@@ -59,7 +59,7 @@ using acfx::NonInvertingGainBom;
 using acfx::OpAmp;
 using acfx::OpAmpDiodeClipperBom;
 using acfx::Resistor;
-using acfx::siliconSignalDiode;
+using acfx::opamp_stage::siliconSignalDiode;
 using acfx::VoltageSource;
 using acfx::activeFirstOrder;
 using acfx::invertingGain;

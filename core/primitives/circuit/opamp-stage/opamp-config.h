@@ -19,12 +19,13 @@
 // frozen component-abstractions vocabulary (Netlist, NodeId). It is also
 // self-contained with respect to sibling primitive features: rather than
 // reaching into diode-clipper/clipper-config.h for its diode-parameter type,
-// it defines its own local `DiodeSpec` — same name and shape as the
-// established repo convention, deliberately NOT invented as a new name
-// (data-model.md calls the field `DiodeParams`, but the repo's actual,
-// already-established type for "Shockley Is/n/Vt" is `DiodeSpec`
-// (clipper-config.h); this header mirrors that name). The builders that
-// consume these types live in opamp-stage.h (T007-T011).
+// it defines its own `DiodeSpec` — same shape as the established repo
+// convention, but FEATURE-SCOPED in acfx::opamp_stage rather than plain acfx.
+// clipper-config.h already defines an acfx::DiodeSpec, so a plain-namespace
+// copy here is a hard ODR/redefinition collision the first TU that composes
+// both builder families; scoping it (like the acfx::opamp_detail helpers)
+// keeps the two features independently includable. The builders that consume
+// these types live in opamp-stage.h (T007-T011).
 //
 // No fallbacks / no mock (Constitution V): the validation helpers below raise
 // a descriptive std::invalid_argument on bad BOM input (non-positive value,
@@ -48,9 +49,17 @@ inline constexpr int kMaxOpAmpClipperDiodes = 4;
 // ---------------------------------------------------------------------------
 
 // DiodeSpec — reverse saturation current Is (A), ideality factor n, thermal
-// voltage Vt (V). Validation: all > 0 (FR-010). Same name/shape as
-// diode-clipper/clipper-config.h's DiodeSpec, defined locally here so this
-// header stays a self-contained sibling primitive.
+// voltage Vt (V). Validation: all > 0 (FR-010). Same shape as
+// diode-clipper/clipper-config.h's DiodeSpec, but FEATURE-SCOPED in
+// acfx::opamp_stage (NOT the plain acfx namespace) so it does not collide with
+// clipper-config.h's identically-named acfx::DiodeSpec the first time any TU
+// composes both builder families (e.g. a future TS808 feature) — that would be
+// a hard "redefinition of struct acfx::DiodeSpec" error. This mirrors how the
+// validation helpers moved to acfx::opamp_detail for the same ODR reason, and
+// keeps this header self-contained: it does NOT include or depend on the
+// diode-clipper header.
+namespace opamp_stage {
+
 struct DiodeSpec {
     double Is;  // reverse saturation current (A)
     double n;   // ideality factor (dimensionless)
@@ -58,12 +67,14 @@ struct DiodeSpec {
 };
 
 // Canonical silicon signal-diode parameters (component-abstractions
-// reference: Is = 1e-14 A, n = 1, Vt = 25.85 mV at ~300 K) — matches
+// reference: Is = 1e-14 A, n = 1, Vt = 25.85 mV at ~300 K) — same values as
 // clipper-config.h::siliconSignalDiode() so representative BOMs across both
-// features share one default.
+// features share one default, without sharing (and colliding on) one symbol.
 inline constexpr DiodeSpec siliconSignalDiode() {
     return DiodeSpec{1.0e-14, 1.0, 0.02585};
 }
+
+}  // namespace opamp_stage
 
 // ---------------------------------------------------------------------------
 // Per-topology bill of materials (data-model.md "Builder BOM/config structs").
@@ -103,7 +114,7 @@ struct OpAmpDiodeClipperBom {
     double Rin;      // input resistor, vin -> inMinus (ohm)
     double Rf;       // feedback resistor setting the clean-gain floor (ohm)
     double Cf;       // feedback capacitor across the diode network (farad)
-    DiodeSpec diode; // shared Shockley spec for every feedback diode
+    opamp_stage::DiodeSpec diode; // shared Shockley spec for every feedback diode
     int nUp;         // forward diode count, Diode{out, inMinus}
     int nDown;       // reverse diode count, Diode{inMinus, out}
     double vin;      // drive amplitude (V)
@@ -164,7 +175,7 @@ inline void requirePositive(double value, const char* field) {
 }
 
 // Validate a diode spec: Is, n, Vt all > 0.
-inline void requireValidDiode(const DiodeSpec& d) {
+inline void requireValidDiode(const opamp_stage::DiodeSpec& d) {
     requirePositive(d.Is, "diode Is");
     requirePositive(d.n, "diode n");
     requirePositive(d.Vt, "diode Vt");
