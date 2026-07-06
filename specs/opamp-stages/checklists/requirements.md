@@ -20,7 +20,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -38,12 +38,10 @@
 
 ## Notes
 
-- **Two `[NEEDS CLARIFICATION]` markers remain by design**, both carried from the approved
-  design record's open questions and both intended for the downstream `/speckit-clarify` pass
-  (matching how `diode-clippers` resolved its OQ3 / OQ5 in a clarify session):
-  - **FR-005 (OQ4)** — active first-order exemplar exact form: pure inverting integrator vs
-    inverting first-order low-pass.
-  - **FR-022 (OQ3)** — reactive-signature measurement parameters: excitation, sample rate /
-    `dt`, HF cutoff band, monotonic-decrease margin.
-- These are genuine spec-time refinements, not scope gaps; every other requirement is resolved.
-  All other checklist items pass.
+- **Both `[NEEDS CLARIFICATION]` markers resolved in the 2026-07-06 clarify session** (recorded
+  in the spec's Clarifications section):
+  - **FR-005 (OQ4)** → inverting first-order low-pass (cap ∥ feedback resistor, finite DC gain)
+    — the clean, stable nullor+reactive oracle.
+  - **FR-022 (OQ3)** → 1 kHz sine, `dt = 1e-5 s`, energy above 5 kHz, strictly monotonic vs
+    feedback cap — mirroring the shipped `diode-clippers` reactive-signature check.
+- All checklist items pass; the spec is ready for `/speckit-plan`.
