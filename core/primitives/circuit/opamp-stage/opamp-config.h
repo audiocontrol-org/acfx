@@ -146,7 +146,12 @@ using OpAmpDiodeClipperResult = OpAmpStage<4, 5 + kMaxOpAmpClipperDiodes>;
 // header-visible so the builders in opamp-stage.h share exactly one policy.
 // ---------------------------------------------------------------------------
 
-namespace detail {
+// Namespaced per-feature (acfx::opamp_detail, NOT the shared acfx::detail) so
+// these inline helpers do not collide with the identically-named-but-different
+// bodies in clipper-config.h / tone-stack.h. Sharing acfx::detail across those
+// headers is an ODR violation (one body wins at link time, so a validation
+// error can print the wrong feature's message); opamp-stages stays out of it.
+namespace opamp_detail {
 
 // Require a strictly-positive physical value, else a descriptive throw naming
 // the field. No clamp, no fallback (Constitution V).
@@ -189,6 +194,6 @@ inline void requireDiodePopulation(int total, const char* field) {
     }
 }
 
-}  // namespace detail
+}  // namespace opamp_detail
 
 }  // namespace acfx

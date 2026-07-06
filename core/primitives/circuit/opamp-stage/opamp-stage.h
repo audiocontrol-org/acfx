@@ -56,8 +56,8 @@ namespace acfx {
 // Rg inMinus->gnd. Closed-loop gain 1 + Rf/Rg.
 // ---------------------------------------------------------------------------
 inline NonInvertingGainResult nonInvertingGain(const NonInvertingGainBom& bom) {
-    detail::requirePositive(bom.Rf, "nonInvertingGain Rf");
-    detail::requirePositive(bom.Rg, "nonInvertingGain Rg");
+    opamp_detail::requirePositive(bom.Rf, "nonInvertingGain Rf");
+    opamp_detail::requirePositive(bom.Rg, "nonInvertingGain Rg");
 
     NonInvertingGainResult result{};
     Netlist<4, 4>& net = result.netlist;
@@ -83,8 +83,8 @@ inline NonInvertingGainResult nonInvertingGain(const NonInvertingGainBom& bom) {
 // Rf out->inMinus. Gain -Rf/Rin.
 // ---------------------------------------------------------------------------
 inline InvertingGainResult invertingGain(const InvertingGainBom& bom) {
-    detail::requirePositive(bom.Rin, "invertingGain Rin");
-    detail::requirePositive(bom.Rf, "invertingGain Rf");
+    opamp_detail::requirePositive(bom.Rin, "invertingGain Rin");
+    opamp_detail::requirePositive(bom.Rf, "invertingGain Rf");
 
     InvertingGainResult result{};
     Netlist<4, 4>& net = result.netlist;
@@ -111,9 +111,9 @@ inline InvertingGainResult invertingGain(const InvertingGainBom& bom) {
 // 1/(2*pi*Rf*Cf).
 // ---------------------------------------------------------------------------
 inline ActiveFirstOrderResult activeFirstOrder(const ActiveFirstOrderBom& bom) {
-    detail::requirePositive(bom.Rin, "activeFirstOrder Rin");
-    detail::requirePositive(bom.Rf, "activeFirstOrder Rf");
-    detail::requirePositive(bom.Cf, "activeFirstOrder Cf");
+    opamp_detail::requirePositive(bom.Rin, "activeFirstOrder Rin");
+    opamp_detail::requirePositive(bom.Rf, "activeFirstOrder Rf");
+    opamp_detail::requirePositive(bom.Cf, "activeFirstOrder Cf");
 
     ActiveFirstOrderResult result{};
     Netlist<4, 5>& net = result.netlist;
@@ -143,13 +143,13 @@ inline ActiveFirstOrderResult activeFirstOrder(const ActiveFirstOrderBom& bom) {
 // diodes populate each direction).
 // ---------------------------------------------------------------------------
 inline OpAmpDiodeClipperResult opAmpDiodeClipper(const OpAmpDiodeClipperBom& bom) {
-    detail::requirePositive(bom.Rin, "opAmpDiodeClipper Rin");
-    detail::requirePositive(bom.Rf, "opAmpDiodeClipper Rf");
-    detail::requirePositive(bom.Cf, "opAmpDiodeClipper Cf");
-    detail::requireValidDiode(bom.diode);
-    detail::requireDiodeCount(bom.nUp, "opAmpDiodeClipper nUp");
-    detail::requireDiodeCount(bom.nDown, "opAmpDiodeClipper nDown");
-    detail::requireDiodePopulation(bom.nUp + bom.nDown,
+    opamp_detail::requirePositive(bom.Rin, "opAmpDiodeClipper Rin");
+    opamp_detail::requirePositive(bom.Rf, "opAmpDiodeClipper Rf");
+    opamp_detail::requirePositive(bom.Cf, "opAmpDiodeClipper Cf");
+    opamp_detail::requireValidDiode(bom.diode);
+    opamp_detail::requireDiodeCount(bom.nUp, "opAmpDiodeClipper nUp");
+    opamp_detail::requireDiodeCount(bom.nDown, "opAmpDiodeClipper nDown");
+    opamp_detail::requireDiodePopulation(bom.nUp + bom.nDown,
                                    "opAmpDiodeClipper nUp+nDown");
 
     OpAmpDiodeClipperResult result{};
