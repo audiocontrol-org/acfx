@@ -227,6 +227,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:primitive/opamp-stages
 - status: planned
+- spec: specs/opamp-stages
 - design-approved: yes
 - design: docs/superpowers/specs/2026-07-05-opamp-stages-design.md
 - depends-on: multi:feature/phase-dynamic-systems
