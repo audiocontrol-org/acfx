@@ -202,6 +202,10 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   core/opamp-stage-builder-test.cpp
   core/opamp-stage-solve-test.cpp
+  # US3 assembled-stage invariants, split from opamp-stage-solve-test.cpp to
+  # stay under the Constitution VII per-file line budget (shared sine-drive /
+  # DC-settle / energy rig in core/opamp-stage-test-support.h).
+  core/opamp-stage-invariants-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
