@@ -306,9 +306,19 @@ diode-clippers added `transient-clipper.h` rather than mutating `LinearSolver`.
     once. Reports `NewtonStatus { converged, iterations, voltageResidual,
     currentResidual }`; non-convergence is a first-class, test-surfaced contract,
     never swallowed.
-  - **Bounded, not general MNA.** Templated capacities; a single nonlinearity
-    location; the augmentation is *only* the nullor stamp. It never becomes the
-    Phase-5 engine and never modifies `LinearSolver`.
+  - **Bounded, not general MNA — three enforceable tripwires** (making "nullor
+    augmentation only" a *checkable* property, as diode-clippers encoded its
+    bound rather than merely intending it): (i) the branch-current augmentation
+    code path is **`OpAmp`-specific** — `VoltageSource` stays on fixed-node
+    reduction, R/C/L stay nodal/companion; if the solver ever needs to
+    branch-augment anything *other* than an `OpAmp`, that is the
+    becoming-general-MNA signal and it stops; (ii) diode-clippers'
+    **single-nonlinearity-location refusal carries forward unchanged** — ≥2
+    interacting nonlinearities is still a descriptive throw, never a feature;
+    (iii) **one row / one column per op-amp, sized at template instantiation** —
+    no dynamic growth. Templated capacities; the augmentation is *only* the
+    nullor stamp. It never becomes the Phase-5 engine and never modifies
+    `LinearSolver`.
 
 - **D6 — Reactive discretization is backward Euler, non-normative.** Reusing the
   primitive's existing companion hooks; explicitly the lab's naive choice (as in
@@ -403,13 +413,25 @@ technique (D5) were decided in-session and are recorded above so
   reactive-feedback axis without a trivially-unstable pure integrator. A
   `/speckit-clarify` numeric/topology detail, not a blocker.
 
-- **OQ5 — Op-amp DC-path validation in `prepare()`.** Whether the extended
-  `prepare()` connectivity check should special-case the op-amp output (it does
-  not itself guarantee a DC path; the feedback network does) versus leaving the
-  floating-node scan as-is with the op-amp output excluded from
-  `contributesConductivePath`. Lean: exclude the output from the conductive-path
-  set (mirrors current-source / diode) and rely on the feedback resistor for
-  reachability; confirm at spec time against the four exemplar topologies.
+- **OQ5 — Op-amp well-posedness: augmented-singularity is the authority; the
+  connectivity scan is a conservative pre-filter.** Once the system is augmented
+  with nullor rows, `contributesConductivePath` is **no longer the authority on
+  well-posedness in either direction**: a node held only by the virtual short can
+  be perfectly determined yet look "floating" to a nodal scan (false-positive
+  rejection of a *valid* circuit), and conversely the scan can pass a circuit
+  whose augmented matrix is singular. Therefore the spec fixes the authoritative
+  gate as **the non-singularity of the augmented system at solve time (a
+  descriptive throw)**, with `contributesConductivePath` kept as a *fast,
+  conservative, nodal-only pre-filter* to which the op-amp contributes nothing
+  (neither the output branch nor the virtual short — mirrors current-source /
+  diode). This is safe for v1: verified that **all four exemplars avoid the
+  false-positive case** — every interior node (both amps' inverting inputs, the
+  active-stage summing node) has a real resistor or capacitor-companion path to a
+  determined node, so the nodal-only pre-filter is sound *as shipped*. The spec
+  records that this soundness is a property of these four topologies, **not** a
+  general law of op-amp circuits — "the feedback network proves well-posedness"
+  holds here but is not stated as universal. Confirm the pre-filter against each
+  exemplar at `/speckit-clarify` time.
 
 ---
 
