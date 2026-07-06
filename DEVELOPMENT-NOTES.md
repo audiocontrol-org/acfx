@@ -2,21 +2,28 @@
 
 ---
 
-## 2026-07-06: <!-- session title -->
+## 2026-07-06: diode-clippers — runnable spec → implemented, governed, PR-open
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Drive `design:feature/diode-clippers` through `/stack-control:execute` from the runnable spec to shipped-ready — implement all 22 tasks via native `/speckit-implement` (front-door mediated), run the whole-feature govern-at-end to convergence, then open a PR (merge held for operator review).
 
 **Accomplished:**
-- <!-- compose -->
+- **All 22 tasks implemented, committed/pushed phase-by-phase.** US1 — three solver-neutral builders (`symmetricShuntClipper` / `asymmetricShuntClipper` / `seriesClipper`) + `clipper-config.h` vocabulary, composing only the frozen `component-abstractions` types into `prepare()`-valid netlists (topology only; Tier-1: 9 cases). US2 — `TransientClipper<MaxNodes,MaxComponents,MaxDiodes=4>` with the separated timestep/Newton loop (reactive companions computed once/step from held history, held fixed across Newton, history advanced once & only on convergence) — the reactive+nonlinear case the static `NewtonClipper` refuses; proven exact on a linear-RC BE recurrence (~1e-9) and each clipper's DC limit vs an independent bisection oracle + the static curve (~1e-6). US3 — assembled invariants (symmetry / saturation / passivity / the `Cf`→HF reactive signature) + host harness. Polish — isolation / no-heap / hygiene audits clean.
+- **Govern converged.** Four whole-feature cross-model audit-barrage rounds surfaced and resolved **9 findings**: round-1 doc/test-guard nits; round-2 the substantive convergence-trust set (non-converged history advance; tests/harness discarding `NewtonStatus`; series parallel-vs-chain); round-3 orientation docs; round-4 zero new. Recorded operator-approved `--override` → `terminal-outcome=graduated`.
+- **PR #18 opened** (`diode-clippers` → `main`), merge held for operator review. Addressed a third-party review comment (augmented-netlist capacity scope) with an explicit doc + a descriptive pre-flight guard + a new Tier-2 test. Final: Tier-1+Tier-2 13 cases / 2202 assertions green; harness ALL CHECKS PASSED.
 
 **Didn't Work:**
-- <!-- compose -->
+- **The govern audit-barrage's sonnet lane consistently timed out** on ~half the chunks (fleet DEGRADED 2-of-3; `require-models 2` floor still met by claude+codex). So round 4 reached 0 findings but the clean round was computed over a degraded fleet — `terminal-outcome=blocked` on the degraded-fleet caveat alone, requiring an operator `--override` to graduate an otherwise-clean feature. Captured as tooling friction.
+- The 3 pre-existing order-dependent flakes (compressor-sidechain / PDS-presets / saturation-voicings) surfaced in the full `acfx_core_tests` run again — verified innocent of this feature via the test-TU-unregister check (TASK-10).
 
 **Course Corrections:**
-- <!-- compose -->
+- **codex re-raised the series-topology finding (AUDIT-03 → AUDIT-07)** — my first disposition (invariant-first comment) didn't hold. Investigating properly revealed a true multi-diode series chain is *impossible* here: a diode-only intermediate node floats and `prepare()` rejects it (verified with a scratch program). So restricted v1 `seriesClipper` to `seriesCount == 1` (descriptive throw otherwise) rather than ship electrically-misleading parallel-stacked diodes — the re-raise forced a correct, honest scoping.
+- **Applied the convergence-trust fixes as a channel, not point-fixes:** AUDIT-05/06/08 all stemmed from "a non-converged iterate treated as trustworthy" — fixed the solver (gate state-advance on convergence), the test helpers, AND the harness (a `gConverged` tracker reported per check), plus the sibling raw-loop instances the finding didn't name.
+- Kept the FR-010 `MaxComponents + 2*MaxDiodes` augmented sizing under review pressure (pushed back on resizing) — it's spec-mandated and identical for the real instantiations; added a guard + doc instead of deviating.
 
 **Insights:**
-- <!-- compose -->
+- The govern loop's value showed in round 2: the convergence-trust findings (tests/harness reading stale non-converged iterates under loose bounds) were real false-green risks a single-pass review would miss — the cross-model barrage earned its keep even with the sonnet lane degraded.
+- A re-raised finding is a signal the *disposition* was wrong, not that the auditor is stubborn — chasing AUDIT-07 to the `prepare()` floating-node root produced a better design (single-diode v1) than either the original impl or the reviewer's suggestion.
+- `--diff-base <parent-of-first-feature-commit>` is essential for whole-feature govern — the default `HEAD~1` would audit only the last commit. Worth making the execute skill state this explicitly.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 9
