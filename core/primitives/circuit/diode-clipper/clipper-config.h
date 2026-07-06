@@ -70,16 +70,19 @@ struct SymmetricShuntValues {
 };
 
 // Asymmetric shunt: same series-R → shunt structure with an UNEQUAL diode
-// population (upCount anode→shunt-node, downCount reversed), giving a non-odd
-// transfer with a DC offset. v1 canonical { upCount = 2, downCount = 1 }.
-// Validation: 1 <= upCount + downCount <= kMaxClipperDiodes, upCount != downCount
-// (equal populations are the symmetric case — use symmetricShuntClipper).
+// population, giving a non-odd transfer with a DC offset. Orientation follows the
+// Diode{anode, cathode} convention exactly (see the field comments below):
+// upCount diodes conduct on the positive half (anode at the shunt node), downCount
+// diodes conduct on the negative half (anode at ground). v1 canonical
+// { upCount = 2, downCount = 1 }. Validation: 1 <= upCount + downCount <=
+// kMaxClipperDiodes, upCount != downCount (equal populations are the symmetric
+// case — use symmetricShuntClipper).
 struct AsymmetricShuntValues {
     double R;          // series resistor (ohm)
     double Cf;         // filter capacitor across the diodes (farad)
     DiodeSpec diode;   // shared spec for every diode in the population
-    int upCount;       // diodes oriented anode → shunt node
-    int downCount;     // diodes oriented shunt node → anode (reversed)
+    int upCount;       // diodes stamped Diode{anode = shunt node, cathode = ground}
+    int downCount;     // diodes stamped Diode{anode = ground, cathode = shunt node}
 };
 
 // Series (inline) clipper: input coupling capacitor Cc in series ahead of a

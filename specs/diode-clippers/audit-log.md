@@ -122,3 +122,18 @@ Surface:    core/labs/diode-clippers/harness/diode-clippers-harness.cpp:101-123,
 The harness repeatedly calls `solver.step(...)` and discards the returned `NewtonStatus` in the normal validation paths. That matters because the solver contract says non-converged node voltages are the last iterate and “must not be trusted as a physical answer”; the harness then reads `solver.voltage(...)` / `solver.clipperVoltage()` as if convergence had been established. The affected helpers and loops are `settlePortDC()` at lines 101-107, `driveSine()` at lines 110-123, the RC recurrence loop at lines 169-172, and the series DC loop at lines 223-224.
 
 The blast radius is high because this file is presented as a standalone PASS/FAIL harness for the lab. A downstream consumer running only this harness can get “ALL CHECKS PASSED” from measurements taken from non-converged iterates if those stale/last-iterate voltages happen to satisfy the loose behavioral checks. A reasonable fix is to make every expected-converged `step()` call capture `NewtonStatus` and fail the current check immediately when `converged == false`, while preserving the explicit starved-budget non-convergence test as the one intentional exception.
+
+## 2026-07-06 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260706-09 — Asymmetric diode direction docs contradict the stamped topology
+
+Finding-ID: AUDIT-20260706-09
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   adjudicated (gate-counted high) — blast-radius=unstated, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    core/primitives/circuit/diode-clipper/clipper-config.h:72-82
+
+`AsymmetricShuntValues` documents `upCount` as “anode→shunt-node” and `downCount` as the reversed population, but the builder stamps `upCount` as `Diode{n1, kGround}` and `downCount` as `Diode{kGround, n1}` in `diode-clipper.h:119-124`. Since `Diode{anode, cathode}` is the component convention, the public BOM comment tells callers the opposite direction for at least `upCount`.
+
+Blast radius is high because this is a quiet API-contract error: a downstream consumer choosing `{upCount=2, downCount=1}` from the public value vocabulary could reasonably expect the opposite polarity asymmetry from what the builder emits. The fix should make the config comments match the actual `Diode{anode, cathode}` orientation, preferably spelling each field as `Diode{shunt, ground}` vs `Diode{ground, shunt}`.

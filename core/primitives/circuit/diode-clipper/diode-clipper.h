@@ -117,10 +117,14 @@ inline AsymmetricShuntClipper asymmetricShuntClipper(const AsymmetricShuntValues
     c.netlist.add(VoltageSource{nIn, kGround, vIn});
     c.netlist.add(Resistor{nIn, n1, v.R});
     for (int i = 0; i < v.upCount; ++i) {
-        c.netlist.add(detail::diodeOf(v.diode, n1, kGround));  // anode → shunt
+        // Diode{anode = shunt node n1, cathode = ground} — conducts on the
+        // positive half-cycle (matches AsymmetricShuntValues::upCount).
+        c.netlist.add(detail::diodeOf(v.diode, n1, kGround));
     }
     for (int i = 0; i < v.downCount; ++i) {
-        c.netlist.add(detail::diodeOf(v.diode, kGround, n1));  // reversed
+        // Diode{anode = ground, cathode = shunt node n1} — reversed; conducts on
+        // the negative half-cycle (matches AsymmetricShuntValues::downCount).
+        c.netlist.add(detail::diodeOf(v.diode, kGround, n1));
     }
     c.netlist.add(Capacitor{n1, kGround, v.Cf});
     c.netlist.prepare();
