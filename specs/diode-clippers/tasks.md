@@ -35,7 +35,7 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 **Blocks US1, US2, US3** — the config/value types are the shared vocabulary the builders emit and the solver/oracle read.
 
-- [ ] T004 Implement `core/primitives/circuit/diode-clipper/clipper-config.h`: `DiodeSpec{Is,n,Vt}`, `SymmetricShuntValues`, `AsymmetricShuntValues{...,upCount,downCount}`, `SeriesValues{...,seriesCount}`, the `Clipper<MaxNodes,MaxComponents>` return struct `{netlist,inNode,outNode,portP,portN}`, and the per-topology capacity aliases (`SymmetricShuntClipper`, `AsymmetricShuntClipper`, `SeriesClipper`) per `data-model.md`. Include `detail::requirePositive` and population-validation helpers. Header-only, C++17, standard-library only, ≤ ~300 lines. Contract: `contracts/diode-clipper-builder.md`.
+- [X] T004 Implement `core/primitives/circuit/diode-clipper/clipper-config.h`: `DiodeSpec{Is,n,Vt}`, `SymmetricShuntValues`, `AsymmetricShuntValues{...,upCount,downCount}`, `SeriesValues{...,seriesCount}`, the `Clipper<MaxNodes,MaxComponents>` return struct `{netlist,inNode,outNode,portP,portN}`, and the per-topology capacity aliases (`SymmetricShuntClipper`, `AsymmetricShuntClipper`, `SeriesClipper`) per `data-model.md`. Include `detail::requirePositive` and population-validation helpers. Header-only, C++17, standard-library only, ≤ ~300 lines. Contract: `contracts/diode-clipper-builder.md`.
 
 **Checkpoint**: `clipper-config.h` compiles standalone; US1/US2/US3 can begin.
 
@@ -48,15 +48,15 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 ### Tests for User Story 1
 
-- [ ] T005 [P] [US1] `tests/core/diode-clipper-builder-test.cpp`: for each of the three builders assert `prepare()` succeeds at representative BOMs; component and node counts equal the topology's BOM; every held component is `Resistor`/`Capacitor`/`Diode`/`VoltageSource` (frozen vocabulary); the reported `portP/portN` are the diode-string node pair; and a compile-level check that `diode-clipper.h`/`clipper-config.h` include nothing under `core/labs/` (isolation, FR-019). Tests fail until T006–T009 land.
+- [X] T005 [P] [US1] `tests/core/diode-clipper-builder-test.cpp`: for each of the three builders assert `prepare()` succeeds at representative BOMs; component and node counts equal the topology's BOM; every held component is `Resistor`/`Capacitor`/`Diode`/`VoltageSource` (frozen vocabulary); the reported `portP/portN` are the diode-string node pair; and a compile-level check that `diode-clipper.h`/`clipper-config.h` include nothing under `core/labs/` (isolation, FR-019). Tests fail until T006–T009 land.
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Implement `symmetricShuntClipper(...)` in `core/primitives/circuit/diode-clipper/diode-clipper.h`: `Vin`(grounded `VoltageSource`)→series `R`→`n1`; matched antiparallel `Diode` pair `Diode{n1,gnd}` + `Diode{gnd,n1}`; filter `Cf` `n1`→gnd; `prepare()`; return `SymmetricShuntClipper{netlist, inNode=Vin-node, outNode=n1, portP=n1, portN=gnd}`.
-- [ ] T007 [US1] Implement `asymmetricShuntClipper(...)` in `diode-clipper.h`: series `R`→`n1`; `upCount` `Diode{n1,gnd}` + `downCount` `Diode{gnd,n1}` (v1 canonical 2-up/1-down); `Cf` across; require `upCount != downCount` and `upCount+downCount ≤ MaxDiodes`; `prepare()`; return with port `(n1,gnd)`.
-- [ ] T008 [US1] Implement `seriesClipper(...)` in `diode-clipper.h`: `Vin`→input coupling `Cc`(series)→`n1`; `seriesCount` inline `Diode`s `n1`→`n2`; `R` `n2`→gnd; `prepare()`; return `{outNode=n2, portP=n1, portN=n2}` (coupling cap blocks DC).
-- [ ] T009 [US1] Add builder input validation in `diode-clipper.h`/`clipper-config.h`: any non-positive resistance/capacitance, non-positive diode parameter (`Is`/`n`/`Vt`), or out-of-range population (total diodes `> MaxDiodes`, or `upCount == downCount` for the asymmetric builder) → descriptive `std::invalid_argument` naming the field (FR-007). No silent clamp.
-- [ ] T010 [P] [US1] Update `core/primitives/README.md` to register the `circuit/diode-clipper/` subfolder and the three builders.
+- [X] T006 [US1] Implement `symmetricShuntClipper(...)` in `core/primitives/circuit/diode-clipper/diode-clipper.h`: `Vin`(grounded `VoltageSource`)→series `R`→`n1`; matched antiparallel `Diode` pair `Diode{n1,gnd}` + `Diode{gnd,n1}`; filter `Cf` `n1`→gnd; `prepare()`; return `SymmetricShuntClipper{netlist, inNode=Vin-node, outNode=n1, portP=n1, portN=gnd}`.
+- [X] T007 [US1] Implement `asymmetricShuntClipper(...)` in `diode-clipper.h`: series `R`→`n1`; `upCount` `Diode{n1,gnd}` + `downCount` `Diode{gnd,n1}` (v1 canonical 2-up/1-down); `Cf` across; require `upCount != downCount` and `upCount+downCount ≤ MaxDiodes`; `prepare()`; return with port `(n1,gnd)`.
+- [X] T008 [US1] Implement `seriesClipper(...)` in `diode-clipper.h`: `Vin`→input coupling `Cc`(series)→`n1`; `seriesCount` inline `Diode`s `n1`→`n2`; `R` `n2`→gnd; `prepare()`; return `{outNode=n2, portP=n1, portN=n2}` (coupling cap blocks DC).
+- [X] T009 [US1] Add builder input validation in `diode-clipper.h`/`clipper-config.h`: any non-positive resistance/capacitance, non-positive diode parameter (`Is`/`n`/`Vt`), or out-of-range population (total diodes `> MaxDiodes`, or `upCount == downCount` for the asymmetric builder) → descriptive `std::invalid_argument` naming the field (FR-007). No silent clamp.
+- [X] T010 [P] [US1] Update `core/primitives/README.md` to register the `circuit/diode-clipper/` subfolder and the three builders.
 
 **Checkpoint**: US1 independently testable — MVP delivered (solver-neutral diode-clipper builders the later named-pedal features compose).
 
