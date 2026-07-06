@@ -191,6 +191,10 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   core/diode-clipper-builder-test.cpp
   core/diode-clipper-transient-test.cpp
+  # US3 assembled-clipper invariants, split from diode-clipper-transient-test.cpp
+  # to stay under the Constitution VII per-file line budget (shared drive/oracle
+  # rig in core/diode-clipper-test-support.h).
+  core/diode-clipper-invariants-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

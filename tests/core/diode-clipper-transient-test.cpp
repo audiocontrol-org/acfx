@@ -4,8 +4,8 @@
 #include <cmath>
 #include <variant>
 
+#include "core/diode-clipper-test-support.h"
 #include "labs/component-abstractions/solver/newton-clipper.h"
-#include "labs/diode-clippers/solver/transient-clipper.h"
 #include "primitives/circuit/components.h"
 #include "primitives/circuit/diode-clipper/clipper-config.h"
 #include "primitives/circuit/diode-clipper/diode-clipper.h"
@@ -13,12 +13,14 @@
 #include "primitives/circuit/netlist.h"
 #include "primitives/circuit/node.h"
 
-// Tier-2 transient-solver suite for the diode-clippers lab (US2/US3, SC-002..006;
+// Tier-2 transient-solver suite for the diode-clippers lab (US2, SC-002/006;
 // contracts/transient-clipper.h). Proves the TransientClipper exact FIRST on
 // closed-form sanity networks (a linear RC step response, then each clipper's
 // DC-limit against an independent bisection oracle + the static NewtonClipper),
-// then validates the bounded-scope and non-convergence contracts (US2) and the
-// assembled-clipper behavioral invariants (US3).
+// then validates the bounded-scope and non-convergence contracts. The assembled-
+// clipper behavioral invariants (US3) live in diode-clipper-invariants-test.cpp;
+// the shared oracle + drive/measurement rig in diode-clipper-test-support.h
+// (split for the Constitution VII per-file line budget).
 
 using acfx::AsymmetricShuntValues;
 using acfx::asymmetricShuntClipper;
@@ -31,7 +33,6 @@ using acfx::NodeId;
 using acfx::Resistor;
 using acfx::seriesClipper;
 using acfx::SeriesValues;
-using acfx::siliconSignalDiode;
 using acfx::SymmetricShuntValues;
 using acfx::symmetricShuntClipper;
 using acfx::VoltageSource;
@@ -39,48 +40,7 @@ using acfx::labs::component_abstractions::NewtonClipper;
 using acfx::labs::diode_clippers::NewtonStatus;
 using acfx::labs::diode_clippers::TransientClipper;
 
-namespace {
-
-// Well-damped standalone bisection root-finder over a monotonically
-// non-decreasing f with a root in [lo, hi]. INDEPENDENT of the solver under
-// test (the genuine cross-check, not solver-vs-itself).
-template <typename F>
-double bisectRoot(F f, double lo, double hi, double tol = 1e-13) {
-    while (hi - lo > tol) {
-        const double mid = 0.5 * (lo + hi);
-        if (f(mid) <= 0.0) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    return 0.5 * (lo + hi);
-}
-
-// Symmetric-shunt DC oracle (data-model.md): 0 = v + R*2*Is*sinh(v/nVt) - Vin.
-double oracleSymmetric(double Vin, double R, const DiodeSpec& d) {
-    const double nVt = d.n * d.Vt;
-    return bisectRoot(
-        [&](double v) { return v + R * 2.0 * d.Is * std::sinh(v / nVt) - Vin; },
-        -5.0, 5.0);
-}
-
-// Asymmetric-shunt DC oracle (data-model.md):
-// 0 = v + R*[up*Is*(exp(v/nVt)-1) - down*Is*(exp(-v/nVt)-1)] - Vin.
-double oracleAsymmetric(double Vin, double R, const DiodeSpec& d, int up, int down) {
-    const double nVt = d.n * d.Vt;
-    return bisectRoot(
-        [&](double v) {
-            const double iUp = up * d.Is * (std::exp(v / nVt) - 1.0);
-            const double iDown = down * d.Is * (std::exp(-v / nVt) - 1.0);
-            return v + R * (iUp - iDown) - Vin;
-        },
-        -5.0, 5.0);
-}
-
-DiodeSpec diodeSpec() { return siliconSignalDiode(); }
-
-}  // namespace
+using namespace dcl_test;
 
 // ===========================================================================
 // T012 (SC-002 part 1) — the transient solver is proven exact on a LINEAR-ONLY
@@ -127,27 +87,6 @@ TEST_CASE("TransientClipper - linear RC matches the analytic BE recurrence (~1e-
 // INDEPENDENT bisection oracle to ~1e-6, and (where the static solver can
 // represent the topology) the existing NewtonClipper curve.
 // ===========================================================================
-
-namespace {
-
-// Settle a built clipper to DC under a constant input by stepping the transient
-// solver to steady state, then return the port voltage. The measured answer is
-// trustworthy only if the solve CONVERGED (a non-converged final iterate is not
-// a physical answer, FR-011) — so assert the settled step converged rather than
-// silently reading a stale iterate that could satisfy a loose invariant bound.
-template <int N, int M, int D>
-double settlePortDC(TransientClipper<N, M, D>& solver,
-                    const Netlist<N, M>& nl, double dt, int steps) {
-    solver.reset();
-    NewtonStatus st;
-    for (int i = 0; i < steps; ++i) {
-        st = solver.step(nl, dt);
-    }
-    CHECK(st.converged);  // the measured steady state must be a converged solve
-    return solver.clipperVoltage();
-}
-
-}  // namespace
 
 TEST_CASE("TransientClipper - symmetric shunt DC matches oracle + NewtonClipper (~1e-6)") {
     const double R = 2200.0;
@@ -228,7 +167,8 @@ TEST_CASE("TransientClipper - series clipper coupling cap blocks DC (output → 
 // ===========================================================================
 // T014 (SC — bounds, FR-012) — the bounded single-port scope: a diode string up
 // to MaxDiodes solves with all diodes present; a second nonlinearity at a
-// DISTINCT node pair is refused with a descriptive error.
+// DISTINCT node pair is refused; a reactive-heavy netlist beyond the augmented
+// capacity is refused; ill-posed config is refused.
 // ===========================================================================
 
 TEST_CASE("TransientClipper - second nonlinearity at a distinct node pair is refused") {
@@ -307,218 +247,4 @@ TEST_CASE("TransientClipper - starved iteration budget surfaces non-convergence"
     CHECK_FALSE(s.converged);
     CHECK(s.iterations == 1);
     CHECK(s.voltageResidual > starved.voltageTolerance());  // residual is surfaced
-}
-
-// ===========================================================================
-// US3 assembled-clipper invariants (SC-003/004/005). The solver is proven exact
-// above, so each clipper is validated by the behavioral invariants its topology
-// dictates.
-// ===========================================================================
-
-namespace {
-
-constexpr double kPi = 3.14159265358979323846;
-constexpr double kDt = 1.0e-5;     // 100 kHz (FR-017 lab convention)
-constexpr int kWindow = 1000;      // 10 periods of 1 kHz — harmonics land on bins
-constexpr int kWarmup = 3000;      // 30 ms → steady state before measuring
-
-// Drive a periodic sine into a clipper (rebuilt per sample with the new input —
-// the sanctioned control-rate-rebuild drive) and collect a steady-state window
-// of input and output samples. `build(vIn)` returns the clipper for input vIn.
-template <int N, int M, int D, typename BuildFn>
-void driveSine(TransientClipper<N, M, D>& solver, BuildFn build, double amp,
-               double freqHz, std::array<double, kWindow>& in,
-               std::array<double, kWindow>& out) {
-    solver.reset();
-    const int total = kWarmup + kWindow;
-    bool measuredAllConverged = true;
-    for (int nStep = 0; nStep < total; ++nStep) {
-        const double vIn = amp * std::sin(2.0 * kPi * freqHz * nStep * kDt);
-        const auto clip = build(vIn);
-        const NewtonStatus st = solver.step(clip.netlist, kDt);
-        if (nStep >= kWarmup) {
-            if (!st.converged) {
-                measuredAllConverged = false;
-            }
-            in[static_cast<std::size_t>(nStep - kWarmup)] = vIn;
-            out[static_cast<std::size_t>(nStep - kWarmup)] = solver.voltage(clip.outNode);
-        }
-    }
-    // Every sample in the measured window must be a converged solve — otherwise
-    // the invariants below would be measuring stale, non-physical iterates that
-    // could slide under their (deliberately loose) bounds (FR-011).
-    CHECK(measuredAllConverged);
-}
-
-// Sum of squares (energy proxy) over a window.
-double energy(const std::array<double, kWindow>& x) {
-    double e = 0.0;
-    for (double v : x) {
-        e += v * v;
-    }
-    return e;
-}
-
-// Direct-DFT spectral energy strictly above `cutoff` (Hz) over a window sampled
-// at fs. O(N * bins); fine for a host test. The measurement window is an integer
-// number of the drive period, so the transform is leakage-clean.
-double hfEnergyAbove(const std::array<double, kWindow>& x, double fs, double cutoff) {
-    double total = 0.0;
-    for (int k = 1; k <= kWindow / 2; ++k) {
-        const double fk = static_cast<double>(k) * fs / kWindow;
-        if (fk <= cutoff) {
-            continue;
-        }
-        double re = 0.0, im = 0.0;
-        for (int nn = 0; nn < kWindow; ++nn) {
-            const double ph = -2.0 * kPi * k * nn / kWindow;
-            re += x[static_cast<std::size_t>(nn)] * std::cos(ph);
-            im += x[static_cast<std::size_t>(nn)] * std::sin(ph);
-        }
-        total += re * re + im * im;
-    }
-    return total;
-}
-
-}  // namespace
-
-// ---------------------------------------------------------------------------
-// T016 (SC-003) — symmetry: the symmetric shunt clipper's transfer is odd
-// (y(−x) = −y(x), no DC offset); the asymmetric clipper's is measurably NOT odd
-// (a DC-offset / even-harmonic component distinguishes the two).
-// ---------------------------------------------------------------------------
-
-TEST_CASE("TransientClipper - symmetric shunt transfer is odd; asymmetric is not") {
-    const double R = 2200.0;
-    const double Cf = 10.0e-9;
-    const DiodeSpec d = diodeSpec();
-    constexpr int kSettle = 4000;
-
-    TransientClipper<4, 8> sym;
-    TransientClipper<4, 8> asym;
-
-    double maxSymAsymmetry = 0.0;   // |y(+x) + y(-x)| for the symmetric clipper
-    double maxAsymAsymmetry = 0.0;  // |y(+x) + y(-x)| for the asymmetric clipper
-
-    for (double x = 0.25; x <= 2.0 + 1e-9; x += 0.25) {
-        const auto sPos = symmetricShuntClipper(SymmetricShuntValues{R, Cf, d}, x);
-        const auto sNeg = symmetricShuntClipper(SymmetricShuntValues{R, Cf, d}, -x);
-        const double yPos = settlePortDC(sym, sPos.netlist, kDt, kSettle);
-        const double yNeg = settlePortDC(sym, sNeg.netlist, kDt, kSettle);
-        maxSymAsymmetry = std::max(maxSymAsymmetry, std::fabs(yPos + yNeg));
-
-        const auto aPos = asymmetricShuntClipper(AsymmetricShuntValues{R, Cf, d, 2, 1}, x);
-        const auto aNeg = asymmetricShuntClipper(AsymmetricShuntValues{R, Cf, d, 2, 1}, -x);
-        const double ayPos = settlePortDC(asym, aPos.netlist, kDt, kSettle);
-        const double ayNeg = settlePortDC(asym, aNeg.netlist, kDt, kSettle);
-        maxAsymAsymmetry = std::max(maxAsymAsymmetry, std::fabs(ayPos + ayNeg));
-    }
-
-    // Symmetric: odd within tight tolerance.
-    CHECK(maxSymAsymmetry < 1e-6);
-    // Asymmetric: measurably non-odd — the two clippers are distinguishable.
-    CHECK(maxAsymAsymmetry > 1e-3);
-}
-
-// ---------------------------------------------------------------------------
-// T017 (SC-004) — forward saturation (output clamps near the diode drop under
-// large drive) + passivity (output energy ≤ input energy over a bounded
-// excitation; the network dissipates, never adds gain).
-// ---------------------------------------------------------------------------
-
-TEST_CASE("TransientClipper - forward saturation clamps near the diode drop") {
-    const double R = 2200.0;
-    const double Cf = 10.0e-9;
-    const DiodeSpec d = diodeSpec();
-    constexpr int kSettle = 4000;
-    const double kDrive = 5.0;  // far past the ~0.5 V silicon forward drop
-
-    // Shunt clippers clamp their DC output near the forward drop, well under drive.
-    TransientClipper<4, 8> sym;
-    const auto s = symmetricShuntClipper(SymmetricShuntValues{R, Cf, d}, kDrive);
-    CHECK(std::fabs(settlePortDC(sym, s.netlist, kDt, kSettle)) < 0.8);
-
-    TransientClipper<4, 8> asym;
-    const auto a = asymmetricShuntClipper(AsymmetricShuntValues{R, Cf, d, 2, 1}, kDrive);
-    CHECK(std::fabs(settlePortDC(asym, a.netlist, kDt, kSettle)) < 1.6);  // ~2 stacked drops
-
-    // Series clipper saturates the AC signal: its steady-state output peak is
-    // bounded near the diode drop, far under the drive peak.
-    TransientClipper<5, 8> ser;
-    std::array<double, kWindow> in{}, out{};
-    driveSine(ser, [&](double vIn) { return seriesClipper(SeriesValues{47.0e-9, 4700.0, d, 1}, vIn); },
-              kDrive, 1000.0, in, out);
-    double peak = 0.0;
-    for (double v : out) {
-        peak = std::max(peak, std::fabs(v));
-    }
-    CHECK(peak < 0.9);
-}
-
-TEST_CASE("TransientClipper - passivity: output energy <= input energy") {
-    const double R = 2200.0;
-    const double Cf = 10.0e-9;
-    const DiodeSpec d = diodeSpec();
-    const double amp = 2.0;
-    std::array<double, kWindow> in{}, out{};
-
-    {
-        TransientClipper<4, 8> sym;
-        driveSine(sym, [&](double v) { return symmetricShuntClipper(SymmetricShuntValues{R, Cf, d}, v); },
-                  amp, 1000.0, in, out);
-        CHECK(energy(out) <= energy(in));
-    }
-    {
-        TransientClipper<4, 8> asym;
-        driveSine(asym, [&](double v) { return asymmetricShuntClipper(AsymmetricShuntValues{R, Cf, d, 2, 1}, v); },
-                  amp, 1000.0, in, out);
-        CHECK(energy(out) <= energy(in));
-    }
-    {
-        TransientClipper<5, 8> ser;
-        driveSine(ser, [&](double v) { return seriesClipper(SeriesValues{47.0e-9, 4700.0, d, 1}, v); },
-                  amp, 1000.0, in, out);
-        CHECK(energy(out) <= energy(in));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// T018 (SC-005) — the reactive signature (the behavior a static transfer curve
-// cannot represent): for EACH shunt clipper, a fixed 1 kHz sine driven into
-// clipping, increasing the filter capacitor Cf strictly reduces the output
-// spectral energy above 5 kHz at every step of an ascending sweep.
-// ---------------------------------------------------------------------------
-
-TEST_CASE("TransientClipper - reactive signature: larger Cf strictly cuts post-clip HF") {
-    const double R = 2200.0;
-    const DiodeSpec d = diodeSpec();
-    const double amp = 2.0;  // into clipping
-    const double fs = 1.0 / kDt;
-    const std::array<double, 6> cfSweep{1.0e-9, 2.2e-9, 4.7e-9, 10.0e-9, 22.0e-9, 47.0e-9};
-
-    std::array<double, kWindow> in{}, out{};
-
-    SUBCASE("symmetric shunt") {
-        TransientClipper<4, 8> sym;
-        double prevHf = 1e300;
-        for (double Cf : cfSweep) {
-            driveSine(sym, [&](double v) { return symmetricShuntClipper(SymmetricShuntValues{R, Cf, d}, v); },
-                      amp, 1000.0, in, out);
-            const double hf = hfEnergyAbove(out, fs, 5000.0);
-            CHECK(hf < prevHf);  // strictly decreasing across the ascending sweep
-            prevHf = hf;
-        }
-    }
-
-    SUBCASE("asymmetric shunt") {
-        TransientClipper<4, 8> asym;
-        double prevHf = 1e300;
-        for (double Cf : cfSweep) {
-            driveSine(asym, [&](double v) { return asymmetricShuntClipper(AsymmetricShuntValues{R, Cf, d, 2, 1}, v); },
-                      amp, 1000.0, in, out);
-            const double hf = hfEnergyAbove(out, fs, 5000.0);
-            CHECK(hf < prevHf);
-            prevHf = hf;
-        }
-    }
 }
