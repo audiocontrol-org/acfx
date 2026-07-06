@@ -14,10 +14,15 @@
 // specs/opamp-stages/tasks.md), one deliberate difference: this header
 // carries NO doctest dependency (no CHECK/REQUIRE) so the harness — a plain
 // int main(), no test framework linked — can include it directly. Every
-// helper reports convergence via an out-param `bool& converged` (cleared to
-// false, never reset true) instead of asserting inline; the caller (a
-// doctest CHECK/REQUIRE, or a harness PASS/FAIL print) decides what to do
-// with it. A non-converged iterate is never a physical answer (FR-014), so
+// helper reports convergence via an out-param `bool& converged` instead of
+// asserting inline; the caller (a doctest CHECK/REQUIRE, or a harness
+// PASS/FAIL print) decides what to do with it. Each helper OWNS its
+// out-param with self-contained per-call semantics: it resets
+// `converged = true` at entry, then clears it to false if any (measured)
+// step fails to converge — a caller never needs to pre-initialize the flag,
+// and a caller that shares ONE flag across MULTIPLE calls must AND the
+// per-call results together itself (each call resets that shared flag back
+// to true). A non-converged iterate is never a physical answer (FR-014), so
 // every caller of these helpers must inspect `converged` before trusting the
 // measured output.
 
@@ -72,8 +77,10 @@ double hfEnergyAbove(const std::array<double, N>& x, double fs, double cutoff) {
 // next N-sample window of input/output into `in`/`out`. `build(vIn)` must
 // return an *Result-shaped value (a `.netlist` Netlist<MaxNodes,
 // MaxComponents> and a `.outNode`), per the opamp-stage builder convention.
-// Resets the solver at entry (a cold start). Clears `converged` to false
-// (never resets it true) if ANY *measured* step fails to converge.
+// Resets the solver at entry (a cold start). Resets `converged` to true at
+// entry, then clears it to false if ANY step — warmup or measured — fails to
+// converge (a divergent warmup step must not be allowed to silently seed the
+// measurement window with corrupt state).
 template <int MaxNodes, int MaxComponents, int MaxDiodes, int MaxOpAmps,
           typename BuildFn, std::size_t N>
 void driveSine(OpAmpClipperSolver<MaxNodes, MaxComponents, MaxDiodes, MaxOpAmps>& solver,
@@ -81,15 +88,16 @@ void driveSine(OpAmpClipperSolver<MaxNodes, MaxComponents, MaxDiodes, MaxOpAmps>
                std::array<double, N>& in, std::array<double, N>& out,
                bool& converged) {
     solver.reset();
+    converged = true;
     const int total = warmup + static_cast<int>(N);
     for (int step = 0; step < total; ++step) {
         const double vIn = amp * std::sin(2.0 * kPi * freqHz * static_cast<double>(step) * dt);
         const auto clip = build(vIn);
         const NewtonStatus status = solver.step(clip.netlist, dt);
+        if (!status.converged) {
+            converged = false;
+        }
         if (step >= warmup) {
-            if (!status.converged) {
-                converged = false;
-            }
             const std::size_t idx = static_cast<std::size_t>(step - warmup);
             in[idx] = vIn;
             out[idx] = solver.voltage(clip.outNode);
@@ -98,14 +106,15 @@ void driveSine(OpAmpClipperSolver<MaxNodes, MaxComponents, MaxDiodes, MaxOpAmps>
 }
 
 // Step an OpAmpClipperSolver at a FIXED DC input `vin` for `steps` timesteps
-// (from a cold reset), returning the final output-node voltage. Clears
-// `converged` to false if any step fails to converge (same FR-014 contract
-// as driveSine above).
+// (from a cold reset), returning the final output-node voltage. Resets
+// `converged` to true at entry, then clears it to false if any step fails to
+// converge (same FR-014 contract as driveSine above).
 template <int MaxNodes, int MaxComponents, int MaxDiodes, int MaxOpAmps,
           typename BuildFn>
 double settleDc(OpAmpClipperSolver<MaxNodes, MaxComponents, MaxDiodes, MaxOpAmps>& solver,
                  BuildFn build, double vin, double dt, int steps, bool& converged) {
     solver.reset();
+    converged = true;
     const auto clip = build(vin);
     double vout = 0.0;
     for (int step = 0; step < steps; ++step) {

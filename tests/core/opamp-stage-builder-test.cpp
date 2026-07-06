@@ -341,9 +341,15 @@ TEST_CASE("opAmpDiodeClipper - asymmetric population (DC-offset topology)") {
     int up = 0, down = 0;
     for (const Component& c : stage.netlist.components()) {
         if (const auto* d = std::get_if<Diode>(&c)) {
-            if (d->anode == stage.outNode) {
+            // Classify strictly by the (out, inMinus) port and orientation —
+            // a stray diode on any OTHER node pair must not be silently
+            // counted as "down" by a bare anode-mismatch check.
+            const bool isUp = d->anode == stage.outNode && d->cathode == op.inMinus;
+            const bool isDown = d->anode == op.inMinus && d->cathode == stage.outNode;
+            CHECK((isUp || isDown));  // every diode lies on the (out, inMinus) port
+            if (isUp) {
                 ++up;
-            } else {
+            } else if (isDown) {
                 ++down;
             }
         }
@@ -358,71 +364,71 @@ TEST_CASE("opAmpDiodeClipper - asymmetric population (DC-offset topology)") {
 // out-of-range diode population.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("nonInvertingGain - invalid BOM throws std::invalid_argument") {
-    CHECK_THROWS_AS(nonInvertingGain(NonInvertingGainBom{-1.0, 10000.0, 1.0}),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(nonInvertingGain(NonInvertingGainBom{10000.0, 0.0, 1.0}),
-                    std::invalid_argument);
+TEST_CASE("nonInvertingGain - invalid BOM throws std::invalid_argument naming the bad field") {
+    CHECK_THROWS_WITH_AS(nonInvertingGain(NonInvertingGainBom{-1.0, 10000.0, 1.0}),
+                         doctest::Contains("nonInvertingGain Rf"), std::invalid_argument);
+    CHECK_THROWS_WITH_AS(nonInvertingGain(NonInvertingGainBom{10000.0, 0.0, 1.0}),
+                         doctest::Contains("nonInvertingGain Rg"), std::invalid_argument);
 }
 
-TEST_CASE("invertingGain - invalid BOM throws std::invalid_argument") {
-    CHECK_THROWS_AS(invertingGain(InvertingGainBom{0.0, 10000.0, 1.0}),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(invertingGain(InvertingGainBom{1000.0, -10000.0, 1.0}),
-                    std::invalid_argument);
+TEST_CASE("invertingGain - invalid BOM throws std::invalid_argument naming the bad field") {
+    CHECK_THROWS_WITH_AS(invertingGain(InvertingGainBom{0.0, 10000.0, 1.0}),
+                         doctest::Contains("invertingGain Rin"), std::invalid_argument);
+    CHECK_THROWS_WITH_AS(invertingGain(InvertingGainBom{1000.0, -10000.0, 1.0}),
+                         doctest::Contains("invertingGain Rf"), std::invalid_argument);
 }
 
-TEST_CASE("activeFirstOrder - invalid BOM throws std::invalid_argument") {
-    CHECK_THROWS_AS(activeFirstOrder(ActiveFirstOrderBom{-1000.0, 10000.0, 1e-9, 1.0}),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(activeFirstOrder(ActiveFirstOrderBom{1000.0, 0.0, 1e-9, 1.0}),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(activeFirstOrder(ActiveFirstOrderBom{1000.0, 10000.0, 0.0, 1.0}),
-                    std::invalid_argument);
+TEST_CASE("activeFirstOrder - invalid BOM throws std::invalid_argument naming the bad field") {
+    CHECK_THROWS_WITH_AS(activeFirstOrder(ActiveFirstOrderBom{-1000.0, 10000.0, 1e-9, 1.0}),
+                         doctest::Contains("activeFirstOrder Rin"), std::invalid_argument);
+    CHECK_THROWS_WITH_AS(activeFirstOrder(ActiveFirstOrderBom{1000.0, 0.0, 1e-9, 1.0}),
+                         doctest::Contains("activeFirstOrder Rf"), std::invalid_argument);
+    CHECK_THROWS_WITH_AS(activeFirstOrder(ActiveFirstOrderBom{1000.0, 10000.0, 0.0, 1.0}),
+                         doctest::Contains("activeFirstOrder Cf"), std::invalid_argument);
 }
 
-TEST_CASE("opAmpDiodeClipper - invalid BOM throws std::invalid_argument") {
+TEST_CASE("opAmpDiodeClipper - invalid BOM throws std::invalid_argument naming the bad field/bound") {
     const DiodeSpec good = siliconSignalDiode();
 
     SUBCASE("non-positive R/C") {
-        CHECK_THROWS_AS(
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{0.0, 10000.0, 1e-9, good, 1, 1, 1.0}),
-            std::invalid_argument);
-        CHECK_THROWS_AS(
+            doctest::Contains("opAmpDiodeClipper Rin"), std::invalid_argument);
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, -1.0, 1e-9, good, 1, 1, 1.0}),
-            std::invalid_argument);
-        CHECK_THROWS_AS(
+            doctest::Contains("opAmpDiodeClipper Rf"), std::invalid_argument);
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, 10000.0, 0.0, good, 1, 1, 1.0}),
-            std::invalid_argument);
+            doctest::Contains("opAmpDiodeClipper Cf"), std::invalid_argument);
     }
 
     SUBCASE("non-positive diode parameter") {
-        CHECK_THROWS_AS(
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{
                 1000.0, 10000.0, 1e-9, DiodeSpec{0.0, 1.0, 0.02585}, 1, 1, 1.0}),
-            std::invalid_argument);
-        CHECK_THROWS_AS(
+            doctest::Contains("diode Is"), std::invalid_argument);
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{
                 1000.0, 10000.0, 1e-9, DiodeSpec{1e-14, -1.0, 0.02585}, 1, 1, 1.0}),
-            std::invalid_argument);
-        CHECK_THROWS_AS(
+            doctest::Contains("diode n"), std::invalid_argument);
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{
                 1000.0, 10000.0, 1e-9, DiodeSpec{1e-14, 1.0, 0.0}, 1, 1, 1.0}),
-            std::invalid_argument);
+            doctest::Contains("diode Vt"), std::invalid_argument);
     }
 
     SUBCASE("diode count out of range") {
         // nUp / nDown must each be >= 1.
-        CHECK_THROWS_AS(
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, 10000.0, 1e-9, good, 0, 1, 1.0}),
-            std::invalid_argument);
-        CHECK_THROWS_AS(
+            doctest::Contains("opAmpDiodeClipper nUp"), std::invalid_argument);
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, 10000.0, 1e-9, good, 1, 0, 1.0}),
-            std::invalid_argument);
+            doctest::Contains("opAmpDiodeClipper nDown"), std::invalid_argument);
         // Total population exceeds kMaxOpAmpClipperDiodes (= 4).
-        CHECK_THROWS_AS(
+        CHECK_THROWS_WITH_AS(
             opAmpDiodeClipper(
                 OpAmpDiodeClipperBom{1000.0, 10000.0, 1e-9, good, 3, 2, 1.0}),
-            std::invalid_argument);
+            doctest::Contains("exceeds kMaxOpAmpClipperDiodes"), std::invalid_argument);
     }
 }

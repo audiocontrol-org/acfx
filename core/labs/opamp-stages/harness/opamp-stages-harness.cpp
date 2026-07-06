@@ -232,28 +232,31 @@ bool runSymmetry() {
     std::puts("-- Symmetry: symmetric population odd; asymmetric shows DC offset --");
     bool ok = true;
     const DiodeSpec d = diodeSpec();
-    bool converged = true;
 
     ClipperSolver symP, symN, asymP, asymN;
+    bool convergedYP = true;
     const double yP = settleDc(
         symP, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 1, 1, v}); },
-        1.0, kDt, 20000, converged);
+        1.0, kDt, 20000, convergedYP);
+    bool convergedYN = true;
     const double yN = settleDc(
         symN, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 1, 1, v}); },
-        -1.0, kDt, 20000, converged);
+        -1.0, kDt, 20000, convergedYN);
     const double symOffset = std::fabs(yP + yN);
     report(symOffset < 1e-6, "symmetric (1:1): |y(+1)+y(-1)| ~ 0 (odd, no DC offset)", symOffset, 1e-6, ok);
 
+    bool convergedZP = true;
     const double zP = settleDc(
         asymP, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 2, 1, v}); },
-        1.0, kDt, 20000, converged);
+        1.0, kDt, 20000, convergedZP);
+    bool convergedZN = true;
     const double zN = settleDc(
         asymN, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 2, 1, v}); },
-        -1.0, kDt, 20000, converged);
+        -1.0, kDt, 20000, convergedZN);
     const double asymOffset = std::fabs(zP + zN);
     report(asymOffset > 1e-3, "asymmetric (2:1): |y(+1)+y(-1)| measurably > 0 (DC offset)", asymOffset, 1e-3, ok);
 
-    if (!converged) {
+    if (!(convergedYP && convergedYN && convergedZP && convergedZN)) {
         ok = false;
     }
     return ok;
@@ -307,15 +310,17 @@ bool runReactiveSignature() {
     const double fs = 1.0 / kDt;
     const std::array<double, 6> cfSweep{1.0e-9, 2.2e-9, 4.7e-9, 10.0e-9, 22.0e-9, 47.0e-9};
     std::array<double, kWindow> in{}, out{};
-    bool converged = true;
+    bool convergedAll = true;
 
     double prev = 1e300;
     bool mono = true;
     for (double Cf : cfSweep) {
         ClipperSolver solver;
+        bool converged = true;
         driveSine(
             solver, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, Cf, d, 1, 1, v}); },
             2.0, 1000.0, kDt, kWarmup, in, out, converged);
+        convergedAll = convergedAll && converged;
         const double hf = hfEnergyAbove(out, fs, 5000.0);
         if (!(hf < prev)) {
             mono = false;
@@ -323,7 +328,7 @@ bool runReactiveSignature() {
         prev = hf;
     }
     report(mono, "clipper: HF(>5kHz) strictly decreasing across ascending Cf sweep", mono ? 1.0 : 0.0, 1.0, ok);
-    if (!converged) {
+    if (!convergedAll) {
         ok = false;
     }
     return ok;

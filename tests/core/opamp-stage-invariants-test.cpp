@@ -97,26 +97,29 @@ TEST_CASE("OpAmpClipperSolver - symmetric population is odd-symmetric; asymmetri
     double maxAsymOffset = 0.0;
     for (double x = 0.25; x <= 3.0 + 1e-9; x += 0.25) {
         CAPTURE(x);
-        bool ok = true;
         ClipperSolver symP, symN, asymP, asymN;
 
+        bool okYP = true;
         const double yP = settleDc(
             symP, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 1, 1, v}); },
-            x, kDt, 20000, ok);
+            x, kDt, 20000, okYP);
+        bool okYN = true;
         const double yN = settleDc(
             symN, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 1, 1, v}); },
-            -x, kDt, 20000, ok);
+            -x, kDt, 20000, okYN);
         maxSymOffset = std::max(maxSymOffset, std::fabs(yP + yN));
 
+        bool okZP = true;
         const double zP = settleDc(
             asymP, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 2, 1, v}); },
-            x, kDt, 20000, ok);
+            x, kDt, 20000, okZP);
+        bool okZN = true;
         const double zN = settleDc(
             asymN, [&](double v) { return opAmpDiodeClipper(OpAmpDiodeClipperBom{kRin, kRf, kCf, d, 2, 1, v}); },
-            -x, kDt, 20000, ok);
+            -x, kDt, 20000, okZN);
         maxAsymOffset = std::max(maxAsymOffset, std::fabs(zP + zN));
 
-        REQUIRE(ok);
+        REQUIRE((okYP && okYN && okZP && okZN));
     }
 
     CHECK(maxSymOffset < 1e-6);   // odd symmetry: y(-x) = -y(x)
