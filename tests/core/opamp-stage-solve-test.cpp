@@ -265,3 +265,185 @@ TEST_CASE("OpAmpClipperSolver - starved iteration budget surfaces non-convergenc
 }
 
 // --- DC-limit bisection oracle test (T018) appended below ---
+
+// ===========================================================================
+// T018 (SC-002 rung c) — an INDEPENDENT DC-limit bisection oracle cross-checks
+// the OpAmpClipperSolver's settled steady-state output. The oracle never calls
+// the solver: it is derived straight from the Shockley diode law + KCL at the
+// op-amp's virtual-ground summing node and solved by its own bisection root
+// find. Agreeing to ~1e-6 across symmetric/asymmetric diode populations and a
+// span of drives (both polarities, into deep clipping) is what makes the
+// solver's diode-clipper answer trustworthy rather than merely self-consistent.
+//
+// PHYSICS OF THE ORACLE. The ideal op-amp (inPlus grounded) holds the inverting
+// input inMinus at virtual ground (0 V) and draws no input current, so ALL of
+// the input current returns through the feedback network. At DC the feedback
+// capacitor Cf is an open circuit and drops out. KCL at inMinus, taking every
+// current as flowing FROM its source node INTO inMinus:
+//
+//     vin/Rin  +  Ifeedback(Vout)  =  0
+//
+// where Ifeedback is the total current from the output node (at Vout) back to
+// the virtual ground through the parallel feedback legs Rf and the antiparallel
+// diode string (nUp forward diodes {out->inMinus}, nDown reverse {inMinus->out}
+// — each obeying the Shockley law I = Is*(exp(vAK/(n*Vt)) - 1)):
+//
+//     Ifeedback(Vout) = Vout/Rf
+//                     + nUp   * Is*(exp( Vout/(n*Vt)) - 1)   // forward diodes, vAK = +Vout
+//                     - nDown * Is*(exp(-Vout/(n*Vt)) - 1)   // reverse diodes, vAK = -Vout
+//
+// f(Vout) = vin/Rin + Ifeedback(Vout) is strictly increasing in Vout (Rf > 0
+// and every diode conductance is positive), so it has a unique root that a
+// sign-bracketed bisection converges to unconditionally — no derivative, no
+// Newton, nothing shared with the solver under test.
+namespace opamp_dc_oracle {
+
+// The scalar DC problem the oracle solves — deliberately a flat value struct so
+// the oracle math below reads as literal physics, independent of any builder or
+// solver type.
+struct ClipperDc {
+    double Rin;   // input resistor (ohm)
+    double Rf;    // feedback resistor (ohm)
+    double vin;   // DC drive amplitude (V)
+    double Is;    // diode reverse saturation current (A)
+    double n;     // diode ideality factor
+    double Vt;    // thermal voltage (V)
+    int nUp;      // forward feedback diodes {out -> inMinus}
+    int nDown;    // reverse feedback diodes {inMinus -> out}
+};
+
+// Total feedback current from the output node (at vout) back to virtual ground,
+// straight from the Shockley law — the independent restatement of the physics
+// the solver stamps as Norton companions. Never calls the solver.
+inline double feedbackCurrent(const ClipperDc& p, double vout) {
+    const double vte = p.n * p.Vt;  // junction scaling voltage n*Vt
+    const double resistive = vout / p.Rf;
+    const double forward = p.nUp * p.Is * (std::exp(vout / vte) - 1.0);
+    const double reverse = p.nDown * p.Is * (std::exp(-vout / vte) - 1.0);
+    return resistive + forward - reverse;
+}
+
+// The DC KCL residual f(vout) = vin/Rin + Ifeedback(vout). Its unique root is
+// the settled output voltage.
+inline double residual(const ClipperDc& p, double vout) {
+    return p.vin / p.Rin + feedbackCurrent(p, vout);
+}
+
+// Independent bisection root find. f is strictly increasing, so a bracket wide
+// enough to sign-straddle the root (physical outputs sit well inside +/-1 V for
+// silicon; +/-10 V keeps every exp argument finite in double — exp(10/0.02585)
+// = exp(~387) is far below the exp(~709) overflow edge) always contains it.
+inline double solve(const ClipperDc& p) {
+    double lo = -10.0;
+    double hi = 10.0;
+    const double flo = residual(p, lo);
+    const double fhi = residual(p, hi);
+    REQUIRE(flo < 0.0);  // monotone increasing: f(lo) < 0 < f(hi) brackets the root
+    REQUIRE(fhi > 0.0);
+    // ~50 halvings drives the bracket from 20 V to ~2e-14 V — far tighter than
+    // the 1e-6 cross-check tolerance and below the solver's 1e-9 voltage gate.
+    for (int i = 0; i < 200; ++i) {
+        const double mid = 0.5 * (lo + hi);
+        if (hi - lo < 1e-13) {
+            return mid;
+        }
+        if (residual(p, mid) > 0.0) {
+            hi = mid;  // root is left of mid
+        } else {
+            lo = mid;  // root is right of mid
+        }
+    }
+    return 0.5 * (lo + hi);
+}
+
+}  // namespace opamp_dc_oracle
+
+TEST_CASE("OpAmpClipperSolver - settled DC output matches independent bisection oracle (~1e-6)") {
+    using Solver =
+        OpAmpClipperSolver<4, 5 + kMaxOpAmpClipperDiodes, kMaxOpAmpClipperDiodes, 1>;
+
+    const DiodeSpec d = siliconSignalDiode();  // Is = 1e-14, n = 1, Vt = 25.85 mV
+    const double dt = 1.0e-5;
+
+    // A small feedback cap keeps the settling time constant short (Rf*Cf) so a
+    // bounded step budget reaches the DC limit; its VALUE is irrelevant to the
+    // steady state (Cf is open at DC) — only the fixed point matters here.
+    const double Cf = 1.0e-9;
+
+    // Symmetric and asymmetric diode populations across a span of drives: both
+    // polarities, from sub-threshold (0.05 V, barely clipping) through the knee
+    // to deep clipping (up to 10 V, hundreds of diode-drops of overdrive).
+    const struct {
+        double Rin, Rf, vin;
+        int nUp, nDown;
+    } cases[] = {
+        // Symmetric 1:1 — the canonical TS808 pair, both polarities, into deep clip.
+        {10000.0, 47000.0, 0.05, 1, 1},
+        {10000.0, 47000.0, -0.05, 1, 1},
+        {10000.0, 47000.0, 0.5, 1, 1},
+        {10000.0, 47000.0, -0.5, 1, 1},
+        {10000.0, 47000.0, 2.0, 1, 1},
+        {10000.0, 47000.0, -2.0, 1, 1},
+        {10000.0, 47000.0, 10.0, 1, 1},
+        {10000.0, 47000.0, -10.0, 1, 1},
+        // Symmetric 2:2 — a lower clamp, still balanced.
+        {4700.0, 100000.0, 3.0, 2, 2},
+        {4700.0, 100000.0, -3.0, 2, 2},
+        // Asymmetric 2:1 — DC-offset / even-harmonic populations, both polarities.
+        {10000.0, 47000.0, 1.0, 2, 1},
+        {10000.0, 47000.0, -1.0, 2, 1},
+        {10000.0, 47000.0, 5.0, 2, 1},
+        {10000.0, 47000.0, -5.0, 2, 1},
+        // Asymmetric 1:3 — the opposite skew.
+        {10000.0, 47000.0, 4.0, 1, 3},
+        {10000.0, 47000.0, -4.0, 1, 3},
+    };
+
+    double maxErr = 0.0;
+
+    for (const auto& c : cases) {
+        CAPTURE(c.vin);
+        CAPTURE(c.nUp);
+        CAPTURE(c.nDown);
+
+        const auto clip = opAmpDiodeClipper(
+            OpAmpDiodeClipperBom{c.Rin, c.Rf, Cf, d, c.nUp, c.nDown, c.vin});
+
+        // Drive the solver to DC steady state: step until the output stops
+        // moving (successive settled outputs agree to 1e-13) or the budget is
+        // spent. Every step must converge — a non-converged step would make the
+        // "settled" reading meaningless.
+        Solver solver;
+        solver.reset();
+
+        double vout = 0.0;
+        double prev = 0.0;
+        bool settled = false;
+        constexpr int kMaxSteps = 20000;
+        for (int step = 0; step < kMaxSteps; ++step) {
+            const NewtonStatus status = solver.step(clip.netlist, dt);
+            REQUIRE(status.converged);
+            vout = solver.voltage(clip.outNode);
+            if (step > 0 && std::fabs(vout - prev) < 1e-13) {
+                settled = true;
+                break;
+            }
+            prev = vout;
+        }
+        REQUIRE(settled);  // the DC limit was actually reached, not truncated
+
+        // Independent oracle for the SAME bill of materials — Shockley + KCL,
+        // solved by bisection, no solver involvement.
+        const opamp_dc_oracle::ClipperDc dc{c.Rin, c.Rf, c.vin, d.Is, d.n, d.Vt,
+                                            c.nUp, c.nDown};
+        const double oracleVout = opamp_dc_oracle::solve(dc);
+
+        const double err = std::fabs(vout - oracleVout);
+        maxErr = std::max(maxErr, err);
+        CHECK(err < 1e-6);
+    }
+
+    // A single guard on the worst case across the whole sweep, so a regression
+    // anywhere in the table trips this even if the per-case CHECKs were relaxed.
+    CHECK(maxErr < 1e-6);
+}
