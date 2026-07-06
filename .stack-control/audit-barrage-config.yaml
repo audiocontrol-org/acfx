@@ -1,0 +1,53 @@
+# Audit-barrage model battery — PROJECT OVERRIDE (wins over the plugin default).
+#
+# Operator decision (2026-07-06): REMOVE the sonnet lane. On this repo's
+# opamp-stages whole-feature govern, the claude (opus) and codex lanes COMPLETED
+# every chunk while sonnet TIMED OUT on all of them (fleet DEGRADED 2-of-3 every
+# round) — contributing no findings while adding ~7 min of per-chunk latency
+# waiting out its 420 s timeout. This override runs the two reliable lanes only.
+#
+# TRADE-OFF (read before relying on it): the fleet is now exactly 2 models, and
+# `stackctl govern --require-models` defaults to 2 — so BOTH lanes must produce
+# for a round to meet the floor. There is no redundancy: a transient claude OR
+# codex failure on a chunk drops that round below the floor. In practice both
+# were reliable here; if a lane starts flaking, re-add a third (a fresh sonnet
+# calibration, or the commented gemini lane in the plugin default) rather than
+# lowering --require-models to 1 (that would forfeit cross-model agreement, the
+# barrage's whole point).
+#
+# Lane fields are copied verbatim from the plugin default
+# (templates/audit-barrage-config.yaml, config grammar v2,
+# specs/014-audit-barrage-reliability) — calibrated values, do not hand-tune
+# without re-calibrating.
+
+models:
+  - name: claude
+    binary: claude
+    model: opus
+    # No-grounding single text-only pass (specs/029 US1): deny tools so the lane
+    # doesn't burn its budget on an unbounded read/grep grounding loop. codex is
+    # the deep file-grounding lane; claude is the fast cross-family text-diff lane.
+    args_template: "-p --model {{model}} --output-format stream-json --verbose {{prompt-stdin}}"
+    readonly_enforcement: "--disallowedTools Bash,Read,Grep,Glob,Edit,Write,WebFetch,WebSearch,Task,NotebookEdit"
+    output_mode: stream-json
+    liveness_signal: stdout
+    # 300 s window: the no-grounding pass only pulses bursty thinking_tokens
+    # (>60 s gaps would false-kill a tight window); 300 s clears the ~170-233 s
+    # healthy completion yet stays under the 420 s timeout so a true hang is caught.
+    liveness_window_seconds: 300
+    timeout_floor_seconds: 420
+    timeout_secs_per_kb: 13
+  - name: codex
+    binary: codex
+    model: gpt-5.5
+    # Reasoning-summary liveness (specs/029 US1): model_reasoning_summary=detailed
+    # makes codex pulse stderr DURING its long silent reasoning, so a tight 60 s
+    # watchdog window gets genuine sign-of-life. Bare key=value (no quotes): the
+    # value travels as a literal argv element (programmatic spawn, no shell).
+    args_template: "exec -m {{model}} -c model_reasoning_summary=detailed --sandbox read-only {{prompt-stdin}}"
+    readonly_enforcement: "--sandbox read-only"
+    output_mode: text
+    liveness_signal: stderr
+    liveness_window_seconds: 60
+    timeout_floor_seconds: 300
+    timeout_secs_per_kb: 7
