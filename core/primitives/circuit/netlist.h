@@ -51,17 +51,24 @@
 
 namespace acfx {
 
-// The two terminal nodes of a component, regardless of element kind. Every v1
-// element is two-terminal, but the field names differ (a/b, p/n,
+// The two terminal nodes of a component, regardless of element kind. Every
+// passive/source element is two-terminal, but the field names differ (a/b, p/n,
 // anode/cathode); this normalizes them so topology validation can treat any
 // Component uniformly. Used by prepare() for both the missing-ground scan and
 // the floating-node connectivity build. No allocation, no throw.
+//
+// OpAmp is a three-terminal nullor but reports only its INPUT pair
+// {inPlus, inMinus} here — the two terminals the virtual-short constraint spans
+// (opamp.h; research R1). Its `out` terminal is the norator-driven output,
+// reported by the solver's bordered augmentation (research R2) rather than as a
+// passive two-terminal edge, so it is deliberately not surfaced by terminalsOf.
 inline std::pair<NodeId, NodeId> terminalsOf(const Component& c) noexcept {
     if (const auto* r = std::get_if<Resistor>(&c)) return {r->a, r->b};
     if (const auto* cap = std::get_if<Capacitor>(&c)) return {cap->a, cap->b};
     if (const auto* l = std::get_if<Inductor>(&c)) return {l->a, l->b};
     if (const auto* v = std::get_if<VoltageSource>(&c)) return {v->p, v->n};
     if (const auto* i = std::get_if<CurrentSource>(&c)) return {i->p, i->n};
+    if (const auto* op = std::get_if<OpAmp>(&c)) return {op->inPlus, op->inMinus};
     const auto& d = std::get<Diode>(c);
     return {d.anode, d.cathode};
 }
@@ -73,9 +80,15 @@ inline std::pair<NodeId, NodeId> terminalsOf(const Component& c) noexcept {
 //   - Inductor      -> dt/L   (companion conductance)
 //   - Capacitor     -> C/dt   (companion conductance)
 //   - VoltageSource -> pins its two nodes together
-// CurrentSource and Diode are deliberately EXCLUDED: a current source into an
-// otherwise-isolated node, or a lone reverse-biased diode, does not guarantee
-// a DC/operating path, so neither counts toward reachability to ground.
+// CurrentSource, Diode, and OpAmp are deliberately EXCLUDED: a current source
+// into an otherwise-isolated node, a lone reverse-biased diode, or an op-amp
+// output does not guarantee a DC/operating path, so none counts toward
+// reachability to ground. For the OpAmp specifically, the output terminal is
+// norator-driven and provides no passive conductance; the feedback network
+// supplies reachability (research R5). This nodal scan is only a fast,
+// conservative PRE-FILTER: once the system is bordered with nullor constraint
+// rows, the AUTHORITATIVE well-posedness gate is the non-singularity of the
+// augmented system at solve time (research R2/R5), not this connectivity check.
 inline bool contributesConductivePath(const Component& c) noexcept {
     return std::holds_alternative<Resistor>(c) ||
            std::holds_alternative<Inductor>(c) ||
