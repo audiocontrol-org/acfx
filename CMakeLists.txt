@@ -126,6 +126,16 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   target_link_libraries(acfx_lab_passive_tone_stacks_harness PRIVATE acfx_core)
   target_compile_features(acfx_lab_passive_tone_stacks_harness PRIVATE cxx_std_20)
 
+  # Diode-clippers lab harness — mirrors acfx_lab_passive_tone_stacks_harness
+  # exactly (same linkage and feature). Drives the bounded transient nonlinear
+  # solver over the diode-clipper netlists the primitive builds; prints PASS/FAIL
+  # (RC recurrence + DC-limit oracle + assembled invariants + non-convergence).
+  add_executable(acfx_lab_diode_clippers_harness
+    core/labs/diode-clippers/harness/diode-clippers-harness.cpp
+  )
+  target_link_libraries(acfx_lab_diode_clippers_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_diode_clippers_harness PRIVATE cxx_std_20)
+
   # Waveshaping lab harness — mirrors acfx_lab_svf_harness exactly (same
   # linkage and feature). The harness is a required, completed deliverable;
   # a missing source file should fail configure, not silently drop the target.

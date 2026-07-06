@@ -25,9 +25,9 @@ Tests are **included** — the spec mandates two validation tiers (Tier-1 primit
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Create the primitive subfolder `core/primitives/circuit/diode-clipper/` and the lab tree `core/labs/diode-clippers/{solver,harness}/` (empty placeholders to be filled by later tasks).
-- [ ] T002 [P] Register the two new host tests (`diode-clipper-builder-test.cpp`, `diode-clipper-transient-test.cpp`) in `tests/CMakeLists.txt`, and add the lab harness target `acfx_lab_diode_clippers_harness` (source `core/labs/diode-clippers/harness/diode-clippers-harness.cpp`, C++20) in the root `CMakeLists.txt`, mirroring the `component-abstractions` / `passive-tone-stacks` lab-harness registration.
-- [ ] T003 [P] Write the lab boundary note `core/labs/diode-clippers/README.md` (host-only, non-normative, **bounded transient — not MNA**, single-port single-nonlinearity, isolation guarantee) — mirrors `core/labs/component-abstractions/README.md` and `core/labs/passive-tone-stacks/README.md`.
+- [X] T001 Create the primitive subfolder `core/primitives/circuit/diode-clipper/` and the lab tree `core/labs/diode-clippers/{solver,harness}/` (empty placeholders to be filled by later tasks).
+- [X] T002 [P] Register the two new host tests (`diode-clipper-builder-test.cpp`, `diode-clipper-transient-test.cpp`) in `tests/CMakeLists.txt`, and add the lab harness target `acfx_lab_diode_clippers_harness` (source `core/labs/diode-clippers/harness/diode-clippers-harness.cpp`, C++20) in the root `CMakeLists.txt`, mirroring the `component-abstractions` / `passive-tone-stacks` lab-harness registration.
+- [X] T003 [P] Write the lab boundary note `core/labs/diode-clippers/README.md` (host-only, non-normative, **bounded transient — not MNA**, single-port single-nonlinearity, isolation guarantee) — mirrors `core/labs/component-abstractions/README.md` and `core/labs/passive-tone-stacks/README.md`.
 
 ---
 

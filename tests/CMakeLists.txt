@@ -183,6 +183,14 @@ add_executable(acfx_core_tests
   core/tone-stack-taper-test.cpp
   core/tone-stack-builder-test.cpp
   core/tone-stack-ac-test.cpp
+  # ---------------------------------------------------------------------------
+  # Diode-clippers test suites (diode-clippers feature): T002 registration;
+  # story tasks fill assertions. Tier-1 (no solver): builder topology / counts /
+  # frozen vocabulary. Tier-2 (lab transient solver): RC recurrence + DC-limit
+  # oracle + assembled invariants + non-convergence.
+  # ---------------------------------------------------------------------------
+  core/diode-clipper-builder-test.cpp
+  core/diode-clipper-transient-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
