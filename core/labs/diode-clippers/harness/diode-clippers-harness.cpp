@@ -163,6 +163,7 @@ bool runLinearRc() {
     nl.prepare();
 
     TransientClipper<8, 8> solver;
+    solver.reset();  // explicit cold start (match the helper-mediated paths)
     const double alpha = kDt / (kDt + R * C);
     double vAnalytic = 0.0, maxErr = 0.0;
     for (int step = 0; step < 2000; ++step) {
@@ -336,6 +337,7 @@ bool runNonConvergence() {
     const DiodeSpec d = diodeSpec();
 
     TransientClipper<4, 8> starved(/*maxIterations=*/1);
+    starved.reset();  // explicit cold start (match the helper-mediated paths)
     const auto clip = symmetricShuntClipper(SymmetricShuntValues{2200.0, 10.0e-9, d}, 5.0);
     const auto status = starved.step(clip.netlist, kDt);
     report(!status.converged, "starved budget: converged == false is reported",

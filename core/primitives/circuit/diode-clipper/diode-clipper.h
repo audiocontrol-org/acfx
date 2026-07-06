@@ -135,8 +135,13 @@ inline AsymmetricShuntClipper asymmetricShuntClipper(const AsymmetricShuntValues
 // ---------------------------------------------------------------------------
 // seriesClipper (FR-003) — Vin → input coupling Cc (series) → n1; `seriesCount`
 // inline Diode{n1,n2}; R n2 → gnd. The coupling cap blocks DC (output → 0 at
-// DC). Output n2; port (n1, n2). All inline diodes span the same port node pair
-// (n1, n2), summing at that single nonlinearity location.
+// DC). Output n2; port (n1, n2). "Series" here means the diodes sit in the
+// series SIGNAL PATH (ahead of the shunt-to-ground R), NOT a node-chain of
+// diodes with intermediate nodes: all `seriesCount` diodes span the SAME port
+// node pair (n1, n2), summing their current at that single nonlinearity
+// location (FR-012). A node-chain would create distinct node pairs — a second
+// interacting nonlinearity the bounded transient solver deliberately refuses
+// (deferred to Phase 5).
 // ---------------------------------------------------------------------------
 inline SeriesClipper seriesClipper(const SeriesValues& v, double vIn = 0.0) {
     detail::requirePositive(v.Cc, "seriesClipper Cc");

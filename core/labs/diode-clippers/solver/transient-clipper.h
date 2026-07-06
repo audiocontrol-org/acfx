@@ -76,8 +76,16 @@ public:
     static_assert(MaxComponents > 0, "TransientClipper requires MaxComponents >= 1");
     static_assert(MaxDiodes > 0, "TransientClipper requires MaxDiodes >= 1");
 
-    // Iteration bound N and convergence tolerances are exposed (research R4):
-    // tune them against the harness, not the architecture; do not silently
+    // Convergence gates on the VOLTAGE residual only: |Δv| < voltageTol
+    // (research R4). The current tolerance is NOT a gate — it is a validated
+    // diagnostic bound carried for signature-parity with the static NewtonClipper
+    // and reported alongside currentResidual for a harness/caller to inspect.
+    // Gating on the current residual would be wrong here: a diode's
+    // reverse-saturation current residual can sit above any fixed currentTol even
+    // at a fully settled voltage, so a current gate would spuriously reject a
+    // converged solve (the static NewtonClipper documents the same rationale).
+    // currentTol is still validated > 0 so a caller cannot pass a meaningless
+    // non-positive bound. Tune N / voltageTol against the harness, never silently
     // retune to hide a non-converging case (FR-011).
     explicit TransientClipper(int maxIterations = 50,
                               double voltageTol = 1e-9,
@@ -158,6 +166,9 @@ public:
             status.currentResidual = di;
 
             if (dv < voltageTol_) {
+                // Voltage-only gate (research R4). currentResidual (di) is
+                // reported, not gated on — see the ctor doc for why a current
+                // gate would spuriously reject a settled solve.
                 status.converged = true;
                 break;
             }

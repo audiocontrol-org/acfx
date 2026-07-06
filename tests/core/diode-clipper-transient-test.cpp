@@ -104,6 +104,7 @@ TEST_CASE("TransientClipper - linear RC matches the analytic BE recurrence (~1e-
     nl.prepare();
 
     TransientClipper<8, 8> solver;
+    solver.reset();  // explicit cold start (do not rely on construction-zeroes-history)
 
     const double alpha = dt / (dt + R * C);
     double vAnalytic = 0.0;
@@ -272,6 +273,7 @@ TEST_CASE("TransientClipper - starved iteration budget surfaces non-convergence"
     // A single-iteration budget against a hard cold-start step into deep
     // clipping cannot settle |Δv| < voltageTol in one step.
     TransientClipper<4, 8> starved(/*maxIterations=*/1);
+    starved.reset();  // explicit cold start (do not rely on construction-zeroes-history)
     const auto clip = symmetricShuntClipper(SymmetricShuntValues{R, Cf, d}, 5.0);
 
     const NewtonStatus s = starved.step(clip.netlist, dt);

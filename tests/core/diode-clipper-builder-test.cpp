@@ -66,6 +66,17 @@ int diodeCount(const acfx::Netlist<N, M>& nl) {
 
 // Every diode must span the reported clipper port node pair (in either
 // orientation) — the port IS the diode-string node pair (FR guarantees 3).
+//
+// This is the correct invariant for ALL three topologies, series included:
+// FR-012 bounds the solver to a SINGLE nonlinearity LOCATION — one node pair
+// carrying the whole diode string (up to MaxDiodes diodes summing at that pair).
+// The series exemplar's "in series" means in the series SIGNAL PATH (ahead of
+// the shunt-to-ground R), NOT a node-chain of diodes with intermediate nodes: a
+// chain would place diodes on DISTINCT node pairs, i.e. a second interacting
+// nonlinearity the transient solver deliberately refuses (a Phase-5 subject).
+// So seriesCount > 1 stacks diodes across the same (portP, portN) pair, and this
+// helper's same-pair requirement is exactly the in-scope guarantee, not a
+// mistaken parallel-vs-series conflation.
 template <int N, int M>
 bool everyDiodeSpansPort(const acfx::Netlist<N, M>& nl, NodeId portP, NodeId portN) {
     for (const Component& c : nl.components()) {
@@ -113,6 +124,25 @@ TEST_CASE("symmetricShuntClipper - prepare()-valid topology with matching counts
     CHECK(clip.portN == kGround);
     CHECK(everyDiodeSpansPort(clip.netlist, clip.portP, clip.portN));
     CHECK(clip.inNode != clip.outNode);
+
+    // The defining property of a SYMMETRIC clipper is that the pair is genuinely
+    // ANTIPARALLEL (one anode-up, one anode-down) — not two same-orientation
+    // diodes (a parallel half-wave rectifier), which everyDiodeSpansPort alone
+    // would also accept. Assert exactly one diode has anode==portP and exactly
+    // one has cathode==portP (mirrors the up/down count of the asymmetric case).
+    int anodeAtPort = 0, cathodeAtPort = 0;
+    for (const Component& c : clip.netlist.components()) {
+        if (const auto* dd = std::get_if<Diode>(&c)) {
+            if (dd->anode == clip.portP) {
+                ++anodeAtPort;
+            }
+            if (dd->cathode == clip.portP) {
+                ++cathodeAtPort;
+            }
+        }
+    }
+    CHECK(anodeAtPort == 1);
+    CHECK(cathodeAtPort == 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,11 +200,17 @@ TEST_CASE("seriesClipper - inline topology, port is the diode node pair") {
     CHECK(everyDiodeSpansPort(clip.netlist, clip.portP, clip.portN));
 }
 
-TEST_CASE("seriesClipper - seriesCount=2 adds a second inline diode") {
+TEST_CASE("seriesClipper - seriesCount=2 stacks a second diode on the SAME port pair") {
     const auto clip = seriesClipper(seriesValues(2));
     CHECK(clip.netlist.componentCount() == 5);  // Vin, Cc, 2 diodes, R
     CHECK(diodeCount(clip.netlist) == 2);
+    // Both diodes span the SAME (portP, portN) pair — no intermediate node. This
+    // is the FR-012 single-nonlinearity-location scope, not a node-chain: the two
+    // diodes sum their current at the one clipper port (as the antiparallel pair
+    // does), which is exactly what the transient solver's single-port Newton
+    // handles. A true series node-chain is out of scope (see everyDiodeSpansPort).
     CHECK(everyDiodeSpansPort(clip.netlist, clip.portP, clip.portN));
+    CHECK(clip.netlist.nodeCount() == 4);  // ground, in, n1, n2 — no extra node added
 }
 
 // ---------------------------------------------------------------------------
