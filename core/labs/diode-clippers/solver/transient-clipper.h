@@ -132,6 +132,30 @@ public:
 
         collectPort(nl);  // records the single port + its diodes; validates scope
 
+        // Augmented-capacity guard (builder-output scope, FR-010). buildAugmented
+        // replaces each reactive element AND each diode with a 2-component Norton
+        // companion, so the augmented count is componentCount + reactiveCount +
+        // diodeCount. The AugNetlist capacity MaxComponents + 2*MaxDiodes is sized
+        // for the diode-clipper builder outputs (a single reactive cluster + up to
+        // MaxDiodes diodes on one port) — provably within capacity there. A GENERIC
+        // reactive-heavy netlist (many capacitors/inductors, MaxComponents beyond
+        // 2*MaxDiodes) could exceed it; fail loud HERE with a descriptive message
+        // rather than let a later Netlist::add surface the generic capacity error.
+        constexpr int kAugCapacity = MaxComponents + 2 * MaxDiodes;
+        const int projectedAug = nl.componentCount() + reactiveCount_ + diodeCount_;
+        if (projectedAug > kAugCapacity) {
+            throw std::runtime_error(
+                "transient-clipper: augmented netlist would exceed capacity "
+                "(componentCount + reactiveCount + diodeCount = " +
+                std::to_string(projectedAug) + " > MaxComponents + 2*MaxDiodes = " +
+                std::to_string(kAugCapacity) +
+                ") — each reactive element and diode expands to a 2-component "
+                "companion. This solver is sized for the diode-clipper builder "
+                "outputs (one reactive cluster + <= MaxDiodes diodes on one port); "
+                "a reactive-heavy netlist needs a larger MaxDiodes or the Phase-5 "
+                "general engine.");
+        }
+
         double v = warmStart_;
         NewtonStatus status;
         double prevCurrent = totalDiodeCurrent(v);
@@ -203,8 +227,15 @@ public:
 
 private:
     // The augmented, fully-linear netlist handed to LinearSolver: each reactive
-    // element AND each diode contributes a Resistor + CurrentSource companion, so
-    // the worst case is the original slots plus 2 per diode.
+    // element AND each diode is replaced by a Resistor + CurrentSource Norton
+    // companion (2 slots each), while linear elements stay 1:1 — so the augmented
+    // count is componentCount + reactiveCount + diodeCount. The capacity
+    // MaxComponents + 2*MaxDiodes (FR-010) covers the diode-clipper BUILDER
+    // OUTPUTS, where the single reactive cluster (one Cf or Cc) plus <= MaxDiodes
+    // port diodes fit with headroom. It is NOT worst-case sizing for an arbitrary
+    // reactive-heavy netlist (that would need componentCount + reactiveCount +
+    // diodeCount slots, up to 2*MaxComponents); the step() guard rejects such a
+    // netlist loudly and descriptively rather than overflow silently.
     using AugNetlist = Netlist<MaxNodes, MaxComponents + 2 * MaxDiodes>;
 
     // One diode of the clipper string with its orientation relative to the port
@@ -221,12 +252,16 @@ private:
     // diodeCount_ == 0, no port.
     void collectPort(const Netlist<MaxNodes, MaxComponents>& nl) {
         diodeCount_ = 0;
+        reactiveCount_ = 0;
         portP_ = kGround;
         portN_ = kGround;
         bool portSet = false;
 
         const auto comps = nl.components();
         for (std::size_t i = 0; i < comps.size(); ++i) {
+            if (isReactive(comps[i])) {
+                ++reactiveCount_;  // each expands to a 2-component companion below
+            }
             const auto* d = std::get_if<Diode>(&comps[i]);
             if (d == nullptr) {
                 continue;
@@ -388,6 +423,7 @@ private:
     NodeId portN_ = kGround;
     std::array<PortDiode, static_cast<std::size_t>(MaxDiodes)> diodes_{};
     int diodeCount_ = 0;
+    int reactiveCount_ = 0;  // reactive elements in the last-seen netlist (each → 2 aug slots)
 
     // Reactive companion history owned by this solver (loop-separation):
     //   prevNodeVoltage_ — previous solved node voltages (capacitor vPrev source).

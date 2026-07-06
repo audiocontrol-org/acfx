@@ -250,6 +250,28 @@ TEST_CASE("TransientClipper - second nonlinearity at a distinct node pair is ref
     CHECK_THROWS_AS(solver.step(nl, dt), std::runtime_error);
 }
 
+TEST_CASE("TransientClipper - reactive-heavy netlist beyond augmented capacity throws") {
+    // The augmented capacity (MaxComponents + 2*MaxDiodes) is sized for the
+    // diode-clipper builder outputs (one reactive cluster + <= MaxDiodes port
+    // diodes). A GENERIC reactive-heavy netlist expands past it (each reactive
+    // element and diode → a 2-component companion): here MaxComponents=12,
+    // MaxDiodes=2 (capacity 16), driven with 10 shunt capacitors → projected
+    // augmented = 12 + 10 + 0 = 22 > 16. The solver must fail LOUD and
+    // descriptively at the capacity guard, not overflow silently.
+    Netlist<8, 12> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+    nl.add(VoltageSource{n1, kGround, 1.0});
+    nl.add(Resistor{n1, n2, 1000.0});
+    for (int i = 0; i < 10; ++i) {
+        nl.add(Capacitor{n2, kGround, 1.0e-9});
+    }
+    nl.prepare();  // conductive (caps + R to ground) — a valid netlist
+
+    TransientClipper<8, 12, 2> solver;
+    CHECK_THROWS_AS(solver.step(nl, 1.0e-5), std::runtime_error);
+}
+
 TEST_CASE("TransientClipper - dt <= 0 throws std::invalid_argument") {
     const auto clip = symmetricShuntClipper(
         SymmetricShuntValues{2200.0, 10.0e-9, diodeSpec()}, 1.0);
