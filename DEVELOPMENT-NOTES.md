@@ -2,6 +2,81 @@
 
 ---
 
+## 2026-07-06: diode-clippers — runnable spec → implemented, governed, PR-open
+
+**Goal:** Drive `design:feature/diode-clippers` through `/stack-control:execute` from the runnable spec to shipped-ready — implement all 22 tasks via native `/speckit-implement` (front-door mediated), run the whole-feature govern-at-end to convergence, then open a PR (merge held for operator review).
+
+**Accomplished:**
+- **All 22 tasks implemented, committed/pushed phase-by-phase.** US1 — three solver-neutral builders (`symmetricShuntClipper` / `asymmetricShuntClipper` / `seriesClipper`) + `clipper-config.h` vocabulary, composing only the frozen `component-abstractions` types into `prepare()`-valid netlists (topology only; Tier-1: 9 cases). US2 — `TransientClipper<MaxNodes,MaxComponents,MaxDiodes=4>` with the separated timestep/Newton loop (reactive companions computed once/step from held history, held fixed across Newton, history advanced once & only on convergence) — the reactive+nonlinear case the static `NewtonClipper` refuses; proven exact on a linear-RC BE recurrence (~1e-9) and each clipper's DC limit vs an independent bisection oracle + the static curve (~1e-6). US3 — assembled invariants (symmetry / saturation / passivity / the `Cf`→HF reactive signature) + host harness. Polish — isolation / no-heap / hygiene audits clean.
+- **Govern converged.** Four whole-feature cross-model audit-barrage rounds surfaced and resolved **9 findings**: round-1 doc/test-guard nits; round-2 the substantive convergence-trust set (non-converged history advance; tests/harness discarding `NewtonStatus`; series parallel-vs-chain); round-3 orientation docs; round-4 zero new. Recorded operator-approved `--override` → `terminal-outcome=graduated`.
+- **PR #18 opened** (`diode-clippers` → `main`), merge held for operator review. Addressed a third-party review comment (augmented-netlist capacity scope) with an explicit doc + a descriptive pre-flight guard + a new Tier-2 test. Final: Tier-1+Tier-2 13 cases / 2202 assertions green; harness ALL CHECKS PASSED.
+
+**Didn't Work:**
+- **The govern audit-barrage's sonnet lane consistently timed out** on ~half the chunks (fleet DEGRADED 2-of-3; `require-models 2` floor still met by claude+codex). So round 4 reached 0 findings but the clean round was computed over a degraded fleet — `terminal-outcome=blocked` on the degraded-fleet caveat alone, requiring an operator `--override` to graduate an otherwise-clean feature. Captured as tooling friction.
+- The 3 pre-existing order-dependent flakes (compressor-sidechain / PDS-presets / saturation-voicings) surfaced in the full `acfx_core_tests` run again — verified innocent of this feature via the test-TU-unregister check (TASK-10).
+
+**Course Corrections:**
+- **codex re-raised the series-topology finding (AUDIT-03 → AUDIT-07)** — my first disposition (invariant-first comment) didn't hold. Investigating properly revealed a true multi-diode series chain is *impossible* here: a diode-only intermediate node floats and `prepare()` rejects it (verified with a scratch program). So restricted v1 `seriesClipper` to `seriesCount == 1` (descriptive throw otherwise) rather than ship electrically-misleading parallel-stacked diodes — the re-raise forced a correct, honest scoping.
+- **Applied the convergence-trust fixes as a channel, not point-fixes:** AUDIT-05/06/08 all stemmed from "a non-converged iterate treated as trustworthy" — fixed the solver (gate state-advance on convergence), the test helpers, AND the harness (a `gConverged` tracker reported per check), plus the sibling raw-loop instances the finding didn't name.
+- Kept the FR-010 `MaxComponents + 2*MaxDiodes` augmented sizing under review pressure (pushed back on resizing) — it's spec-mandated and identical for the real instantiations; added a guard + doc instead of deviating.
+
+**Insights:**
+- The govern loop's value showed in round 2: the convergence-trust findings (tests/harness reading stale non-converged iterates under loose bounds) were real false-green risks a single-pass review would miss — the cross-model barrage earned its keep even with the sonnet lane degraded.
+- A re-raised finding is a signal the *disposition* was wrong, not that the auditor is stubborn — chasing AUDIT-07 to the `prepare()` floating-node root produced a better design (single-diode v1) than either the original impl or the reviewer's suggestion.
+- `--diff-base <parent-of-first-feature-commit>` is essential for whole-feature govern — the default `HEAD~1` would audit only the last commit. Worth making the execute skill state this explicitly.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 9
+  - review(diode-clippers): document + guard augmented-netlist capacity scope (PR #18)
+  - fix(diode-clippers): clarify asymmetric diode-orientation docs (AUDIT-20260706-09)
+  - fix(diode-clippers): address round-2 govern findings (AUDIT-20260706-05..08)
+  - fix(diode-clippers): address end-govern findings (AUDIT-20260706-01..04)
+  - chore(diode-clippers): Polish — isolation, no-heap, hygiene audits (T020-T022)
+  - feat(diode-clippers): US3 assembled-clipper invariants + harness (T016-T019)
+  - feat(diode-clippers): US2 transient nonlinear solver + Tier-2 sanity (T011-T015)
+  - feat(diode-clippers): US1 solver-neutral builders + Tier-1 topology test (T004-T010)
+  - setup(diode-clippers): scaffold dirs, CMake registration, lab README (T001-T003)
+- Files changed: 12
+- Backlog touched: TASK-10
+
+## 2026-07-05: diode-clippers — design → runnable spec (Phase-4 third feature deliverable)
+
+**Goal:** Take up `design:feature/diode-clippers` and drive it through the stack-control front door from `planned` to a runnable spec — the designing phase (`/stack-control:design` → brainstorming) and the full specifying chain (`/stack-control:define` → native Spec Kit specify → clarify → plan → tasks → analyze) — stopping at the implementing boundary (`/stack-control:execute` is the operator's next, billable move).
+
+**Accomplished:**
+- **Designing phase:** design record `docs/superpowers/specs/2026-07-04-diode-clippers-design.md`, written mirroring the shipped `passive-tone-stacks` shape (solver-neutral builders + host-only non-normative lab, no realtime effect). Reviewed twice, `design-approved` recorded, design-to-spec gate 7/7.
+- **Specifying chain (each `/speckit-*` step front-door-mediated via `stackctl front-door enter/exit`):** `spec.md` (3 user stories, FR-001..020, SC-001..008) → clarify (OQ3 reactive-signature test, OQ5 series coupling-cap) → `plan.md` (Constitution Check 11/11) + research/data-model/2 contracts/quickstart → `tasks.md` (22 tasks, US1 builders / US2 transient solver / US3 invariants) → analyze (0 CRITICAL/HIGH). `spec:` pointer set, `analyze-clean` recorded. Phase now `implementing`.
+- **The feature's shape:** three generic clipper builders (symmetric shunt, asymmetric shunt, series) + a bounded **transient** nonlinear lab solver (`TransientClipper<MaxNodes,MaxComponents,MaxDiodes=4>`) whose load-bearing idea is **separating the timestep loop from the Newton loop** — the fix for the reactive+nonlinear case `component-abstractions`' static solver deliberately refused. Validation mirrors tone-stacks: prove the solver exact first (analytic RC + independent bisection DC-limit oracle), then assembled invariants incl. the pinned `Cf`→HF reactive signature.
+
+**Didn't Work:**
+- The `after_plan` agent-context hook (`update-agent-context.sh`) failed — **PyYAML missing** in the env — so it never updated the CLAUDE.md SPECKIT marker; worked around by editing the marker manually. Captured as tooling friction.
+- `check-prerequisites.sh` (speckit) rejects the **descriptive branch name** `diode-clippers` (wants numeric/timestamp prefixes) — the documented TF-09, in direct tension with acfx Commandment 3. `/speckit-analyze`'s own prereq call errored; completed the analysis on the `feature.json`-resolved paths manually. Captured as friction.
+
+**Course Corrections:**
+- **Operator reversed the review's scope-narrowing.** My folded-in design review had proposed shipping two shunt exemplars first and deferring series; the operator rejected that ("scope-narrowing about shipping stuff later is not pertinent here"). Reverted to all three exemplars in v1 — the solver bound stays narrow, the deliverable's topology coverage does not. Recorded the reversal honestly in the design record's provenance.
+- **`/speckit-analyze` caught my own over-claim (I1).** SC-005/FR-017 asserted the reactive signature "for each clipper," but the series clipper has an input *coupling* cap (high-pass), not a filter `Cf` across the diodes. Scoped the invariant to the two shunt clippers in spec + tasks so they agree exactly.
+- Two design-frontend calls the operator delegated ("i don't know" / "you decide"): the three-exemplar count and the solver's history-separation structure — decided with reasoning recorded in the design record, then validated by the operator.
+
+**Insights:**
+- Mirroring the immediately-prior sibling (`passive-tone-stacks`) end-to-end — module split, two-tier tests + harness, prove-solver-exact-first-then-invariants, the load-bearing-boundary README — made every artifact fast to author and internally consistent; the sibling is the best available spec/plan/tasks template.
+- The genuine increment over the already-shipped static single-diode clipper is the **reactive** dimension, and the whole design turns on one mechanism (timestep/Newton loop separation) — naming that crux early kept the lab solver bounded (single-port, non-MNA) instead of drifting toward Phase-5.
+- The front-door mediation (`enter`→drive `/speckit-*`→`exit`, literal token carried across separate Bash calls) worked cleanly per step; bracketing each mediated drive individually (rather than one marker for the whole chain) kept the window tight against staleness.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 10
+  - workflow(diode-clippers): set spec pointer + analyze-clean marker (specifying complete)
+  - spec(diode-clippers): scope reactive-signature invariant to shunt clippers (analyze I1)
+  - tasks(diode-clippers): dependency-ordered tasks.md (22 tasks, US1/US2/US3)
+  - plan(diode-clippers): implementation plan + Phase-0/1 artifacts
+  - spec(diode-clippers): clarify OQ3 reactive-signature test + OQ5 series cap placement
+  - spec(diode-clippers): author feature spec from approved design record
+  - workflow(diode-clippers): record design-approved marker (design-to-spec gate met)
+  - design(diode-clippers): ship all three exemplars — reverse ship-later narrowing
+  - design(diode-clippers): fold in operator design review — narrow the lab solver
+  - design(diode-clippers): design record — mirror tone-stacks, transient reactive lab solver
+- Files changed: 13
+- Backlog touched: (none)
+
 ## 2026-07-04: component-abstractions — full lifecycle (design → ship PR) for the Phase-4 circuit-element vocabulary
 
 **Goal:** Take up `design:primitive/component-abstractions` (first deliverable of Phase 4, Circuit Modeling) and drive it end-to-end through the stack-control lifecycle — design, spec, plan, tasks, analyze, implement, govern, and open the ship PR — building the solver-neutral typed vocabulary that Phase-4 deliverables assemble and Phase-5 MNA / Phase-6 WDF later adapt.

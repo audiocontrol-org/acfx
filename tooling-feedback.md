@@ -41,3 +41,10 @@
 
 ## session-end 2026-07-04
 - govern --mode implement FATALs on the 24576-byte per-file envelope when a touched file exceeds it, even for legitimately-large NON-code files (spec.md 26KB; the shared scripts/check-portability.sh 27.6KB, which every feature grows). It refuses to hunk-split and blocks the whole barrage. No path-exclude/doc-skip flag exists; the only terminal is operator --override. A code file that large is a real smell, but a spec doc and a shared gate script are not.
+
+## session-end 2026-07-05
+- after_plan agent-context hook (.specify/extensions/agent-context/scripts/bash/update-agent-context.sh) fails: 'PyYAML is required to parse extension config but is not available' — the CLAUDE.md SPECKIT marker was not updated by the hook; worked around by editing the marker manually. PyYAML missing in the python3 env used by the speckit agent-context extension.
+- check-prerequisites.sh (speckit) rejects the descriptive branch name 'diode-clippers' (expects NNN-/timestamp- numeric prefixes) — TF-09. Conflicts with acfx Commandment 3 (descriptive names, no numeric prefixes). Spec dir resolves fine via .specify/feature.json + CLAUDE.md marker, so /speckit-clarify and /speckit-analyze proceeded, but analyze's own check-prerequisites call errored and I completed the analysis on the resolved paths manually.
+
+## session-end 2026-07-06
+- govern audit-barrage sonnet lane times out on ~half the chunks in the acfx sandbox (fleet DEGRADED 2-of-3; require-models=2 met by claude+codex). 4 rounds each reconciled to a verdict but the final clean round was degraded-fleet, forcing an operator --override to graduate an otherwise 0-finding feature. The 030 chunked govern-at-end DOES complete now (no longer killed mid-run).
