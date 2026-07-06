@@ -1,11 +1,14 @@
 #include <doctest/doctest.h>
 
+#include <stdexcept>
 #include <utility>
 #include <variant>
 
 #include "primitives/circuit/components.h"
 #include "primitives/circuit/netlist.h"
 #include "primitives/circuit/node.h"
+#include "primitives/circuit/opamp-stage/opamp-config.h"
+#include "primitives/circuit/opamp-stage/opamp-stage.h"
 
 // Tier-1 suite for the opamp-stage primitive.
 //
@@ -16,17 +19,32 @@
 // Netlist — before any builder or solver is written. Builder/topology tests are
 // appended by later tasks (see the marker at the end of this file).
 
+using acfx::Capacitor;
 using acfx::Component;
+using acfx::Diode;
+using acfx::DiodeSpec;
 using acfx::Netlist;
 using acfx::NodeId;
 using acfx::OpAmp;
 using acfx::Resistor;
 using acfx::VoltageSource;
 using acfx::contributesConductivePath;
+using acfx::kGround;
 using acfx::isLinear;
 using acfx::isNonlinear;
 using acfx::isReactive;
 using acfx::terminalsOf;
+
+using acfx::ActiveFirstOrderBom;
+using acfx::InvertingGainBom;
+using acfx::NonInvertingGainBom;
+using acfx::OpAmpDiodeClipperBom;
+using acfx::activeFirstOrder;
+using acfx::invertingGain;
+using acfx::kMaxOpAmpClipperDiodes;
+using acfx::nonInvertingGain;
+using acfx::opAmpDiodeClipper;
+using acfx::siliconSignalDiode;
 
 // ---------------------------------------------------------------------------
 // T004 — the OpAmp element is constructible, classifies as linear, and reports
@@ -99,3 +117,312 @@ TEST_CASE("opamp element - participates in a Netlist") {
 }
 
 // --- builder tests appended by T006/US1 below ---
+//
+// T006 (US1) — Tier-1 builder-topology suite for the four op-amp-stage
+// builders (contracts/opamp-stage-builder.md; research.md R3;
+// data-model.md). Written test-first: at the point this block landed, the
+// builders below did not yet exist / were stubs, so these TEST_CASEs were
+// RED before opamp-stage.h implemented them (T007-T010), then GREEN after.
+//
+// ISOLATION (contract guarantee 5, FR-024): this translation unit includes
+// only the opamp-stage primitive and the frozen circuit vocabulary; it
+// includes nothing under core/labs/, and it links without any lab code. That
+// the builders compile and run here is itself a compile-time isolation
+// signal — the exhaustive grep-based isolation gate over every primitive
+// header is a separate, later task (T025) and is NOT duplicated here.
+
+namespace {
+
+// Every component must be a member of the op-amp-stage vocabulary: the six
+// frozen elements plus the one sanctioned extension, OpAmp (FR-001/opamp-
+// element.md) — no other element type.
+template <int N, int M>
+bool onlyOpAmpStageVocabulary(const acfx::Netlist<N, M>& nl) {
+    for (const Component& c : nl.components()) {
+        const bool ok = std::holds_alternative<Resistor>(c) ||
+                        std::holds_alternative<Capacitor>(c) ||
+                        std::holds_alternative<Diode>(c) ||
+                        std::holds_alternative<VoltageSource>(c) ||
+                        std::holds_alternative<OpAmp>(c);
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Count the OpAmp elements in a netlist. Every stage must carry EXACTLY ONE.
+template <int N, int M>
+int opAmpCount(const acfx::Netlist<N, M>& nl) {
+    int count = 0;
+    for (const Component& c : nl.components()) {
+        if (std::holds_alternative<OpAmp>(c)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+// Count the Diode elements in a netlist.
+template <int N, int M>
+int diodeCount(const acfx::Netlist<N, M>& nl) {
+    int count = 0;
+    for (const Component& c : nl.components()) {
+        if (std::holds_alternative<Diode>(c)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+// Count the Capacitor elements in a netlist.
+template <int N, int M>
+int capacitorCount(const acfx::Netlist<N, M>& nl) {
+    int count = 0;
+    for (const Component& c : nl.components()) {
+        if (std::holds_alternative<Capacitor>(c)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+// Find the sole OpAmp in a netlist. Callers assert opAmpCount(nl) == 1 first.
+template <int N, int M>
+OpAmp theOpAmp(const acfx::Netlist<N, M>& nl) {
+    for (const Component& c : nl.components()) {
+        if (const auto* op = std::get_if<OpAmp>(&c)) {
+            return *op;
+        }
+    }
+    FAIL("theOpAmp: no OpAmp found in netlist");
+    return OpAmp{};
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// nonInvertingGain — Vin->inPlus; OpAmp; Rf out->inMinus; Rg inMinus->gnd.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("nonInvertingGain - prepare()-valid topology with matching counts") {
+    const NonInvertingGainBom bom{10000.0, 10000.0, 1.0}; // gain = 1 + Rf/Rg = 2
+
+    CHECK_NOTHROW(nonInvertingGain(bom));
+
+    const auto stage = nonInvertingGain(bom);
+    // Nodes: ground(0), inPlus(1), inMinus(2), out(3) = 4.
+    CHECK(stage.netlist.nodeCount() == 4);
+    // Components: Vin, OpAmp, Rf, Rg = 4.
+    CHECK(stage.netlist.componentCount() == 4);
+    CHECK(opAmpCount(stage.netlist) == 1);
+    CHECK(onlyOpAmpStageVocabulary(stage.netlist));
+
+    const OpAmp op = theOpAmp(stage.netlist);
+    CHECK(op.inPlus == stage.inNode);
+    CHECK(op.out == stage.outNode);
+    CHECK(op.inMinus != stage.inNode);
+    CHECK(op.inMinus != stage.outNode);
+    CHECK(stage.inNode != stage.outNode);
+}
+
+// ---------------------------------------------------------------------------
+// invertingGain — Vin->Rin->inMinus; inPlus->gnd; Rf out->inMinus.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("invertingGain - prepare()-valid topology with matching counts") {
+    const InvertingGainBom bom{1000.0, 10000.0, 1.0}; // gain = -Rf/Rin = -10
+
+    CHECK_NOTHROW(invertingGain(bom));
+
+    const auto stage = invertingGain(bom);
+    // Nodes: ground(0), vin(1), inMinus(2), out(3) = 4 (inPlus ties to gnd).
+    CHECK(stage.netlist.nodeCount() == 4);
+    // Components: Vin, Rin, OpAmp, Rf = 4.
+    CHECK(stage.netlist.componentCount() == 4);
+    CHECK(opAmpCount(stage.netlist) == 1);
+    CHECK(onlyOpAmpStageVocabulary(stage.netlist));
+
+    const OpAmp op = theOpAmp(stage.netlist);
+    CHECK(op.inPlus == kGround);
+    CHECK(op.out == stage.outNode);
+    CHECK(stage.inNode != stage.outNode);
+    CHECK(stage.inNode != kGround);
+}
+
+// ---------------------------------------------------------------------------
+// activeFirstOrder — Vin->Rin->inMinus; inPlus->gnd; Cf || Rf out->inMinus.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("activeFirstOrder - prepare()-valid topology with matching counts") {
+    // DC gain -Rf/Rin = -10; corner 1/(2*pi*Rf*Cf).
+    const ActiveFirstOrderBom bom{1000.0, 10000.0, 1.0e-9, 1.0};
+
+    CHECK_NOTHROW(activeFirstOrder(bom));
+
+    const auto stage = activeFirstOrder(bom);
+    // Same 4 nodes as invertingGain.
+    CHECK(stage.netlist.nodeCount() == 4);
+    // Components: Vin, Rin, OpAmp, Rf, Cf = 5.
+    CHECK(stage.netlist.componentCount() == 5);
+    CHECK(opAmpCount(stage.netlist) == 1);
+    CHECK(capacitorCount(stage.netlist) == 1);
+    CHECK(onlyOpAmpStageVocabulary(stage.netlist));
+
+    const OpAmp op = theOpAmp(stage.netlist);
+    CHECK(op.inPlus == kGround);
+    CHECK(op.out == stage.outNode);
+
+    // Rf and Cf are BOTH in the feedback path spanning (out, inMinus).
+    bool sawFeedbackR = false, sawFeedbackC = false;
+    for (const Component& c : stage.netlist.components()) {
+        if (const auto* r = std::get_if<Resistor>(&c)) {
+            if ((r->a == stage.outNode && r->b == op.inMinus) ||
+                (r->b == stage.outNode && r->a == op.inMinus)) {
+                sawFeedbackR = true;
+            }
+        }
+        if (const auto* cap = std::get_if<Capacitor>(&c)) {
+            if ((cap->a == stage.outNode && cap->b == op.inMinus) ||
+                (cap->b == stage.outNode && cap->a == op.inMinus)) {
+                sawFeedbackC = true;
+            }
+        }
+    }
+    CHECK(sawFeedbackR);
+    CHECK(sawFeedbackC);
+}
+
+// ---------------------------------------------------------------------------
+// opAmpDiodeClipper — Vin->Rin->inMinus; inPlus->gnd; feedback network
+// out->inMinus = Rf || Cf || antiparallel diode string.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("opAmpDiodeClipper - prepare()-valid topology with matching counts") {
+    const OpAmpDiodeClipperBom bom{
+        1000.0, 10000.0, 1.0e-9, siliconSignalDiode(), 1, 1, 1.0};
+
+    CHECK_NOTHROW(opAmpDiodeClipper(bom));
+
+    const auto stage = opAmpDiodeClipper(bom);
+    // Same 4 nodes as invertingGain (the diode string spans existing nodes).
+    CHECK(stage.netlist.nodeCount() == 4);
+    // Components: Vin, Rin, OpAmp, Rf, Cf, 1 up-diode, 1 down-diode = 7.
+    CHECK(stage.netlist.componentCount() == 7);
+    CHECK(opAmpCount(stage.netlist) == 1);
+    CHECK(capacitorCount(stage.netlist) == 1);
+    CHECK(diodeCount(stage.netlist) == 2);
+    CHECK(onlyOpAmpStageVocabulary(stage.netlist));
+
+    const OpAmp op = theOpAmp(stage.netlist);
+    CHECK(op.inPlus == kGround);
+    CHECK(op.out == stage.outNode);
+
+    // Exactly one nonlinearity LOCATION: every diode spans the single
+    // (out, inMinus) node pair, in either orientation.
+    for (const Component& c : stage.netlist.components()) {
+        if (const auto* d = std::get_if<Diode>(&c)) {
+            const bool fwd = d->anode == stage.outNode && d->cathode == op.inMinus;
+            const bool rev = d->anode == op.inMinus && d->cathode == stage.outNode;
+            CHECK((fwd || rev));
+        }
+    }
+}
+
+TEST_CASE("opAmpDiodeClipper - asymmetric population (DC-offset topology)") {
+    const OpAmpDiodeClipperBom bom{
+        1000.0, 10000.0, 1.0e-9, siliconSignalDiode(), 2, 1, 1.0};
+
+    const auto stage = opAmpDiodeClipper(bom);
+    CHECK(stage.netlist.componentCount() == 8); // 5 fixed + 3 diodes
+    CHECK(diodeCount(stage.netlist) == 3);
+
+    const OpAmp op = theOpAmp(stage.netlist);
+    int up = 0, down = 0;
+    for (const Component& c : stage.netlist.components()) {
+        if (const auto* d = std::get_if<Diode>(&c)) {
+            if (d->anode == stage.outNode) {
+                ++up;
+            } else {
+                ++down;
+            }
+        }
+    }
+    CHECK(up == 2);
+    CHECK(down == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Fail-loud BOM validation (T011): descriptive std::invalid_argument, no
+// silent clamp, for every non-positive R/C, invalid diode parameter, or
+// out-of-range diode population.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("nonInvertingGain - invalid BOM throws std::invalid_argument") {
+    CHECK_THROWS_AS(nonInvertingGain(NonInvertingGainBom{-1.0, 10000.0, 1.0}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(nonInvertingGain(NonInvertingGainBom{10000.0, 0.0, 1.0}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("invertingGain - invalid BOM throws std::invalid_argument") {
+    CHECK_THROWS_AS(invertingGain(InvertingGainBom{0.0, 10000.0, 1.0}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(invertingGain(InvertingGainBom{1000.0, -10000.0, 1.0}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("activeFirstOrder - invalid BOM throws std::invalid_argument") {
+    CHECK_THROWS_AS(activeFirstOrder(ActiveFirstOrderBom{-1000.0, 10000.0, 1e-9, 1.0}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(activeFirstOrder(ActiveFirstOrderBom{1000.0, 0.0, 1e-9, 1.0}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(activeFirstOrder(ActiveFirstOrderBom{1000.0, 10000.0, 0.0, 1.0}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("opAmpDiodeClipper - invalid BOM throws std::invalid_argument") {
+    const DiodeSpec good = siliconSignalDiode();
+
+    SUBCASE("non-positive R/C") {
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{0.0, 10000.0, 1e-9, good, 1, 1, 1.0}),
+            std::invalid_argument);
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, -1.0, 1e-9, good, 1, 1, 1.0}),
+            std::invalid_argument);
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, 10000.0, 0.0, good, 1, 1, 1.0}),
+            std::invalid_argument);
+    }
+
+    SUBCASE("non-positive diode parameter") {
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{
+                1000.0, 10000.0, 1e-9, DiodeSpec{0.0, 1.0, 0.02585}, 1, 1, 1.0}),
+            std::invalid_argument);
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{
+                1000.0, 10000.0, 1e-9, DiodeSpec{1e-14, -1.0, 0.02585}, 1, 1, 1.0}),
+            std::invalid_argument);
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{
+                1000.0, 10000.0, 1e-9, DiodeSpec{1e-14, 1.0, 0.0}, 1, 1, 1.0}),
+            std::invalid_argument);
+    }
+
+    SUBCASE("diode count out of range") {
+        // nUp / nDown must each be >= 1.
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, 10000.0, 1e-9, good, 0, 1, 1.0}),
+            std::invalid_argument);
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(OpAmpDiodeClipperBom{1000.0, 10000.0, 1e-9, good, 1, 0, 1.0}),
+            std::invalid_argument);
+        // Total population exceeds kMaxOpAmpClipperDiodes (= 4).
+        CHECK_THROWS_AS(
+            opAmpDiodeClipper(
+                OpAmpDiodeClipperBom{1000.0, 10000.0, 1e-9, good, 3, 2, 1.0}),
+            std::invalid_argument);
+    }
+}
