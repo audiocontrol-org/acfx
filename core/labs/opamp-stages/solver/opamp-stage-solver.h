@@ -10,6 +10,7 @@
 #include "primitives/circuit/models/companion.h"
 #include "primitives/circuit/node.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -367,7 +368,23 @@ private:
             return;
         }
 
-        constexpr double kPivotEps = 1e-300;
+        // Relative singular-pivot gate (R5 / FR-016): threshold the pivot
+        // against the matrix scale, not an absolute denormal floor. A near-
+        // singular bordered system yields a post-elimination pivot ~1e-14 that
+        // a 1e-300 floor would pass, dividing through to a garbage voltage with
+        // no throw — the silent-wrong-answer the well-posedness gate forbids.
+        // Scale = max |entry| (the ±1 nullator rows keep it >= 1); 1e-12·scale
+        // sits well below a healthy conductance pivot yet catches singularity.
+        // All-zero matrix (scale 0) falls back to the exact-zero floor.
+        double matScale = 0.0;
+        for (int r = 0; r < N; ++r) {
+            for (int c = 0; c < N; ++c) {
+                matScale = std::max(matScale,
+                    std::fabs(a_[static_cast<std::size_t>(r)]
+                                [static_cast<std::size_t>(c)]));
+            }
+        }
+        const double kPivotEps = matScale > 0.0 ? 1e-12 * matScale : 1e-300;
 
         for (int col = 0; col < N; ++col) {
             int pivotRow = col;
