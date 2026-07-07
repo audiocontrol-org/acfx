@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **opamp-stages**.
+Active Spec Kit feature: **modified-nodal-analysis**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/opamp-stages/plan.md` (spec: `specs/opamp-stages/spec.md`).
+current plan at `specs/modified-nodal-analysis/plan.md` (spec: `specs/modified-nodal-analysis/spec.md`).
 <!-- SPECKIT END -->
