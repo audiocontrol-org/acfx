@@ -90,8 +90,9 @@ TEST_CASE("mna-system: resistive divider via stamped conductances solves to the 
 // ground. KCL:
 //   node1: G1*(v1 - v2) = I
 //   node2: G1*(v2 - v1) + G2*v2 = 0
-// Solving directly gives v2 = I / (G1 + G2) and v1 = v2 + I/G1 (standard
-// current-divider algebra for this topology).
+// Node2 is a pure series junction (R1 to the driven node, R2 to ground), so all
+// of I flows through R2: substituting node1 into node2 gives G2*v2 = I, hence
+// v2 = I / G2 and v1 = v2 + I/G1.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("mna-system: bridging conductance between two non-ground nodes exercises the four-corner stamp (D2)") {
@@ -113,7 +114,7 @@ TEST_CASE("mna-system: bridging conductance between two non-ground nodes exercis
 
     REQUIRE(sys.solve());
 
-    const double v2Expected = I / (G1 + G2);
+    const double v2Expected = I / G2;
     const double v1Expected = v2Expected + I / G1;
     CHECK(sys.nodeVoltage(node2) == doctest::Approx(v2Expected).epsilon(1e-12));
     CHECK(sys.nodeVoltage(node1) == doctest::Approx(v1Expected).epsilon(1e-12));
