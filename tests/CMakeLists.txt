@@ -211,6 +211,8 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   core/mna-system-test.cpp
   core/mna-assembler-test.cpp
+  core/mna-assembler-companions-test.cpp
+  core/mna-assembler-rtsafety-test.cpp
   core/mna-invariants-test.cpp
   core/mna-equivalence-test.cpp
 )
