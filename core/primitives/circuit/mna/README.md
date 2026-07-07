@@ -54,14 +54,15 @@ nonlinear linearizations.
 
 The primitive is split into **two phases with a strict error contract**:
 
-- **Plan phase** (`prepare()`) — runs once per netlist, off the hot path:
+- **Plan phase** (`MnaAssembler::plan()`) — runs once per netlist, off the hot path:
   allocates branches, fixes the incidence topology, and validates. **May throw**
   descriptive errors for branch-count overflow, out-of-range node IDs, or degenerate
   element values.
 
-- **Per-solve phase** (`assemble()` + `solve()`) — runs hot, per sample and per
-  Newton iteration: refreshes conductance/RHS/companion *values* into the already-fixed
-  structure and solves. **Throws-free and heap-allocation-free**. The branch count
+- **Per-solve phase** (`MnaAssembler::refresh()` + `MnaSystem::solve()`) — runs hot,
+  per sample and per Newton iteration: refreshes conductance/RHS/companion *values*
+  into the already-fixed structure and solves. **Throws-free and heap-allocation-free**.
+  The branch count
   is topological (one per voltage source + one per op-amp; companions add none) and
   therefore invariant across Newton iterations and timesteps.
 
@@ -91,4 +92,12 @@ the throwing allocator at all and topology is not re-derived every iteration.
 The design-phase decisions and open questions are recorded at
 `docs/superpowers/specs/2026-07-07-modified-nodal-analysis-design.md`.
 The functional requirements and test acceptance criteria are at
-`specs/modified-nodal-analysis/spec.md`.
+`specs/modified-nodal-analysis/spec.md`. The per-layer API contracts are at
+`specs/modified-nodal-analysis/contracts/mna-system.md` and
+`specs/modified-nodal-analysis/contracts/mna-assembler.md`; the plan, research
+decisions, and validation guide are alongside them in
+`specs/modified-nodal-analysis/`.
+
+Host-side validation lives in `tests/core/mna-*-test.cpp` (engine, assembler,
+companions, RT-safety, invariants, and a lab-equivalence oracle proving parity
+with `LinearSolver` and `NullorSolver`).
