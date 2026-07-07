@@ -54,6 +54,12 @@
 // harness supplies a trivial one. US1 contains no reactive/nonlinear element, so
 // the supply is never consulted here.
 //
+// The concept, spelled out: given a Component/Netlist index `i` that holds a
+// Capacitor, Inductor, or Diode, `at(i)` returns that element's Norton
+// companion for THIS solve only — no ownership, no allocation, no history.
+// tests/core/mna-assembler-test.cpp's `IndexedCompanions<N>` (T010) is the
+// hand-written harness playing this role until the sibling primitives land.
+//
 // RT-safety (Principle VI): plan() may throw and runs off the audio path;
 // refresh()/reads are noexcept and heap-free — the only storage is a
 // fixed-capacity std::array sized by the template parameters. No fallbacks
