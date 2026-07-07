@@ -263,6 +263,14 @@ public:
         return x_[branchIndex(k)];
     }
 
+    // Number of branches allocated by the plan phase so far (FR-014):
+    // topological, fixed once addBranch() has been called for every ideal
+    // voltage source / op-amp in the netlist, and thereafter invariant across
+    // reset()/refresh()/solve() (reset() intentionally preserves branchCount_,
+    // see above). Exposed so callers/tests can assert the two-phase branch-
+    // count invariant without reaching into private state.
+    int branchCount() const noexcept { return branchCount_; }
+
 private:
     // Relative singular-pivot threshold (D1) and the exact-zero fallback floor
     // used only when the matrix scale is itself zero.
