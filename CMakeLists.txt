@@ -136,6 +136,22 @@ if(ACFX_BUILD_TESTS OR ACFX_BUILD_DESKTOP)
   target_link_libraries(acfx_lab_diode_clippers_harness PRIVATE acfx_core)
   target_compile_features(acfx_lab_diode_clippers_harness PRIVATE cxx_std_20)
 
+  # Opamp-stages lab harness — mirrors acfx_lab_diode_clippers_harness exactly
+  # (same linkage and feature), plus the tests/ include root: like the
+  # saturation/envelope-follower harnesses, this harness drives its
+  # sine-drive / DC-settle / energy measurements through the SHARED
+  # opamp-stages measurement rig (tests/core/opamp-stage-test-support.h)
+  # rather than reimplementing it — that header is deliberately doctest-free
+  # (header-only, no CHECK/REQUIRE), so only the include path is needed, no
+  # test-target linkage. Drives the bounded nullor MNA augmentation solver
+  # over the opamp-stage netlists the primitive builds; prints PASS/FAIL.
+  add_executable(acfx_lab_opamp_stages_harness
+    core/labs/opamp-stages/harness/opamp-stages-harness.cpp
+  )
+  target_include_directories(acfx_lab_opamp_stages_harness PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+  target_link_libraries(acfx_lab_opamp_stages_harness PRIVATE acfx_core)
+  target_compile_features(acfx_lab_opamp_stages_harness PRIVATE cxx_std_20)
+
   # Waveshaping lab harness — mirrors acfx_lab_svf_harness exactly (same
   # linkage and feature). The harness is a required, completed deliverable;
   # a missing source file should fail configure, not silently drop the target.

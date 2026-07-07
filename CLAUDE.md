@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **diode-clippers**.
+Active Spec Kit feature: **opamp-stages**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/diode-clippers/plan.md` (spec: `specs/diode-clippers/spec.md`).
+current plan at `specs/opamp-stages/plan.md` (spec: `specs/opamp-stages/spec.md`).
 <!-- SPECKIT END -->

@@ -8,3 +8,24 @@ tier_map:
   fast: haiku       # mechanical: 1-2 files, complete spec, setup/polish
   balanced: sonnet  # standard implementation + integration/judgment + tests
   powerful: opus    # architecture / broad-context / subtle correctness
+
+# Govern audit-barrage scoping (stack-control 034). code_scope filters which
+# changed files enter the cross-model audit payload: a file is dropped iff it
+# matches an `exclude` glob and no `include` glob. A supplied `exclude` REPLACES
+# the built-in default (**/*.md, **/*.markdown), so the doc globs are repeated
+# here to keep documentation excluded while ALSO excluding TEST CODE.
+#
+# Operator decision (2026-07-06): the barrage audits SHIPPED code; test-code
+# quality is covered by the tests running in CI + /code-review. NOTE the trade-off
+# — the lab solver headers (the nullor-augmentation ALGORITHM under validation)
+# are deliberately KEPT in scope; only the doctest suites, the shared test-support
+# header, and the lab PASS/FAIL harness scaffolding are excluded.
+govern:
+  code_scope:
+    exclude:
+      - '**/*.md'                  # preserve default documentation exclusion
+      - '**/*.markdown'
+      - 'tests/**'                 # doctest suites
+      - '**/*-test.cpp'
+      - '**/*-test-support.h'
+      - '**/labs/**/harness/**'    # lab PASS/FAIL harness scaffolding (not the solvers)

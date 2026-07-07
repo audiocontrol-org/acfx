@@ -195,6 +195,17 @@ add_executable(acfx_core_tests
   # to stay under the Constitution VII per-file line budget (shared drive/oracle
   # rig in core/diode-clipper-test-support.h).
   core/diode-clipper-invariants-test.cpp
+  # ---------------------------------------------------------------------------
+  # Opamp-stages test suites (opamp-stages feature): T002 registration; story
+  # tasks fill assertions. Tier-1 (no solver): builder topology / counts / frozen
+  # vocabulary. Tier-2 (lab nullor MNA augmentation): circuit validations.
+  # ---------------------------------------------------------------------------
+  core/opamp-stage-builder-test.cpp
+  core/opamp-stage-solve-test.cpp
+  # US3 assembled-stage invariants, split from opamp-stage-solve-test.cpp to
+  # stay under the Constitution VII per-file line budget (shared sine-drive /
+  # DC-settle / energy rig in core/opamp-stage-test-support.h).
+  core/opamp-stage-invariants-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

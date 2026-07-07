@@ -1,0 +1,344 @@
+#pragma once
+
+#include "primitives/circuit/netlist.h"
+#include "primitives/circuit/components.h"
+#include "primitives/circuit/models/opamp.h"
+#include "primitives/circuit/node.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <stdexcept>
+#include <string>
+#include <variant>
+
+// AugmentedSolver — the low-level bordered-matrix engine behind NullorSolver
+// (opamp-stage-solver.h): the working matrix/RHS storage, the per-op-amp
+// bordering stamp (the B/C block of the [G B; C 0] system — see the header
+// comment of opamp-stage-solver.h for the full math), fixed-node-reduction
+// pinning of grounded ideal voltage sources, and Gaussian elimination with
+// partial pivoting. Split out of opamp-stage-solver.h PURELY to keep each
+// header under the acfx per-file size cap (Constitution VII) and a downstream
+// fleet byte-envelope — this is a behavior-preserving extraction, not a new
+// abstraction: NullorSolver still owns ALL netlist physics (component
+// stamping, reactive history) and composes exactly one AugmentedSolver
+// instance to do the bordered linear algebra.
+//
+// NON-NORMATIVE, PHASE-5-SUPERSEDED LAB scaffolding; host-only, C++20 OK. It
+// must stay a dumb bordered-matrix engine: no component physics, no reactive
+// history — those stay in NullorSolver so the bounded-charter tripwires
+// (research R6) remain checkable in one place.
+
+namespace acfx::labs::opamp_stages {
+
+// MaxOpAmps is the compile-time op-amp capacity; the augmented dimension is
+// MaxNodes + MaxOpAmps (tripwire iii), fixed at instantiation. Template
+// parameters mirror NullorSolver's exactly so the two stay in lockstep.
+template <int MaxNodes, int MaxComponents, int MaxOpAmps = 1>
+class AugmentedSolver {
+public:
+    // Augmented (bordered) dimension ceiling — MaxNodes node slots (index 0 is
+    // ground, over-provisioning by one) plus MaxOpAmps branch slots. Fixed at
+    // instantiation (tripwire iii).
+    static constexpr std::size_t kDim =
+        static_cast<std::size_t>(MaxNodes) + static_cast<std::size_t>(MaxOpAmps);
+
+    // Zero the working matrix and RHS, and reset the grounded-source pin
+    // tracking, before a fresh stamp. `N` is the caller's intended bordered
+    // dimension; it must fit the instantiated capacity (throws otherwise —
+    // capacity guard, findings barrage).
+    //
+    // The clear spans the FULL kDim x kDim matrix (and full RHS), NOT just the
+    // active N x N block: this makes the [C,0] block's zero diagonal
+    // self-enforcing. borderOpAmps writes the C row and the B column of each
+    // op-amp branch but never touches a_[branch][branch]; clearing the whole
+    // array guarantees that diagonal is 0 regardless of the N the caller passes,
+    // so correctness no longer depends on the caller invoking zeroSystem with
+    // the FULL bordered dimension (an easy mistake). The array is small and this
+    // is the non-RT lab path, so the extra clearing is free.
+    void zeroSystem(int N) {
+        if (N > static_cast<int>(kDim)) {
+            throw std::runtime_error(
+                "opamp-stage-solver: bordered dimension N (" +
+                std::to_string(N) + ") exceeds the instantiated augmented "
+                "capacity kDim (" + std::to_string(kDim) +
+                ") — MaxNodes + MaxOpAmps is fixed at instantiation "
+                "(bounded-charter tripwire iii, no dynamic growth)");
+        }
+        for (std::size_t r = 0; r < kDim; ++r) {
+            rhs_[r] = 0.0;
+            a_[r].fill(0.0);
+            pinned_[r] = false;
+            pinnedValue_[r] = 0.0;
+        }
+    }
+
+    // Local (0-based, ground-excluded) matrix index for a node, or -1 for
+    // ground. Node k (k >= 1) lives at local row/col k-1.
+    static constexpr int local(NodeId node) noexcept {
+        return isGround(node) ? -1 : (node - 1);
+    }
+
+    // Standard nodal conductance stamp of a scalar G between nodes a and b.
+    void stampConductance(NodeId a, NodeId b, double G) noexcept {
+        const int la = local(a);
+        const int lb = local(b);
+        if (la >= 0) {
+            a_[static_cast<std::size_t>(la)][static_cast<std::size_t>(la)] += G;
+        }
+        if (lb >= 0) {
+            a_[static_cast<std::size_t>(lb)][static_cast<std::size_t>(lb)] += G;
+        }
+        if (la >= 0 && lb >= 0) {
+            a_[static_cast<std::size_t>(la)][static_cast<std::size_t>(lb)] -= G;
+            a_[static_cast<std::size_t>(lb)][static_cast<std::size_t>(la)] -= G;
+        }
+    }
+
+    // Inject a current I into the RHS: +I at node a, -I at node b (ground
+    // dropped).
+    void injectCurrent(NodeId a, NodeId b, double I) noexcept {
+        const int la = local(a);
+        const int lb = local(b);
+        if (la >= 0) {
+            rhs_[static_cast<std::size_t>(la)] += I;
+        }
+        if (lb >= 0) {
+            rhs_[static_cast<std::size_t>(lb)] -= I;
+        }
+    }
+
+    // Border per OpAmp (research R2; see opamp-stage-solver.h's header comment
+    // for the B/C stamp). Op-amp #k (netlist order) owns branch column and
+    // constraint row index (n + k); a grounded input terminal (local == -1) is
+    // on the dropped ground column and simply omitted (that is how the
+    // inverting config's grounded inPlus yields the virtual ground
+    // -V(inMinus) = 0).
+    void borderOpAmps(const Netlist<MaxNodes, MaxComponents>& nl, int n) {
+        const auto comps = nl.components();
+
+        // Capacity guard (findings barrage): each op-amp #k claims branch index
+        // n + k, so the widest index touched is n + numOpAmps - 1. If
+        // n + numOpAmps overruns kDim the stamps below would write out of
+        // bounds — fail loud instead of a silent corrupt-memory write. This
+        // mirrors NullorSolver's tripwire-iii population check but also guards
+        // any direct or future caller of the low-level engine.
+        int numOpAmps = 0;
+        for (std::size_t i = 0; i < comps.size(); ++i) {
+            if (std::holds_alternative<OpAmp>(comps[i])) {
+                ++numOpAmps;
+            }
+        }
+        if (n + numOpAmps > static_cast<int>(kDim)) {
+            throw std::runtime_error(
+                "opamp-stage-solver: bordered dimension (" +
+                std::to_string(n) + " nodes + " + std::to_string(numOpAmps) +
+                " op-amp branches) exceeds the instantiated augmented capacity "
+                "kDim (" + std::to_string(kDim) +
+                ") — MaxNodes + MaxOpAmps is fixed at instantiation "
+                "(bounded-charter tripwire iii, no dynamic growth)");
+        }
+
+        int k = 0;
+        for (std::size_t i = 0; i < comps.size(); ++i) {
+            const auto* op = std::get_if<OpAmp>(&comps[i]);
+            if (op == nullptr) {
+                continue;
+            }
+            const std::size_t branch = static_cast<std::size_t>(n + k);
+
+            // B: +j into the KCL of `out`.
+            const int lo = local(op->out);
+            if (lo >= 0) {
+                a_[static_cast<std::size_t>(lo)][branch] += 1.0;
+            }
+
+            // C: V(inPlus) - V(inMinus) = 0.
+            const int lp = local(op->inPlus);
+            const int lm = local(op->inMinus);
+            if (lp >= 0) {
+                a_[branch][static_cast<std::size_t>(lp)] += 1.0;
+            }
+            if (lm >= 0) {
+                a_[branch][static_cast<std::size_t>(lm)] -= 1.0;
+            }
+            rhs_[branch] = 0.0;
+            ++k;
+        }
+    }
+
+    // Fixed-node reduction of node `lp` (local index) to `value` over the
+    // active N x N system: move column lp into every other row's RHS (nodal
+    // AND nullor constraint rows), then overwrite row lp with v[lp] = value.
+    // lp is always a node column (< n) and branch columns are never pinned,
+    // so B/C stays intact.
+    void pinNode(int lp, double value, int N) {
+        // Conflict guard (findings barrage): pinNode overwrites node `lp`'s row
+        // and RHS, so two ideal voltage sources pinning the SAME node to
+        // DIFFERENT values would silently take the last one — a plausible-looking
+        // but physically-wrong solve of an ill-posed topology. Track each pinned
+        // node's value and fail loud on an INCOMPATIBLE repeat; an identical
+        // re-pin is idempotent (the column is already zeroed, the row already
+        // v[lp] = value) and stays allowed.
+        const std::size_t pi = static_cast<std::size_t>(lp);
+        if (pinned_[pi] && pinnedValue_[pi] != value) {
+            throw std::runtime_error(
+                "opamp-stage-solver: node pinned to conflicting voltages (" +
+                std::to_string(pinnedValue_[pi]) + " V then " +
+                std::to_string(value) + " V) — two grounded ideal voltage "
+                "sources drive the same node to different values, an ill-posed "
+                "topology; fail loud rather than silently taking the last pin");
+        }
+        pinned_[pi] = true;
+        pinnedValue_[pi] = value;
+
+        for (int r = 0; r < N; ++r) {
+            if (r == lp) {
+                continue;
+            }
+            auto& row = a_[static_cast<std::size_t>(r)];
+            rhs_[static_cast<std::size_t>(r)] -=
+                row[static_cast<std::size_t>(lp)] * value;
+            row[static_cast<std::size_t>(lp)] = 0.0;
+        }
+        auto& prow = a_[static_cast<std::size_t>(lp)];
+        for (int c = 0; c < N; ++c) {
+            prow[static_cast<std::size_t>(c)] = 0.0;
+        }
+        prow[static_cast<std::size_t>(lp)] = 1.0;
+        rhs_[static_cast<std::size_t>(lp)] = value;
+    }
+
+    // Solve the bordered system A·x = rhs in place by Gaussian elimination
+    // with partial pivoting over the active N x N block, leaving the result
+    // in solution_ (read back via solution()). Partial pivoting is load-
+    // bearing — the [C,0] block has a zero diagonal, so a naive diagonal
+    // pivot would divide by zero on a well-posed nullor system. A near-zero
+    // pivot after pivoting means the bordered matrix is singular: the
+    // authoritative well-posedness gate (R5), a hard descriptive error.
+    void gaussianSolve(int N) {
+        if (N <= 0) {
+            return;
+        }
+        if (N > static_cast<int>(kDim)) {
+            throw std::runtime_error(
+                "opamp-stage-solver: solve dimension N (" +
+                std::to_string(N) + ") exceeds the instantiated augmented "
+                "capacity kDim (" + std::to_string(kDim) +
+                ") — the bordered arrays are sized at instantiation");
+        }
+
+        // Relative singular-pivot gate (R5 / FR-016): threshold the pivot
+        // against the matrix scale, not an absolute denormal floor. A near-
+        // singular bordered system yields a post-elimination pivot ~1e-14 that
+        // a 1e-300 floor would pass, dividing through to a garbage voltage with
+        // no throw — the silent-wrong-answer the well-posedness gate forbids.
+        // Scale = max |entry| (the ±1 nullator rows keep it >= 1); 1e-12·scale
+        // sits well below a healthy conductance pivot yet catches singularity.
+        // All-zero matrix (scale 0) falls back to the exact-zero floor.
+        double matScale = 0.0;
+        for (int r = 0; r < N; ++r) {
+            for (int c = 0; c < N; ++c) {
+                matScale = std::max(matScale,
+                    std::fabs(a_[static_cast<std::size_t>(r)]
+                                [static_cast<std::size_t>(c)]));
+            }
+        }
+        const double kPivotEps = matScale > 0.0 ? 1e-12 * matScale : 1e-300;
+
+        for (int col = 0; col < N; ++col) {
+            int pivotRow = col;
+            double pivotMag =
+                std::fabs(a_[static_cast<std::size_t>(col)]
+                            [static_cast<std::size_t>(col)]);
+            for (int r = col + 1; r < N; ++r) {
+                const double mag =
+                    std::fabs(a_[static_cast<std::size_t>(r)]
+                                [static_cast<std::size_t>(col)]);
+                if (mag > pivotMag) {
+                    pivotMag = mag;
+                    pivotRow = r;
+                }
+            }
+            if (pivotMag < kPivotEps) {
+                throw std::runtime_error(
+                    "opamp-stage-solver: singular augmented (nullor-bordered) "
+                    "system (zero pivot) — the op-amp stage is ill-posed (no "
+                    "feedback path or a degenerate virtual-short constraint). "
+                    "This is the authoritative well-posedness gate (research R5).");
+            }
+            if (pivotRow != col) {
+                swapRows(col, pivotRow);
+            }
+
+            const double pivot =
+                a_[static_cast<std::size_t>(col)][static_cast<std::size_t>(col)];
+            for (int r = col + 1; r < N; ++r) {
+                auto& rrow = a_[static_cast<std::size_t>(r)];
+                const double factor =
+                    rrow[static_cast<std::size_t>(col)] / pivot;
+                if (factor == 0.0) {
+                    continue;
+                }
+                rrow[static_cast<std::size_t>(col)] = 0.0;
+                const auto& prow = a_[static_cast<std::size_t>(col)];
+                for (int c = col + 1; c < N; ++c) {
+                    rrow[static_cast<std::size_t>(c)] -=
+                        factor * prow[static_cast<std::size_t>(c)];
+                }
+                rhs_[static_cast<std::size_t>(r)] -=
+                    factor * rhs_[static_cast<std::size_t>(col)];
+            }
+        }
+
+        for (int r = N - 1; r >= 0; --r) {
+            double sum = rhs_[static_cast<std::size_t>(r)];
+            const auto& row = a_[static_cast<std::size_t>(r)];
+            for (int c = r + 1; c < N; ++c) {
+                sum -= row[static_cast<std::size_t>(c)] *
+                       solution_[static_cast<std::size_t>(c)];
+            }
+            solution_[static_cast<std::size_t>(r)] =
+                sum / row[static_cast<std::size_t>(r)];
+        }
+    }
+
+    // Solved unknown at active-system row `i` (node rows 0..n-1, branch rows
+    // n..N-1); valid after gaussianSolve(). NullorSolver scatters these into
+    // node voltages and op-amp branch currents.
+    double solution(int i) const noexcept {
+        return solution_[static_cast<std::size_t>(i)];
+    }
+
+private:
+    // Swap two rows of both the matrix and the RHS (over the full kDim width,
+    // so no active-N bookkeeping is needed).
+    void swapRows(int a, int b) noexcept {
+        auto& ra = a_[static_cast<std::size_t>(a)];
+        auto& rb = a_[static_cast<std::size_t>(b)];
+        for (std::size_t c = 0; c < kDim; ++c) {
+            const double t = ra[c];
+            ra[c] = rb[c];
+            rb[c] = t;
+        }
+        const double tr = rhs_[static_cast<std::size_t>(a)];
+        rhs_[static_cast<std::size_t>(a)] = rhs_[static_cast<std::size_t>(b)];
+        rhs_[static_cast<std::size_t>(b)] = tr;
+    }
+
+    // Bordered working matrix and RHS. Sized by kDim = MaxNodes + MaxOpAmps;
+    // only the active leading N x N block is ever used.
+    std::array<std::array<double, kDim>, kDim> a_{};
+    std::array<double, kDim> rhs_{};
+    std::array<double, kDim> solution_{};
+
+    // Grounded-source pin tracking (findings barrage): pinned_[lp] records
+    // whether node local-index lp has already been pinned this solve, and
+    // pinnedValue_[lp] its pinned voltage, so pinNode can reject a conflicting
+    // re-pin. Reset each solve by zeroSystem().
+    std::array<bool, kDim> pinned_{};
+    std::array<double, kDim> pinnedValue_{};
+};
+
+}  // namespace acfx::labs::opamp_stages
