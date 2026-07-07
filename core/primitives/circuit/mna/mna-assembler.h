@@ -148,7 +148,6 @@ public:
                  const CompanionSupply& comps,
                  MnaSystem<MaxNodes, MaxBranches>& sys) const noexcept {
         assert(planned_ && "MnaAssembler::refresh called before plan()");
-        (void)comps;  // consulted only by the T012 reactive/nonlinear cases.
 
         sys.reset();
 
@@ -190,10 +189,41 @@ public:
                         sys.stampBranchC(branch, elem.inPlus, +1.0);
                         sys.stampBranchC(branch, elem.inMinus, -1.0);
                         sys.stampBranchValue(branch, 0.0);
-                    } else {
-                        // Capacitor / Inductor / Diode: stamp the Norton companion
-                        // comps.at(static_cast<int>(i)) as conductance Geq +
-                        // RHS Ieq: T012. No-op here (US1 has none). Extension point.
+                    } else if constexpr (std::is_same_v<T, Capacitor> ||
+                                         std::is_same_v<T, Inductor>) {
+                        // Reactive element as a caller-supplied Norton companion
+                        // (D6, FR-010/011): MNA CONSUMES the companion, never
+                        // computes it and holds no history. Directed a -> b (the
+                        // element's own terminal order), the branch current is
+                        //   i(a,b) = Geq*(V(a)-V(b)) - Ieq,
+                        // so Geq stamps as a plain conductance a<->b and Ieq stamps
+                        // exactly like CurrentSource{p=a,n=b,I=Ieq} (+Ieq at a,
+                        // -Ieq at b). This is the labs' transient-clipper.h
+                        // stamping verbatim (`Resistor{a,b,1/Geq}` +
+                        // `CurrentSource{a,b,Ieq}`), so the US6 equivalence oracle
+                        // agrees. No branch (plan() left branchOf_[i] = kNoBranch).
+                        const Companion companion =
+                            comps.at(static_cast<int>(i));
+                        sys.stampConductance(elem.a, elem.b, companion.Geq);
+                        sys.stampRhsCurrent(elem.a, +companion.Ieq);
+                        sys.stampRhsCurrent(elem.b, -companion.Ieq);
+                    } else if constexpr (std::is_same_v<T, Diode>) {
+                        // Nonlinear element linearized (by newton-iteration, D6)
+                        // into a caller-supplied Norton companion. Directed
+                        // anode -> cathode (same convention as the diode's own
+                        // bias vAK = V(anode)-V(cathode)):
+                        //   i(anode,cathode) = Geq*(V(anode)-V(cathode)) - Ieq.
+                        // Matches transient-clipper.h, which stamps
+                        // `CurrentSource{anode, cathode, -Ieq_lab}` with
+                        // Ieq_lab = I(vAK0) - Geq*vAK0, i.e. Ieq = Geq*vAK0 -
+                        // I(vAK0) -- the SAME quantity, so +Ieq at anode /
+                        // -Ieq at cathode. No branch.
+                        const Companion companion =
+                            comps.at(static_cast<int>(i));
+                        sys.stampConductance(elem.anode, elem.cathode,
+                                             companion.Geq);
+                        sys.stampRhsCurrent(elem.anode, +companion.Ieq);
+                        sys.stampRhsCurrent(elem.cathode, -companion.Ieq);
                     }
                 },
                 c);
