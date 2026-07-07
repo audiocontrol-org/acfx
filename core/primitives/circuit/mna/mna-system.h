@@ -107,24 +107,44 @@ public:
         return branchCount_++;
     }
 
+    // Norator half of a branch stamp (B block only): couple branch k's current
+    // into `node`'s KCL row with the given sign (a ground node is on the dropped
+    // column and is omitted). This is the ASYMMETRIC primitive an ideal op-amp
+    // needs — its norator current injects into `out` alone, a DIFFERENT node set
+    // than its nullator constraint (see stampBranchC). A symmetric voltage-source
+    // incidence composes this with stampBranchC over the same p/n pair.
+    void stampBranchB(int k, NodeId node, double sign) noexcept {
+        noteNode(node);
+        const int ln = local(node);
+        if (ln >= 0) {
+            a_[idx(ln)][branchIndex(k)] += sign;
+        }
+    }
+
+    // Nullator/constraint half of a branch stamp (C block only): add sign * v(node)
+    // to branch k's constraint row (a ground node is on the dropped column and is
+    // omitted). The op-amp nullator uses this asymmetrically: +1*v(inPlus)
+    // -1*v(inMinus) = 0 on the SAME branch row whose B half attaches to `out`.
+    void stampBranchC(int k, NodeId node, double sign) noexcept {
+        noteNode(node);
+        const int ln = local(node);
+        if (ln >= 0) {
+            a_[branchIndex(k)][idx(ln)] += sign;
+        }
+    }
+
     // Branch incidence (D3): write +1/-1 into the B block (node KCL rows x branch
     // col) and the C block (branch row x node cols) for the non-ground terminals.
     // The branch current is defined to flow from p to n; +1 couples node p, -1
     // couples node n. A ground terminal sits on the dropped column and is omitted.
+    // This is the SYMMETRIC composition (same p/n pair on both blocks) — the
+    // voltage-source stamp. The op-amp instead calls the B/C halves directly with
+    // its asymmetric node sets (out for B; inPlus/inMinus for C).
     void stampBranchIncidence(int k, NodeId p, NodeId n) noexcept {
-        noteNode(p);
-        noteNode(n);
-        const std::size_t branch = branchIndex(k);
-        const int lp = local(p);
-        const int ln = local(n);
-        if (lp >= 0) {
-            a_[idx(lp)][branch] += 1.0;  // B: +1 into node p's KCL
-            a_[branch][idx(lp)] += 1.0;  // C: +1 * v(p)
-        }
-        if (ln >= 0) {
-            a_[idx(ln)][branch] -= 1.0;  // B: -1 into node n's KCL
-            a_[branch][idx(ln)] -= 1.0;  // C: -1 * v(n)
-        }
+        stampBranchB(k, p, +1.0);
+        stampBranchB(k, n, -1.0);
+        stampBranchC(k, p, +1.0);
+        stampBranchC(k, n, -1.0);
     }
 
     // Set branch k's constraint RHS (e.g. the imposed source voltage E).

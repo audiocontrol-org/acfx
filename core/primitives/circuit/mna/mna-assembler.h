@@ -108,11 +108,15 @@ public:
                         // method (branch-capacity overflow).
                         branchOf_[i] = sys.addBranch();
                     } else if constexpr (std::is_same_v<T, OpAmp>) {
-                        // OpAmp: nullor border (one branch injecting the norator
-                        // current at `out`, one nullator constraint row). Branch
-                        // allocated in T009 — deliberately no-op here; US1 has no
-                        // op-amp. Left as a labeled extension point.
-                        branchOf_[i] = kNoBranch;
+                        // OpAmp nullor: one branch-current unknown (the norator
+                        // current injected at `out`) plus one nullator constraint
+                        // row (V(inPlus) - V(inMinus) = 0). It augments the system
+                        // exactly like a voltage source — one branch. addBranch()
+                        // is the only throwing engine method (branch overflow).
+                        validateNode(elem.inPlus, i);
+                        validateNode(elem.inMinus, i);
+                        validateNode(elem.out, i);
+                        branchOf_[i] = sys.addBranch();
                     } else {
                         // Capacitor / Inductor / Diode: companion-stamped in T012
                         // (Norton companion from the CompanionSupply, no branch).
@@ -165,9 +169,21 @@ public:
                         sys.stampBranchIncidence(branch, elem.p, elem.n);
                         sys.stampBranchValue(branch, elem.V);
                     } else if constexpr (std::is_same_v<T, OpAmp>) {
-                        // OpAmp nullor border stamp: T009. No-op here (US1 has no
-                        // op-amp). Labeled extension point.
-                        (void)branch;
+                        // Ideal op-amp nullor border on its planned branch k
+                        // (mirrors the lab AugmentedSolver::borderOpAmps). The
+                        // stamp is ASYMMETRIC, so it uses the B/C halves directly
+                        // rather than the symmetric stampBranchIncidence:
+                        //   - Norator (B): the branch current flows into `out`'s
+                        //     KCL row only.
+                        //   - Nullator (C): the branch constraint row enforces
+                        //     V(inPlus) - V(inMinus) = 0.
+                        // No stampBranchResistance => zero branch diagonal, which
+                        // is exactly the nullor constraint (partial pivoting is
+                        // load-bearing here, not optional).
+                        sys.stampBranchB(branch, elem.out, +1.0);
+                        sys.stampBranchC(branch, elem.inPlus, +1.0);
+                        sys.stampBranchC(branch, elem.inMinus, -1.0);
+                        sys.stampBranchValue(branch, 0.0);
                     } else {
                         // Capacitor / Inductor / Diode: stamp the Norton companion
                         // comps.at(static_cast<int>(i)) as conductance Geq +
