@@ -152,11 +152,23 @@ the labs already demonstrate.
    pivoting; relative singular-pivot threshold. Real-valued (`double`) in v1.
 5. **RT-safety:** header-only, template-sized, zero heap in `assemble`+`solve`,
    C++17, no platform headers, ≤~300–500 lines/file (split across the two headers).
-6. **Error handling (no fallbacks):** build/prepare-time validation throws
-   descriptively (branch overflow, out-of-range node, degenerate values); the solve
-   path is throw-free and alloc-free; `solve()` returns `bool` for singular/ill-posed
-   systems — **no silent gmin fallback**. Read accessors are total over valid
-   indices and never throw (avoiding the `NullorSolver` `noexcept`/throw latent bug).
+6. **Two-phase assembly + error contract (no fallbacks):** branch count is
+   topological (one branch per ideal voltage source + one per op-amp/nullor;
+   diodes/capacitors/inductors are companion stamps and add no branches — invariant
+   across Newton iterations and timesteps), so assembly splits into:
+   - a **plan phase** run once per netlist at `prepare()` that allocates branches
+     (`addBranch`), fixes the incidence topology, and validates — **throw-permitted,
+     off the hot path** (branch overflow, out-of-range node, degenerate values);
+   - a **per-solve phase** on the hot path that refreshes conductance/RHS/companion
+     *values* into the already-fixed structure — **throw-free and alloc-free**, never
+     calling `addBranch`.
+
+   `solve()` returns `bool` for singular/ill-posed systems — **no silent gmin
+   fallback**. Read accessors are total over valid indices and never throw (avoiding
+   the `NullorSolver` `noexcept`/throw latent bug, TASK-14). This is strictly stronger
+   than "assembly may fail before solve": the per-sample path never invokes the
+   throwing allocator at all, and topology is not re-derived every iteration
+   (sidestepping TASK-13's per-iteration recompute waste by construction).
 7. **Capability gain:** floating ideal voltage sources are supported via branch
    augmentation, removing the labs' grounded-only restriction.
 8. **Validation:** exact closed-forms + an equivalence oracle against the existing
@@ -167,21 +179,26 @@ the labs already demonstrate.
    hand-rolled linear algebra in `LinearSolver`/`NullorSolver`/clipper solvers onto
    `MnaSystem` is captured scope, likely sequenced after all three sibling
    primitives land so the labs migrate to the full trio at once.
+10. **Inductor treatment in v1: supplied Norton companion** (as the labs do today),
+    not native branch-current inductor MNA. This keeps MNA stateless and aligned with
+    `implicit-integration` (which owns the companion). Native branch-current inductor
+    augmentation remains a documented future option, not v1. (Resolves the former
+    open question on inductor treatment, per third-party review.)
 
 ## Open questions
 
-1. **Inductor treatment** — supplied Norton companion (as the labs do today) vs.
-   native MNA branch-current augmentation. Both fit the API; pick during
-   implementation.
-2. **Complex / AC scalar** — generalize `MnaSystem` on `Scalar ∈ {double,
+> Resolved by third-party review (2026-07-07): **inductor treatment** — v1 uses the
+> supplied Norton companion (see Decision 10). No longer open.
+
+1. **Complex / AC scalar** — generalize `MnaSystem` on `Scalar ∈ {double,
    complex<double>}` to subsume `solveAC`, or keep AC a separate concern. Design the
    stamp API scalar-agnostic where free; default v1 real.
-3. **Controlled sources (VCVS/CCVS/VCCS/CCCS)** — not in today's vocabulary; the
+2. **Controlled sources (VCVS/CCVS/VCCS/CCCS)** — not in today's vocabulary; the
    branch-augmentation framework generalizes to them. Future.
-4. **Canonical `DiodeSpec` home (TASK-12)** — whether this primitive's landing is
+3. **Canonical `DiodeSpec` home (TASK-12)** — whether this primitive's landing is
    the moment to promote `DiodeSpec`/`siliconSignalDiode()` into
    `circuit/models/diode.h`. Related but separable.
-5. **Sequencing vs. siblings** — whether MNA lands first (with a hand-written test
+4. **Sequencing vs. siblings** — whether MNA lands first (with a hand-written test
    harness supplying companions) or in lockstep with `newton-iteration` /
    `implicit-integration`.
 
