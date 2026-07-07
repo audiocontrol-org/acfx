@@ -36,7 +36,7 @@
 // output.
 //
 // C++17, standard library only; no platform or component headers (the DSP core
-// knows nothing of JUCE / libDaisy / Teensy). double throughout.
+// knows nothing of any host framework or embedded hardware SDK). double throughout.
 
 namespace acfx::mna {
 
