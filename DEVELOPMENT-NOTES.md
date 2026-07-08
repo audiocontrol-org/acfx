@@ -2,6 +2,56 @@
 
 ---
 
+## 2026-07-08: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 29
+  - backlog(mna): capture code-review quality residuals TASK-15/16/17
+  - govern(mna): record /code-review stop-gap result (0 confirmed correctness defects)
+  - govern(mna): record govern-at-end pass, findings triage, and fixes in audit log
+  - test(mna): harden suite per govern findings
+  - fix(mna): govern findings — sparse-node robustness, plan-time validation, re-plannable branches, comment cleanup
+  - tasks(mna): mark all 22 tasks complete (implemented + tested + pushed)
+  - docs(mna): correct phase method names + link contracts/tests in primitive README (T021)
+  - test(mna): equivalence oracle vs LinearSolver + NullorSolver (T018-T019)
+  - test(mna): US5 ill-posed + physical-invariant suite (T015-T017)
+  - refactor(mna): split oversized assembler test file into per-story files + shared support header
+  - chore(mna): reword header comment to satisfy portability grep (no platform-name literals)
+  - test+feat(mna): US4 RT-safety zero-heap + plan-time-throw assembler cases (T013/T014)
+  - feat(mna): stamp caller-supplied companions for reactive/nonlinear elements (T012)
+  - test(mna): failing US3 caller-supplied companion cases + harness (T010/T011, RED)
+  - feat(mna): ideal op-amp nullor border in assembler (T009)
+  - test(mna): failing US2 nullor op-amp cases (T008, RED)
+  - feat(mna): MnaAssembler two-phase plan/refresh + linear/source mapping (T006)
+  - test(mna): failing US1 assembler linear/source suite (T005, RED)
+  - test(mna): correct node-2 expected voltage to I/G2 in bridging-conductance case
+  - feat(mna): MnaSystem bordered linear engine w/ partial pivoting (T004)
+  - test(mna): failing MnaSystem engine suite (T003, RED)
+  - test(mna): register four MNA test suites as stubs (T002)
+  - roadmap(mna): set spec pointer + record analyze-clean (specifying complete)
+  - tasks(mna): 22 TDD tasks across engine + 6 user stories, model-sized tiers
+  - plan(mna): impl plan + research + data-model + contracts + quickstart
+  - spec(mna): author modified-nodal-analysis spec from approved design
+  - roadmap(mna): record design-approved on modified-nodal-analysis
+  - design(mna): fold review — inductor=companion v1, two-phase throw contract
+  - design(mna): two-layer MNA primitive design record + roadmap design pointer
+- Files changed: 28
+- Backlog touched: TASK-15
+
 ## 2026-07-06: diode-clippers — runnable spec → implemented, governed, PR-open
 
 **Goal:** Drive `design:feature/diode-clippers` through `/stack-control:execute` from the runnable spec to shipped-ready — implement all 22 tasks via native `/speckit-implement` (front-door mediated), run the whole-feature govern-at-end to convergence, then open a PR (merge held for operator review).
