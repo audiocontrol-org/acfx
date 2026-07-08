@@ -2,6 +2,65 @@
 
 ---
 
+## 2026-07-08: modified-nodal-analysis — full lifecycle, planned → PR-open
+
+**Goal:** Take up `design:primitive/modified-nodal-analysis` (the branch's feature) and drive it the whole way through the stack-control front door — `design` → `define` → `execute` → `govern` → `ship` — from a `planned` roadmap node to a governed, ship-ready PR (merge held for operator review).
+
+**Accomplished:**
+- **Design → runnable spec.** Brainstormed the two-layer primitive (`MnaSystem` abstract bordered engine + `MnaAssembler` netlist mapper), grounded in an `Explore` map of the four existing lab solvers; wrote the approved design record, then authored the full Spec Kit chain (spec → plan → research → data-model → contracts → quickstart → 22 TDD tasks → analyze-clean).
+- **Implemented all 22 tasks via model-sized subagent dispatch** (opus for engine/assembler impl, sonnet for tests, haiku for setup/polish) — each a fresh subagent, TDD RED→GREEN, reviewed, ledgered, committed+pushed per boundary. Delivered `mna-system.h` (368 lines) + `mna-assembler.h` (344), 6 doctest suites + a shared harness.
+- **Faithful-superset proven:** the equivalence oracle agrees **exactly (diff = 0.0)** with `LinearSolver` and `NullorSolver` on every shared topology — the de-risking net for the future TASK-14 lab migration. Plus a genuine capability gain (floating voltage sources the labs refuse). Final: **42 cases / 200 assertions green**, portability rc0, zero-heap solve path.
+- **Governed + shipped-to-PR.** Whole-feature cross-model barrage (healthy 2-lane claude+codex) surfaced findings; fixed all substantive ones with +8 regression tests (2 HIGH: sparse/interior-gap node robustness, companion-element plan-time node validation; 2 MEDIUM: equal-terminal validation, re-plannable branches). Operator-selected `/code-review` stop-gap confirmed **0 correctness defects**. Recorded operator-approved `--override` (barrage couldn't self-reconcile in-sandbox) → `terminal-outcome=graduated`. Opened **PR #20**, merge held for review.
+
+**Didn't Work:**
+- **The govern audit-barrage was killed by the sandbox runtime ceiling again** — ~6 chunks completed on a healthy fleet, then killed before the final reconcile could write the convergence record. Recurring environmental limit; terminal was the sanctioned operator `--override` + `/code-review` stop-gap.
+- **Two setup subagents dispatched in parallel each ran `git commit` in the shared worktree and squashed into one commit** (T001+T002) — concurrent `git add -A` interleaved. Switched to sequential dispatch for any committing agent thereafter.
+- **One opus fix-subagent returned with 0 tool_uses and malformed output** (a terminal dispatch failure that did nothing); re-dispatching the identical brief succeeded.
+
+**Course Corrections:**
+- **The compass caught a skipped-step I'd missed twice.** `define` authored the spec but I hadn't set the roadmap node's `spec:` pointer (the TASK-244 class) nor run `/speckit-analyze` — so `execute`'s compass refused (`ahead`). Fixed by recording the facts that were actually true (link-spec, then run analyze → record `analyze-clean`), which is exactly what the compass was protecting.
+- **Verified subagent judgment calls instead of rubber-stamping.** An opus impl-agent "corrected" a test assertion (`I/(G1+G2)` → `I/G2`); I re-derived the KCL independently before accepting — the fix was right. Another added asymmetric `stampBranchB/C` primitives for the nullor; confirmed the voltage-source path stayed bit-identical via the engine tests.
+- **Pulled a portability-gate cleanup forward.** The gate enforces the ≤500-line budget on test files too; the accumulated 859-line assembler test file was split per-story (+ shared support header) mid-stream rather than deferred to polish.
+
+**Insights:**
+- **The two-phase (plan-once / refresh-many) contract paid off structurally**: because branch topology is fixed at plan time, the per-solve hot path is genuinely throw-free and alloc-free, and it sidesteps the per-iteration recompute waste (TASK-13 class) by construction — the govern findings that hit it were plan-time validation gaps, not hot-path bugs.
+- **Building the primitive directly (not labs-first) was faithful to Principle IX, not a violation** — the concepts were already validated across four labs; MNA is the "laboratory implementations evolve into production primitives" step, and TASK-14 now has its shared home.
+- **`--override` here was recording that governance happened, not skipping it** — the fleet was healthy and every substantive finding was fixed + a clean `/code-review` corroborated; the only thing the sandbox couldn't do was the mechanical reconcile-write. Distinct from the prohibited "override past a failed/degraded govern."
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 29
+  - backlog(mna): capture code-review quality residuals TASK-15/16/17
+  - govern(mna): record /code-review stop-gap result (0 confirmed correctness defects)
+  - govern(mna): record govern-at-end pass, findings triage, and fixes in audit log
+  - test(mna): harden suite per govern findings
+  - fix(mna): govern findings — sparse-node robustness, plan-time validation, re-plannable branches, comment cleanup
+  - tasks(mna): mark all 22 tasks complete (implemented + tested + pushed)
+  - docs(mna): correct phase method names + link contracts/tests in primitive README (T021)
+  - test(mna): equivalence oracle vs LinearSolver + NullorSolver (T018-T019)
+  - test(mna): US5 ill-posed + physical-invariant suite (T015-T017)
+  - refactor(mna): split oversized assembler test file into per-story files + shared support header
+  - chore(mna): reword header comment to satisfy portability grep (no platform-name literals)
+  - test+feat(mna): US4 RT-safety zero-heap + plan-time-throw assembler cases (T013/T014)
+  - feat(mna): stamp caller-supplied companions for reactive/nonlinear elements (T012)
+  - test(mna): failing US3 caller-supplied companion cases + harness (T010/T011, RED)
+  - feat(mna): ideal op-amp nullor border in assembler (T009)
+  - test(mna): failing US2 nullor op-amp cases (T008, RED)
+  - feat(mna): MnaAssembler two-phase plan/refresh + linear/source mapping (T006)
+  - test(mna): failing US1 assembler linear/source suite (T005, RED)
+  - test(mna): correct node-2 expected voltage to I/G2 in bridging-conductance case
+  - feat(mna): MnaSystem bordered linear engine w/ partial pivoting (T004)
+  - test(mna): failing MnaSystem engine suite (T003, RED)
+  - test(mna): register four MNA test suites as stubs (T002)
+  - roadmap(mna): set spec pointer + record analyze-clean (specifying complete)
+  - tasks(mna): 22 TDD tasks across engine + 6 user stories, model-sized tiers
+  - plan(mna): impl plan + research + data-model + contracts + quickstart
+  - spec(mna): author modified-nodal-analysis spec from approved design
+  - roadmap(mna): record design-approved on modified-nodal-analysis
+  - design(mna): fold review — inductor=companion v1, two-phase throw contract
+  - design(mna): two-layer MNA primitive design record + roadmap design pointer
+- Files changed: 28
+- Backlog touched: TASK-15
+
 ## 2026-07-06: diode-clippers — runnable spec → implemented, governed, PR-open
 
 **Goal:** Drive `design:feature/diode-clippers` through `/stack-control:execute` from the runnable spec to shipped-ready — implement all 22 tasks via native `/speckit-implement` (front-door mediated), run the whole-feature govern-at-end to convergence, then open a PR (merge held for operator review).

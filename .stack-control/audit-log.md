@@ -71,3 +71,90 @@ correctness, solver correctness, cleanup/altitude/conventions), each independent
 
 Net: the stop-gap surfaced one LOW (fixed) and independently corroborated the barrage's HIGH fix.
 No confirmed correctness defect remains in the feature.
+
+---
+
+## modified-nodal-analysis — govern-at-end (2026-07-07)
+
+Whole-feature `govern --mode implement` over `design:primitive/modified-nodal-analysis`.
+Fleet: 2 lanes (claude, codex), both **produced on every completed chunk** (healthy,
+non-degraded). Code-only scoping excluded 12 doc files. The barrage completed 6 chunks
+then hit the sandbox runtime ceiling and was killed mid-chunk-7 before writing the
+convergence record (the known ceiling; per govern-convergence-tail, operator `--override`
+is the sanctioned terminal for the record).
+
+Findings were harvested from the completed chunk run-dirs and triaged by blast radius.
+
+### Fixed — product code (commit f2faba5, +8 regression tests)
+
+- **HIGH (both lanes): sparse / interior-gap node ids → spurious singular row.** `MnaSystem`
+  tracked only the highest referenced node id, so an interior gap (reference 1 and 3, skip 2)
+  made the skipped node an all-zero row and `solve()` returned false for a well-posed circuit —
+  contradicting the header's stated guarantee. Fixed: track the SET of referenced non-ground
+  nodes (`std::array<bool,MaxNodes>`), compact only those; a referenced-but-floating node stays
+  legitimately singular. Regression tests added (interior-gap solves; floating-beside-gap still singular).
+- **HIGH (codex): companion elements skipped plan-time node validation.** Capacitor/Inductor/Diode
+  node ids could reach the `noexcept` stamps out of range → OOB array access. Fixed: `plan()` now
+  validates their node ids and throws `std::out_of_range` before any solve. Regression tests added.
+- **MEDIUM: equal-terminal degeneracy** (VoltageSource p==n, OpAmp inPlus==inMinus) slipped past
+  `plan()` into an opaque solve-time singular. Fixed: `plan()` throws `std::invalid_argument`.
+  Regression tests added.
+- **MEDIUM: re-plan left stale branches** (branchCount_ not reset). Fixed: added
+  `MnaSystem::clearBranches()` (separate from reset(), whose preserve-count contract is unchanged);
+  `plan()` re-plans cleanly. Regression tests added.
+- **LOW cleanup:** removed stale "T009/T012 extension point" placeholder comments (code now
+  implements them); removed dead `matScale_` member; softened the `1/R` comment to state the real
+  noexcept RT contract (caller keeps values in the plan-validated domain across refreshes).
+
+### Fixed — test hardening (commit 7c3b786)
+
+- Non-halting `CHECK_NOTHROW` on `plan()` preconditions → `REQUIRE_NOTHROW` (22 sites) so a plan
+  failure can't drive refresh/solve on an unplanned system.
+- Absolute 1e-12 equivalence tolerance → magnitude-scaled `kTol*max(1,|ref|)` across every
+  comparison site (channel-enumeration: all value channels, not just the 20 V case).
+- Zero-heap loop now asserts `solve()` success (accumulated boolean, `REQUIRE` outside the measured
+  region) so a silent solve regression can't pass.
+- Removed stale RED/pending language from now-green regression tests; bounds-checked the
+  `IndexedCompanions` test harness.
+
+### Acknowledged — LOW / informational (no change)
+
+- Passivity test is a Tellegen identity rather than a fully independent check (still a valid
+  balance assertion). Reciprocity test duplicates its netlist build (cosmetic). A few test comments
+  narrate Layer-1 engine internals not pinned by cross-chunk assertions (informational). One
+  branch-current assertion on an I=0 topology is vacuous (the meaningful floating-source branch-current
+  check lives in the US1 suite). `NoCompanions` masking forbidden lookups — low, test-only.
+
+### State
+
+- **42 mna test cases / 200 assertions pass**; `check-portability.sh` rc0; both headers within budget
+  (368 / 344). No confirmed correctness defect remains.
+- Terminal note: the barrage cannot reconcile in this sandbox (runtime ceiling). Substantive findings
+  fixed above; residuals acknowledged. Operator-approved `stackctl govern --override` is the sanctioned
+  terminal for the convergence record (per the govern-convergence-tail discipline).
+
+### /code-review stop-gap (2026-07-07, operator-selected)
+
+Ran the lighter multi-agent `/code-review --base main` (high effort) over the whole-feature
+diff as the operator-chosen stop-gap for the un-reconcilable barrage. Finder angles: two
+correctness (line-by-line + removed-behavior + cross-file on both headers; deep numerical trace
+of the reworked referenced-node compaction and the pivoted solve) and one cleanup/altitude/conventions.
+
+- **Correctness: 0 confirmed defects.** Both correctness finders independently traced the
+  compaction bijection (node block vs branch border), partial pivoting, back-substitution, the
+  relative-threshold recompute after `matScale_` removal, and the op-amp asymmetric vs
+  voltage-source symmetric stamps across boundary cases (single node, all-referenced, ground-only,
+  high-id-only, interior gap 1&3-skip-2) — all internally consistent and correct. Corroborates the
+  barrage's post-fix conclusion.
+- **Two low-severity non-crash items (acknowledged, not blocking):** the relative pivot threshold
+  can false-reject a well-posed but extreme-stiffness circuit (conductance ratio > ~1e12 in one
+  circuit) — an inherent tradeoff of any single-scalar relative gate, outside the realistic audio
+  envelope; and `refresh()`-before-`plan()` is guarded only by `assert` (NDEBUG-compiled-out) but
+  `refresh()` is noexcept on the RT hot path so it cannot throw — documented caller-precondition.
+- **Quality items captured to backlog** (non-blocking): TASK-15 (solve() full-kDim init vs
+  activeDim), TASK-16 (plan() terminal-extraction vs terminalsOf() reuse), TASK-17 (relative-pivot
+  conditioning limit — document or equilibrate).
+
+Net: the stop-gap found **no confirmed correctness defect** and independently corroborated the
+barrage's HIGH/MEDIUM fixes. No further code change made at the convergence point (avoids risky
+hot-path edits); quality residuals are in the governed backlog.

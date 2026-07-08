@@ -1,0 +1,344 @@
+#pragma once
+
+#include "primitives/circuit/components.h"
+#include "primitives/circuit/mna/mna-system.h"
+#include "primitives/circuit/netlist.h"
+#include "primitives/circuit/node.h"
+
+#include <array>
+#include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <variant>
+
+// MnaAssembler — Layer 2 of the Modified Nodal Analysis primitive: the single
+// authoritative site that maps each Netlist Component onto MnaSystem stamps
+// (contracts/mna-assembler.md; research D2/D3/D4/D6/D7; data-model.md
+// "MnaAssembler"). MnaSystem knows only how to stamp and solve a bordered
+// [G B; C 0] system; MnaAssembler is what turns "a Resistor between a and b" or
+// "an ideal VoltageSource between p and n" into the right stamps.
+//
+// Two-phase surface (D4):
+//   - plan(nl, sys)   : the THROWING, once-per-topology pass. Walks the netlist,
+//                       allocates one branch per element that needs a branch
+//                       unknown (ideal voltage sources and op-amps), records the
+//                       component -> branch map, and validates MNA-specific
+//                       preconditions (degenerate R, coincident branch
+//                       terminals, out-of-range node — on every element kind)
+//                       that the netlist's own prepare() does not cover. It is
+//                       re-plannable: it clears any prior plan first. Overflow
+//                       of the branch capacity is enforced by
+//                       MnaSystem::addBranch() (the only throwing engine method).
+//   - refresh(nl, comps, sys) : the noexcept, allocation-free, hot-path pass. It
+//                       resets the system and re-stamps every element's value
+//                       for this solve using the fixed plan. It NEVER calls
+//                       addBranch (D4) and never validates — plan() already did;
+//                       being noexcept it CANNOT re-validate, so the caller must
+//                       keep values in the plan-validated domain across refreshes.
+//
+// Element -> stamp mapping (contracts/mna-assembler.md, the authoritative table):
+//   Resistor{a,b,R}      -> stampConductance(a, b, 1/R)                 (no branch)
+//   CurrentSource{p,n,I} -> stampRhsCurrent(p,+I), stampRhsCurrent(n,-I)(no branch)
+//   VoltageSource{p,n,V} -> addBranch()@plan; stampBranchIncidence(k,p,n)
+//                           + stampBranchValue(k,V); zero branch diagonal
+//                           (ideal source: no series resistance). GROUNDED and
+//                           FLOATING alike (SC-005) — the incidence stamp drops
+//                           the ground column and handles two interior terminals
+//                           uniformly.
+//   OpAmp{inPlus,inMinus,out} -> addBranch()@plan; asymmetric nullor border:
+//                           stampBranchB(k,out,+1) (norator current into out) +
+//                           stampBranchC enforcing V(inPlus)-V(inMinus)=0; zero
+//                           branch diagonal.
+//   Capacitor/Inductor{a,b}   -> Norton companion from CompanionSupply: a
+//     Diode{anode,cathode}      conductance Geq + a current Ieq at refresh time;
+//                           no branch. plan() validates the node ids.
+//
+// CompanionSupply (the sibling seam, D6): refresh() is templated on any type
+// exposing `Companion at(int componentIndex) const noexcept`. MNA never computes
+// a companion — newton-iteration / implicit-integration supply them; a test
+// harness supplies a trivial one. US1 contains no reactive/nonlinear element, so
+// the supply is never consulted here.
+//
+// The concept, spelled out: given a Component/Netlist index `i` that holds a
+// Capacitor, Inductor, or Diode, `at(i)` returns that element's Norton
+// companion for THIS solve only — no ownership, no allocation, no history.
+// tests/core/mna-assembler-test.cpp's `IndexedCompanions<N>` (T010) is the
+// hand-written harness playing this role until the sibling primitives land.
+//
+// RT-safety (Principle VI): plan() may throw and runs off the audio path;
+// refresh()/reads are noexcept and heap-free — the only storage is a
+// fixed-capacity std::array sized by the template parameters. No fallbacks
+// (Principle V): an unrepresentable/degenerate element throws at plan time,
+// never a silent no-op or a gmin substitution.
+//
+// C++17, standard library only; no platform or component-graphics headers.
+// double throughout.
+
+namespace acfx::mna {
+
+template <int MaxNodes, int MaxComponents, int MaxBranches>
+class MnaAssembler {
+public:
+    static_assert(MaxNodes >= 1, "MnaAssembler requires MaxNodes >= 1 (ground)");
+    static_assert(MaxComponents >= 1,
+                  "MnaAssembler requires MaxComponents >= 1");
+    static_assert(MaxBranches >= 0, "MnaAssembler requires MaxBranches >= 0");
+
+    // Plan phase (D4): allocate branch unknowns, record the component->branch
+    // map, and validate MNA-specific preconditions. Re-plannable: it clears any
+    // prior branches/map first, so re-planning does not double-allocate. THROWS
+    // (off the hot path):
+    //   - MnaSystem::addBranch() throws std::length_error on branch overflow.
+    //   - a degenerate resistor (R <= 0, non-finite) throws std::invalid_argument.
+    //   - a branch-augmented element with coincident terminals (VoltageSource
+    //     p == n, OpAmp inPlus == inMinus) throws std::invalid_argument (a
+    //     structural singularity, not an opaque solve-time false).
+    //   - a node id outside [0, MaxNodes) — on ANY element, including the
+    //     Capacitor/Inductor/Diode companion elements — throws std::out_of_range
+    //     (a stamp would otherwise corrupt the matrix). The netlist's prepare()
+    //     validates against its own nodeCount; this is the MNA storage-capacity
+    //     guard.
+    // No fallback: an unrepresentable element throws, never a silent skip.
+    void plan(const Netlist<MaxNodes, MaxComponents>& nl,
+              MnaSystem<MaxNodes, MaxBranches>& sys) {
+        // Re-plannable: drop any branches and map from a previous plan() so
+        // planning the same system twice (or a different netlist on the same
+        // system) does not double-allocate branches (branchCount_ would
+        // otherwise keep climbing, since reset() deliberately preserves it).
+        sys.clearBranches();
+        branchOf_.fill(kNoBranch);
+        planned_ = false;
+
+        const auto comps = nl.components();
+        for (std::size_t i = 0; i < comps.size(); ++i) {
+            const Component& c = comps[i];
+            std::visit(
+                [&](const auto& elem) {
+                    using T = std::decay_t<decltype(elem)>;
+                    if constexpr (std::is_same_v<T, Resistor>) {
+                        validateNode(elem.a, i);
+                        validateNode(elem.b, i);
+                        validateResistor(elem, i);
+                        branchOf_[i] = kNoBranch;
+                    } else if constexpr (std::is_same_v<T, CurrentSource>) {
+                        validateNode(elem.p, i);
+                        validateNode(elem.n, i);
+                        branchOf_[i] = kNoBranch;
+                    } else if constexpr (std::is_same_v<T, VoltageSource>) {
+                        validateNode(elem.p, i);
+                        validateNode(elem.n, i);
+                        // p == n is a structural singularity (the incidence stamp
+                        // would pin v(p) - v(p) = V, an unsatisfiable constraint
+                        // row) — reject at plan time, not as an opaque solve-time
+                        // false (Principle V).
+                        validateDistinctTerminals(elem.p, elem.n, i,
+                                                  "VoltageSource");
+                        // Ideal source: one branch-current unknown, grounded or
+                        // floating alike. addBranch() is the only throwing engine
+                        // method (branch-capacity overflow).
+                        branchOf_[i] = sys.addBranch();
+                    } else if constexpr (std::is_same_v<T, OpAmp>) {
+                        // OpAmp nullor: one branch-current unknown (the norator
+                        // current injected at `out`) plus one nullator constraint
+                        // row (V(inPlus) - V(inMinus) = 0). It augments the system
+                        // exactly like a voltage source — one branch. addBranch()
+                        // is the only throwing engine method (branch overflow).
+                        validateNode(elem.inPlus, i);
+                        validateNode(elem.inMinus, i);
+                        validateNode(elem.out, i);
+                        // inPlus == inMinus collapses the nullator to 0 = 0, an
+                        // all-zero constraint row — a structural singularity,
+                        // rejected at plan time (Principle V).
+                        validateDistinctTerminals(elem.inPlus, elem.inMinus, i,
+                                                  "OpAmp");
+                        branchOf_[i] = sys.addBranch();
+                    } else if constexpr (std::is_same_v<T, Capacitor> ||
+                                         std::is_same_v<T, Inductor>) {
+                        // Reactive element: refresh() consumes a caller-supplied
+                        // Norton companion (Geq conductance + Ieq current) over
+                        // terminals a/b; no branch unknown. Validate the node ids
+                        // here so the noexcept refresh() stamps stay in bounds.
+                        validateNode(elem.a, i);
+                        validateNode(elem.b, i);
+                        branchOf_[i] = kNoBranch;
+                    } else if constexpr (std::is_same_v<T, Diode>) {
+                        // Nonlinear element: refresh() consumes a caller-supplied
+                        // Norton companion over terminals anode/cathode; no branch
+                        // unknown. Validate the node ids here so the noexcept
+                        // refresh() stamps stay in bounds.
+                        validateNode(elem.anode, i);
+                        validateNode(elem.cathode, i);
+                        branchOf_[i] = kNoBranch;
+                    }
+                },
+                c);
+        }
+
+        planned_ = true;
+    }
+
+    // Refresh phase (D4): reset the system and re-stamp every element's value for
+    // this solve using the fixed plan. noexcept, allocation-free, NEVER calls
+    // addBranch. Precondition: plan() has run (guarded by planned_); the callers
+    // always plan() first.
+    //
+    // CompanionSupply is any type with `Companion at(int) const noexcept`
+    // (contracts/mna-assembler.md). US1 consults it for no element.
+    template <class CompanionSupply>
+    void refresh(const Netlist<MaxNodes, MaxComponents>& nl,
+                 const CompanionSupply& comps,
+                 MnaSystem<MaxNodes, MaxBranches>& sys) const noexcept {
+        assert(planned_ && "MnaAssembler::refresh called before plan()");
+
+        sys.reset();
+
+        const auto components = nl.components();
+        for (std::size_t i = 0; i < components.size(); ++i) {
+            const Component& c = components[i];
+            const int branch = branchOf_[i];
+            std::visit(
+                [&](const auto& elem) {
+                    using T = std::decay_t<decltype(elem)>;
+                    if constexpr (std::is_same_v<T, Resistor>) {
+                        // Conductance stamp 1/R. plan() validated R (finite,
+                        // > 0) at plan time; refresh is noexcept and cannot
+                        // re-validate, so the caller must keep every component's
+                        // values within the plan-validated domain across
+                        // refreshes (Principle VI RT contract).
+                        sys.stampConductance(elem.a, elem.b, 1.0 / elem.R);
+                    } else if constexpr (std::is_same_v<T, CurrentSource>) {
+                        // Pure RHS: +I at p, -I at n.
+                        sys.stampRhsCurrent(elem.p, +elem.I);
+                        sys.stampRhsCurrent(elem.n, -elem.I);
+                    } else if constexpr (std::is_same_v<T, VoltageSource>) {
+                        // Ideal source on its planned branch k: incidence couples
+                        // p/n to the branch column+row, value pins v(p)-v(n)=V.
+                        // No stampBranchResistance => zero branch diagonal, which
+                        // is exactly the nullor/ideal-source constraint (grounded
+                        // and floating alike, SC-005).
+                        sys.stampBranchIncidence(branch, elem.p, elem.n);
+                        sys.stampBranchValue(branch, elem.V);
+                    } else if constexpr (std::is_same_v<T, OpAmp>) {
+                        // Ideal op-amp nullor border on its planned branch k
+                        // (mirrors the lab AugmentedSolver::borderOpAmps). The
+                        // stamp is ASYMMETRIC, so it uses the B/C halves directly
+                        // rather than the symmetric stampBranchIncidence:
+                        //   - Norator (B): the branch current flows into `out`'s
+                        //     KCL row only.
+                        //   - Nullator (C): the branch constraint row enforces
+                        //     V(inPlus) - V(inMinus) = 0.
+                        // No stampBranchResistance => zero branch diagonal, which
+                        // is exactly the nullor constraint (partial pivoting is
+                        // load-bearing here, not optional).
+                        sys.stampBranchB(branch, elem.out, +1.0);
+                        sys.stampBranchC(branch, elem.inPlus, +1.0);
+                        sys.stampBranchC(branch, elem.inMinus, -1.0);
+                        sys.stampBranchValue(branch, 0.0);
+                    } else if constexpr (std::is_same_v<T, Capacitor> ||
+                                         std::is_same_v<T, Inductor>) {
+                        // Reactive element as a caller-supplied Norton companion
+                        // (D6, FR-010/011): MNA CONSUMES the companion, never
+                        // computes it and holds no history. Directed a -> b (the
+                        // element's own terminal order), the branch current is
+                        //   i(a,b) = Geq*(V(a)-V(b)) - Ieq,
+                        // so Geq stamps as a plain conductance a<->b and Ieq stamps
+                        // exactly like CurrentSource{p=a,n=b,I=Ieq} (+Ieq at a,
+                        // -Ieq at b). This is the labs' transient-clipper.h
+                        // stamping verbatim (`Resistor{a,b,1/Geq}` +
+                        // `CurrentSource{a,b,Ieq}`), so the US6 equivalence oracle
+                        // agrees. No branch (plan() left branchOf_[i] = kNoBranch).
+                        const Companion companion =
+                            comps.at(static_cast<int>(i));
+                        sys.stampConductance(elem.a, elem.b, companion.Geq);
+                        sys.stampRhsCurrent(elem.a, +companion.Ieq);
+                        sys.stampRhsCurrent(elem.b, -companion.Ieq);
+                    } else if constexpr (std::is_same_v<T, Diode>) {
+                        // Nonlinear element linearized (by newton-iteration, D6)
+                        // into a caller-supplied Norton companion. Directed
+                        // anode -> cathode (same convention as the diode's own
+                        // bias vAK = V(anode)-V(cathode)):
+                        //   i(anode,cathode) = Geq*(V(anode)-V(cathode)) - Ieq.
+                        // Matches transient-clipper.h, which stamps
+                        // `CurrentSource{anode, cathode, -Ieq_lab}` with
+                        // Ieq_lab = I(vAK0) - Geq*vAK0, i.e. Ieq = Geq*vAK0 -
+                        // I(vAK0) -- the SAME quantity, so +Ieq at anode /
+                        // -Ieq at cathode. No branch.
+                        const Companion companion =
+                            comps.at(static_cast<int>(i));
+                        sys.stampConductance(elem.anode, elem.cathode,
+                                             companion.Geq);
+                        sys.stampRhsCurrent(elem.anode, +companion.Ieq);
+                        sys.stampRhsCurrent(elem.cathode, -companion.Ieq);
+                    }
+                },
+                c);
+        }
+    }
+
+    // True once plan() has run. Exposed for callers/tests that want to assert the
+    // two-phase ordering (refresh() itself asserts on it).
+    bool planned() const noexcept { return planned_; }
+
+private:
+    // Sentinel for "this component is not branch-augmented" (Resistor,
+    // CurrentSource, and the companion elements).
+    static constexpr int kNoBranch = -1;
+
+    // MNA storage-capacity node guard: a node id must land in [0, MaxNodes) or a
+    // stamp would write outside the fixed matrix. Ground (0) is valid.
+    static void validateNode(NodeId node, std::size_t componentIndex) {
+        if (node < 0 || node >= MaxNodes) {
+            throw std::out_of_range(
+                "MnaAssembler::plan: component " +
+                std::to_string(componentIndex) +
+                " references node id " + std::to_string(node) +
+                " outside the assembler's [0, MaxNodes) range (MaxNodes = " +
+                std::to_string(MaxNodes) + ")");
+        }
+    }
+
+    // Equal terminals on a branch-augmented element (VoltageSource p/n, OpAmp
+    // input pair) are a structural singularity: the constraint row degenerates
+    // (v(p) - v(p) = V, or 0 = 0) and no pivot can resolve it. Reject at plan
+    // time with a descriptive error rather than defer to an opaque solve-time
+    // false (Principle V).
+    static void validateDistinctTerminals(NodeId first, NodeId second,
+                                          std::size_t componentIndex,
+                                          const char* elementName) {
+        if (first == second) {
+            throw std::invalid_argument(
+                std::string("MnaAssembler::plan: component ") +
+                std::to_string(componentIndex) + " (" + elementName +
+                ") has coincident terminals (both node id " +
+                std::to_string(first) +
+                ") — a structural singularity with no branch-current solution");
+        }
+    }
+
+    // A resistor's conductance is 1/R; R <= 0 (or non-finite) has no finite,
+    // physical conductance and would inject inf/NaN into the matrix. Reject it at
+    // plan time rather than stamp a silent fallback (Principle V).
+    static void validateResistor(const Resistor& r, std::size_t componentIndex) {
+        if (!(r.R > 0.0) || !std::isfinite(r.R)) {
+            throw std::invalid_argument(
+                "MnaAssembler::plan: component " +
+                std::to_string(componentIndex) +
+                " is a degenerate resistor (R must be finite and > 0, got R = " +
+                std::to_string(r.R) + ")");
+        }
+    }
+
+    // ---- fixed-capacity state (NO heap, data-model.md "MnaAssembler") --------
+
+    // Component index -> planned branch index, or kNoBranch (-1) when the element
+    // is not branch-augmented. Sized by MaxComponents; fixed by plan().
+    std::array<int, MaxComponents> branchOf_{};
+
+    // Two-phase guard: refresh() before plan() is a precondition violation (D4).
+    bool planned_ = false;
+};
+
+}  // namespace acfx::mna

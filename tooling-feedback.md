@@ -48,3 +48,8 @@
 
 ## session-end 2026-07-06
 - govern audit-barrage sonnet lane times out on ~half the chunks in the acfx sandbox (fleet DEGRADED 2-of-3; require-models=2 met by claude+codex). 4 rounds each reconciled to a verdict but the final clean round was degraded-fleet, forcing an operator --override to graduate an otherwise 0-finding feature. The 030 chunked govern-at-end DOES complete now (no longer killed mid-run).
+
+## session-end 2026-07-08
+- govern --mode implement barrage was killed by the sandbox runtime ceiling again (~6 chunks completed on a healthy 2-lane claude+codex fleet, then killed before self-reconciling). Recurring; terminal was operator-approved --override + /code-review stop-gap per the govern-convergence-tail discipline.
+- Two subagents dispatched in parallel that each 'git commit' in the shared worktree squashed into one commit (T001+T002) — concurrent git add -A interleaved. Lesson: run committing subagents sequentially in a shared worktree; parallelism is safe only for read-only finders or worktree-isolated agents.
+- One opus fix-subagent dispatch returned with 0 tool_uses and a malformed boilerplate output (terminal dispatch failure); re-dispatching the identical brief succeeded. Worth a retry-on-empty-result guard.

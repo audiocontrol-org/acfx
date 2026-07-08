@@ -206,6 +206,15 @@ add_executable(acfx_core_tests
   # stay under the Constitution VII per-file line budget (shared sine-drive /
   # DC-settle / energy rig in core/opamp-stage-test-support.h).
   core/opamp-stage-invariants-test.cpp
+  # ---------------------------------------------------------------------------
+  # Modified Nodal Analysis (MNA) primitive test suites
+  # ---------------------------------------------------------------------------
+  core/mna-system-test.cpp
+  core/mna-assembler-test.cpp
+  core/mna-assembler-companions-test.cpp
+  core/mna-assembler-rtsafety-test.cpp
+  core/mna-invariants-test.cpp
+  core/mna-equivalence-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".

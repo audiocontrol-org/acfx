@@ -1,0 +1,368 @@
+#pragma once
+
+#include "primitives/circuit/node.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <stdexcept>
+
+// MnaSystem — Layer 1 of the Modified Nodal Analysis primitive: the abstract,
+// component-agnostic bordered linear engine (contracts/mna-system.md; research
+// decisions D1/D2/D3/D5/D7). It knows nothing about resistors, op-amps, or
+// netlists — only how to STAMP an augmented [G B; C 0] system over node voltages
+// and branch currents and SOLVE it by Gaussian elimination with partial
+// pivoting. It is the reusable linear-algebra core the lab solvers
+// (linear-solver.h, augmented-solve.h) are converging on.
+//
+// Layout (D2/D3):
+//   - Node 0 is ground and is the dropped reference: local(id) = id - 1, so the
+//     non-ground nodes 1..H occupy retained rows/cols 0..H-1. Ground contributes
+//     to no retained row or column.
+//   - Each branch k occupies augmented row/col index MaxNodes + k (the border).
+//     The retained NODE dimension holds ONLY the non-ground nodes actually
+//     referenced this assembly (tracked as a set in referenced_), so a
+//     never-referenced id — including an interior gap, e.g. referencing nodes 1
+//     and 3 but not 2 — is omitted from the working system and never appears as
+//     a spurious all-zero (singular) row. A referenced-but-floating node is
+//     retained and stays legitimately singular. The branch border is appended
+//     after the compacted node block when the working system is built.
+//
+// RT-safety (Principle VI): every per-solve/read method is noexcept and
+// allocation-free — solve() works entirely in fixed-size std::array stack
+// storage. addBranch() is the ONLY method permitted to throw, and only at plan
+// time on capacity overflow.
+//
+// No fallback (Principle V): a singular system yields solve() == false; no gmin
+// is injected, no patched result is returned, and no NaN is left in a readable
+// output.
+//
+// C++17, standard library only; no platform or component headers (the DSP core
+// knows nothing of any host framework or embedded hardware SDK). double throughout.
+
+namespace acfx::mna {
+
+template <int MaxNodes, int MaxBranches>
+class MnaSystem {
+public:
+    static_assert(MaxNodes >= 1, "MnaSystem requires MaxNodes >= 1 (ground)");
+    static_assert(MaxBranches >= 0, "MnaSystem requires MaxBranches >= 0");
+
+    // Augmented dimension ceiling: MaxNodes node slots (index 0 is ground,
+    // over-provisioning the retained block by one) plus MaxBranches border
+    // slots. Fixed at instantiation.
+    static constexpr std::size_t kDim =
+        static_cast<std::size_t>(MaxNodes) + static_cast<std::size_t>(MaxBranches);
+
+    // Zero the matrix, RHS, solution, and the referenced-node set between
+    // refreshes. Does NOT reset branchCount_: the branch count is topological
+    // and fixed by the plan phase (data-model.md "State"); use clearBranches()
+    // to re-plan. After reset(), the solved output depends only on the stamps
+    // applied before the next solve() (statelessness invariant).
+    void reset() noexcept {
+        for (std::size_t r = 0; r < kDim; ++r) {
+            a_[r].fill(0.0);
+            z_[r] = 0.0;
+            x_[r] = 0.0;
+        }
+        referenced_.fill(false);
+    }
+
+    // Drop every branch-current unknown allocated so far, resetting the branch
+    // count to zero. SEPARATE from reset() (which deliberately preserves the
+    // topological branch count): this is the explicit hook a re-plan uses so
+    // planning the same system twice does not double-allocate branches. Plan
+    // time only; RT-safe (noexcept, allocation-free) but not on the solve path.
+    void clearBranches() noexcept { branchCount_ = 0; }
+
+    // Four-corner, ground-aware conductance stamp (D2): +g on each non-ground
+    // diagonal and -g on each non-ground off-diagonal. A ground-referenced
+    // conductance contributes a single diagonal +g.
+    void stampConductance(NodeId i, NodeId j, double g) noexcept {
+        noteNode(i);
+        noteNode(j);
+        const int li = local(i);
+        const int lj = local(j);
+        if (li >= 0) {
+            a_[idx(li)][idx(li)] += g;
+        }
+        if (lj >= 0) {
+            a_[idx(lj)][idx(lj)] += g;
+        }
+        if (li >= 0 && lj >= 0) {
+            a_[idx(li)][idx(lj)] -= g;
+            a_[idx(lj)][idx(li)] -= g;
+        }
+    }
+
+    // Add current `i` to node `n`'s KCL balance (RHS). No-op if `n` is ground.
+    void stampRhsCurrent(NodeId n, double i) noexcept {
+        noteNode(n);
+        const int ln = local(n);
+        if (ln >= 0) {
+            z_[idx(ln)] += i;
+        }
+    }
+
+    // Allocate a branch-current unknown; returns its index k in [0, MaxBranches).
+    // THE ONLY throwing method (plan-time, D7): throws on capacity overflow.
+    int addBranch() {
+        if (branchCount_ >= MaxBranches) {
+            throw std::length_error(
+                "MnaSystem::addBranch: branch capacity (MaxBranches) exceeded — "
+                "the branch count is fixed at instantiation");
+        }
+        return branchCount_++;
+    }
+
+    // Norator half of a branch stamp (B block only): couple branch k's current
+    // into `node`'s KCL row with the given sign (a ground node is on the dropped
+    // column and is omitted). This is the ASYMMETRIC primitive an ideal op-amp
+    // needs — its norator current injects into `out` alone, a DIFFERENT node set
+    // than its nullator constraint (see stampBranchC). A symmetric voltage-source
+    // incidence composes this with stampBranchC over the same p/n pair.
+    void stampBranchB(int k, NodeId node, double sign) noexcept {
+        noteNode(node);
+        const int ln = local(node);
+        if (ln >= 0) {
+            a_[idx(ln)][branchIndex(k)] += sign;
+        }
+    }
+
+    // Nullator/constraint half of a branch stamp (C block only): add sign * v(node)
+    // to branch k's constraint row (a ground node is on the dropped column and is
+    // omitted). The op-amp nullator uses this asymmetrically: +1*v(inPlus)
+    // -1*v(inMinus) = 0 on the SAME branch row whose B half attaches to `out`.
+    void stampBranchC(int k, NodeId node, double sign) noexcept {
+        noteNode(node);
+        const int ln = local(node);
+        if (ln >= 0) {
+            a_[branchIndex(k)][idx(ln)] += sign;
+        }
+    }
+
+    // Branch incidence (D3): write +1/-1 into the B block (node KCL rows x branch
+    // col) and the C block (branch row x node cols) for the non-ground terminals.
+    // The branch current is defined to flow from p to n; +1 couples node p, -1
+    // couples node n. A ground terminal sits on the dropped column and is omitted.
+    // This is the SYMMETRIC composition (same p/n pair on both blocks) — the
+    // voltage-source stamp. The op-amp instead calls the B/C halves directly with
+    // its asymmetric node sets (out for B; inPlus/inMinus for C).
+    void stampBranchIncidence(int k, NodeId p, NodeId n) noexcept {
+        stampBranchB(k, p, +1.0);
+        stampBranchB(k, n, -1.0);
+        stampBranchC(k, p, +1.0);
+        stampBranchC(k, n, -1.0);
+    }
+
+    // Set branch k's constraint RHS (e.g. the imposed source voltage E).
+    void stampBranchValue(int k, double rhs) noexcept {
+        z_[branchIndex(k)] = rhs;
+    }
+
+    // Add -r on branch k's diagonal (D3/D5). r = 0 leaves the diagonal exactly
+    // zero (an ideal source / nullor constraint), which is what makes partial
+    // pivoting load-bearing rather than optional.
+    void stampBranchResistance(int k, double r) noexcept {
+        const std::size_t branch = branchIndex(k);
+        a_[branch][branch] += -r;
+    }
+
+    // Solve the assembled augmented system by Gaussian elimination with partial
+    // pivoting (D5). Returns false on a singular pivot by the relative threshold
+    // (D1) and leaves every readable output zeroed (no NaN leak, D7); returns
+    // true and writes the solution otherwise. noexcept, allocation-free.
+    bool solve() noexcept {
+        x_.fill(0.0);
+
+        // Build the compact list of actually-referenced non-ground node storage
+        // indices, in ascending id order. ONLY referenced ids are retained, so a
+        // never-referenced interior gap (e.g. nodes 1 and 3 but not 2) is
+        // omitted and cannot become a spurious all-zero row; a referenced-but-
+        // floating node IS retained and stays legitimately singular.
+        std::array<std::size_t, MaxNodes> nodeSrc{};
+        int nodeCount = 0;
+        for (int n = 1; n < MaxNodes; ++n) {
+            if (referenced_[idx(n)]) {
+                nodeSrc[idx(nodeCount)] = idx(n - 1);  // node n -> local n-1
+                ++nodeCount;
+            }
+        }
+
+        // Map a compacted working index to its augmented storage index: the
+        // first nodeCount entries are the retained referenced-node block, the
+        // rest are the branch border starting at MaxNodes.
+        const auto srcOf = [&](int w) noexcept -> std::size_t {
+            return w < nodeCount ? nodeSrc[idx(w)]
+                                 : branchIndex(w - nodeCount);
+        };
+
+        const int activeDim = nodeCount + branchCount_;
+        if (activeDim <= 0) {
+            return true;  // nothing to solve; all readable outputs are 0.
+        }
+
+        // Compact the retained referenced-node block and the branch border
+        // [MaxNodes, MaxNodes + branchCount_) into a contiguous working system.
+        std::array<std::array<double, kDim>, kDim> work{};
+        std::array<double, kDim> rhs{};
+        for (int r = 0; r < activeDim; ++r) {
+            const std::size_t sr = srcOf(r);
+            rhs[idx(r)] = z_[sr];
+            for (int c = 0; c < activeDim; ++c) {
+                work[idx(r)][idx(c)] = a_[sr][srcOf(c)];
+            }
+        }
+
+        // Relative singular-pivot gate (D1): threshold against the matrix scale,
+        // not an absolute denormal floor, so a well-posed but poorly scaled
+        // system (µS conductances beside unit sources) is not misclassified. An
+        // all-zero matrix (scale 0) falls back to the exact-zero floor.
+        double matScale = 0.0;
+        for (int r = 0; r < activeDim; ++r) {
+            for (int c = 0; c < activeDim; ++c) {
+                matScale = std::max(matScale, std::fabs(work[idx(r)][idx(c)]));
+            }
+        }
+        const double pivotEps = matScale > 0.0 ? kRelEps * matScale : kAbsFloor;
+
+        // Forward elimination with partial pivoting.
+        for (int col = 0; col < activeDim; ++col) {
+            int pivotRow = col;
+            double pivotMag = std::fabs(work[idx(col)][idx(col)]);
+            for (int r = col + 1; r < activeDim; ++r) {
+                const double mag = std::fabs(work[idx(r)][idx(col)]);
+                if (mag > pivotMag) {
+                    pivotMag = mag;
+                    pivotRow = r;
+                }
+            }
+            if (pivotMag < pivotEps) {
+                return false;  // singular; x_ already zeroed.
+            }
+            if (pivotRow != col) {
+                swapRows(work, rhs, col, pivotRow);
+            }
+            const double pivot = work[idx(col)][idx(col)];
+            for (int r = col + 1; r < activeDim; ++r) {
+                const double factor = work[idx(r)][idx(col)] / pivot;
+                if (factor == 0.0) {
+                    continue;
+                }
+                work[idx(r)][idx(col)] = 0.0;
+                for (int c = col + 1; c < activeDim; ++c) {
+                    work[idx(r)][idx(c)] -= factor * work[idx(col)][idx(c)];
+                }
+                rhs[idx(r)] -= factor * rhs[idx(col)];
+            }
+        }
+
+        // Back-substitution into a compacted solution vector.
+        std::array<double, kDim> sol{};
+        for (int r = activeDim - 1; r >= 0; --r) {
+            double sum = rhs[idx(r)];
+            for (int c = r + 1; c < activeDim; ++c) {
+                sum -= work[idx(r)][idx(c)] * sol[idx(c)];
+            }
+            sol[idx(r)] = sum / work[idx(r)][idx(r)];
+        }
+
+        // Scatter the compacted solution back to the full augmented layout.
+        for (int r = 0; r < activeDim; ++r) {
+            x_[srcOf(r)] = sol[idx(r)];
+        }
+        return true;
+    }
+
+    // Solved voltage at `node` (ground -> 0.0). Total over [0, MaxNodes); an
+    // out-of-range id is a plan-time precondition violation, never a hot-path
+    // throw (D7).
+    double nodeVoltage(NodeId node) const noexcept {
+        const int ln = local(node);
+        if (ln < 0) {
+            return 0.0;
+        }
+        return x_[idx(ln)];
+    }
+
+    // Solved branch current for branch k. Total over [0, branchCount_).
+    double branchCurrent(int k) const noexcept {
+        return x_[branchIndex(k)];
+    }
+
+    // Number of branches allocated by the plan phase so far (FR-014):
+    // topological, fixed once addBranch() has been called for every ideal
+    // voltage source / op-amp in the netlist, and thereafter invariant across
+    // reset()/refresh()/solve() (reset() intentionally preserves branchCount_,
+    // see above). Exposed so callers/tests can assert the two-phase branch-
+    // count invariant without reaching into private state.
+    int branchCount() const noexcept { return branchCount_; }
+
+private:
+    // Relative singular-pivot threshold (D1) and the exact-zero fallback floor
+    // used only when the matrix scale is itself zero.
+    static constexpr double kRelEps = 1e-12;
+    static constexpr double kAbsFloor = 1e-300;
+
+    // Local (0-based, ground-excluded) matrix index for a node, or -1 for
+    // ground. Node k (k >= 1) lives at local row/col k - 1.
+    static constexpr int local(NodeId node) noexcept {
+        return isGround(node) ? -1 : (node - 1);
+    }
+
+    // Augmented storage index of branch k (the border row/col).
+    static constexpr std::size_t branchIndex(int k) noexcept {
+        return static_cast<std::size_t>(MaxNodes) + static_cast<std::size_t>(k);
+    }
+
+    // Narrowing-free std::array index from a validated non-negative int.
+    static constexpr std::size_t idx(int i) noexcept {
+        return static_cast<std::size_t>(i);
+    }
+
+    // Record a referenced non-ground node in the active-node set. Ground and
+    // (defensively) any id outside [0, MaxNodes) are ignored — plan() validates
+    // node ids at plan time, so on the noexcept stamp path every id is in range.
+    void noteNode(NodeId n) noexcept {
+        if (!isGround(n) && n > 0 && n < MaxNodes) {
+            referenced_[idx(n)] = true;
+        }
+    }
+
+    // Swap two rows of both the working matrix and the RHS (over the full kDim
+    // width; no active-dimension bookkeeping needed).
+    static void swapRows(std::array<std::array<double, kDim>, kDim>& m,
+                         std::array<double, kDim>& v, int a, int b) noexcept {
+        std::array<double, kDim>& ra = m[idx(a)];
+        std::array<double, kDim>& rb = m[idx(b)];
+        for (std::size_t c = 0; c < kDim; ++c) {
+            const double t = ra[c];
+            ra[c] = rb[c];
+            rb[c] = t;
+        }
+        const double tv = v[idx(a)];
+        v[idx(a)] = v[idx(b)];
+        v[idx(b)] = tv;
+    }
+
+    // ---- fixed-capacity state (NO heap, data-model.md MnaSystem fields) ------
+
+    // Augmented matrix, RHS, and solution. Sized by kDim = MaxNodes + MaxBranches;
+    // only the active (retained nodes + branches) block is used per solve.
+    std::array<std::array<double, kDim>, kDim> a_{};
+    std::array<double, kDim> z_{};
+    std::array<double, kDim> x_{};
+
+    // Branches allocated so far (0..MaxBranches); fixed by the plan phase and
+    // intentionally preserved across reset() (clearBranches() drops them).
+    int branchCount_ = 0;
+
+    // Set of actually-referenced non-ground node ids this assembly (indexed by
+    // node id; index 0 / ground is unused). Cleared each assembly by reset() so
+    // a never-referenced id is omitted from the working system and an interior
+    // gap never manifests as a spurious singular row.
+    std::array<bool, MaxNodes> referenced_{};
+};
+
+}  // namespace acfx::mna
