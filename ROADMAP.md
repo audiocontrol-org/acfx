@@ -247,7 +247,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-numerical-solvers
 
 ## design:primitive/newton-iteration
-- status: shipped
+- status: closed
+- validated: yes
 - spec: specs/newton-iteration
 - analyze-clean: yes
 - design-approved: yes
