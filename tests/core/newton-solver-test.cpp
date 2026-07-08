@@ -470,6 +470,21 @@ TEST_CASE("newton-solver: solve() surfaces an inconsistent netlist by value (AUD
     CHECK_NOTHROW(bStatus = solver.solve(swapped, base, guess, assembler, sys));
     CHECK_FALSE(bStatus.converged);
     CHECK(bStatus.iterations == 0);
+
+    // Channel (c) — NON-diode topology drift (AUDIT-20260708-04/05): the diode
+    // slot (index 1) is unchanged, but index 0 changed Resistor -> VoltageSource
+    // (a branch-bearing kind whose planned branch map entry is stale). The diode
+    // slots still match, yet the full kind fingerprint rejects the drift, so the
+    // stale-branch refresh never runs — surfaced by value, not wrong stamping.
+    Netlist<kMaxNodes, kMaxComponents> drifted;
+    const NodeId d1 = drifted.addNode();
+    drifted.add(VoltageSource{d1, kGround, 0.5});           // index 0: was a Resistor
+    drifted.add(Diode{d1, kGround, 1e-14, 1.0, 0.025852});  // index 1: still a diode
+    drifted.prepare();
+    NewtonStatus cStatus;
+    CHECK_NOTHROW(cStatus = solver.solve(drifted, base, guess, assembler, sys));
+    CHECK_FALSE(cStatus.converged);
+    CHECK(cStatus.iterations == 0);
 }
 
 }  // TEST_SUITE("newton-solver")

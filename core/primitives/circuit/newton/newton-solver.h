@@ -134,9 +134,13 @@ public:
         // P1: branch allocation + MNA-specific topology validation (may throw).
         assembler.plan(nl, sys);
 
-        // P2: single diode scan.
+        // P2: single scan — record the diode topology AND a per-component kind
+        // fingerprint (the variant discriminant) so solve() can reject a netlist
+        // whose topology drifted from this plan (AUDIT-20260708-04/05).
         const auto components = nl.components();
+        plannedComponentCount_ = static_cast<int>(components.size());
         for (std::size_t i = 0; i < components.size(); ++i) {
+            componentKind_[i] = components[i].index();
             const bool diode = acfx::isNonlinear(components[i]);
             isDiode_[i] = diode;
             if (diode) {
@@ -190,20 +194,26 @@ public:
         // Cheap immutable span; cache once (no allocation) — reused every pass.
         const auto components = nl.components();
 
-        // Inconsistent-plan guard (AUDIT-20260708-02; contract S10): the netlist
-        // handed to solve() must still match the plan. If the caller passes a
-        // netlist inconsistent with the last plan() — fewer components, or a
-        // planned diode slot that no longer holds a Diode — indexing it with the
-        // stored diode indices would read out of range or make std::get throw
-        // std::bad_variant_access on the throw-free hot path. Surface that
-        // precondition violation deterministically BY VALUE instead (throw-free,
-        // allocation-free), exactly like the pre-plan guard above. O(diodeCount)
-        // scalar check using std::holds_alternative (never throws), no heap.
-        for (int d = 0; d < diodeCount_; ++d) {
-            const int c = diodeComponentIndex_[static_cast<std::size_t>(d)];
-            if (c < 0 || static_cast<std::size_t>(c) >= components.size() ||
-                !std::holds_alternative<acfx::Diode>(
-                    components[static_cast<std::size_t>(c)])) {
+        // Inconsistent-plan guard (AUDIT-20260708-02/04/05; contract S10): the
+        // netlist handed to solve() must have the SAME topology plan() validated,
+        // because MnaAssembler::refresh() stamps it through the FIXED plan (its
+        // branch map + Newton's diode indices). If the caller passes a netlist
+        // whose topology drifted from the plan — a different component count, or
+        // ANY component whose kind changed (a formerly-Resistor slot now a
+        // branch-bearing VoltageSource/OpAmp carrying a stale `kNoBranch` entry,
+        // or a planned Diode slot now a non-diode) — refresh would stamp against a
+        // stale plan and Newton's own std::get<Diode> could throw, both on the
+        // promised throw-free hot path. Surface that precondition violation
+        // deterministically BY VALUE instead. This is a full per-component kind
+        // fingerprint (the variant discriminant, which never throws), not just the
+        // diode slots — O(componentCount) once per solve, before the loop, no heap.
+        // It subsumes the diode-slot and out-of-range checks: a drifted Diode slot
+        // or a shorter netlist both fail the count/kind compare below.
+        if (static_cast<int>(components.size()) != plannedComponentCount_) {
+            return NewtonStatus{};
+        }
+        for (std::size_t i = 0; i < components.size(); ++i) {
+            if (components[i].index() != componentKind_[i]) {
                 return NewtonStatus{};
             }
         }
@@ -301,6 +311,11 @@ private:
     int                              diodeCount_ = 0;
     std::array<int, MaxComponents>   diodeComponentIndex_{};
     std::array<bool, MaxComponents>  isDiode_{};
+    // Per-component topology fingerprint (variant discriminant + count) so
+    // solve() can reject a netlist whose topology drifted from the plan
+    // (AUDIT-20260708-04/05) — full-topology, not just the diode slots.
+    int                                    plannedComponentCount_ = 0;
+    std::array<std::size_t, MaxComponents> componentKind_{};
 
     // ---- per-solve scratch (declared now; populated by T006) -----------------
     std::array<Companion, MaxComponents> diodeCompanion_{};
