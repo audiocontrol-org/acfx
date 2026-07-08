@@ -7,10 +7,13 @@
 #include "primitives/circuit/models/diode.h"
 #include "primitives/circuit/netlist.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <variant>
 
 // NewtonSolver — the nonlinear outer loop that drives the linear MnaSystem to a
 // self-consistent operating point (contracts/newton-solver.md; data-model.md
@@ -150,9 +153,14 @@ public:
 
     // Solve phase (contract S1–S10): the throw-free, allocation-free hot path.
     //
-    // The Newton iteration loop is implemented in the NEXT task (T006/US1); this
-    // increment lands only the pre-plan guard so the two-phase ordering is
-    // observable and the type surface is exercised end to end.
+    // Runs the Newton–Raphson outer loop. Each iteration linearizes every diode
+    // into a Norton companion (S1), composes those over the caller's fixed base
+    // supply (S2), refreshes and solves the coupled MNA system once (S3), damps
+    // the new junction biases through pnjlim (S4), and gates convergence on
+    // max|Δv| < voltageTol only (S5); currentResidual is reported, never gated.
+    // A singular solve (S7) or exhausted bound returns converged == false with
+    // the last iterate left in `sys`. Zero diodes → exactly one linear solve
+    // (S6). All scratch is fixed-capacity member arrays — zero heap (S10).
     template <class BaseCompanionSupply>
     NewtonStatus solve(
         const Netlist<MaxNodes, MaxComponents>& nl,
@@ -168,13 +176,89 @@ public:
             return NewtonStatus{};
         }
 
-        // TODO(T006/US1): Newton iteration loop implemented in the next task.
-        (void)nl;
-        (void)base;
-        (void)initialNodeVoltages;
-        (void)assembler;
-        (void)sys;
-        return NewtonStatus{};
+        // Reset per-solve scratch at the top (S8 statelessness): no state from a
+        // prior solve leaks into this one.
+        diodeCompanion_.fill(Companion{0.0, 0.0});
+        prevBiasAK_.fill(0.0);
+
+        // Cheap immutable span; cache once (no allocation) — reused every pass.
+        const auto components = nl.components();
+
+        // Seed each diode's junction bias from the initial node-voltage guess
+        // (S9): vAK = V(anode) - V(cathode) at the guess.
+        for (int d = 0; d < diodeCount_; ++d) {
+            const std::size_t c =
+                static_cast<std::size_t>(diodeComponentIndex_[
+                    static_cast<std::size_t>(d)]);
+            const auto& diode = std::get<acfx::Diode>(components[c]);
+            prevBiasAK_[c] =
+                initialNodeVoltages[static_cast<std::size_t>(diode.anode)] -
+                initialNodeVoltages[static_cast<std::size_t>(diode.cathode)];
+        }
+
+        NewtonStatus status{};
+        for (int iter = 0; iter < maxIterations_; ++iter) {
+            status.iterations = iter + 1;
+
+            // (a) Linearize every diode at its current bias (S1, S3): one global
+            // Norton step. The assembler consumes Companion{Geq,Ieq} as
+            //   i(anode,cathode) = Geq·(V(a)-V(c)) - Ieq,
+            // so matching the linearization I(v) ≈ I(vAK) + g·(v - vAK) gives
+            // Geq = g and Ieq = g·vAK - I(vAK).
+            for (int d = 0; d < diodeCount_; ++d) {
+                const std::size_t c =
+                    static_cast<std::size_t>(diodeComponentIndex_[
+                        static_cast<std::size_t>(d)]);
+                const auto& diode = std::get<acfx::Diode>(components[c]);
+                const double vAK = prevBiasAK_[c];
+                const DiodeSample s = diode.evaluate(vAK);
+                diodeCompanion_[c] =
+                    Companion{s.conductance, s.conductance * vAK - s.current};
+            }
+
+            // (b) Compose + refresh + solve once (S2, S3).
+            ComposedCompanionSupply<BaseCompanionSupply> supply{
+                base, diodeCompanion_, isDiode_};
+            assembler.refresh(nl, supply, sys);
+            if (!sys.solve()) {
+                // S7 singular: surface by value — no throw, no gmin/substitution.
+                status.converged = false;
+                return status;
+            }
+
+            // (c) Read new biases, damp (pnjlim, S4), compute residuals.
+            double maxDeltaV = 0.0;
+            double currentResidual = 0.0;
+            for (int d = 0; d < diodeCount_; ++d) {
+                const std::size_t c =
+                    static_cast<std::size_t>(diodeComponentIndex_[
+                        static_cast<std::size_t>(d)]);
+                const auto& diode = std::get<acfx::Diode>(components[c]);
+                const double vOld = prevBiasAK_[c];
+                const double vNewRaw = sys.nodeVoltage(diode.anode) -
+                                       sys.nodeVoltage(diode.cathode);
+                const double vNew = diode.limitJunctionVoltage(vNewRaw, vOld);
+                maxDeltaV = std::max(maxDeltaV, std::fabs(vNew - vOld));
+                // Report-only current residual (S5/FR-011) — never a gate.
+                currentResidual = std::max(
+                    currentResidual,
+                    std::fabs(diode.evaluate(vNew).current -
+                              diode.evaluate(vOld).current));
+                prevBiasAK_[c] = vNew;
+            }
+            status.voltageResidual = maxDeltaV;
+            status.currentResidual = currentResidual;
+
+            // (d) Convergence gate on the VOLTAGE residual ONLY (S5, FR-011).
+            // Zero diodes → maxDeltaV == 0 here, so a single linear solve
+            // converges immediately (S6).
+            if (maxDeltaV < voltageTol_) {
+                status.converged = true;
+                break;
+            }
+        }
+
+        return status;
     }
 
 private:
