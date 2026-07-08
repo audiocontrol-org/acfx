@@ -234,8 +234,13 @@ a future capability — never a silent substitution; see open questions.)
    types are added.
 4. **History state shape.** `{vPrev, iPrev}` per reactive element — the superset both
    supported rules need. Backward-Euler reads one term; trapezoidal reads both.
-5. **Rule is fixed per plan.** Chosen once, off the hot path — not switched per
-   sample. (Template parameter vs. runtime enum is an open question; see below.)
+5. **Rule is fixed per plan, selected as a template parameter** (resolved by
+   third-party review, 2026-07-08). The rule is chosen once, off the hot path — not
+   switched per sample — and is carried as a **template parameter** on the integrator
+   type (alongside the `<MaxNodes, …>` capacities), keeping the per-sample companion
+   path **branch-free**. A runtime need (e.g. an offline high-accuracy render mode)
+   remains reachable by instantiating both rule types and selecting the plan — the
+   template choice does not foreclose it.
 6. **Structure — two-phase, mirroring the siblings.** `plan()` once per topology
    (throw-permitted: scan netlist, record reactive indices, size history storage);
    the per-sample path (`step` + companion computation) is `noexcept` and heap-free
@@ -254,10 +259,34 @@ a future capability — never a silent substitution; see open questions.)
    warm-start node voltages (previous converged sample), keeping time-stepping state
    out of the stateless Newton. It **composes** Newton (nonlinear) / MNA (linear),
    absorbing neither.
-10. **History advance.** Advanced **once** per timestep, after the solve converges,
-    from the converged node voltages / branch currents per the selected rule. TASK-13
-    (fixed companions recomputed inside the Newton loop) is dissolved by
-    construction: companions are computed once per `step`, before the solve.
+10. **History advance — pinned contract** (added per third-party review,
+    2026-07-08). History is advanced **once** per timestep, after the solve
+    converges. The update is a single **rule-agnostic contract**, because a reactive
+    element's current is its companion's own defining relation:
+    - `vPrev_new = v^n` (the element's converged terminal voltage,
+      `V(a) − V(b)` from the solved node voltages), and
+    - `iPrev_new = i^n = Geq·v^n − Ieq`, using **this step's stamped companion**
+      (`Geq`, `Ieq` were computed from the *old* history before the solve — they must
+      not be recomputed from new history).
+
+    This reuses the companion already computed for the solve rather than re-deriving a
+    parallel per-rule expression, structurally preventing companion/history drift
+    between the rules. Expanded per element and rule (for the spec/data-model):
+
+    | element / rule | `iPrev := i^n` | `vPrev := v^n` |
+    |---|---|---|
+    | Capacitor, backward-Euler | `(C/dt)·(v^n − vPrev_old)` | `v^n` |
+    | Capacitor, trapezoidal | `(2C/dt)·(v^n − vPrev_old) − iPrev_old` | `v^n` |
+    | Inductor, backward-Euler | `(dt/L)·v^n + iPrev_old` | `v^n` |
+    | Inductor, trapezoidal | `iPrev_old + (dt/2L)·(v^n + vPrev_old)` | `v^n` |
+
+    **Implementation note:** a reactive element's current `i^n` is **not** an MNA
+    branch unknown (caps/inductors stamp as Norton conductances, not branch
+    constraints), so it is **reconstructed** post-solve from `v^n` and the stamped
+    companion via `i^n = Geq·v^n − Ieq` — which is exactly what makes the unifying
+    contract above hold. TASK-13 (fixed companions recomputed inside the Newton loop)
+    is dissolved by construction: companions are computed once per `step`, before the
+    solve, and reused for both the stamp and the history advance.
 11. **No fallback.** A non-converged solve is surfaced by value (the `NewtonStatus` is
     propagated); history is not silently advanced from an untrustworthy iterate. The
     integration rule is **never silently switched** to rescue a stiff/ringing case —
@@ -295,31 +324,31 @@ a future capability — never a silent substitution; see open questions.)
 
 ## Open questions
 
-1. **Rule selection mechanism — template parameter vs. runtime enum.** A template
-   parameter keeps the companion computation branch-free on the hot path and matches
-   the siblings' `<MaxNodes, …>` template-sizing pattern; a runtime enum is friendlier
-   for a host that switches oversampling/rate. Since the rule is fixed per plan
-   (Decision 5), a plan-time template parameter is the leaning; to be resolved in the
-   spec/plan.
-2. **Exact backward-Euler single-sourcing mechanism (Decision 14).** Whether to reuse
+> Resolved by third-party review (2026-07-08): **rule selection mechanism** (former
+> open question 1) — the rule is a **template parameter** on the integrator type, not
+> a runtime enum (branch-free hot path; rule fixed per plan). See Decision 5. And the
+> **post-solve history-advance contract** is now pinned as a rule-agnostic formula
+> plus its per-rule expansions. See Decision 10. Neither is open.
+
+1. **Exact backward-Euler single-sourcing mechanism (Decision 14).** Whether to reuse
    the element `companion(dt, ·)` for the BE case or centralize both rules in the
    integrator (demoting the element method to a documented reference). Both keep the
    physics constant single-sourced; a code-shape call for the plan.
-3. **Variable timestep.** v1 targets a fixed audio sample rate → fixed `dt` per plan.
+2. **Variable timestep.** v1 targets a fixed audio sample rate → fixed `dt` per plan.
    A `dt` change requires recomputing companions (they depend on `dt`), which is fine
    off the hot path. Whether to expose a supported `dt`-change path (re-plan) or hold
    `dt` immutable per plan is deferred; audio rate is effectively fixed within a
    render block.
-4. **Trapezoidal ringing on stiff nodes.** Trapezoidal is A-stable but not L-stable
+3. **Trapezoidal ringing on stiff nodes.** Trapezoidal is A-stable but not L-stable
    and can ring on stiff reactive nodes. v1 surfaces this as a documented property
    with backward-Euler as the damped default; an *explicitly-selected, reported*
    adaptive/higher-order integrator (BDF2/Gear) is a future capability — never a
    silent switch (Decision 11).
-5. **DC-operating-point initialization.** v1 defaults history to zero state
+4. **DC-operating-point initialization.** v1 defaults history to zero state
    (Decision 12); a settled DC-OP warm start is left to the caller. Whether a later
    convenience path belongs in this primitive or in a transient-assembly feature is
    captured, not v1.
-6. **Complex/AC.** The integrator is a transient (real, `double`) concern, consistent
+5. **Complex/AC.** The integrator is a transient (real, `double`) concern, consistent
    with the real-valued siblings. If MNA later generalizes to a complex scalar for AC
    analysis, the integrator stays real. Noted, not v1.
 
@@ -340,6 +369,16 @@ a future capability — never a silent substitution; see open questions.)
   Newton lifted single-nonlinearity; implicit-integration lifts hardcoded first-order
   backward-Euler to a selectable, higher-order rule). Operator approved the scope call
   and the chosen shape before this record was written.
+- Third-party review (2026-07-08) approved the direction and requested two spec-time
+  clarifications, both accepted (no substantive disagreement): (1) the rule is a
+  **template parameter** fixed per plan, not a runtime enum — Decision 5, resolving
+  former open question 1; (2) the **post-solve history-advance formulas** are pinned
+  as explicitly as the companion formulas — Decision 10, where they collapse to the
+  single rule-agnostic contract `iPrev_new = Geq·v^n − Ieq` / `vPrev_new = v^n` (with
+  the per-rule expansions tabulated), a refinement that reuses the step's stamped
+  companion and structurally prevents companion/history drift between the rules. The
+  review's framing of the trio boundary (MNA linear, Newton nonlinear, this primitive
+  owns dt/companions/history/warm-start/advance) matches the chosen design.
 - Existing-code references (from a thorough code-map exploration of the trunk):
   `core/primitives/circuit/models/companion.h:22-25` (rule-agnostic `Companion`),
   `core/primitives/circuit/models/capacitor.h:20-22,43-46` and
