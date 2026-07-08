@@ -575,4 +575,193 @@ TEST_CASE("newton-solver: diode-only DC netlist solves against a zero base -- v1
     CHECK(base.callCount == 0);
 }
 
+// ---------------------------------------------------------------------------
+// 6. Determinism / statelessness and warm-start (US4, T012; FR-008/009,
+// S8/S9, SC-007). NewtonSolver::solve() is STATELESS per solve: its per-solve
+// scratch (diodeCompanion_, prevBiasAK_) is reset at the top of every
+// solve(), so the only fields that persist solve->solve are immutable config
+// (maxIterations_, voltageTol_, currentTol_) and plan-time topology
+// (planned_, diodeCount_, diodeComponentIndex_, isDiode_) -- all of which
+// depend only on the netlist, never on a prior solve's iterate. The caller
+// owns the initial node-voltage guess (warm start); it seeds each diode's
+// junction bias but never changes the fixed point the loop converges to.
+//
+// All three cases below share one single-diode-plus-resistor topology (the
+// same shape as case 3 / case 5d): VoltageSource{n1,gnd,0.7} ->
+// Resistor{n1,n2,1000} -> Diode{n2,gnd,...} (anode n2, cathode ground).
+// ---------------------------------------------------------------------------
+
+// 6a. Determinism / statelessness (S8, SC-007): the SAME solver/assembler/sys
+// instance, called twice in a row with IDENTICAL (nl, base,
+// initialNodeVoltages), must produce BIT-IDENTICAL NewtonStatus values and
+// BIT-IDENTICAL resulting node voltages. This is the strongest form of the
+// claim: nothing left over in the solver's own scratch fields from the first
+// call may leak into the second. Same inputs -> identical floating-point
+// ops -> bit-identical results, so exact == on doubles is the correct
+// assertion here (not an approximate one).
+TEST_CASE("newton-solver: two identical back-to-back solve() calls are bit-identical -- statelessness (S8, SC-007)") {
+    constexpr int kMaxNodes = 8;
+    constexpr int kMaxComponents = 8;
+    constexpr int kMaxBranches = 4;
+    constexpr double kIs = 1e-14;
+    constexpr double kN = 1.0;
+    constexpr double kVt = 0.025852;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+
+    nl.add(VoltageSource{n1, kGround, 0.7});           // index 0
+    nl.add(Resistor{n1, n2, 1000.0});                  // index 1
+    nl.add(Diode{n2, kGround, kIs, kN, kVt});          // index 2 -- anode n2, cathode gnd
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver;
+    ZeroCompanionSupply base;
+
+    CHECK_NOTHROW(solver.plan(nl, assembler, sys));
+
+    const std::array<double, kMaxNodes> initialNodeVoltages{};
+
+    const NewtonStatus status1 = solver.solve(nl, base, initialNodeVoltages, assembler, sys);
+    const double v1n1 = sys.nodeVoltage(n1);
+    const double v1n2 = sys.nodeVoltage(n2);
+
+    // Second call: identical (nl, base, initialNodeVoltages), same solver
+    // instance -- proves solve() reset its own scratch rather than carrying
+    // anything over from the first call.
+    const NewtonStatus status2 = solver.solve(nl, base, initialNodeVoltages, assembler, sys);
+    const double v2n1 = sys.nodeVoltage(n1);
+    const double v2n2 = sys.nodeVoltage(n2);
+
+    CHECK(status1.converged);  // sanity: not vacuously comparing two failures
+    CHECK(status1.converged == status2.converged);
+    CHECK(status1.iterations == status2.iterations);
+    CHECK(status1.voltageResidual == status2.voltageResidual);
+    CHECK(status1.currentResidual == status2.currentResidual);
+    CHECK(v1n1 == v2n1);
+    CHECK(v1n2 == v2n2);
+}
+
+// 6b. Warm start vs cold guess converge to the SAME fixed point (S9): the
+// initial node-voltage guess affects iteration count only, never the
+// operating point. A cold (zero) guess and a warm guess seeded near the
+// diode's known forward-conduction voltage (~0.6 V at n2, the anode) must
+// both converge to node voltages that agree to solver tolerance, and the
+// warm start must never need MORE iterations than the cold start.
+TEST_CASE("newton-solver: warm start and cold start converge to the same fixed point, warm in no more iterations (S9)") {
+    constexpr int kMaxNodes = 8;
+    constexpr int kMaxComponents = 8;
+    constexpr int kMaxBranches = 4;
+    constexpr double kIs = 1e-14;
+    constexpr double kN = 1.0;
+    constexpr double kVt = 0.025852;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+
+    nl.add(VoltageSource{n1, kGround, 0.7});
+    nl.add(Resistor{n1, n2, 1000.0});
+    nl.add(Diode{n2, kGround, kIs, kN, kVt});  // anode n2, cathode gnd
+    nl.prepare();
+
+    // Cold: zero guess everywhere.
+    MnaSystem<kMaxNodes, kMaxBranches> sysCold;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assemblerCold;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solverCold;
+    ZeroCompanionSupply baseCold;
+    CHECK_NOTHROW(solverCold.plan(nl, assemblerCold, sysCold));
+    const std::array<double, kMaxNodes> coldGuess{};
+    const NewtonStatus cold = solverCold.solve(nl, baseCold, coldGuess, assemblerCold, sysCold);
+
+    // Warm: n2 (the diode's anode) seeded near the known ~0.6 V solution.
+    MnaSystem<kMaxNodes, kMaxBranches> sysWarm;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assemblerWarm;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solverWarm;
+    ZeroCompanionSupply baseWarm;
+    CHECK_NOTHROW(solverWarm.plan(nl, assemblerWarm, sysWarm));
+    std::array<double, kMaxNodes> warmGuess{};
+    warmGuess[static_cast<std::size_t>(n2)] = 0.6;
+    const NewtonStatus warm = solverWarm.solve(nl, baseWarm, warmGuess, assemblerWarm, sysWarm);
+
+    CHECK(cold.converged);
+    CHECK(warm.converged);
+
+    // Same fixed point regardless of the starting guess (solver tolerance).
+    CHECK(std::fabs(sysCold.nodeVoltage(n1) - sysWarm.nodeVoltage(n1)) < 1e-9);
+    CHECK(std::fabs(sysCold.nodeVoltage(n2) - sysWarm.nodeVoltage(n2)) < 1e-9);
+
+    // The guess affects iteration count, not the fixed point: starting near
+    // the solution never needs MORE iterations than starting cold.
+    CHECK(warm.iterations <= cold.iterations);
+}
+
+// 6c. Guess shape (FR-009): initialNodeVoltages is std::array<double,
+// MaxNodes> -- node voltages only, never branch currents. This is proved two
+// ways:
+//   (a) compile-time / by construction -- solve()'s third parameter (see
+//       newton-solver.h solve()'s signature) is `const std::array<double,
+//       MaxNodes>&`; there is no implicit conversion between differently
+//       sized std::array template instantiations, so every call below only
+//       compiles because the guess is EXACTLY MaxNodes-shaped (a
+//       MaxBranches-shaped array, note kMaxBranches != kMaxNodes here, would
+//       be a hard compile error at the call site, not a runtime failure).
+//   (b) behaviorally -- solve()'s only read of the guess (the "Seed each
+//       diode's junction bias" loop) indexes it at each diode's anode/cathode
+//       NODE ids. Perturbing an entry at a node the diode is NOT attached to
+//       (n1, which only touches the source/resistor) is therefore never read
+//       and must not change the seeded bias, the iteration count, or the
+//       converged fixed point at all -- exactly what a per-node-voltage-only
+//       guess predicts.
+TEST_CASE("newton-solver: initialNodeVoltages is a node-voltage-only guess shaped std::array<double, MaxNodes> (FR-009)") {
+    constexpr int kMaxNodes = 8;
+    constexpr int kMaxComponents = 8;
+    constexpr int kMaxBranches = 4;
+    static_assert(kMaxBranches != kMaxNodes,
+                  "kMaxBranches and kMaxNodes must differ so a differently "
+                  "shaped guess would be a distinguishable compile error");
+    constexpr double kIs = 1e-14;
+    constexpr double kN = 1.0;
+    constexpr double kVt = 0.025852;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+
+    nl.add(VoltageSource{n1, kGround, 0.7});
+    nl.add(Resistor{n1, n2, 1000.0});
+    nl.add(Diode{n2, kGround, kIs, kN, kVt});  // anode n2, cathode gnd -- n1 untouched
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sysZero;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assemblerZero;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solverZero;
+    ZeroCompanionSupply baseZero;
+    CHECK_NOTHROW(solverZero.plan(nl, assemblerZero, sysZero));
+    const std::array<double, kMaxNodes> zeroGuess{};  // exactly MaxNodes-shaped
+    const NewtonStatus zero = solverZero.solve(nl, baseZero, zeroGuess, assemblerZero, sysZero);
+
+    MnaSystem<kMaxNodes, kMaxBranches> sysPerturbed;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assemblerPerturbed;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solverPerturbed;
+    ZeroCompanionSupply basePerturbed;
+    CHECK_NOTHROW(solverPerturbed.plan(nl, assemblerPerturbed, sysPerturbed));
+    std::array<double, kMaxNodes> perturbedGuess{};  // exactly MaxNodes-shaped
+    perturbedGuess[static_cast<std::size_t>(n1)] = 123.0;  // a node the diode never touches
+    const NewtonStatus perturbed =
+        solverPerturbed.solve(nl, basePerturbed, perturbedGuess, assemblerPerturbed, sysPerturbed);
+
+    CHECK(zero.converged);
+    CHECK(perturbed.converged);
+    // n1's guess entry is never read (only the diode's anode/cathode entries
+    // are) -- identical seeded bias, identical iteration trajectory, so exact
+    // == is the correct assertion (not an approximate one).
+    CHECK(zero.iterations == perturbed.iterations);
+    CHECK(sysZero.nodeVoltage(n1) == sysPerturbed.nodeVoltage(n1));
+    CHECK(sysZero.nodeVoltage(n2) == sysPerturbed.nodeVoltage(n2));
+}
+
 }  // TEST_SUITE("newton-solver")
