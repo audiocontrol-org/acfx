@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-07-08: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 8
+  - tasks(newton-iteration): 22 dependency-ordered tasks across 7 user stories
+  - plan(newton-iteration): Phase 0/1 design artifacts
+  - spec(newton-iteration): author Spec Kit spec from approved design record
+  - design(newton-iteration): record operator design-approved (gate 7/7)
+  - design(newton-iteration): resolve initial-guess shape per third-party review
+  - design(newton-iteration): author design record for the nonlinear outer-loop primitive
+  - chore(roadmap): close design:primitive/modified-nodal-analysis (shipped, validated)
+  - Merge pull request #20 from audiocontrol-org/modified-nodal-analysis
+- Files changed: 12
+- Backlog touched: (none)
+
 ## 2026-07-08: modified-nodal-analysis — full lifecycle, planned → PR-open
 
 **Goal:** Take up `design:primitive/modified-nodal-analysis` (the branch's feature) and drive it the whole way through the stack-control front door — `design` → `define` → `execute` → `govern` → `ship` — from a `planned` roadmap node to a governed, ship-ready PR (merge held for operator review).
