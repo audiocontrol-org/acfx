@@ -286,8 +286,9 @@ matched operating points; assert node-voltage agreement to tolerance.
   ONLY. The current residual MUST be **reported but never gated** (a diode's reverse-saturation
   current can exceed any fixed current tolerance at a fully settled voltage).
 - **FR-012**: The iteration count MUST be bounded by a configurable `maxIterations`.
-  `maxIterations` and `voltageTol` MUST be validated `> 0` at construction (throw on invalid),
-  and MUST NEVER be silently retuned to hide a non-converging case.
+  `maxIterations`, `voltageTol`, and `currentTol` (the current-residual reporting reference)
+  MUST be validated `> 0` at construction (throw on invalid), and MUST NEVER be silently
+  retuned to hide a non-converging case.
 - **FR-013**: On non-convergence within the bound, `solve()` MUST return a status with
   `converged == false`, the consumed `iterations`, the final `voltageResidual` and
   `currentResidual`, and the last iterate as the node voltages (documented as not physically

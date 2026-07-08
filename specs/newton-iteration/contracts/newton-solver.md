@@ -3,7 +3,8 @@
 Header: `core/primitives/circuit/newton/newton-solver.h` · Namespace: `acfx::newton` ·
 C++17, header-only, template-sized. This is the primitive's public surface. Signatures are
 illustrative of the contract (names/shape may refine in implementation); the **behavioral
-guarantees** are binding.
+guarantees** are binding. The assembler parameter is named `assembler` (not `asm`, which is a
+reserved C++ keyword and cannot be an identifier).
 
 ## Types
 
@@ -40,7 +41,7 @@ explicit NewtonSolver(int maxIterations = 50,
 
 ```cpp
 void plan(const Netlist<MaxNodes, MaxComponents>& nl,
-          mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& asm,
+          mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
           mna::MnaSystem<MaxNodes, MaxBranches>& sys);
 ```
 
@@ -57,7 +58,7 @@ template <class BaseCompanionSupply>
 NewtonStatus solve(const Netlist<MaxNodes, MaxComponents>& nl,
                    const BaseCompanionSupply& base,
                    const std::array<double, MaxNodes>& initialNodeVoltages,
-                   mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& asm,
+                   mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
                    mna::MnaSystem<MaxNodes, MaxBranches>& sys);
 ```
 
@@ -86,7 +87,10 @@ NewtonStatus solve(const Netlist<MaxNodes, MaxComponents>& nl,
   count, never the converged fixed point.
 - **S10 (RT-safety).** Zero heap allocation and no locks; all scratch is fixed-capacity. A
   precondition violation (`solve()` before `plan()`, or a netlist inconsistent with the plan)
-  is surfaced deterministically, not as undefined behavior.
+  is surfaced deterministically, not as undefined behavior: **by value** as
+  `NewtonStatus{ converged = false, iterations = 0, voltageResidual = 0, currentResidual = 0 }`
+  — throw-free and allocation-free on the hot path, and distinguishable from a real
+  non-converged solve, which always runs ≥ 1 iteration (`iterations ≥ 1`, cf. S6).
 
 ## Read accessors
 
