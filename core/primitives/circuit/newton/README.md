@@ -43,8 +43,9 @@ the node-voltage residuals fall below tolerance or iteration count is exhausted.
 Non-convergence and singular systems are **surfaced by value** in `NewtonStatus`:
 
 - `converged` — whether the iteration reached tolerance
-- `iteration_count` — iterations consumed
-- `residual_norm` — final nodal residual magnitude
+- `iterations` — iterations consumed
+- `voltageResidual` — final max|Δv| across diode biases (V)
+- `currentResidual` — final |ΔI_total| of diode current (A)
 
 There is **no silent gmin injection, no source stepping, no substitution**. If the
 network does not converge, the caller sees it and decides the response (retry with
@@ -57,7 +58,7 @@ finer timestep, clamp outputs, log and continue, etc.).
 - **Integration rule and reactive history** — owned by `implicit-integration`.
   Newton handles nonlinearity; integration rules handle inductors and capacitors.
 - **Lab migration (TASK-14)** — retiring the duplicated outer-loop code in the
-  existing labs (`LabSolver::solveNonlinear`, etc.) onto `NewtonSolver` is
+  existing labs (`OpAmpClipperSolver`, `TransientClipper`, etc.) onto `NewtonSolver` is
   captured follow-on scope, sequenced after this primitive lands. Not part of
   this deliverable.
 - **Bounded-iteration heuristics** — v1 uses fixed iteration count or residual
@@ -66,13 +67,15 @@ finer timestep, clamp outputs, log and continue, etc.).
 
 ## Design Record & Spec
 
-The design-phase decisions and open questions are recorded at
-`docs/superpowers/specs/2026-07-08-newton-iteration-design.md`.
-The functional requirements and test acceptance criteria are at
-`specs/newton-iteration/spec.md`. The API contract is at
-`specs/newton-iteration/contracts/newton-solver.md`; the plan, research
-decisions, and validation guide are alongside at `specs/newton-iteration/`.
+- **Spec** — [`specs/newton-iteration/spec.md`](../../../../specs/newton-iteration/spec.md)
+  — functional requirements and test acceptance criteria.
+- **API Contract** — [`specs/newton-iteration/contracts/newton-solver.md`](../../../../specs/newton-iteration/contracts/newton-solver.md)
+  — detailed type and method signatures.
+- **Design Record** — [`docs/superpowers/specs/2026-07-07-newton-iteration-design.md`](../../../../docs/superpowers/specs/2026-07-07-newton-iteration-design.md)
+  — design-phase decisions and open questions.
+- **Project Folder** — [`specs/newton-iteration/`](../../../../specs/newton-iteration/)
+  — the plan, research decisions, and validation guide.
 
 Host-side validation lives in `tests/core/newton-*-test.cpp` (solver,
 convergence, multi-diode circuits, RT-safety, invariants, and a lab-equivalence
-oracle proving parity with existing `LabSolver::solveNonlinear`).
+oracle proving parity with existing lab solvers).
