@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-07-08: newton-iteration — design → runnable spec (planned → analyze-clean)
+
+**Goal:** Take up `design:primitive/newton-iteration` and drive it through the stack-control front door — `design` → `define` — from a `planned` roadmap node to an operator-approved design record and a complete, analyze-clean Spec Kit spec ready for `/stack-control:execute`. Implementation deliberately held as a separate, operator-initiated step. (This session's work is the 6 `newton-iteration` commits; the auto-derived boundary below also caught the 2 trailing MNA-close/merge commits from the prior session.)
+
+**Accomplished:**
+- **Design phase → approved record.** Brainstormed the primitive grounded in the already-cut seam (the `Diode` physics + MNA's `CompanionSupply` + the lab loop shape): captured the **general multi-diode** charter (lifting the labs' single-nonlinearity refusal), the stateless-per-solve contract, companion composition, and the no-fallback posture. Wrote the design record with 4 rejected alternatives, pushed it as **PR #21** for review, incorporated a third-party review (resolved the initial-guess shape to the full node-voltage array, node voltages only), then recorded operator `design-approved` (mechanical gate 7/7).
+- **Define phase → runnable spec.** Drove the full native Spec Kit chain inside the capability-mediation bracket: `specify` (7 prioritized user stories, 24 FRs, 8 SCs; quality checklist passed first iteration) → `clarify` (no critical ambiguities; tolerance defaults deliberately deferred to plan) → `plan` (Constitution I–XI clean) + `research` (R1–R10) + `data-model` + `contracts/newton-solver.md` + `quickstart` → **22 TDD tasks** across the 7 stories → `analyze` (**100% requirement coverage, 0 critical/high/medium**). `spec-check` green (spec=yes plan=yes tasks=yes).
+- **Pointers + wiring.** Set the `design:` and `spec:` pointers on the roadmap node; repointed `feature.json` and the `CLAUDE.md` SPECKIT marker to `specs/newton-iteration`. Six commits pushed (`7a20f07` → `abed15f`).
+
+**Didn't Work:**
+- **Spec Kit's `check-prerequisites.sh --require-tasks` (the analyze prereq) rejected the descriptive branch name** `newton-iteration` (TF-09) because it demands a numeric prefix — which acfx Commandment III explicitly forbids. Surfaced it (Principle V) rather than papering over; analyze ran read-only on the paths already resolved via `feature.json` (as `setup-plan`/`setup-tasks` do), so no artifact defect.
+- **`session-end` has no dry-run mode** — invoking it (intending a preview) appended the journal entry and committed+pushed immediately, before the narrative was composed. Composed the narrative in this follow-up commit.
+
+**Course Corrections:**
+- **Deferred numeric tolerances out of `clarify` instead of manufacturing a question.** The one borderline ambiguity (`maxIterations`/`voltageTol`/solve-tolerance) had a reasonable default (the lab's 50 / 1e-9 / 1e-12) and belonged in plan/tasks, not a spec clarification — pinned it in `research` R10.
+- **Followed the project pattern over pressing a non-expert operator.** When the operator deferred the charter decision to "follow the pattern of the rest of the project," derived the general multi-diode charter from the shipped MNA sibling's generalize-past-the-labs precedent rather than forcing a numerical-methods judgment they'd flagged as outside their expertise.
+- **Stopped at the `specifying → implementing` boundary.** Declined to hand-set the `analyze-clean` node marker — that transition is the `/stack-control:execute` front door's job, not `define`'s; held at define's postcondition rather than overstep into implementation.
+
+**Insights:**
+- **The seam was pre-cut on both sides.** Both the `Diode` header ("driving Newton is the solver's job") and MNA's `CompanionSupply` ("linearized by newton-iteration") already named and left empty exactly this primitive's interface — so the design was largely *discovering an intended shape* rather than inventing one, which is why `clarify` found nothing to ask.
+- **Companion composition is the load-bearing decision.** Preserving MNA's single-supply contract by wrapping a caller-supplied base supply (reactive companions from `implicit-integration`) and overriding only diode indices is what keeps the three-primitive boundary intact **without changing the shipped MNA** — the whole sibling decomposition hinges on it.
+- **Stateless-per-solve mirrors MNA and keeps warm-start a caller concern.** Newton stays a pure function of (netlist, base companions, initial guess): independently testable, and it leaves time-stepping ownership cleanly with `implicit-integration`.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 8
+  - tasks(newton-iteration): 22 dependency-ordered tasks across 7 user stories
+  - plan(newton-iteration): Phase 0/1 design artifacts
+  - spec(newton-iteration): author Spec Kit spec from approved design record
+  - design(newton-iteration): record operator design-approved (gate 7/7)
+  - design(newton-iteration): resolve initial-guess shape per third-party review
+  - design(newton-iteration): author design record for the nonlinear outer-loop primitive
+  - chore(roadmap): close design:primitive/modified-nodal-analysis (shipped, validated)
+  - Merge pull request #20 from audiocontrol-org/modified-nodal-analysis
+- Files changed: 12
+- Backlog touched: (none)
+
 ## 2026-07-08: modified-nodal-analysis — full lifecycle, planned → PR-open
 
 **Goal:** Take up `design:primitive/modified-nodal-analysis` (the branch's feature) and drive it the whole way through the stack-control front door — `design` → `define` → `execute` → `govern` → `ship` — from a `planned` roadmap node to a governed, ship-ready PR (merge held for operator review).
