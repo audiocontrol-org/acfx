@@ -33,6 +33,7 @@
 //      constructed (un-planned) solver returns NewtonStatus{converged=false,
 //      iterations=0, ...} BY VALUE: deterministic, no throw, not UB.
 
+using acfx::Capacitor;
 using acfx::CurrentSource;
 using acfx::Diode;
 using acfx::Netlist;
@@ -362,6 +363,216 @@ TEST_CASE("newton-solver: diode bridge rectifier (4 diodes at distinct node pair
     CHECK(status.iterations >= 1);
     CHECK(status.voltageResidual >= 0.0);
     CHECK(status.converged);
+}
+
+// ---------------------------------------------------------------------------
+// 5. ComposedCompanionSupply composition (US3, T010; FR-006/007; contract
+// S2/D6). NewtonSolver's nested ComposedCompanionSupply<Base> is the sibling
+// seam for implicit-integration: `at(i)` returns the per-iteration diode
+// linearization at diode component indices and DELEGATES to the caller's
+// base supply — which stays FIXED for the whole solve, since solve() takes
+// `base` by `const&` (see newton-solver.h solve()'s signature) — at every
+// other index. This is proved two ways: DIRECTLY, by constructing
+// ComposedCompanionSupply over a hand-built mask/array/base and asserting
+// `at()` picks the right side of the mask per index; and INDIRECTLY, by
+// solving an assembled netlist that mixes a reactive (non-diode) companion
+// element with diodes and observing the solve never throws and the base
+// supply's fixed value is unchanged after the solve.
+// ---------------------------------------------------------------------------
+
+// 5a. Direct unit test of ComposedCompanionSupply in isolation: a hand-built
+// isDiode mask + diodeCompanion array + a fixed base supply. Proves the
+// composition rule itself, with no netlist/assembler/solve involved.
+TEST_CASE("newton-solver: ComposedCompanionSupply delegates to base for non-diode indices and overrides diode indices (S2/D6)") {
+    constexpr int kMaxNodes = 8;
+    constexpr int kMaxComponents = 8;
+    constexpr int kMaxBranches = 4;
+
+    struct FixedBaseSupply {
+        acfx::Companion fixed;
+        acfx::Companion at(int /*componentIndex*/) const noexcept { return fixed; }
+    };
+
+    // Component 2 is a reactive (non-diode) index; component 5 is a diode
+    // index -- both arbitrary but distinct and in range.
+    constexpr int kReactiveIndex = 2;
+    constexpr int kDiodeIndex = 5;
+
+    FixedBaseSupply base{acfx::Companion{0.001, 0.005}};
+    std::array<acfx::Companion, kMaxComponents> diodeCompanion{};
+    std::array<bool, kMaxComponents> isDiode{};
+    isDiode[static_cast<std::size_t>(kDiodeIndex)] = true;
+    diodeCompanion[static_cast<std::size_t>(kDiodeIndex)] =
+        acfx::Companion{2.5, -0.75};
+
+    using Supply = NewtonSolver<kMaxNodes, kMaxComponents,
+                                kMaxBranches>::ComposedCompanionSupply<FixedBaseSupply>;
+    const Supply supply{base, diodeCompanion, isDiode};
+
+    // Non-diode index: delegates to the base's fixed companion verbatim.
+    const acfx::Companion reactive = supply.at(kReactiveIndex);
+    CHECK(reactive.Geq == doctest::Approx(0.001));
+    CHECK(reactive.Ieq == doctest::Approx(0.005));
+
+    // Diode index: overridden by the diodeCompanion array, NOT the base.
+    const acfx::Companion diode = supply.at(kDiodeIndex);
+    CHECK(diode.Geq == doctest::Approx(2.5));
+    CHECK(diode.Ieq == doctest::Approx(-0.75));
+}
+
+// 5b. Direct unit test of the v1 "empty base" DC case: a diode-only netlist's
+// mask (resistor indices non-diode, diode indices diode) composed over a
+// ZERO base. Proves only diode indices get a non-trivial companion -- the
+// non-diode indices delegate to the base's trivial {0,0}.
+TEST_CASE("newton-solver: ComposedCompanionSupply with a zero base -- only diode indices get non-trivial companions (v1 DC case, S2/D6)") {
+    constexpr int kMaxNodes = 8;
+    constexpr int kMaxComponents = 8;
+    constexpr int kMaxBranches = 4;
+
+    struct ZeroBaseSupply {
+        acfx::Companion at(int /*componentIndex*/) const noexcept {
+            return acfx::Companion{0.0, 0.0};
+        }
+    };
+
+    // Mirrors test case 2's diode-only topology: index 0 resistor, index 1
+    // diode, index 2 resistor, index 3 diode.
+    ZeroBaseSupply base;
+    std::array<acfx::Companion, kMaxComponents> diodeCompanion{};
+    std::array<bool, kMaxComponents> isDiode{};
+    isDiode[1] = true;
+    isDiode[3] = true;
+    diodeCompanion[1] = acfx::Companion{0.04, -0.6};
+    diodeCompanion[3] = acfx::Companion{0.02, -0.3};
+
+    using Supply = NewtonSolver<kMaxNodes, kMaxComponents,
+                                kMaxBranches>::ComposedCompanionSupply<ZeroBaseSupply>;
+    const Supply supply{base, diodeCompanion, isDiode};
+
+    // Non-diode (resistor) indices: delegate to the zero base -- trivial.
+    CHECK(supply.at(0).Geq == doctest::Approx(0.0));
+    CHECK(supply.at(0).Ieq == doctest::Approx(0.0));
+    CHECK(supply.at(2).Geq == doctest::Approx(0.0));
+    CHECK(supply.at(2).Ieq == doctest::Approx(0.0));
+
+    // Diode indices: overridden with the non-trivial per-iteration value.
+    CHECK(supply.at(1).Geq == doctest::Approx(0.04));
+    CHECK(supply.at(1).Ieq == doctest::Approx(-0.6));
+    CHECK(supply.at(3).Geq == doctest::Approx(0.02));
+    CHECK(supply.at(3).Ieq == doctest::Approx(-0.3));
+}
+
+// 5c. Base pass-through + diode override across a real solve: a netlist
+// mixing a NON-diode companion element (a Capacitor, at a KNOWN component
+// index) with a diode, plus resistors so no node floats. The hand-written
+// base supply returns a FIXED, distinctive companion for the capacitor's
+// index and {0,0} elsewhere; solve() takes `base` by `const&`
+// (newton-solver.h solve() signature) so it cannot mutate mid-solve
+// (FR-007) -- re-querying the SAME index after solve() must still yield the
+// identical fixed value.
+TEST_CASE("newton-solver: solve() composes a fixed base companion for a reactive element with diode overrides (FR-006/007)") {
+    constexpr int kMaxNodes = 12;
+    constexpr int kMaxComponents = 12;
+    constexpr int kMaxBranches = 4;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+
+    nl.add(VoltageSource{n1, kGround, 1.0});           // index 0
+    nl.add(Resistor{n1, n2, 1000.0});                  // index 1
+    nl.add(Capacitor{n2, kGround, 1e-6});              // index 2 -- reactive, KNOWN index
+    nl.add(Diode{n2, kGround, 1e-14, 1.0, 0.025852});  // index 3 -- diode
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver;
+
+    // Hand-written base supply: FIXED companion at the capacitor's index,
+    // {0,0} everywhere else. callCount just documents the base IS consulted
+    // every iteration (via ComposedCompanionSupply's delegation), NOT that it
+    // changes -- the value returned for a given index never varies.
+    struct FixedReactiveBaseSupply {
+        int reactiveIndex;
+        acfx::Companion fixed;
+        mutable int callCount = 0;
+        acfx::Companion at(int i) const noexcept {
+            ++callCount;
+            return i == reactiveIndex ? fixed : acfx::Companion{0.0, 0.0};
+        }
+    } base{2, acfx::Companion{0.001, 0.005}};
+
+    CHECK_NOTHROW(solver.plan(nl, assembler, sys));
+    CHECK(solver.diodeCount() == 1);
+    CHECK(solver.isDiodeComponent(3));
+    CHECK_FALSE(solver.isDiodeComponent(2));  // the capacitor is NOT in the diode mask
+
+    const std::array<double, kMaxNodes> initialNodeVoltages{};
+    NewtonStatus status;
+    CHECK_NOTHROW(status = solver.solve(nl, base, initialNodeVoltages, assembler, sys));
+
+    CHECK(status.iterations >= 1);
+    CHECK(status.converged);
+    CHECK(base.callCount > 0);
+
+    // FR-007: base is const& for the whole solve, so it never changed
+    // mid-solve -- re-querying the same index post-solve yields the same
+    // fixed companion.
+    const acfx::Companion after = base.at(2);
+    CHECK(after.Geq == doctest::Approx(0.001));
+    CHECK(after.Ieq == doctest::Approx(0.005));
+}
+
+// 5d. Empty base (v1 DC case) end to end: a netlist with ONLY diodes +
+// resistors (no reactive element), solved with a base supply that returns
+// {0,0} for everything. Proves the v1 hand-written-base DC scenario solves
+// cleanly through the composed supply.
+TEST_CASE("newton-solver: diode-only DC netlist solves against a zero base -- v1 hand-written-base case (FR-006/007)") {
+    constexpr int kMaxNodes = 8;
+    constexpr int kMaxComponents = 8;
+    constexpr int kMaxBranches = 4;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+
+    nl.add(VoltageSource{n1, kGround, 0.7});                // index 0
+    nl.add(Resistor{n1, n2, 1000.0});                       // index 1
+    nl.add(Diode{n2, kGround, 1e-14, 1.0, 0.025852});        // index 2 -- only diode
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver;
+
+    struct ZeroBaseCountingSupply {
+        mutable int callCount = 0;
+        acfx::Companion at(int /*componentIndex*/) const noexcept {
+            ++callCount;
+            return acfx::Companion{0.0, 0.0};
+        }
+    } base;
+
+    CHECK_NOTHROW(solver.plan(nl, assembler, sys));
+    CHECK(solver.diodeCount() == 1);
+    CHECK(solver.isDiodeComponent(2));
+    CHECK_FALSE(solver.isDiodeComponent(0));
+    CHECK_FALSE(solver.isDiodeComponent(1));
+
+    const std::array<double, kMaxNodes> initialNodeVoltages{};
+    NewtonStatus status;
+    CHECK_NOTHROW(status = solver.solve(nl, base, initialNodeVoltages, assembler, sys));
+
+    CHECK(status.iterations >= 1);
+    CHECK(status.converged);
+    // MnaAssembler::refresh only calls CompanionSupply::at() for reactive
+    // (Capacitor/Inductor) and Diode components (mna-assembler.h refresh()).
+    // This netlist has no reactive element, and the lone companion element is
+    // the diode -- which ComposedCompanionSupply intercepts via the isDiode
+    // mask before ever reaching base.at(). So the base is legitimately never
+    // consulted here: the "empty base" v1 DC case, proved end to end.
+    CHECK(base.callCount == 0);
 }
 
 }  // TEST_SUITE("newton-solver")
