@@ -242,4 +242,89 @@ TEST_CASE("newton-closed-form: zero-diode resistor divider converges in exactly 
     CHECK(sys.nodeVoltage(n2) == doctest::Approx(expected).epsilon(1e-12));
 }
 
+// ---------------------------------------------------------------------------
+// 3. Symmetric antiparallel diode pair at ZERO drive: the port voltage must
+// be exactly 0 V by symmetry (S5, FR-011; edge case). Two identical diodes
+// wired anode-to-cathode across the same node pair, with no source drive,
+// admit no current asymmetry to break the tie -- the only self-consistent
+// operating point is v(n2) == 0.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("newton-closed-form: symmetric antiparallel diode pair at zero drive converges to 0 V by symmetry (S5, FR-011)") {
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+
+    nl.add(VoltageSource{n1, kGround, 0.0});                                 // zero drive
+    nl.add(Resistor{n1, n2, kSeriesR});                                      // series into the port node n2
+    nl.add(Diode{n2, kGround, kDiodeIs, kDiodeN, kDiodeVt});                 // forward
+    nl.add(Diode{kGround, n2, kDiodeIs, kDiodeN, kDiodeVt});                 // antiparallel (reverse)
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver;
+    ZeroCompanionSupply base;
+
+    // The solver must not refuse a 2-diode network: plan()/solve() return a
+    // status, they do not throw.
+    CHECK_NOTHROW(solver.plan(nl, assembler, sys));
+
+    const std::array<double, kMaxNodes> initialNodeVoltages{};
+    const NewtonStatus status =
+        solver.solve(nl, base, initialNodeVoltages, assembler, sys);
+
+    CHECK(status.converged);
+    CHECK(std::abs(sys.nodeVoltage(n2)) < 1e-9);
+}
+
+// ---------------------------------------------------------------------------
+// 4. currentResidual is POPULATED but NEVER a convergence gate (S5, FR-011).
+// A deliberately tiny currentTol must NOT block convergence: the solver
+// gates solely on the voltage residual, and only reports currentResidual.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("newton-closed-form: currentResidual is populated but never gates convergence (S5, FR-011)") {
+    constexpr double Vs = 0.7;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId n1 = nl.addNode();
+    const NodeId n2 = nl.addNode();
+
+    nl.add(VoltageSource{n1, kGround, Vs});
+    nl.add(Resistor{n1, n2, kSeriesR});
+    nl.add(Diode{n2, kGround, kDiodeIs, kDiodeN, kDiodeVt});
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    // Deliberately tiny currentTol (1e-30) alongside a normal voltageTol
+    // (1e-9): if currentResidual were ever a convergence gate, this circuit
+    // could never converge because currentResidual will never drop below
+    // 1e-30. Convergence is gated on the voltage residual only (FR-011).
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver(
+        /*maxIterations=*/50, /*voltageTol=*/1e-9, /*currentTol=*/1e-30);
+    ZeroCompanionSupply base;
+
+    solver.plan(nl, assembler, sys);
+
+    const std::array<double, kMaxNodes> initialNodeVoltages{};
+    const NewtonStatus status =
+        solver.solve(nl, base, initialNodeVoltages, assembler, sys);
+
+    // Convergence must succeed despite the unattainable currentTol -- proof
+    // that current residual is not a gate.
+    CHECK(status.converged);
+
+    // currentResidual is reported (populated, finite, non-negative) in the
+    // status regardless of whether it ever compares against currentTol.
+    CHECK(status.currentResidual >= 0.0);
+    CHECK(std::isfinite(status.currentResidual));
+
+    // The whole point: currentResidual is free to exceed the (unreachable)
+    // currentTol at convergence without blocking it -- it is reported, never
+    // gated (FR-011).
+    CHECK(status.currentResidual > 1e-30);
+}
+
 }  // TEST_SUITE("newton-closed-form")
