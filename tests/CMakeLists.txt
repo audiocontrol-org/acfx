@@ -215,6 +215,14 @@ add_executable(acfx_core_tests
   core/mna-assembler-rtsafety-test.cpp
   core/mna-invariants-test.cpp
   core/mna-equivalence-test.cpp
+  # ---------------------------------------------------------------------------
+  # Newton-Raphson iteration primitive test suites (newton-iteration feature)
+  # ---------------------------------------------------------------------------
+  core/newton-solver-test.cpp
+  core/newton-closed-form-test.cpp
+  core/newton-invariants-test.cpp
+  core/newton-equivalence-test.cpp
+  core/newton-nofallback-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
