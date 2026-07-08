@@ -207,6 +207,15 @@ bounded damped Newton proves insufficient for stiff strings; see open questions.
 6. **State.** **Stateless per solve** (mirrors MNA). `solve()` takes an initial
    node-voltage guess (caller-owned warm start) and returns `NewtonStatus`; it holds no
    cross-sample history.
+6a. **Initial-guess shape** (resolved by third-party review, 2026-07-07): the guess is
+    the **full node-voltage array**, not a per-diode `vAK` warm start. It aligns with MNA's
+    `nodeVoltage` read surface, supports whole-solution warm starts, and keeps the solver
+    genuinely global rather than baking in a diode-port worldview. The guess covers **only
+    node voltages, not branch currents**: Newton iterates on node voltages (a diode's
+    linearization depends solely on `vAK = V(anode) − V(cathode)`), and branch currents are
+    pure linear outputs of each `MnaSystem::solve` given the companions — warm-starting them
+    would not affect nonlinear convergence, so the guess is the node-voltage sub-vector of
+    the augmented solution.
 7. **Convergence & damping.** Gate on the **voltage residual** `max|Δv| < voltageTol`
    only; report (don't gate) the current residual. Damp each junction with
    `Diode::limitJunctionVoltage` (`pnjlim`). Bounded `maxIterations`. Configurable
@@ -233,23 +242,24 @@ bounded damped Newton proves insufficient for stiff strings; see open questions.
 
 ## Open questions
 
+> Resolved by third-party review (2026-07-07): **initial-guess API shape** (former
+> open question 2) — the guess is the full node-voltage array (node-voltage sub-vector
+> of the augmented solution; branch currents excluded). See Decision 6a. No longer open.
+
 1. **Damping generality beyond the diode.** `pnjlim` is diode-specific and lives on
    `Diode`. A future non-diode nonlinearity would need its own limiter; the generic
    per-element "linearize + limit" interface must obtain it from the element. v1 is
    diode-only, so Newton calls `Diode::limitJunctionVoltage` directly — the generalization
    is a design note, not v1 surface.
-2. **Initial-guess API shape.** Whether `solve()` accepts a full node-voltage array or a
-   per-diode `vAK` warm start. Leaning node-voltage array (matches MNA's `nodeVoltage`
-   read surface and lets a caller warm-start the whole solution), resolved at plan/tasks time.
-3. **Sequencing vs. `implicit-integration`.** Whether Newton lands first — validated with a
+2. **Sequencing vs. `implicit-integration`.** Whether Newton lands first — validated with a
    hand-supplied fixed reactive base companion (DC / resistive-diode networks) and the lab
    oracle — or in lockstep with `implicit-integration`. Leaning land-first with a
    hand-written base supply, mirroring how MNA landed ahead of its consumers.
-4. **Multi-diode convergence robustness without gmin.** Whether bounded `pnjlim`-damped
+3. **Multi-diode convergence robustness without gmin.** Whether bounded `pnjlim`-damped
    Newton converges for stiff antiparallel strings at large drive. If not, the answer is an
    *explicitly-reported* convergence aid (still no silent fallback), captured for a later
    pass — not a v1 gmin path.
-5. **Complex/AC.** Newton is a DC/transient (real) concern; if MNA later generalizes to a
+4. **Complex/AC.** Newton is a DC/transient (real) concern; if MNA later generalizes to a
    complex scalar, Newton stays real. Noted, not v1.
 
 ## Provenance
@@ -262,6 +272,10 @@ bounded damped Newton proves insufficient for stiff strings; see open questions.
 - Operator (non-domain-expert) directed the charter decision to "follow the pattern of the
   rest of the project"; the general multi-diode charter and stateless/no-fallback contract
   follow directly from the just-shipped MNA sibling design.
+- Third-party review (2026-07-07) approved the design and resolved the initial-guess API
+  shape to the full node-voltage array (Decision 6a); no substantive pushback survived on
+  the rest (boundary, global multi-diode charter, voltage-residual convergence, current
+  residual reporting, `pnjlim` damping, failure-by-value, no fallback).
 - Existing-code references: `core/primitives/circuit/models/diode.h` (physics + `pnjlim`),
   `core/primitives/circuit/models/companion.h` (`Companion{Geq, Ieq}`),
   `core/primitives/circuit/mna/{mna-assembler.h, mna-system.h, README.md}` (the seam:
