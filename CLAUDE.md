@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **modified-nodal-analysis**.
+Active Spec Kit feature: **newton-iteration**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/modified-nodal-analysis/plan.md` (spec: `specs/modified-nodal-analysis/spec.md`).
+current plan at `specs/newton-iteration/plan.md` (spec: `specs/newton-iteration/spec.md`).
 <!-- SPECKIT END -->
