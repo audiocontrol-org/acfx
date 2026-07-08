@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <cstddef>
 
 #include "primitives/circuit/models/companion.h"
@@ -40,6 +41,14 @@ struct IndexedCompanions {
     std::array<Companion, N> byIndex{};
 
     Companion at(int componentIndex) const noexcept {
+        // Bounds-checked despite the `at`-shaped name (govern finding): a
+        // caller-side index bug here would otherwise index the fixed array
+        // out of bounds via plain operator[]. Kept as an assert (rather than
+        // byIndex.at(), which throws) to preserve noexcept -- this stand-in
+        // is called from MnaAssembler's refresh() hot path, whose CompanionSupply
+        // contract is noexcept by type (see mna-assembler-rtsafety-test.cpp).
+        assert(componentIndex >= 0 && static_cast<std::size_t>(componentIndex) < N &&
+               "IndexedCompanions::at: componentIndex out of range");
         return byIndex[static_cast<std::size_t>(componentIndex)];
     }
 };

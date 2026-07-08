@@ -134,7 +134,7 @@ TEST_CASE("mna-invariants: redundant nullor (duplicated op-amp constraint) repor
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     bool solved = true;
@@ -182,7 +182,7 @@ TEST_CASE("mna-invariants: poorly-scaled but well-posed system solves correctly,
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     bool solved = false;

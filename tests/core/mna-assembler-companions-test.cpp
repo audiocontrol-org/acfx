@@ -9,10 +9,10 @@
 #include "primitives/circuit/netlist.h"
 #include "primitives/circuit/node.h"
 
-// T010/T011 -- the CompanionSupply harness + RED cases for User Story 3
-// (contracts/mna-assembler.md "CompanionSupply"/"Capacitor / Inductor / Diode
-// -> Companion{Geq,Ieq} ... stampConductance(a,b,Geq), stampRhsCurrent with
-// Ieq"; data-model.md "CompanionSupply"; spec.md US3 scenarios 1-3;
+// T010/T011/T012 -- the CompanionSupply harness + regression cases for User
+// Story 3 (contracts/mna-assembler.md "CompanionSupply"/"Capacitor / Inductor
+// / Diode -> Companion{Geq,Ieq} ... stampConductance(a,b,Geq), stampRhsCurrent
+// with Ieq"; data-model.md "CompanionSupply"; spec.md US3 scenarios 1-3;
 // FR-010/011; research.md D6).
 //
 // IndexedCompanions (mna-test-support.h) is a hand-written stand-in for the
@@ -22,12 +22,10 @@
 // NoCompanions (one inert value for every index, since the linear-only US1/
 // US2 suites in mna-assembler-test.cpp never call at() at all).
 //
-// The assembler's Capacitor/Inductor/Diode arm is STILL a labeled no-op
-// extension point (mna-assembler.h refresh(): "... T012 ... No-op here"), so
-// every case below is EXPECTED TO FAIL: the supplied companion is never
-// stamped, so the node solves to whatever the companion-free netlist implies
-// instead of the closed form derived independently in each comment. T012
-// turns these green without editing the assertions here.
+// The assembler's Capacitor/Inductor/Diode arm stamps the supplied companion
+// (Geq as a conductance, Ieq as a current source) at refresh() time, so every
+// case below verifies the node solves to the closed form derived
+// independently in each comment.
 //
 // SIGN CONVENTION (auditable against core/labs/diode-clippers/solver/
 // transient-clipper.h's buildAugmented(), which performs this exact
@@ -72,7 +70,7 @@ using mna_test::IndexedCompanions;
 // (Ieq+Vin/R)=7e-3; (1/R+Geq)=2e-3; V(capNode) = 7e-3/2e-3 = 3.5 V exactly.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("mna-assembler: fed-companion RC step matches the backward-Euler recurrence (US3.1, RED pending T012)") {
+TEST_CASE("mna-assembler: fed-companion RC step matches the backward-Euler recurrence (US3.1)") {
     constexpr int kMaxNodes = 3;
     constexpr int kMaxComponents = 3;
     constexpr int kMaxBranches = 1;
@@ -102,7 +100,7 @@ TEST_CASE("mna-assembler: fed-companion RC step matches the backward-Euler recur
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     REQUIRE(sys.solve());
@@ -110,8 +108,6 @@ TEST_CASE("mna-assembler: fed-companion RC step matches the backward-Euler recur
     CHECK(sys.nodeVoltage(vinNode) == doctest::Approx(Vin).epsilon(1e-12));
 
     const double expectedVCap = (Ieq + Vin / R) / (1.0 / R + Geq);
-    // EXPECTED TO FAIL (RED): Capacitor is still a no-op extension point
-    // (T012 pending) -- the supplied companion is never stamped.
     CHECK(sys.nodeVoltage(capNode) == doctest::Approx(expectedVCap).epsilon(1e-12));
 }
 
@@ -119,10 +115,10 @@ TEST_CASE("mna-assembler: fed-companion RC step matches the backward-Euler recur
 // 2. Statelessness (US3.2; FR-011): two successive refresh()+solve() calls
 // with an IDENTICAL (netlist, companions) pair must produce bit-identical
 // node voltages -- MNA is a pure function of its inputs, carrying no residual
-// state between solves. Reuses case 1's RC netlist shape. Unlike case 1 this
-// holds (and passes) both before and after T012: purity is invariant to
-// whether the companion happens to be stamped, only to whether refresh()
-// reads state besides (nl, comps, the fixed plan).
+// state between solves. Reuses case 1's RC netlist shape. This holds
+// regardless of whether the companion is actually stamped: purity is a
+// property of whether refresh() reads state besides (nl, comps, the fixed
+// plan), not of what the companion arm does with it.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("mna-assembler: repeated refresh+solve with identical (netlist, companions) is bit-identical (US3.2)") {
@@ -145,7 +141,7 @@ TEST_CASE("mna-assembler: repeated refresh+solve with identical (netlist, compan
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
 
     assembler.refresh(nl, comps, sys);
     REQUIRE(sys.solve());
@@ -177,7 +173,7 @@ TEST_CASE("mna-assembler: repeated refresh+solve with identical (netlist, compan
 // FR-021).
 // ---------------------------------------------------------------------------
 
-TEST_CASE("mna-assembler: diode reduced to a Norton companion matches the linearized-operating-point solution (US3.3, RED pending T012)") {
+TEST_CASE("mna-assembler: diode reduced to a Norton companion matches the linearized-operating-point solution (US3.3)") {
     constexpr int kMaxNodes = 3;
     constexpr int kMaxComponents = 3;
     constexpr int kMaxBranches = 1;
@@ -210,7 +206,7 @@ TEST_CASE("mna-assembler: diode reduced to a Norton companion matches the linear
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     REQUIRE(sys.solve());
@@ -218,7 +214,5 @@ TEST_CASE("mna-assembler: diode reduced to a Norton companion matches the linear
     CHECK(sys.nodeVoltage(vinNode) == doctest::Approx(Vin).epsilon(1e-12));
 
     const double expectedVDiode = (Ieq + Vin / R) / (1.0 / R + Geq);
-    // EXPECTED TO FAIL (RED): Diode is still a no-op extension point (T012
-    // pending) -- the supplied companion is never stamped.
     CHECK(sys.nodeVoltage(diodeNode) == doctest::Approx(expectedVDiode).epsilon(1e-12));
 }

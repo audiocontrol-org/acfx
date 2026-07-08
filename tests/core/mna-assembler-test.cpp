@@ -7,11 +7,9 @@
 #include "primitives/circuit/netlist.h"
 #include "primitives/circuit/node.h"
 
-// T005 -- RED step for the Layer-2 netlist -> matrix mapper, User Story 1
+// T005 -- the Layer-2 netlist -> matrix mapper, User Story 1
 // (specs/modified-nodal-analysis/contracts/mna-assembler.md; spec.md US1;
-// FR-006/007/008; SC-005). MnaAssembler does not exist yet
-// (core/primitives/circuit/mna/mna-assembler.h is unwritten); this suite is
-// written FIRST and is expected to fail to build until that header lands.
+// FR-006/007/008; SC-005).
 //
 // Coverage (US1 acceptance scenarios 1-3, linear elements only -- no
 // reactive/nonlinear companions are ever consulted here):
@@ -28,7 +26,7 @@
 // trivial no-op CompanionSupply (US1 has no reactive/nonlinear elements, so
 // it is never consulted), then solve() and read back through MnaSystem.
 //
-// This file also covers User Story 2 (below, T008) -- ideal op-amp / nullor
+// This file also covers User Story 2 (below, T008/T009) -- ideal op-amp / nullor
 // circuits. The remaining suites (US3 companion cases, US4 RT-safety cases)
 // live in mna-assembler-companions-test.cpp and mna-assembler-rtsafety-test.cpp
 // respectively (split to stay under the Constitution VII per-file line
@@ -80,7 +78,7 @@ TEST_CASE("mna-assembler: resistive divider via a grounded ideal voltage source 
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     REQUIRE(sys.solve());
@@ -119,7 +117,7 @@ TEST_CASE("mna-assembler: current source into a resistor to ground matches I*R e
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     REQUIRE(sys.solve());
@@ -178,7 +176,7 @@ TEST_CASE("mna-assembler: floating ideal voltage source between two non-ground n
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     REQUIRE(sys.solve());
@@ -205,25 +203,18 @@ TEST_CASE("mna-assembler: floating ideal voltage source between two non-ground n
 }
 
 // ---------------------------------------------------------------------------
-// T008 -- RED step for User Story 2 (ideal op-amp / nullor circuits;
+// T008/T009 -- User Story 2 (ideal op-amp / nullor circuits;
 // specs/modified-nodal-analysis/contracts/mna-assembler.md "OpAmp -> nullor
 // border"; spec.md US2 acceptance scenarios 1-3; FR-009). The assembler's
-// OpAmp case is a labeled no-op extension point until T009
-// (core/primitives/circuit/mna/mna-assembler.h: "OpAmp nullor border stamp:
-// T009" in both plan() and refresh()) -- plan() allocates NO branch for the
-// op-amp and refresh() stamps NOTHING for it. These cases are written FIRST
-// and are EXPECTED TO FAIL now: with no norator branch and no nullator
-// constraint, the op-amp's `out` node is only reachable through the feedback
-// resistor, so the reduced nodal solve collapses to v(out) == v(inMinus)
-// (zero current condition on that lone resistor), NOT the ideal closed-form
-// gain. This is the expected RED state; T009 lands the real border stamp and
-// turns these green without editing the assertions here.
+// OpAmp case stamps a norator branch (via plan()) and a nullator constraint
+// row (via refresh()) -- the "OpAmp nullor border stamp" the contract
+// describes -- so `out` is coupled to the rest of the network through the
+// ideal-gain nullator/norator pair, not merely through the feedback resistor.
 //
-// Each case adds ONE branch capacity for the op-amp's future norator column,
+// Each case adds ONE branch capacity for the op-amp's norator column,
 // alongside the ideal voltage source's branch -- an op-amp augments the
 // system exactly like a voltage source (contract: "Branch? yes"), so
-// kMaxBranches = 2 (source branch + op-amp branch) even though, pre-T009,
-// the op-amp branch is never actually allocated by plan().
+// kMaxBranches = 2 (source branch + op-amp branch).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -239,24 +230,15 @@ TEST_CASE("mna-assembler: floating ideal voltage source between two non-ground n
 //     input): (Vin - 0)/Rin + (Vout - 0)/Rf = 0
 //     => Vout = -Vin * Rf / Rin.
 // With Vin=0.5, Rin=1e3, Rf=1e4: Vout = -0.5 * 10000/1000 = -5.0 V exactly
-// (spec.md US2 acceptance scenario 1; FR-009).
-//
-// RED-state expectation: with the op-amp stamped as a no-op (T009 pending),
-// `out`'s only stamped connection is Rf to inMinus, so its KCL row alone
-// forces v(out) == v(inMinus). And with no nullator constraint tying
-// V(inMinus) to V(inPlus)=0, inMinus instead floats to whatever the passive
-// Rin/Rf divider gives it fed from vinNode = Vin -- collapsing to
-// v(inMinus) == v(vinNode) == Vin (zero net current through the lone
-// Rin-Rf series path with no sink at `out`), so v(out) == Vin == 0.5 V,
-// NOT the expected -5.0 V. Scenario 3 (the nullator constraint
-// V(inPlus) - V(inMinus) == 0) also fails here: V(inPlus) - V(inMinus)
-// evaluates to 0 - 0.5 = -0.5, not 0.
+// (spec.md US2 acceptance scenario 1; FR-009). Scenario 3 additionally
+// requires the nullator constraint V(inPlus) - V(inMinus) == 0 to hold in the
+// solution (checked explicitly below).
 // ---------------------------------------------------------------------------
 
-TEST_CASE("mna-assembler: ideal inverting op-amp amplifier matches -Vin*Rf/Rin (US2.1/US2.3, RED pending T009)") {
+TEST_CASE("mna-assembler: ideal inverting op-amp amplifier matches -Vin*Rf/Rin (US2.1/US2.3)") {
     constexpr int kMaxNodes = 4;
     constexpr int kMaxComponents = 4;
-    constexpr int kMaxBranches = 2;  // 1 voltage-source branch + 1 op-amp branch (T009).
+    constexpr int kMaxBranches = 2;  // 1 voltage-source branch + 1 op-amp branch.
 
     const double Vin = 0.5;
     const double Rin = 1000.0;
@@ -277,17 +259,16 @@ TEST_CASE("mna-assembler: ideal inverting op-amp amplifier matches -Vin*Rf/Rin (
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     REQUIRE(sys.solve());
 
     const double expectedVout = -Vin * Rf / Rin;
-    // EXPECTED TO FAIL (RED): op-amp not yet stamped (T009 pending).
     CHECK(sys.nodeVoltage(out) == doctest::Approx(expectedVout).epsilon(1e-12));
 
     // US2 acceptance scenario 3: the nullator constraint V(in+) - V(in-) == 0
-    // must hold in the solution. EXPECTED TO FAIL (RED) for the same reason.
+    // must hold in the solution.
     const double nullatorResidual = sys.nodeVoltage(kGround) - sys.nodeVoltage(inMinus);
     CHECK(nullatorResidual == doctest::Approx(0.0).epsilon(1e-12));
 }
@@ -307,20 +288,12 @@ TEST_CASE("mna-assembler: ideal inverting op-amp amplifier matches -Vin*Rf/Rin (
 //     => Vout = Vin * (1 + Rf/Rg).
 // With Vin=1.0, Rf=9000, Rg=1000: Vout = 1.0 * (1 + 9000/1000) = 10.0 V
 // exactly (spec.md US2 acceptance scenario 2; FR-009).
-//
-// RED-state expectation: with the op-amp a stamped no-op (T009 pending),
-// `out`'s only stamped connection is Rf to inMinus, forcing
-// v(out) == v(inMinus) from out's own KCL row. With no nullator tying
-// inMinus to inPlus, inMinus instead settles from its own KCL against Rf
-// (to the now-equal `out`) and Rg (to ground) alone: the Rf term cancels
-// (v(out) == v(inMinus)), leaving (1/Rg)*v(inMinus) == 0, so
-// v(inMinus) == 0 and therefore v(out) == 0 V, NOT the expected 10.0 V.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("mna-assembler: ideal non-inverting op-amp amplifier matches Vin*(1+Rf/Rg) (US2.2, RED pending T009)") {
+TEST_CASE("mna-assembler: ideal non-inverting op-amp amplifier matches Vin*(1+Rf/Rg) (US2.2)") {
     constexpr int kMaxNodes = 4;
     constexpr int kMaxComponents = 4;
-    constexpr int kMaxBranches = 2;  // 1 voltage-source branch + 1 op-amp branch (T009).
+    constexpr int kMaxBranches = 2;  // 1 voltage-source branch + 1 op-amp branch.
 
     const double Vin = 1.0;
     const double Rf = 9000.0;
@@ -341,12 +314,11 @@ TEST_CASE("mna-assembler: ideal non-inverting op-amp amplifier matches Vin*(1+Rf
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, comps, sys);
 
     REQUIRE(sys.solve());
 
     const double expectedVout = Vin * (1.0 + Rf / Rg);
-    // EXPECTED TO FAIL (RED): op-amp not yet stamped (T009 pending).
     CHECK(sys.nodeVoltage(out) == doctest::Approx(expectedVout).epsilon(1e-12));
 }

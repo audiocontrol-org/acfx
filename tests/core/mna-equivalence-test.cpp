@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
-#include <cstddef>
 
 #include "core/mna-test-support.h"
 #include "labs/component-abstractions/solver/linear-solver.h"
@@ -68,8 +68,16 @@ using mna_test::NoCompanions;
 
 namespace {
 // Comparison tolerance shared by every case (spec.md SC-002 / US6 acceptance
-// scenarios 1-2): "agree to ~1e-12".
+// scenarios 1-2): "agree to ~1e-12". MAGNITUDE-SCALED (govern finding): a bare
+// absolute 1e-12 floor is near machine epsilon for ~20V-scale quantities and
+// is fragile across compilers/FMA contraction, so every comparison bounds the
+// absolute difference by kTol times the reference value's own magnitude
+// (floored at 1.0 so near-zero references still get an absolute 1e-12 floor).
 constexpr double kTol = 1e-12;
+
+double scaledTol(double referenceValue) {
+    return kTol * std::max(1.0, std::fabs(referenceValue));
+}
 }  // namespace
 
 // ===========================================================================
@@ -108,15 +116,15 @@ TEST_CASE("mna-equivalence: resistive divider matches LinearSolver to 1e-12 (US6
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, NoCompanions{}, sys);
     REQUIRE(sys.solve());
 
     const double diff1 = std::fabs(linear.voltage(node1) - sys.nodeVoltage(node1));
     const double diff2 = std::fabs(linear.voltage(node2) - sys.nodeVoltage(node2));
-    CHECK_MESSAGE(diff1 <= kTol, "node1: LinearSolver=", linear.voltage(node1),
+    CHECK_MESSAGE(diff1 <= scaledTol(linear.voltage(node1)), "node1: LinearSolver=", linear.voltage(node1),
                   " MNA=", sys.nodeVoltage(node1), " diff=", diff1);
-    CHECK_MESSAGE(diff2 <= kTol, "node2: LinearSolver=", linear.voltage(node2),
+    CHECK_MESSAGE(diff2 <= scaledTol(linear.voltage(node2)), "node2: LinearSolver=", linear.voltage(node2),
                   " MNA=", sys.nodeVoltage(node2), " diff=", diff2);
 }
 
@@ -161,19 +169,23 @@ TEST_CASE("mna-equivalence: current-driven resistor ladder matches LinearSolver 
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, NoCompanions{}, sys);
     REQUIRE(sys.solve());
 
     const NodeId nodes[] = {n1, n2, n3};
-    double maxDiff = 0.0;
+    // Track the worst diff/tolerance RATIO (not the raw diff) across nodes of
+    // differing magnitude, so the aggregate check below stays meaningful under
+    // per-node magnitude-scaled tolerances.
+    double maxRatio = 0.0;
     for (const NodeId n : nodes) {
         const double diff = std::fabs(linear.voltage(n) - sys.nodeVoltage(n));
-        maxDiff = std::max(maxDiff, diff);
-        CHECK_MESSAGE(diff <= kTol, "node ", n, ": LinearSolver=", linear.voltage(n),
-                      " MNA=", sys.nodeVoltage(n), " diff=", diff);
+        const double tol = scaledTol(linear.voltage(n));
+        maxRatio = std::max(maxRatio, diff / tol);
+        CHECK_MESSAGE(diff <= tol, "node ", n, ": LinearSolver=", linear.voltage(n),
+                      " MNA=", sys.nodeVoltage(n), " diff=", diff, " tol=", tol);
     }
-    CHECK(maxDiff <= kTol);
+    CHECK(maxRatio <= 1.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,19 +234,20 @@ TEST_CASE("mna-equivalence: two-source resistive bridge matches LinearSolver to 
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, NoCompanions{}, sys);
     REQUIRE(sys.solve());
 
     const NodeId nodes[] = {n1, n2, n3, n4};
-    double maxDiff = 0.0;
+    double maxRatio = 0.0;
     for (const NodeId n : nodes) {
         const double diff = std::fabs(linear.voltage(n) - sys.nodeVoltage(n));
-        maxDiff = std::max(maxDiff, diff);
-        CHECK_MESSAGE(diff <= kTol, "node ", n, ": LinearSolver=", linear.voltage(n),
-                      " MNA=", sys.nodeVoltage(n), " diff=", diff);
+        const double tol = scaledTol(linear.voltage(n));
+        maxRatio = std::max(maxRatio, diff / tol);
+        CHECK_MESSAGE(diff <= tol, "node ", n, ": LinearSolver=", linear.voltage(n),
+                      " MNA=", sys.nodeVoltage(n), " diff=", diff, " tol=", tol);
     }
-    CHECK(maxDiff <= kTol);
+    CHECK(maxRatio <= 1.0);
 }
 
 // ===========================================================================
@@ -283,19 +296,20 @@ TEST_CASE("mna-equivalence: non-inverting amplifier matches NullorSolver voltage
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, NoCompanions{}, sys);
     REQUIRE(sys.solve());
 
     const NodeId nodes[] = {vinNode, inMinusNode, outNode};
-    double maxVDiff = 0.0;
+    double maxVRatio = 0.0;
     for (const NodeId n : nodes) {
         const double diff = std::fabs(nullor.voltage(n) - sys.nodeVoltage(n));
-        maxVDiff = std::max(maxVDiff, diff);
-        CHECK_MESSAGE(diff <= kTol, "node ", n, ": NullorSolver=", nullor.voltage(n),
-                      " MNA=", sys.nodeVoltage(n), " diff=", diff);
+        const double tol = scaledTol(nullor.voltage(n));
+        maxVRatio = std::max(maxVRatio, diff / tol);
+        CHECK_MESSAGE(diff <= tol, "node ", n, ": NullorSolver=", nullor.voltage(n),
+                      " MNA=", sys.nodeVoltage(n), " diff=", diff, " tol=", tol);
     }
-    CHECK(maxVDiff <= kTol);
+    CHECK(maxVRatio <= 1.0);
 
     // Sanity: matches the analytic non-inverting gain (independent of MNA).
     const double analyticGain = 1.0 + Rf / Rg;
@@ -306,7 +320,7 @@ TEST_CASE("mna-equivalence: non-inverting amplifier matches NullorSolver voltage
     const double iNullor = nullor.branchCurrent(0);
     const double iMna = sys.branchCurrent(1);
     const double iDiff = std::fabs(iNullor - iMna);
-    CHECK_MESSAGE(iDiff <= kTol, "opamp branch current: NullorSolver=", iNullor,
+    CHECK_MESSAGE(iDiff <= scaledTol(iNullor), "opamp branch current: NullorSolver=", iNullor,
                   " MNA=", iMna, " diff=", iDiff);
 }
 
@@ -347,19 +361,20 @@ TEST_CASE("mna-equivalence: inverting amplifier matches NullorSolver voltages+cu
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, NoCompanions{}, sys);
     REQUIRE(sys.solve());
 
     const NodeId nodes[] = {vinNode, inMinusNode, outNode};
-    double maxVDiff = 0.0;
+    double maxVRatio = 0.0;
     for (const NodeId n : nodes) {
         const double diff = std::fabs(nullor.voltage(n) - sys.nodeVoltage(n));
-        maxVDiff = std::max(maxVDiff, diff);
-        CHECK_MESSAGE(diff <= kTol, "node ", n, ": NullorSolver=", nullor.voltage(n),
-                      " MNA=", sys.nodeVoltage(n), " diff=", diff);
+        const double tol = scaledTol(nullor.voltage(n));
+        maxVRatio = std::max(maxVRatio, diff / tol);
+        CHECK_MESSAGE(diff <= tol, "node ", n, ": NullorSolver=", nullor.voltage(n),
+                      " MNA=", sys.nodeVoltage(n), " diff=", diff, " tol=", tol);
     }
-    CHECK(maxVDiff <= kTol);
+    CHECK(maxVRatio <= 1.0);
 
     const double analyticGain = -Rf / Rin;
     CHECK(std::fabs(nullor.voltage(outNode) - analyticGain * Vin) < 1e-9);
@@ -367,7 +382,7 @@ TEST_CASE("mna-equivalence: inverting amplifier matches NullorSolver voltages+cu
     const double iNullor = nullor.branchCurrent(0);
     const double iMna = sys.branchCurrent(1);
     const double iDiff = std::fabs(iNullor - iMna);
-    CHECK_MESSAGE(iDiff <= kTol, "opamp branch current: NullorSolver=", iNullor,
+    CHECK_MESSAGE(iDiff <= scaledTol(iNullor), "opamp branch current: NullorSolver=", iNullor,
                   " MNA=", iMna, " diff=", iDiff);
 }
 
@@ -422,19 +437,20 @@ TEST_CASE("mna-equivalence: two independent op-amp stages match NullorSolver vol
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     assembler.refresh(nl, NoCompanions{}, sys);
     REQUIRE(sys.solve());
 
     const NodeId nodes[] = {a, b, c, e};
-    double maxVDiff = 0.0;
+    double maxVRatio = 0.0;
     for (const NodeId n : nodes) {
         const double diff = std::fabs(nullor.voltage(n) - sys.nodeVoltage(n));
-        maxVDiff = std::max(maxVDiff, diff);
-        CHECK_MESSAGE(diff <= kTol, "node ", n, ": NullorSolver=", nullor.voltage(n),
-                      " MNA=", sys.nodeVoltage(n), " diff=", diff);
+        const double tol = scaledTol(nullor.voltage(n));
+        maxVRatio = std::max(maxVRatio, diff / tol);
+        CHECK_MESSAGE(diff <= tol, "node ", n, ": NullorSolver=", nullor.voltage(n),
+                      " MNA=", sys.nodeVoltage(n), " diff=", diff, " tol=", tol);
     }
-    CHECK(maxVDiff <= kTol);
+    CHECK(maxVRatio <= 1.0);
 
     // Sanity: matches the closed-form KCL result derived above.
     CHECK(std::fabs(nullor.voltage(b) - (-I1 * R)) < 1e-9);
@@ -446,12 +462,12 @@ TEST_CASE("mna-equivalence: two independent op-amp stages match NullorSolver vol
     const double i0Nullor = nullor.branchCurrent(0);
     const double i0Mna = sys.branchCurrent(0);
     const double i0Diff = std::fabs(i0Nullor - i0Mna);
-    CHECK_MESSAGE(i0Diff <= kTol, "stage A branch current: NullorSolver=", i0Nullor,
+    CHECK_MESSAGE(i0Diff <= scaledTol(i0Nullor), "stage A branch current: NullorSolver=", i0Nullor,
                   " MNA=", i0Mna, " diff=", i0Diff);
 
     const double i1Nullor = nullor.branchCurrent(1);
     const double i1Mna = sys.branchCurrent(1);
     const double i1Diff = std::fabs(i1Nullor - i1Mna);
-    CHECK_MESSAGE(i1Diff <= kTol, "stage B branch current: NullorSolver=", i1Nullor,
+    CHECK_MESSAGE(i1Diff <= scaledTol(i1Nullor), "stage B branch current: NullorSolver=", i1Nullor,
                   " MNA=", i1Mna, " diff=", i1Diff);
 }

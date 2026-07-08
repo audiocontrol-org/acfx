@@ -85,15 +85,23 @@ TEST_CASE("mna-assembler: plan once then 500 refresh+solve iterations allocate n
 
     // Plan phase: runs ONCE, OUTSIDE the sentinel scope (off the hot path,
     // D4/D7 -- may throw/allocate).
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
 
+    // allSolved is accumulated INSIDE the measured region (a plain bool
+    // AND-reduction touches no heap) but asserted AFTER the sentinel scope
+    // closes, per govern finding: a regression that makes solve() silently
+    // return false must not still pass this case just because it also
+    // allocated nothing.
+    bool allSolved = true;
     AllocationSentinel::reset();
     for (int iter = 0; iter < 500; ++iter) {
         assembler.refresh(nl, comps, sys);
-        sys.solve();
+        allSolved &= sys.solve();
     }
     const std::size_t allocations = AllocationSentinel::allocations();
     const std::size_t deallocations = AllocationSentinel::deallocations();
+
+    REQUIRE(allSolved);
 
     // Sanity: the hot-path loop still produced a finite, correctly-solved
     // result -- the zero-heap assertion below is not vacuously true because
@@ -134,7 +142,7 @@ TEST_CASE("mna-assembler: branch count is invariant across repeated refresh+solv
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
 
     // Two ideal VoltageSources -> exactly two topological branches (FR-014).
     const int plannedBranchCount = sys.branchCount();
@@ -283,7 +291,7 @@ TEST_CASE("mna-assembler: a solve-time singular system reports not-solved withou
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
 
     assembler.refresh(nl, comps, sys);
     const bool solved = sys.solve();
@@ -411,13 +419,13 @@ TEST_CASE("mna-assembler: re-planning the same system does not double-allocate b
     MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
     NoCompanions comps;
 
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     CHECK(sys.branchCount() == 2);
 
     // Second plan() on the SAME system: without clearBranches() this would try
     // to allocate a third+fourth branch and overflow kMaxBranches == 2. It must
     // instead re-plan to exactly two branches again.
-    CHECK_NOTHROW(assembler.plan(nl, sys));
+    REQUIRE_NOTHROW(assembler.plan(nl, sys));
     CHECK(sys.branchCount() == 2);
 
     assembler.refresh(nl, comps, sys);
@@ -446,7 +454,7 @@ TEST_CASE("mna-assembler: re-planning a different netlist on the same system ref
     a.add(VoltageSource{a2, kGround, 7.0});
     a.add(Resistor{a1, a2, 1000.0});
     a.prepare();
-    CHECK_NOTHROW(assembler.plan(a, sys));
+    REQUIRE_NOTHROW(assembler.plan(a, sys));
     CHECK(sys.branchCount() == 2);
 
     // Netlist B on the SAME system: one voltage source + a divider -> one
@@ -458,7 +466,7 @@ TEST_CASE("mna-assembler: re-planning a different netlist on the same system ref
     b.add(Resistor{bm, bn, 1000.0});
     b.add(Resistor{bn, kGround, 3000.0});
     b.prepare();
-    CHECK_NOTHROW(assembler.plan(b, sys));
+    REQUIRE_NOTHROW(assembler.plan(b, sys));
     CHECK(sys.branchCount() == 1);
 
     assembler.refresh(b, comps, sys);
