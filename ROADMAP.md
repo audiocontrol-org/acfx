@@ -248,6 +248,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:primitive/newton-iteration
 - status: planned
+- spec: specs/newton-iteration
 - design-approved: yes
 - design: docs/superpowers/specs/2026-07-07-newton-iteration-design.md
 - depends-on: multi:feature/phase-circuit-modeling
