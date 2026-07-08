@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <variant>
 #include <string>
 #include <variant>
 
@@ -117,13 +118,23 @@ public:
     void plan(const Netlist<MaxNodes, MaxComponents>& nl,
               mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
               mna::MnaSystem<MaxNodes, MaxBranches>& sys) {
-        // P1: branch allocation + MNA-specific topology validation (may throw).
-        assembler.plan(nl, sys);
-
-        // P2: single diode scan. Reset first so re-planning does not accumulate.
+        // Invalidate this solver's plan state BEFORE the throwing delegation
+        // (AUDIT-20260708-01): MnaAssembler::plan clears its own branch map first
+        // and may then throw (over-capacity / out-of-range / degenerate netlist).
+        // If it throws mid-re-plan, leaving planned_ == true here would let a
+        // caller that catches the error enter solve() with stale Newton topology
+        // and a half-cleared assembler — an inconsistent two-object state. So we
+        // mark this solver unplanned first and only re-arm planned_ after the full
+        // scan below succeeds; a failed plan() deterministically leaves the solver
+        // unplanned (solve() then surfaces the S10 pre-plan guard by value).
+        planned_ = false;
         diodeCount_ = 0;
         isDiode_.fill(false);
 
+        // P1: branch allocation + MNA-specific topology validation (may throw).
+        assembler.plan(nl, sys);
+
+        // P2: single diode scan.
         const auto components = nl.components();
         for (std::size_t i = 0; i < components.size(); ++i) {
             const bool diode = acfx::isNonlinear(components[i]);
@@ -176,13 +187,31 @@ public:
             return NewtonStatus{};
         }
 
+        // Cheap immutable span; cache once (no allocation) — reused every pass.
+        const auto components = nl.components();
+
+        // Inconsistent-plan guard (AUDIT-20260708-02; contract S10): the netlist
+        // handed to solve() must still match the plan. If the caller passes a
+        // netlist inconsistent with the last plan() — fewer components, or a
+        // planned diode slot that no longer holds a Diode — indexing it with the
+        // stored diode indices would read out of range or make std::get throw
+        // std::bad_variant_access on the throw-free hot path. Surface that
+        // precondition violation deterministically BY VALUE instead (throw-free,
+        // allocation-free), exactly like the pre-plan guard above. O(diodeCount)
+        // scalar check using std::holds_alternative (never throws), no heap.
+        for (int d = 0; d < diodeCount_; ++d) {
+            const int c = diodeComponentIndex_[static_cast<std::size_t>(d)];
+            if (c < 0 || static_cast<std::size_t>(c) >= components.size() ||
+                !std::holds_alternative<acfx::Diode>(
+                    components[static_cast<std::size_t>(c)])) {
+                return NewtonStatus{};
+            }
+        }
+
         // Reset per-solve scratch at the top (S8 statelessness): no state from a
         // prior solve leaks into this one.
         diodeCompanion_.fill(Companion{0.0, 0.0});
         prevBiasAK_.fill(0.0);
-
-        // Cheap immutable span; cache once (no allocation) — reused every pass.
-        const auto components = nl.components();
 
         // Seed each diode's junction bias from the initial node-voltage guess
         // (S9): vAK = V(anode) - V(cathode) at the guess.
