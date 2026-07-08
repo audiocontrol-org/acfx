@@ -223,9 +223,13 @@ TEST_CASE("newton-invariants: transfer curve is monotonically non-decreasing ove
 // reverse-clipped operating points alike).
 // ---------------------------------------------------------------------------
 
-TEST_CASE("newton-invariants: diodes dissipate non-negative power at the converged operating point (SC-006)") {
+TEST_CASE("newton-invariants: converged operating point satisfies KCL, and diodes are passive (SC-006)") {
     const double levels[] = {-3.0, -1.5, -0.7, -0.3, -0.1, 0.0,
                               0.1, 0.3, 0.7, 1.5, 3.0};
+    // A wrong operating point leaves a KCL residual on the mA scale (the resistor
+    // current is ~V/R ~ mA at these drives); this bound is far tighter than that,
+    // yet loose enough for converged-solve slop.
+    constexpr double kCurrentTol = 1e-6;  // amperes
     constexpr double kEpsilon = 1e-12;
 
     double minPower = 1.0e9;
@@ -237,16 +241,31 @@ TEST_CASE("newton-invariants: diodes dissipate non-negative power at the converg
             solveClipper(vin, portVoltage, d1VAK, d1Sample, d2VAK, d2Sample);
         REQUIRE(status.converged);
 
+        // SOLVER-DEPENDENT check: Kirchhoff's current law at the port node n2,
+        // computed from the CONVERGED node voltages and the diodes' own Shockley
+        // currents. Currents into n2 must sum to zero:
+        //   resistor  (Vin - V(n2))/R  flows INTO n2,
+        //   D1 (n2 -> gnd): I(d1VAK)     flows OUT of n2,
+        //   D2 (gnd -> n2): I(d2VAK)     flows INTO n2.
+        // A solver that converged to the wrong V(n2) (bad companion sign, broken
+        // convergence gate) would violate this — unlike a bare vAK*I(vAK) >= 0
+        // passivity check, which holds for ANY bias by the Shockley law and so
+        // cannot detect a wrong fixed point.
+        const double iResistorIntoPort = (vin - portVoltage) / kR;
+        const double kclResidual =
+            iResistorIntoPort - d1Sample.current + d2Sample.current;
+        CHECK_MESSAGE(std::abs(kclResidual) < kCurrentTol,
+                      "KCL residual at Vin = ", vin, ": ", kclResidual,
+                      " A (V(n2) = ", portVoltage, ")");
+
+        // Passivity (secondary sanity bound): neither diode sources energy at the
+        // solved point. Note this inequality holds for any bias by the Shockley
+        // law itself, so it corroborates but does not by itself prove the solve.
         const double d1Power = d1VAK * d1Sample.current;
         const double d2Power = d2VAK * d2Sample.current;
         minPower = std::min(minPower, std::min(d1Power, d2Power));
-
-        CHECK_MESSAGE(d1Power >= -kEpsilon,
-                      "D1 sourced energy at Vin = ", vin, ": vAK = ", d1VAK,
-                      ", I = ", d1Sample.current, ", P = ", d1Power);
-        CHECK_MESSAGE(d2Power >= -kEpsilon,
-                      "D2 sourced energy at Vin = ", vin, ": vAK = ", d2VAK,
-                      ", I = ", d2Sample.current, ", P = ", d2Power);
+        CHECK(d1Power >= -kEpsilon);
+        CHECK(d2Power >= -kEpsilon);
     }
     CHECK(minPower >= -kEpsilon);
 }

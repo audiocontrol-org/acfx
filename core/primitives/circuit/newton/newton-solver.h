@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <string>
 #include <variant>
@@ -65,6 +66,13 @@ public:
     static_assert(MaxComponents >= 1,
                   "NewtonSolver requires MaxComponents >= 1");
     static_assert(MaxBranches >= 0, "NewtonSolver requires MaxBranches >= 0");
+    // topoSig() folds an OpAmp's 3 terminals + kind into an unsigned long long in
+    // base (MaxNodes+1); the collision-free guarantee the plan-drift guard relies
+    // on holds only while that positional encoding cannot wrap 64 bits. 1e6 nodes
+    // gives ~8·(1e6)³ ≈ 8e18 < 2^64, with headroom; a real circuit's MaxNodes is
+    // orders smaller (MnaSystem's O(MaxNodes²) matrix bounds it far below this).
+    static_assert(MaxNodes <= 1000000,
+                  "NewtonSolver requires MaxNodes <= 1e6 so topoSig cannot overflow");
 
     // Solver-internal companion adapter handed to MnaAssembler::refresh
     // (data-model.md "ComposedCompanionSupply"). Satisfies MNA's CompanionSupply
@@ -145,6 +153,12 @@ public:
             const bool diode = acfx::isNonlinear(components[i]);
             isDiode_[i] = diode;
             if (diode) {
+                // Validate the diode physics Newton will consume (off the hot
+                // path, throw-permitted) — Is, n, Vt must be finite and > 0, else
+                // Diode::evaluate divides by a zero/garbage vte() and stamps an
+                // inf/NaN companion with no error (Principle V — no silent garbage;
+                // mirrors MnaAssembler's degenerate-resistor rejection).
+                validateDiode(std::get<acfx::Diode>(components[i]), i);
                 diodeComponentIndex_[static_cast<std::size_t>(diodeCount_)] =
                     static_cast<int>(i);
                 ++diodeCount_;
@@ -183,12 +197,34 @@ public:
         const BaseCompanionSupply& base,
         const std::array<double, MaxNodes>& initialNodeVoltages,
         mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
-        mna::MnaSystem<MaxNodes, MaxBranches>& sys) {
+        mna::MnaSystem<MaxNodes, MaxBranches>& sys) noexcept {
+        // The throw-free contract (S10) is compile-encoded here: the base supply's
+        // at() is required noexcept (static_assert below), every callee on this
+        // path is noexcept, and the topology guard makes the std::get<Diode> calls
+        // provably safe — so any escaping exception is a broken invariant caught by
+        // std::terminate (fail-fast), never silent propagation into the audio path.
+        static_assert(
+            noexcept(std::declval<const BaseCompanionSupply&>().at(0)),
+            "BaseCompanionSupply::at(int) must be noexcept — it is called on the "
+            "RT-safe hot path through a noexcept ComposedCompanionSupply::at");
+
         // S10 pre-plan guard: solve() before plan() is a precondition violation.
         // Surface it deterministically BY VALUE — throw-free, allocation-free,
         // and distinguishable from a real non-converged solve (which always runs
         // iterations >= 1, cf. S6) — never as UB.
         if (!planned_) {
+            return NewtonStatus{};
+        }
+
+        // The `assembler` (and its `sys`) MUST be the pair this solver planned
+        // against. An unplanned/mismatched MnaAssembler carries a zero-initialized
+        // branch map (branchOf_ == 0, NOT the kNoBranch = -1 sentinel plan() sets),
+        // so refresh() would stamp a branch-bearing element (VoltageSource/OpAmp)
+        // into a bogus row and MnaSystem would return a SILENTLY WRONG "converged"
+        // solve — refresh()'s own `assert(planned_)` is compiled out under -DNDEBUG
+        // (the release/RT build). Surface that precondition violation by value, not
+        // a fabricated output (Principle V — no silent fallback).
+        if (!assembler.planned()) {
             return NewtonStatus{};
         }
 
@@ -229,15 +265,22 @@ public:
         prevBiasAK_.fill(0.0);
 
         // Seed each diode's junction bias from the initial node-voltage guess
-        // (S9): vAK = V(anode) - V(cathode) at the guess.
+        // (S9): vAK = V(anode) - V(cathode) at the guess. Ground (node 0) is the
+        // dropped reference and is ALWAYS 0 — the guess entry at index 0 is
+        // documented "ignored" (S9), and MnaSystem::nodeVoltage() special-cases
+        // ground to 0 too, so we mirror that here rather than trust a caller's
+        // (possibly garbage/NaN) initialNodeVoltages[0].
+        const auto nodeGuess = [&initialNodeVoltages](NodeId n) noexcept {
+            return n == acfx::kGround
+                       ? 0.0
+                       : initialNodeVoltages[static_cast<std::size_t>(n)];
+        };
         for (int d = 0; d < diodeCount_; ++d) {
             const std::size_t c =
                 static_cast<std::size_t>(diodeComponentIndex_[
                     static_cast<std::size_t>(d)]);
             const auto& diode = std::get<acfx::Diode>(components[c]);
-            prevBiasAK_[c] =
-                initialNodeVoltages[static_cast<std::size_t>(diode.anode)] -
-                initialNodeVoltages[static_cast<std::size_t>(diode.cathode)];
+            prevBiasAK_[c] = nodeGuess(diode.anode) - nodeGuess(diode.cathode);
         }
 
         NewtonStatus status{};
@@ -306,6 +349,23 @@ public:
     }
 
 private:
+    // Reject a degenerate diode at plan time (throw-permitted, off the hot path):
+    // Is, n, Vt must be finite and strictly positive, else Diode::vte() = n·Vt is
+    // 0/garbage and evaluate() feeds inf/NaN into the companion. Descriptive throw,
+    // never a silent bad stamp (Principle V) — the diode analogue of
+    // MnaAssembler::validateResistor.
+    static void validateDiode(const Diode& d, std::size_t componentIndex) {
+        const bool ok = std::isfinite(d.Is) && d.Is > 0.0 &&
+                        std::isfinite(d.n) && d.n > 0.0 &&
+                        std::isfinite(d.Vt) && d.Vt > 0.0;
+        if (!ok) {
+            throw std::invalid_argument(
+                "NewtonSolver::plan: component " +
+                std::to_string(componentIndex) +
+                " is a degenerate diode (Is, n, Vt must be finite and > 0)");
+        }
+    }
+
     // Collision-free per-component TOPOLOGY signature: the variant discriminant
     // (kind) folded with every terminal node id in a positional base-(MaxNodes+1)
     // encoding. Two components with the same kind AND the same terminal node ids
