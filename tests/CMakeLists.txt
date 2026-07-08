@@ -219,6 +219,8 @@ add_executable(acfx_core_tests
   # Newton-Raphson iteration primitive test suites (newton-iteration feature)
   # ---------------------------------------------------------------------------
   core/newton-solver-test.cpp
+  core/newton-composition-test.cpp
+  core/newton-rtsafety-test.cpp
   core/newton-closed-form-test.cpp
   core/newton-invariants-test.cpp
   core/newton-equivalence-test.cpp
