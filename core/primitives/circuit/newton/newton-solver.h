@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <type_traits>
 #include <variant>
 #include <string>
 #include <variant>
@@ -140,7 +141,7 @@ public:
         const auto components = nl.components();
         plannedComponentCount_ = static_cast<int>(components.size());
         for (std::size_t i = 0; i < components.size(); ++i) {
-            componentKind_[i] = components[i].index();
+            componentTopoSig_[i] = topoSig(components[i]);
             const bool diode = acfx::isNonlinear(components[i]);
             isDiode_[i] = diode;
             if (diode) {
@@ -194,26 +195,30 @@ public:
         // Cheap immutable span; cache once (no allocation) — reused every pass.
         const auto components = nl.components();
 
-        // Inconsistent-plan guard (AUDIT-20260708-02/04/05; contract S10): the
+        // Inconsistent-plan guard (AUDIT-20260708-02/04/05/06; contract S10): the
         // netlist handed to solve() must have the SAME topology plan() validated,
         // because MnaAssembler::refresh() stamps it through the FIXED plan (its
-        // branch map + Newton's diode indices). If the caller passes a netlist
-        // whose topology drifted from the plan — a different component count, or
-        // ANY component whose kind changed (a formerly-Resistor slot now a
-        // branch-bearing VoltageSource/OpAmp carrying a stale `kNoBranch` entry,
-        // or a planned Diode slot now a non-diode) — refresh would stamp against a
-        // stale plan and Newton's own std::get<Diode> could throw, both on the
-        // promised throw-free hot path. Surface that precondition violation
-        // deterministically BY VALUE instead. This is a full per-component kind
-        // fingerprint (the variant discriminant, which never throws), not just the
-        // diode slots — O(componentCount) once per solve, before the loop, no heap.
-        // It subsumes the diode-slot and out-of-range checks: a drifted Diode slot
-        // or a shorter netlist both fail the count/kind compare below.
+        // branch map + Newton's diode indices) on its noexcept hot path, which by
+        // RT-safety design does NOT re-validate node ids. So any topology drift
+        // from the plan is unsafe: a changed component count or kind leaves a stale
+        // branch entry (and Newton's own std::get<Diode> could throw), and even a
+        // SAME-kind change to a component's terminal node ids (AUDIT-06) would make
+        // MnaSystem::stampConductance index its matrix with an unvalidated node id
+        // — memory corruption, not a surfaced result. Reject ALL of it by value.
+        //
+        // The check is a per-component TOPOLOGY signature — kind (variant
+        // discriminant) + every terminal node id, collision-free (see topoSig) —
+        // plus the component count. Element VALUES (R, V, Is, companion, …) are
+        // deliberately excluded: they may legitimately vary across refreshes; only
+        // the topology is fixed at plan(). O(componentCount) once per solve, before
+        // the loop, noexcept, no heap. Subsumes the earlier count/kind/diode-slot
+        // checks: any drift fails the signature compare below and is surfaced as
+        // NewtonStatus{converged=false, iterations=0}.
         if (static_cast<int>(components.size()) != plannedComponentCount_) {
             return NewtonStatus{};
         }
         for (std::size_t i = 0; i < components.size(); ++i) {
-            if (components[i].index() != componentKind_[i]) {
+            if (topoSig(components[i]) != componentTopoSig_[i]) {
                 return NewtonStatus{};
             }
         }
@@ -301,6 +306,44 @@ public:
     }
 
 private:
+    // Collision-free per-component TOPOLOGY signature: the variant discriminant
+    // (kind) folded with every terminal node id in a positional base-(MaxNodes+1)
+    // encoding. Two components with the same kind AND the same terminal node ids
+    // (in the same order) produce the same value; ANY differing kind or node id
+    // produces a different one — no hashing, no collisions for in-range ids
+    // (node ids live in [0, MaxNodes)). Element VALUES are intentionally NOT
+    // folded in: they may vary across refreshes; only topology is fingerprinted.
+    // noexcept, allocation-free — used once per solve() to detect plan drift.
+    static unsigned long long topoSig(const Component& c) noexcept {
+        constexpr unsigned long long kBase =
+            static_cast<unsigned long long>(MaxNodes) + 1ULL;
+        unsigned long long sig = static_cast<unsigned long long>(c.index()) + 1ULL;
+        const auto fold = [&sig](NodeId n) {
+            sig = sig * kBase + static_cast<unsigned long long>(n + 1);
+        };
+        std::visit(
+            [&](const auto& e) {
+                using T = std::decay_t<decltype(e)>;
+                if constexpr (std::is_same_v<T, Resistor>) {
+                    fold(e.a); fold(e.b);
+                } else if constexpr (std::is_same_v<T, Capacitor>) {
+                    fold(e.a); fold(e.b);
+                } else if constexpr (std::is_same_v<T, Inductor>) {
+                    fold(e.a); fold(e.b);
+                } else if constexpr (std::is_same_v<T, VoltageSource>) {
+                    fold(e.p); fold(e.n);
+                } else if constexpr (std::is_same_v<T, CurrentSource>) {
+                    fold(e.p); fold(e.n);
+                } else if constexpr (std::is_same_v<T, Diode>) {
+                    fold(e.anode); fold(e.cathode);
+                } else if constexpr (std::is_same_v<T, OpAmp>) {
+                    fold(e.inPlus); fold(e.inMinus); fold(e.out);
+                }
+            },
+            c);
+        return sig;
+    }
+
     // ---- configuration (immutable after ctor; data-model.md) -----------------
     int    maxIterations_;
     double voltageTol_;
@@ -311,11 +354,11 @@ private:
     int                              diodeCount_ = 0;
     std::array<int, MaxComponents>   diodeComponentIndex_{};
     std::array<bool, MaxComponents>  isDiode_{};
-    // Per-component topology fingerprint (variant discriminant + count) so
+    // Per-component topology signature (kind + terminal node ids) + count so
     // solve() can reject a netlist whose topology drifted from the plan
-    // (AUDIT-20260708-04/05) — full-topology, not just the diode slots.
-    int                                    plannedComponentCount_ = 0;
-    std::array<std::size_t, MaxComponents> componentKind_{};
+    // (AUDIT-20260708-04/05/06) — full topology, values excluded.
+    int                                          plannedComponentCount_ = 0;
+    std::array<unsigned long long, MaxComponents> componentTopoSig_{};
 
     // ---- per-solve scratch (declared now; populated by T006) -----------------
     std::array<Companion, MaxComponents> diodeCompanion_{};

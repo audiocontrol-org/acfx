@@ -419,72 +419,7 @@ TEST_CASE("newton-solver: a throwing re-plan leaves the solver unplanned (AUDIT-
     CHECK(status.iterations == 0);
 }
 
-// ---------------------------------------------------------------------------
-// 9. Inconsistent-plan guard on the hot path (AUDIT-20260708-02). solve() must
-// surface a netlist inconsistent with the last plan() BY VALUE (throw-free),
-// not index out of range / std::get-throw on the promised throw-free hot path.
-// Two channels: (a) a shorter netlist so a planned diode index is out of range;
-// (b) a netlist where a planned diode slot no longer holds a Diode.
-// ---------------------------------------------------------------------------
-
-TEST_CASE("newton-solver: solve() surfaces an inconsistent netlist by value (AUDIT-02)") {
-    constexpr int kMaxNodes = 8;
-    constexpr int kMaxComponents = 8;
-    constexpr int kMaxBranches = 4;
-
-    Netlist<kMaxNodes, kMaxComponents> planned;
-    const NodeId p1 = planned.addNode();
-    planned.add(Resistor{p1, kGround, 1000.0});             // index 0
-    planned.add(Diode{p1, kGround, 1e-14, 1.0, 0.025852});  // index 1 (diode)
-    planned.prepare();
-
-    MnaSystem<kMaxNodes, kMaxBranches> sys;
-    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
-    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver;
-    ZeroCompanionSupply base;
-
-    solver.plan(planned, assembler, sys);
-    REQUIRE(solver.planned());
-    REQUIRE(solver.diodeCount() == 1);
-
-    const std::array<double, kMaxNodes> guess{};
-
-    // Channel (a): a SHORTER netlist → planned diode index 1 is out of range.
-    Netlist<kMaxNodes, kMaxComponents> shorter;
-    const NodeId s1 = shorter.addNode();
-    shorter.add(Resistor{s1, kGround, 1000.0});             // only index 0
-    shorter.prepare();
-    NewtonStatus aStatus;
-    CHECK_NOTHROW(aStatus = solver.solve(shorter, base, guess, assembler, sys));
-    CHECK_FALSE(aStatus.converged);
-    CHECK(aStatus.iterations == 0);
-
-    // Channel (b): the planned diode slot (index 1) now holds a NON-diode →
-    // std::get<Diode> would throw std::bad_variant_access without the guard.
-    Netlist<kMaxNodes, kMaxComponents> swapped;
-    const NodeId w1 = swapped.addNode();
-    swapped.add(Resistor{w1, kGround, 1000.0});             // index 0
-    swapped.add(Resistor{w1, kGround, 2000.0});             // index 1: NOT a diode
-    swapped.prepare();
-    NewtonStatus bStatus;
-    CHECK_NOTHROW(bStatus = solver.solve(swapped, base, guess, assembler, sys));
-    CHECK_FALSE(bStatus.converged);
-    CHECK(bStatus.iterations == 0);
-
-    // Channel (c) — NON-diode topology drift (AUDIT-20260708-04/05): the diode
-    // slot (index 1) is unchanged, but index 0 changed Resistor -> VoltageSource
-    // (a branch-bearing kind whose planned branch map entry is stale). The diode
-    // slots still match, yet the full kind fingerprint rejects the drift, so the
-    // stale-branch refresh never runs — surfaced by value, not wrong stamping.
-    Netlist<kMaxNodes, kMaxComponents> drifted;
-    const NodeId d1 = drifted.addNode();
-    drifted.add(VoltageSource{d1, kGround, 0.5});           // index 0: was a Resistor
-    drifted.add(Diode{d1, kGround, 1e-14, 1.0, 0.025852});  // index 1: still a diode
-    drifted.prepare();
-    NewtonStatus cStatus;
-    CHECK_NOTHROW(cStatus = solver.solve(drifted, base, guess, assembler, sys));
-    CHECK_FALSE(cStatus.converged);
-    CHECK(cStatus.iterations == 0);
-}
+// The inconsistent-plan / topology-drift guard cases (AUDIT-20260708-02/04/05/06)
+// live in tests/core/newton-plan-drift-test.cpp.
 
 }  // TEST_SUITE("newton-solver")

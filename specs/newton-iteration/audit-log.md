@@ -81,3 +81,18 @@ The hot-path guard only checks that the diode component indices recorded during 
 That leaves a real unsafe channel open: plan with a resistor at a given non-diode index, then solve with a voltage source or op amp at that same index while keeping the diode slots unchanged. The Newton guard passes, but `MnaAssembler::refresh()` will stamp the new branch-augmented component using the old `branchOf_` entry, which for the planned resistor is `kNoBranch`; in the MNA code that flows into direct branch stamping, not a surfaced `NewtonStatus{}`. The blast radius is high because a downstream caller reusing solver/assembler objects across prepared netlists can hit wrong stamping or out-of-bounds matrix access on the declared throw-free hot path.
 
 A reasonable fix is to make the Newton plan identity cover the full refresh contract, not only diode slots: either require and enforce solving the same planned netlist instance/topology, or record enough per-component planned kind/branch-bearing shape/count to reject any drift before `assembler.refresh()` runs.
+
+## 2026-07-08 — audit-barrage lift (end-govern-after_implement)
+
+### AUDIT-20260708-06 — Same-kind topology drift bypasses the inconsistent-plan guard
+
+Finding-ID: AUDIT-20260708-06
+Status:     open
+Severity:   high
+Per-lane:   codex=high
+Decision:   adjudicated (gate-counted high) — blast-radius=high, reachability=unstated, fix-debt=no; no down-calibration signal — high retained.
+Surface:    core/primitives/circuit/newton/newton-solver.h:212-219
+
+The new guard only compares component count and `std::variant` discriminants, so a different netlist with the same component kinds still enters the hot path. That leaves same-kind topology changes uncovered: e.g. `plan()` on `Resistor{n1, ground, 1000}` and then `solve()` with a same-slot `Resistor{MaxNodes + 1, ground, 1000}` passes lines 212-219, reaches `assembler.refresh()` at line 261, and stamps through MNA’s `noexcept` path that explicitly does not revalidate nodes. In `MnaSystem::stampConductance`, out-of-range positive node ids become unchecked array indices, so this can become memory corruption rather than a by-value precondition result.
+
+This is high severity because the fix claims a full topology fingerprint, and downstream code can reasonably rely on `solve()` surfacing inconsistent plans by value. A reasonable fix is to fingerprint the plan-relevant topology fields for every component kind, not just the kind: terminal node ids, branch-bearing shape, and plan-validated structural constraints such as distinct branch terminals. Values that are allowed to vary across refreshes can remain outside the fingerprint.
