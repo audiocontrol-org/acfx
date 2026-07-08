@@ -280,7 +280,21 @@ public:
                 static_cast<std::size_t>(diodeComponentIndex_[
                     static_cast<std::size_t>(d)]);
             const auto& diode = std::get<acfx::Diode>(components[c]);
-            prevBiasAK_[c] = nodeGuess(diode.anode) - nodeGuess(diode.cathode);
+            const double rawSeed =
+                nodeGuess(diode.anode) - nodeGuess(diode.cathode);
+            // A non-finite (NaN/inf) warm start is malformed input, not a physical
+            // operating point — surface it by value (Principle V), never let it
+            // reach Diode::evaluate (which would stamp an inf/NaN companion).
+            if (!std::isfinite(rawSeed)) {
+                return NewtonStatus{};
+            }
+            // Apply pnjlim to the FIRST iterate too: Diode::evaluate does not clamp
+            // the exponential (it relies on the limiter), so an extreme forward
+            // warm start must be damped BEFORE the first evaluate(), exactly as it
+            // is between iterations. Limiting from vOld = 0 bounds a large forward
+            // seed onto the diode's log scale without moving the fixed point (the
+            // limiter is inactive for a normal below-Vcrit warm start).
+            prevBiasAK_[c] = diode.limitJunctionVoltage(rawSeed, 0.0);
         }
 
         NewtonStatus status{};
@@ -338,8 +352,14 @@ public:
 
             // (d) Convergence gate on the VOLTAGE residual ONLY (S5, FR-011).
             // Zero diodes → maxDeltaV == 0 here, so a single linear solve
-            // converges immediately (S6).
-            if (maxDeltaV < voltageTol_) {
+            // converges immediately (S6). The residual MUST be finite to count as
+            // converged: without the std::isfinite guard a NaN residual would slip
+            // through, because std::max(0.0, NaN) == 0.0 (NaN loses the compare),
+            // so a NaN-poisoned solve would spuriously report converged == true
+            // with NaN node voltages — a fabricated "success" (Principle V). A
+            // non-finite residual instead falls through to the next iteration and,
+            // failing to settle, is surfaced as converged == false at the bound.
+            if (std::isfinite(maxDeltaV) && maxDeltaV < voltageTol_) {
                 status.converged = true;
                 break;
             }

@@ -11,6 +11,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 // T016 -- NewtonSolver no-fallback / surfaced-failure tests (US6, S7/S8, SC-004;
 // Constitution Principle V). NewtonSolver::solve() must SURFACE both of its
@@ -222,6 +223,86 @@ TEST_CASE("newton-nofallback: a singular linearized system is surfaced by value 
     // at all (verified by inspection in T017). The values read back here are
     // finite by construction, not a fabricated "answer".
     CHECK(std::isfinite(sys.nodeVoltage(n1)));
+}
+
+// Extreme / non-finite initial guesses must never fabricate a converged answer
+// (Principle V; spec edge case "initial guess far from the solution"). Diode::
+// evaluate() does not clamp the exponential, so the first iterate's seed must be
+// damped (pnjlim from 0) and a non-finite seed surfaced by value — and the
+// convergence gate must require a FINITE residual so a NaN can't slip a spurious
+// converged==true through std::max(0, NaN) == 0. (Code-review PR#21 finding.)
+TEST_CASE("newton-nofallback: extreme / non-finite initial guesses never fabricate convergence (Principle V)") {
+    constexpr int kMaxNodes = 8;
+    constexpr int kMaxComponents = 8;
+    constexpr int kMaxBranches = 4;
+
+    // Reusable single-diode operating-point circuit: VS(0.7) -> R(1k) -> D(n2->gnd).
+    auto build = [](Netlist<kMaxNodes, kMaxComponents>& nl) {
+        const NodeId n1 = nl.addNode();
+        const NodeId n2 = nl.addNode();
+        nl.add(VoltageSource{n1, kGround, 0.7});
+        nl.add(Resistor{n1, n2, 1000.0});
+        nl.add(Diode{n2, kGround, 1e-14, 1.0, 0.025852});
+        nl.prepare();
+        return n2;
+    };
+
+    // Reference operating point from a clean (zero) guess.
+    double reference = 0.0;
+    {
+        Netlist<kMaxNodes, kMaxComponents> nl;
+        const NodeId n2 = build(nl);
+        MnaSystem<kMaxNodes, kMaxBranches> sys;
+        MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+        NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver;
+        ZeroCompanionSupply base;
+        solver.plan(nl, assembler, sys);
+        const std::array<double, kMaxNodes> clean{};
+        const NewtonStatus st = solver.solve(nl, base, clean, assembler, sys);
+        REQUIRE(st.converged);
+        reference = sys.nodeVoltage(n2);
+    }
+
+    auto solveWithAnodeGuess = [&](double anodeGuess, bool& converged,
+                                   double& portVoltage, int& iterations) {
+        Netlist<kMaxNodes, kMaxComponents> nl;
+        const NodeId n2 = build(nl);
+        MnaSystem<kMaxNodes, kMaxBranches> sys;
+        MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+        NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> solver;
+        ZeroCompanionSupply base;
+        solver.plan(nl, assembler, sys);
+        std::array<double, kMaxNodes> guess{};
+        guess[static_cast<std::size_t>(n2)] = anodeGuess;
+        const NewtonStatus st = solver.solve(nl, base, guess, assembler, sys);
+        converged = st.converged;
+        portVoltage = sys.nodeVoltage(n2);
+        iterations = st.iterations;
+    };
+
+    // (1) A huge FINITE forward warm start: pnjlim on the first iterate keeps the
+    // exponential bounded, so it still converges to the SAME fixed point (the
+    // guess affects iteration count, never the answer — S9).
+    {
+        bool converged = false; double v = 0.0; int iters = 0;
+        solveWithAnodeGuess(1.0e6, converged, v, iters);
+        CHECK(converged);
+        CHECK(std::isfinite(v));
+        CHECK(std::abs(v - reference) < 1e-7);
+    }
+
+    // (2) inf and (3) NaN warm starts are malformed input — surfaced by value as
+    // converged==false, NEVER converged==true with a non-finite voltage.
+    for (const double bad : {std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::quiet_NaN()}) {
+        bool converged = true; double v = 0.0; int iters = -1;
+        solveWithAnodeGuess(bad, converged, v, iters);
+        CHECK_FALSE(converged);
+        // The invariant that must hold for ANY guess: never a converged==true that
+        // reports a non-finite node voltage (the silent-fabrication this guards).
+        const bool fabricatedConvergence = converged && !std::isfinite(v);
+        CHECK_FALSE(fabricatedConvergence);
+    }
 }
 
 }  // TEST_SUITE("newton-nofallback")
