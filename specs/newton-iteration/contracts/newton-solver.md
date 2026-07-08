@@ -63,7 +63,8 @@ NewtonStatus solve(const Netlist<MaxNodes, MaxComponents>& nl,
 ```
 
 - **S1 (linearization).** Each iteration, for every diode: read `vAK` from the current
-  node-voltage iterate, `{I,g} = Diode::evaluate(vAK)`, form `Companion{Geq:g, Ieq:I − g·vAK}`.
+  node-voltage iterate, `{I,g} = Diode::evaluate(vAK)`, form `Companion{Geq:g, Ieq:g·vAK − I}`
+  (the shipped `MnaAssembler` consumes it as `i(anode,cathode) = Geq·(V(a)−V(c)) − Ieq`; research R1).
 - **S2 (composition).** Refreshes the MNA system through a composed supply: diode component
   indices get S1's companion; all other indices delegate to `base` unchanged. `base` is held
   fixed for the whole `solve()`.

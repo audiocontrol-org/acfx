@@ -20,7 +20,7 @@ Build the Newton–Raphson nonlinear outer-loop engine as a **production primiti
 under `core/primitives/circuit/newton/`, namespace `acfx::newton`, in one header-only,
 template-sized type `NewtonSolver<MaxNodes, MaxComponents, MaxBranches>`. It drives the
 shipped MNA core: each iteration it linearizes every diode about the current node-voltage
-iterate into a Norton `Companion{Geq: g, Ieq: I − g·vAK}` (from `Diode::evaluate`),
+iterate into a Norton `Companion{Geq: g, Ieq: g·vAK − I}` (from `Diode::evaluate`),
 composes those with a caller-supplied base companion supply (the fixed reactive companions
 `implicit-integration` will own), refreshes and solves the MNA system, `pnjlim`-damps each
 junction (`Diode::limitJunctionVoltage`), and tests the voltage residual — to a bounded

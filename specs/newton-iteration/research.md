@@ -8,17 +8,23 @@ implementation-level unknowns the plan surfaced.
 
 **Decision.** Each iteration, for a diode biased at `vAK` (from the current iterate),
 compute `{I, g} = Diode::evaluate(vAK)` and stamp the Norton companion
-`Companion{Geq: g, Ieq: I − g·vAK}`. MNA already fixes the stamp signs for a diode
+`Companion{Geq: g, Ieq: g·vAK − I}`. MNA already fixes the stamp signs for a diode
 directed anode→cathode: `stampConductance(anode, cathode, Geq)`,
 `stampRhsCurrent(anode, +Ieq)`, `stampRhsCurrent(cathode, −Ieq)` (verified in
-`mna-assembler.h`). Newton only supplies the `Companion` values through the
-`CompanionSupply`; it does not re-derive the stamp.
+`mna-assembler.h`), so it consumes the companion as
+`i(anode,cathode) = Geq·(V(a)−V(c)) − Ieq`. Newton only supplies the `Companion`
+values through the `CompanionSupply`; it does not re-derive the stamp.
 
 **Rationale.** The linearized diode current is `i(v) ≈ I(vAK) + g·(v − vAK) = g·v +
-(I − g·vAK)`. The `g·v` term is the conductance stamp; the constant `Ieq = I − g·vAK`
-is the Norton history current — the standard companion of a nonlinear resistor. Using
-`Diode::evaluate` keeps all physics in the diode (the seam the diode header defines);
-the sign convention is MNA's, already validated by the MNA equivalence oracle.
+(I − g·vAK)`. Matching this to MNA's consumption `i = Geq·v − Ieq` term-by-term gives
+`Geq = g` and `Ieq = −(I − g·vAK) = g·vAK − I(vAK)` — i.e. the Norton history current
+carries the **negative** of the linearized-current constant term, because MNA subtracts
+`Ieq` from the conductance term. This matches `mna-assembler.h`'s own note
+(`Ieq = Geq·vAK₀ − I(vAK₀)`). Using `Diode::evaluate` keeps all physics in the diode
+(the seam the diode header defines); the sign convention is MNA's, and the implemented
+sign is confirmed by the independent single-diode operating-point oracle (the value that
+makes the closed-form bisection reference match). (An earlier draft of this decision wrote
+`Ieq = I − g·vAK`, dropping MNA's `−Ieq` sign — corrected here during implementation.)
 
 **Alternatives considered.** (a) Newton computes and stamps directly into `MnaSystem` —
 rejected: bypasses the authoritative `MnaAssembler` element→matrix mapping and

@@ -77,7 +77,7 @@ initial node-voltage guess (caller)  ─┐
   ┌────────────── iterate (≤ maxIterations) ───────────────┐
   │  for each diode d:                                      │
   │    {I,g} = Diode::evaluate(vAK_d)                       │
-  │    diodeCompanion_[idx_d] = {Geq:g, Ieq:I − g·vAK_d}    │
+  │    diodeCompanion_[idx_d] = {Geq:g, Ieq:g·vAK_d − I}    │
   │  MnaAssembler::refresh(nl, ComposedCompanionSupply, sys)│   ← base supply pass-through for non-diodes
   │  ok = MnaSystem::solve()      ── false ⇒ surface, stop  │
   │  read nodeVoltage(); vAK_d' = V(a_d) − V(c_d)           │

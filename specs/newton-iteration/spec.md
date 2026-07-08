@@ -259,7 +259,9 @@ matched operating points; assert node-voltage agreement to tolerance.
   operating-point node voltages plus a status.
 - **FR-002**: Each iteration MUST, for every diode, read `vAK = V(anode) − V(cathode)` from
   the current node-voltage iterate, obtain `{I, g}` from `Diode::evaluate(vAK)`, and form the
-  Norton companion `Companion{Geq: g, Ieq: I − g·vAK}`.
+  Norton companion `Companion{Geq: g, Ieq: g·vAK − I}` (the sign matches the shipped
+  `MnaAssembler`, which consumes a diode companion as `i(anode,cathode) = Geq·(V(a)−V(c)) − Ieq`;
+  see research R1).
 - **FR-003**: The primitive MUST linearize and update **all** diodes together within a single
   global Newton step per iteration (coupled multi-diode solve), NOT one diode at a time.
 - **FR-004**: The primitive MUST NOT refuse a netlist for containing ≥2 interacting
@@ -333,7 +335,7 @@ matched operating points; assert node-voltage agreement to tolerance.
 - **Composed CompanionSupply**: the wrapper exposing `Companion at(int) const noexcept` that
   returns Newton's per-iteration diode linearization for diode indices and delegates to the base
   supply otherwise. Consumed by `MnaAssembler::refresh`.
-- **Diode linearization (Norton companion)**: `{Geq: g, Ieq: I − g·vAK}` from `Diode::evaluate`,
+- **Diode linearization (Norton companion)**: `{Geq: g, Ieq: g·vAK − I}` from `Diode::evaluate`,
   the per-iteration stamp for one diode.
 
 ## Success Criteria *(mandatory)*
