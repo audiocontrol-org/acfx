@@ -21,10 +21,13 @@
 //     non-ground nodes 1..H occupy retained rows/cols 0..H-1. Ground contributes
 //     to no retained row or column.
 //   - Each branch k occupies augmented row/col index MaxNodes + k (the border).
-//     The retained NODE dimension is only as wide as the highest node actually
-//     referenced this assembly (nodeRows_), so unreferenced node slots never
-//     appear as spurious all-zero (singular) rows; the branch border is appended
-//     after the retained node block when the working system is compacted.
+//     The retained NODE dimension holds ONLY the non-ground nodes actually
+//     referenced this assembly (tracked as a set in referenced_), so a
+//     never-referenced id — including an interior gap, e.g. referencing nodes 1
+//     and 3 but not 2 — is omitted from the working system and never appears as
+//     a spurious all-zero (singular) row. A referenced-but-floating node is
+//     retained and stays legitimately singular. The branch border is appended
+//     after the compacted node block when the working system is built.
 //
 // RT-safety (Principle VI): every per-solve/read method is noexcept and
 // allocation-free — solve() works entirely in fixed-size std::array stack
@@ -52,20 +55,26 @@ public:
     static constexpr std::size_t kDim =
         static_cast<std::size_t>(MaxNodes) + static_cast<std::size_t>(MaxBranches);
 
-    // Zero the matrix, RHS, solution, matrix scale, and the referenced-node
-    // extent between refreshes. Does NOT reset branchCount_: the branch count is
-    // topological and fixed by the plan phase (data-model.md "State"). After
-    // reset(), the solved output depends only on the stamps applied before the
-    // next solve() (statelessness invariant).
+    // Zero the matrix, RHS, solution, and the referenced-node set between
+    // refreshes. Does NOT reset branchCount_: the branch count is topological
+    // and fixed by the plan phase (data-model.md "State"); use clearBranches()
+    // to re-plan. After reset(), the solved output depends only on the stamps
+    // applied before the next solve() (statelessness invariant).
     void reset() noexcept {
         for (std::size_t r = 0; r < kDim; ++r) {
             a_[r].fill(0.0);
             z_[r] = 0.0;
             x_[r] = 0.0;
         }
-        matScale_ = 0.0;
-        nodeRows_ = 0;
+        referenced_.fill(false);
     }
+
+    // Drop every branch-current unknown allocated so far, resetting the branch
+    // count to zero. SEPARATE from reset() (which deliberately preserves the
+    // topological branch count): this is the explicit hook a re-plan uses so
+    // planning the same system twice does not double-allocate branches. Plan
+    // time only; RT-safe (noexcept, allocation-free) but not on the solve path.
+    void clearBranches() noexcept { branchCount_ = 0; }
 
     // Four-corner, ground-aware conductance stamp (D2): +g on each non-ground
     // diagonal and -g on each non-ground off-diagonal. A ground-referenced
@@ -167,22 +176,42 @@ public:
     bool solve() noexcept {
         x_.fill(0.0);
 
-        const int nodeRows = nodeRows_;
-        const int activeDim = nodeRows + branchCount_;
+        // Build the compact list of actually-referenced non-ground node storage
+        // indices, in ascending id order. ONLY referenced ids are retained, so a
+        // never-referenced interior gap (e.g. nodes 1 and 3 but not 2) is
+        // omitted and cannot become a spurious all-zero row; a referenced-but-
+        // floating node IS retained and stays legitimately singular.
+        std::array<std::size_t, MaxNodes> nodeSrc{};
+        int nodeCount = 0;
+        for (int n = 1; n < MaxNodes; ++n) {
+            if (referenced_[idx(n)]) {
+                nodeSrc[idx(nodeCount)] = idx(n - 1);  // node n -> local n-1
+                ++nodeCount;
+            }
+        }
+
+        // Map a compacted working index to its augmented storage index: the
+        // first nodeCount entries are the retained referenced-node block, the
+        // rest are the branch border starting at MaxNodes.
+        const auto srcOf = [&](int w) noexcept -> std::size_t {
+            return w < nodeCount ? nodeSrc[idx(w)]
+                                 : branchIndex(w - nodeCount);
+        };
+
+        const int activeDim = nodeCount + branchCount_;
         if (activeDim <= 0) {
-            matScale_ = 0.0;
             return true;  // nothing to solve; all readable outputs are 0.
         }
 
-        // Compact the retained node block [0, nodeRows) and the branch border
+        // Compact the retained referenced-node block and the branch border
         // [MaxNodes, MaxNodes + branchCount_) into a contiguous working system.
         std::array<std::array<double, kDim>, kDim> work{};
         std::array<double, kDim> rhs{};
         for (int r = 0; r < activeDim; ++r) {
-            const std::size_t sr = srcIndex(r, nodeRows);
+            const std::size_t sr = srcOf(r);
             rhs[idx(r)] = z_[sr];
             for (int c = 0; c < activeDim; ++c) {
-                work[idx(r)][idx(c)] = a_[sr][srcIndex(c, nodeRows)];
+                work[idx(r)][idx(c)] = a_[sr][srcOf(c)];
             }
         }
 
@@ -196,7 +225,6 @@ public:
                 matScale = std::max(matScale, std::fabs(work[idx(r)][idx(c)]));
             }
         }
-        matScale_ = matScale;
         const double pivotEps = matScale > 0.0 ? kRelEps * matScale : kAbsFloor;
 
         // Forward elimination with partial pivoting.
@@ -242,7 +270,7 @@ public:
 
         // Scatter the compacted solution back to the full augmented layout.
         for (int r = 0; r < activeDim; ++r) {
-            x_[srcIndex(r, nodeRows)] = sol[idx(r)];
+            x_[srcOf(r)] = sol[idx(r)];
         }
         return true;
     }
@@ -293,19 +321,12 @@ private:
         return static_cast<std::size_t>(i);
     }
 
-    // Map a compacted working index to its augmented storage index: the first
-    // nodeRows entries are the retained node block (identity), the rest are the
-    // branch border starting at MaxNodes.
-    static constexpr int srcIndex(int w, int nodeRows) noexcept {
-        return w < nodeRows ? w : (MaxNodes + (w - nodeRows));
-    }
-
-    // Grow the retained-node extent to include a referenced non-ground node.
-    // nodeRows_ ends up equal to the highest referenced node id, i.e. the count
-    // of retained node rows (locals 0..nodeRows_-1).
+    // Record a referenced non-ground node in the active-node set. Ground and
+    // (defensively) any id outside [0, MaxNodes) are ignored — plan() validates
+    // node ids at plan time, so on the noexcept stamp path every id is in range.
     void noteNode(NodeId n) noexcept {
-        if (!isGround(n) && n > nodeRows_) {
-            nodeRows_ = n;
+        if (!isGround(n) && n > 0 && n < MaxNodes) {
+            referenced_[idx(n)] = true;
         }
     }
 
@@ -334,16 +355,14 @@ private:
     std::array<double, kDim> x_{};
 
     // Branches allocated so far (0..MaxBranches); fixed by the plan phase and
-    // intentionally preserved across reset().
+    // intentionally preserved across reset() (clearBranches() drops them).
     int branchCount_ = 0;
 
-    // Largest |entry| seen in the active block this solve (for the D1 threshold).
-    double matScale_ = 0.0;
-
-    // Highest referenced non-ground node id this assembly == count of retained
-    // node rows. Reset each assembly so an unreferenced node never manifests as
-    // a spurious singular row.
-    int nodeRows_ = 0;
+    // Set of actually-referenced non-ground node ids this assembly (indexed by
+    // node id; index 0 / ground is unused). Cleared each assembly by reset() so
+    // a never-referenced id is omitted from the working system and an interior
+    // gap never manifests as a spurious singular row.
+    std::array<bool, MaxNodes> referenced_{};
 };
 
 }  // namespace acfx::mna

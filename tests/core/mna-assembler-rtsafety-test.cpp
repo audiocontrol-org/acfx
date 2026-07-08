@@ -34,8 +34,11 @@
 //      throwing (D7).
 // ---------------------------------------------------------------------------
 
+using acfx::Capacitor;
+using acfx::Diode;
 using acfx::Netlist;
 using acfx::NodeId;
+using acfx::OpAmp;
 using acfx::Resistor;
 using acfx::VoltageSource;
 using acfx::kGround;
@@ -287,4 +290,179 @@ TEST_CASE("mna-assembler: a solve-time singular system reports not-solved withou
 
     CHECK_FALSE(solved);
     CHECK(std::isfinite(sys.nodeVoltage(node1)));
+}
+
+// ---------------------------------------------------------------------------
+// 5. Companion-element node validation (govern finding): plan() must validate
+// the node ids of Capacitor/Inductor/Diode too — an out-of-range id on one of
+// these reaches MnaSystem's noexcept stamps and would index the fixed matrix
+// out of bounds. prepare() is deliberately NOT called (mirroring case 3b), so
+// the assembler's own plan()-time guard is the only thing that can catch it.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("mna-assembler: plan() throws on an out-of-range capacitor node before any solve (govern: companion node validation)") {
+    constexpr int kMaxNodes = 3;
+    constexpr int kMaxComponents = 1;
+    constexpr int kMaxBranches = 0;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId node1 = nl.addNode();  // id 1 -- in range.
+
+    // Node id 99 is far outside [0, kMaxNodes); a companion stamp would write
+    // out of the fixed matrix bounds if plan() did not reject it.
+    nl.add(Capacitor{node1, 99, 1.0e-6});
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+
+    CHECK_THROWS_AS(assembler.plan(nl, sys), std::out_of_range);
+}
+
+TEST_CASE("mna-assembler: plan() throws on an out-of-range diode node before any solve (govern: companion node validation)") {
+    constexpr int kMaxNodes = 3;
+    constexpr int kMaxComponents = 1;
+    constexpr int kMaxBranches = 0;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId node1 = nl.addNode();  // id 1 -- in range.
+
+    // Diode{anode, cathode, Is, n, Vt} with an out-of-range cathode.
+    nl.add(Diode{node1, 99, 1.0e-12, 1.0, 0.02585});
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+
+    CHECK_THROWS_AS(assembler.plan(nl, sys), std::out_of_range);
+}
+
+// ---------------------------------------------------------------------------
+// 6. Coincident-terminal degeneracy (govern finding): a VoltageSource with
+// p == n, or an OpAmp with inPlus == inMinus, is a structural singularity whose
+// constraint row degenerates. plan() must reject it with a descriptive
+// std::invalid_argument rather than defer to an opaque solve-time false.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("mna-assembler: plan() throws on a voltage source with coincident terminals (govern: equal-terminal degeneracy)") {
+    constexpr int kMaxNodes = 2;
+    constexpr int kMaxComponents = 1;
+    constexpr int kMaxBranches = 1;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId node1 = nl.addNode();
+
+    // p == n: v(node1) - v(node1) = 5.0 is unsatisfiable. prepare() is skipped
+    // (it would reject this stub for its own reasons); the assembler's plan()
+    // guard is what this case exercises, independent of prepare().
+    nl.add(VoltageSource{node1, node1, 5.0});
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+
+    CHECK_THROWS_AS(assembler.plan(nl, sys), std::invalid_argument);
+}
+
+TEST_CASE("mna-assembler: plan() throws on an op-amp with coincident inputs (govern: equal-terminal degeneracy)") {
+    constexpr int kMaxNodes = 3;
+    constexpr int kMaxComponents = 1;
+    constexpr int kMaxBranches = 1;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId in = nl.addNode();
+    const NodeId out = nl.addNode();
+
+    // inPlus == inMinus collapses the nullator to 0 = 0 (an all-zero row).
+    // prepare() is skipped (it would reject this stub for its own reasons); the
+    // assembler's plan() guard is what this case exercises.
+    nl.add(OpAmp{in, in, out});
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+
+    CHECK_THROWS_AS(assembler.plan(nl, sys), std::invalid_argument);
+}
+
+// ---------------------------------------------------------------------------
+// 7. Re-plannable branches (govern finding): plan() calls addBranch(), which
+// increments MnaSystem::branchCount_; reset() deliberately preserves that
+// count, so plan() MUST drop the prior branches first (clearBranches) or a
+// second plan() on the same system would double-allocate. Planning the same
+// system twice must leave the branch count unchanged; re-planning a DIFFERENT
+// netlist on the same system must reflect the new topology, and the second
+// solve must be correct.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("mna-assembler: re-planning the same system does not double-allocate branches (govern: re-plannable plan)") {
+    constexpr int kMaxNodes = 4;
+    constexpr int kMaxComponents = 4;
+    constexpr int kMaxBranches = 2;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId m = nl.addNode();
+    const NodeId a = nl.addNode();
+    const NodeId b = nl.addNode();
+
+    nl.add(VoltageSource{m, kGround, 12.0});
+    nl.add(Resistor{m, a, 1000.0});
+    nl.add(VoltageSource{a, b, 2.0});
+    nl.add(Resistor{b, kGround, 3000.0});
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NoCompanions comps;
+
+    CHECK_NOTHROW(assembler.plan(nl, sys));
+    CHECK(sys.branchCount() == 2);
+
+    // Second plan() on the SAME system: without clearBranches() this would try
+    // to allocate a third+fourth branch and overflow kMaxBranches == 2. It must
+    // instead re-plan to exactly two branches again.
+    CHECK_NOTHROW(assembler.plan(nl, sys));
+    CHECK(sys.branchCount() == 2);
+
+    assembler.refresh(nl, comps, sys);
+    REQUIRE(sys.solve());
+    // Series loop: v(m)=12, R1 and R2 carry the same current, and the middle
+    // source imposes v(a)-v(b)=2. Solving (12-v(a))/R1 = v(b)/R2 with
+    // v(a)=v(b)+2 gives v(b)=7.5, v(a)=9.5.
+    CHECK(sys.nodeVoltage(a) == doctest::Approx(9.5).epsilon(1e-9));
+    CHECK(sys.nodeVoltage(b) == doctest::Approx(7.5).epsilon(1e-9));
+}
+
+TEST_CASE("mna-assembler: re-planning a different netlist on the same system reflects the new branch count (govern: re-plannable plan)") {
+    constexpr int kMaxNodes = 4;
+    constexpr int kMaxComponents = 4;
+    constexpr int kMaxBranches = 2;
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NoCompanions comps;
+
+    // Netlist A: two ideal voltage sources -> two branches.
+    Netlist<kMaxNodes, kMaxComponents> a;
+    const NodeId a1 = a.addNode();
+    const NodeId a2 = a.addNode();
+    a.add(VoltageSource{a1, kGround, 5.0});
+    a.add(VoltageSource{a2, kGround, 7.0});
+    a.add(Resistor{a1, a2, 1000.0});
+    a.prepare();
+    CHECK_NOTHROW(assembler.plan(a, sys));
+    CHECK(sys.branchCount() == 2);
+
+    // Netlist B on the SAME system: one voltage source + a divider -> one
+    // branch. The re-plan must reset to one, not accumulate on top of A's two.
+    Netlist<kMaxNodes, kMaxComponents> b;
+    const NodeId bm = b.addNode();
+    const NodeId bn = b.addNode();
+    b.add(VoltageSource{bm, kGround, 9.0});
+    b.add(Resistor{bm, bn, 1000.0});
+    b.add(Resistor{bn, kGround, 3000.0});
+    b.prepare();
+    CHECK_NOTHROW(assembler.plan(b, sys));
+    CHECK(sys.branchCount() == 1);
+
+    assembler.refresh(b, comps, sys);
+    REQUIRE(sys.solve());
+    const double vnExpected = 9.0 * 3000.0 / (1000.0 + 3000.0);
+    CHECK(sys.nodeVoltage(bn) == doctest::Approx(vnExpected).epsilon(1e-9));
 }

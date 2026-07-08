@@ -286,3 +286,80 @@ TEST_CASE("mna-system: a reset/stamp/solve loop over a branch-augmented system a
     CHECK_MESSAGE(deallocations == 0,
                   "MnaSystem reset/stamp/solve loop deallocated ", deallocations);
 }
+
+// ---------------------------------------------------------------------------
+// (g) Sparse / interior-gap node ids: a well-posed circuit that references
+// nodes 1 and 3 but SKIPS node 2 must solve, and must produce the SAME node
+// voltages as the identical circuit renumbered densely to 1 and 2. The active-
+// node set omits the never-referenced id 2 (rather than compacting locals
+// [0, highestId) densely, which would leave local 1 an all-zero singular row
+// and falsely report the well-posed circuit as not-solved). Divider topology
+// mirrors case (a): two ground-referenced conductances plus an injected
+// current at the driven node.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("mna-system: a circuit skipping an interior node id solves and matches the densely-renumbered circuit (sparse-node robustness)") {
+    const double G1 = 1.0 / 1000.0;
+    const double G2 = 1.0 / 2000.0;
+    const double Iinj = 10.0 / 1000.0;
+    const double expected = Iinj / (G1 + G2);
+
+    // Sparse: reference nodes 1 and 3, skipping node 2 entirely. kMaxNodes = 4
+    // covers ids 0..3. The driven divider lives on node 3; node 1 is present
+    // (referenced) as a second ground-referenced conductance leg so the id set
+    // is genuinely {1, 3} with an interior gap at 2.
+    System sparse;
+    sparse.reset();
+    const NodeId sparseDriven = 3;
+    const NodeId sparseOther = 1;
+    sparse.stampConductance(sparseDriven, kGround, G1);
+    sparse.stampConductance(sparseDriven, kGround, G2);
+    sparse.stampRhsCurrent(sparseDriven, Iinj);
+    // A second, independent ground-referenced leg on node 1 so it is referenced
+    // and well-posed (its own KCL: G2 * v1 = 0 -> v1 = 0).
+    sparse.stampConductance(sparseOther, kGround, G2);
+
+    REQUIRE(sparse.solve());
+    CHECK(sparse.nodeVoltage(sparseDriven) ==
+          doctest::Approx(expected).epsilon(1e-12));
+    CHECK(sparse.nodeVoltage(sparseOther) == doctest::Approx(0.0));
+    CHECK(sparse.nodeVoltage(2) == 0.0);  // never-referenced gap reads 0.
+
+    // Dense: the SAME circuit renumbered so the driven node is 2 and the other
+    // leg is 1 (no gap). The driven-node voltage must be bit-identical.
+    System dense;
+    dense.reset();
+    const NodeId denseDriven = 2;
+    const NodeId denseOther = 1;
+    dense.stampConductance(denseDriven, kGround, G1);
+    dense.stampConductance(denseDriven, kGround, G2);
+    dense.stampRhsCurrent(denseDriven, Iinj);
+    dense.stampConductance(denseOther, kGround, G2);
+
+    REQUIRE(dense.solve());
+    CHECK(sparse.nodeVoltage(sparseDriven) == dense.nodeVoltage(denseDriven));
+}
+
+// ---------------------------------------------------------------------------
+// (h) A referenced-but-floating node stays singular: referencing a node (via a
+// current injection) with NO conductive path to it must STILL report
+// not-solved. The sparse-node fix omits never-referenced ids, but must NOT omit
+// a referenced id just because its row is all-zero — that is a genuine
+// singularity, not a gap. Mirrors case (c) but with an interior gap around it.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("mna-system: a referenced-but-floating node remains singular even beside an interior gap (no spurious solve)") {
+    System sys;
+    sys.reset();
+
+    // Node 3 is well-grounded; node 1 is referenced (current injected) but has
+    // no conductance anywhere -> its row is all-zero. Node 2 is a never-touched
+    // gap. The floating referenced node 1 must keep the system singular.
+    sys.stampConductance(3, kGround, 1.0 / 1000.0);
+    sys.stampRhsCurrent(3, 1.0e-3);
+    sys.stampRhsCurrent(1, 1.0);  // referenced, but no path -> singular row.
+
+    CHECK_FALSE(sys.solve());
+    CHECK(std::isfinite(sys.nodeVoltage(1)));
+    CHECK(std::isfinite(sys.nodeVoltage(3)));
+}
