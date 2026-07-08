@@ -225,6 +225,7 @@ add_executable(acfx_core_tests
   core/newton-invariants-test.cpp
   core/newton-equivalence-test.cpp
   core/newton-nofallback-test.cpp
+  core/newton-global-step-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
