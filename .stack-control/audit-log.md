@@ -132,3 +132,29 @@ Findings were harvested from the completed chunk run-dirs and triaged by blast r
 - Terminal note: the barrage cannot reconcile in this sandbox (runtime ceiling). Substantive findings
   fixed above; residuals acknowledged. Operator-approved `stackctl govern --override` is the sanctioned
   terminal for the convergence record (per the govern-convergence-tail discipline).
+
+### /code-review stop-gap (2026-07-07, operator-selected)
+
+Ran the lighter multi-agent `/code-review --base main` (high effort) over the whole-feature
+diff as the operator-chosen stop-gap for the un-reconcilable barrage. Finder angles: two
+correctness (line-by-line + removed-behavior + cross-file on both headers; deep numerical trace
+of the reworked referenced-node compaction and the pivoted solve) and one cleanup/altitude/conventions.
+
+- **Correctness: 0 confirmed defects.** Both correctness finders independently traced the
+  compaction bijection (node block vs branch border), partial pivoting, back-substitution, the
+  relative-threshold recompute after `matScale_` removal, and the op-amp asymmetric vs
+  voltage-source symmetric stamps across boundary cases (single node, all-referenced, ground-only,
+  high-id-only, interior gap 1&3-skip-2) — all internally consistent and correct. Corroborates the
+  barrage's post-fix conclusion.
+- **Two low-severity non-crash items (acknowledged, not blocking):** the relative pivot threshold
+  can false-reject a well-posed but extreme-stiffness circuit (conductance ratio > ~1e12 in one
+  circuit) — an inherent tradeoff of any single-scalar relative gate, outside the realistic audio
+  envelope; and `refresh()`-before-`plan()` is guarded only by `assert` (NDEBUG-compiled-out) but
+  `refresh()` is noexcept on the RT hot path so it cannot throw — documented caller-precondition.
+- **Quality items captured to backlog** (non-blocking): TASK-15 (solve() full-kDim init vs
+  activeDim), TASK-16 (plan() terminal-extraction vs terminalsOf() reuse), TASK-17 (relative-pivot
+  conditioning limit — document or equilibrate).
+
+Net: the stop-gap found **no confirmed correctness defect** and independently corroborated the
+barrage's HIGH/MEDIUM fixes. No further code change made at the convergence point (avoids risky
+hot-path edits); quality residuals are in the governed backlog.
