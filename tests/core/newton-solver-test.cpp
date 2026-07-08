@@ -122,12 +122,15 @@ TEST_CASE("newton-solver: plan() builds the diode topology from known component 
     Netlist<kMaxNodes, kMaxComponents> nl;
     const NodeId n1 = nl.addNode();
     const NodeId n2 = nl.addNode();
-    const NodeId n3 = nl.addNode();
 
+    // Every non-ground node needs a conductive path to ground through an
+    // R/L/C/V edge (Netlist::prepare()'s floating-node check does NOT count
+    // diode edges), so both n1 and n2 are grounded through resistors while the
+    // diodes sit at the known component indices 1 and 3.
     nl.add(Resistor{n1, kGround, 1000.0});                       // index 0
     nl.add(Diode{n1, n2, 1e-14, 1.0, 0.025852});                 // index 1
-    nl.add(Resistor{n2, n3, 1000.0});                            // index 2
-    nl.add(Diode{n3, kGround, 1e-14, 1.0, 0.025852});            // index 3
+    nl.add(Resistor{n2, kGround, 1000.0});                       // index 2
+    nl.add(Diode{n2, kGround, 1e-14, 1.0, 0.025852});            // index 3
     nl.prepare();
 
     MnaSystem<kMaxNodes, kMaxBranches> sys;
@@ -164,6 +167,9 @@ TEST_CASE("newton-solver: solve() before plan() returns converged=false, iterati
 
     Netlist<kMaxNodes, kMaxComponents> nl;
     const NodeId n1 = nl.addNode();
+    // n1 grounded through a resistor so prepare()'s floating-node check passes
+    // (a lone diode-to-ground edge is not counted as a conductive path).
+    nl.add(Resistor{n1, kGround, 1000.0});
     nl.add(Diode{n1, kGround, 1e-14, 1.0, 0.025852});
     nl.prepare();
 
