@@ -2,21 +2,30 @@
 
 ---
 
-## 2026-07-09: <!-- session title -->
+## 2026-07-09: implicit-integration — design → runnable spec (planned → analyze-clean)
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take up `design:primitive/implicit-integration` (the last of the numerical-solver trio, after the shipped MNA and Newton siblings) and drive it through the stack-control front door — `design` → `define` — from a `planned` roadmap node to an operator-approved, third-party-reviewed design record and a complete, analyze-clean Spec Kit spec ready for `/stack-control:execute`. Implementation deliberately held as a separate, operator-initiated step.
 
 **Accomplished:**
-- <!-- compose -->
+- **Design phase → approved record.** Brainstormed the primitive grounded in an `Explore` code-map of the four existing lab `advanceHistory` sites + the shipped MNA/Newton seams (`Companion` is already rule-agnostic; Newton's `ComposedCompanionSupply.base` is the composition slot; backward-Euler is hardcoded in exactly `capacitor.h`/`inductor.h`). Made the load-bearing scope call — **selectable rule (backward-Euler + trapezoidal)**, not BE-only — grounded in the siblings' generalize-past-the-labs pattern. Wrote the design record with **5 rejected alternatives**, folded in a third-party review (template rule param + pinned history-advance contract), recorded operator `design-approved` (mechanical gate **7/7**).
+- **Define phase → runnable spec.** Drove the native Spec Kit chain inside the capability-mediation bracket (4 enter/exit token brackets): `specify` (**8 user stories, 25 FRs, 8 SCs**; quality checklist passed first iteration) → `clarify` (no-op — zero ambiguities, design record settled scope) → `plan` (Constitution I–XI clean) + `research` (R1–R10) + `data-model` + `contracts/reactive-integrator.md` + `quickstart` → **25 TDD tasks** across the 8 stories → `analyze` (**100% requirement coverage, 0 critical/high/medium**). `spec-check` green (spec=yes plan=yes tasks=yes).
+- **Pointers + wiring.** Set the `design:` and `spec:` pointers on the roadmap node; repointed `feature.json` and the `CLAUDE.md` SPECKIT marker to `specs/implicit-integration`. Six commits pushed (`dd8f6a0` → `19ea1ae`). Recorded a project memory (`acfx-descriptive-spec-dirs`) so future sessions bypass Spec Kit's numbering + branch-fork.
 
 **Didn't Work:**
-- <!-- compose -->
+- **The Skill loader looped without surfacing the SKILL.md body** for `/stack-control:define` and `/speckit-specify` — each returned `Launching skill: <name>` twice with no procedure. Worked around it by reading the SKILL.md directly from the plugin cache and following it verbatim; the backend drive completed correctly. Captured as tooling friction (likely a harness Skill-invocation surfacing quirk, not a stackctl defect).
+- **`session-end` still has no dry-run mode** — invoking it appended the journal entry and committed+pushed immediately, before the narrative was composed; composing it in this follow-up commit (same as the newton-iteration close).
 
 **Course Corrections:**
-- <!-- compose -->
+- **Made the scope call from project pattern when the operator deferred it.** The operator explicitly flagged themselves non-expert and directed the decision to "project goals, guidelines, and existing patterns." Derived the selectable-rule charter from the shipped siblings' precedent (each production primitive earns its surface by a capability gain over the lab it replaces) rather than forcing a numerics judgment.
+- **Verified the third-party review's math independently instead of nodding.** Re-derived the trapezoidal companion + history-advance formulas against the codebase sign convention before accepting; found the advance collapses to one rule-agnostic contract (`iPrev = Geq·v^n − Ieq`) — a refinement stronger than what was asked. Stated honestly there was no substantive disagreement rather than manufacturing one.
+- **Resolved design Open Question 1 (BE single-sourcing) toward reuse** — the backward-Euler policy reuses the shipped element `companion()` so the `C/dt`/`dt/L` constants live once; trapezoidal computes in the integrator. Captured in research R9.
+- **Stopped at the `specifying → implementing` boundary.** Declined to hand-set the `analyze-clean` node marker — that transition is `/stack-control:execute`'s front door, not `define`'s.
 
 **Insights:**
-- <!-- compose -->
+- **The seam was pre-cut and named for this primitive.** `Companion{Geq,Ieq}` is already integration-rule-agnostic, MNA's README scopes the integration rule OUT and INTO `implicit-integration`, and Newton's `base` slot is exactly this primitive's plug — so, as with Newton, the design was largely *discovering an intended shape*, which is why `clarify` found nothing to ask.
+- **This is the trio's one STATEFUL sibling, and that is the charter — not an accident.** MNA and Newton are stateless pure functions; the whole reason this primitive exists is to *own* reactive history + `dt` + warm-start (time-stepping). The rejected "stateless integrator" alternative (Approach C) would have recreated the 4× hand-rolled `advanceHistory` duplication it exists to retire.
+- **The rule-agnostic history-advance contract is the elegant unifier.** `iPrev_new = Geq·v^n − Ieq` reuses *this step's stamped companion* rather than a parallel per-rule formula, structurally preventing companion/history drift between backward-Euler and trapezoidal — and it works because a Norton-stamped reactive element's current is its companion's own defining relation (not an MNA branch unknown).
+- **The two-phase design dissolves TASK-13 by construction** — companions computed once per `step()`, not per Newton iteration — so the backlog item surfaced as "progressed" here is retired *structurally*, not by a code change in this feature (its lab-solver instance remains for the TASK-14 migration).
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 6
