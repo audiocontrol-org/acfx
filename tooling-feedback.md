@@ -53,3 +53,6 @@
 - govern --mode implement barrage was killed by the sandbox runtime ceiling again (~6 chunks completed on a healthy 2-lane claude+codex fleet, then killed before self-reconciling). Recurring; terminal was operator-approved --override + /code-review stop-gap per the govern-convergence-tail discipline.
 - Two subagents dispatched in parallel that each 'git commit' in the shared worktree squashed into one commit (T001+T002) — concurrent git add -A interleaved. Lesson: run committing subagents sequentially in a shared worktree; parallelism is safe only for read-only finders or worktree-isolated agents.
 - One opus fix-subagent dispatch returned with 0 tool_uses and a malformed boilerplate output (terminal dispatch failure); re-dispatching the identical brief succeeded. Worth a retry-on-empty-result guard.
+
+## session-end 2026-07-09
+- Skill loader looped: invoking the Skill tool for /stack-control:define and /speckit-specify returned 'Launching skill: <name>' with no SKILL.md body (twice each), so the procedure had to be read directly from the plugin cache SKILL.md. Backend drive still completed by following the SKILL.md verbatim; likely a harness Skill-invocation surfacing quirk rather than a stackctl defect.

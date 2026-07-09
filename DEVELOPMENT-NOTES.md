@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-07-09: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 6
+  - tasks(implicit-integration): dependency-ordered task list (25 tasks, 8 stories)
+  - plan(implicit-integration): Phase 0/1 design artifacts
+  - spec(implicit-integration): author Spec Kit spec from approved design record
+  - workflow(implicit-integration): record operator design-approved (gate 7/7)
+  - design(implicit-integration): fold in third-party review (template rule param + pinned history-advance contract)
+  - design(implicit-integration): open designing phase, write design record
+- Files changed: 12
+- Backlog touched: TASK-13
+
 ## 2026-07-08: newton-iteration — design → runnable spec (planned → analyze-clean)
 
 **Goal:** Take up `design:primitive/newton-iteration` and drive it through the stack-control front door — `design` → `define` — from a `planned` roadmap node to an operator-approved design record and a complete, analyze-clean Spec Kit spec ready for `/stack-control:execute`. Implementation deliberately held as a separate, operator-initiated step. (This session's work is the 6 `newton-iteration` commits; the auto-derived boundary below also caught the 2 trailing MNA-close/merge commits from the prior session.)
