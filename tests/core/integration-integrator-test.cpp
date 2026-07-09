@@ -56,6 +56,7 @@
 //                               double voltageTol = 1e-9);
 
 using acfx::Capacitor;
+using acfx::Companion;
 using acfx::Diode;
 using acfx::Netlist;
 using acfx::NodeId;
@@ -65,9 +66,81 @@ using acfx::kGround;
 using acfx::integration::BackwardEuler;
 using acfx::integration::ReactiveIntegrator;
 using acfx::integration::StepResult;
+using acfx::integration::Trapezoidal;
 using acfx::mna::MnaAssembler;
 using acfx::mna::MnaSystem;
 using acfx::newton::NewtonSolver;
+
+namespace {
+
+// Shared by "history-advance contract under both rules" (T013, contract
+// S3/S4; research R3; FR-008/009). Builds a small linear RC network
+// (VoltageSource(5V) -- Resistor(1k) -- Capacitor(1uF) -- ground), steps it
+// kSteps times under `Rule`, and after EACH converged step asserts the
+// stored history equals the reconstruction from THAT step's stamped
+// companion:
+//   integrator.iPrev(slot) == Geq*vN - Ieq
+//   integrator.vPrev(slot) == vN
+// where vN is the cap's terminal voltage this step (sys.nodeVoltage(a) -
+// sys.nodeVoltage(b)) and {Geq, Ieq} is the companion the Rule computes from
+// the PRE-step history (read via vPrev(slot)/iPrev(slot) BEFORE calling
+// step()). CHECK (not REQUIRE) so a failure on one step does not hide a
+// failure on a later step. This is the rule-agnostic advance contract the
+// linear step() branch (T007) already satisfies -- it must hold identically
+// under BackwardEuler and Trapezoidal (RP2), so this helper is instantiated
+// for both from the single TEST_CASE below.
+template <class Rule>
+void checkHistoryAdvanceContractBothRules() {
+    constexpr int kMaxNodes = 3;
+    constexpr int kMaxComponents = 3;
+    constexpr int kMaxBranches = 1;
+    constexpr double kDt = 1.0e-3;
+    constexpr double kC = 1.0e-6;
+    constexpr int kSteps = 5;
+    constexpr int kSlot = 0;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId vinNode = nl.addNode();
+    const NodeId capNode = nl.addNode();
+
+    nl.add(Resistor{vinNode, capNode, 1000.0});    // index 0
+    nl.add(Capacitor{capNode, kGround, kC});       // index 1 -- reactive
+    nl.add(VoltageSource{vinNode, kGround, 5.0});  // index 2
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> newton;
+    ReactiveIntegrator<Rule, kMaxNodes, kMaxComponents, kMaxBranches>
+        integrator(kDt);
+
+    integrator.plan(nl, assembler, sys);
+    REQUIRE(integrator.reactiveCount() == 1);
+    REQUIRE_FALSE(integrator.hasNonlinear());
+
+    for (int step = 0; step < kSteps; ++step) {
+        // Read the PRE-step history and compute the expected companion from
+        // it via the SAME Rule policy step() itself uses internally.
+        const double vPrevBefore = integrator.vPrev(kSlot);
+        const double iPrevBefore = integrator.iPrev(kSlot);
+        const Companion expectedCompanion =
+            Rule::capacitorCompanion(kC, kDt, vPrevBefore, iPrevBefore);
+
+        const StepResult result = integrator.step(nl, assembler, sys, newton);
+        REQUIRE(result.converged);
+
+        const double vN =
+            sys.nodeVoltage(capNode) - sys.nodeVoltage(kGround);
+        const double expectedIPrev =
+            expectedCompanion.Geq * vN - expectedCompanion.Ieq;
+
+        CHECK(integrator.vPrev(kSlot) == doctest::Approx(vN).epsilon(1.0e-12));
+        CHECK(integrator.iPrev(kSlot) ==
+              doctest::Approx(expectedIPrev).epsilon(1.0e-12));
+    }
+}
+
+}  // namespace
 
 TEST_SUITE("reactive-integrator") {
 
@@ -234,6 +307,107 @@ TEST_CASE("reactive-integrator: step() before plan() returns converged=false, it
     CHECK_FALSE(result.converged);
     CHECK(result.iterations == 0);
     CHECK(result.voltageResidual == 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// 4. History-advance contract under BOTH rules (contract S3/S4; research R3;
+// FR-008/009). PASSES now -- the linear step() branch (T007) already
+// satisfies this contract. Runs the shared helper above under BackwardEuler
+// and, separately, under Trapezoidal: after every converged step the stored
+// history exactly reconstructs from THAT step's pre-step-history companion,
+// proving the advance contract is rule-agnostic (T013 US4).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("reactive-integrator: history-advance contract holds under both BackwardEuler and Trapezoidal (S3/S4)") {
+    checkHistoryAdvanceContractBothRules<BackwardEuler>();
+    checkHistoryAdvanceContractBothRules<Trapezoidal>();
+}
+
+// ---------------------------------------------------------------------------
+// 5. History advances exactly once per step on a reactive+diode transient
+// (contract S1/S4; research R3; FR-008/009). RED until T015 (nonlinear step
+// branch): step()'s hasNonlinear_ branch is currently a marked placeholder
+// that returns StepResult{} (converged=false, iterations=0) without touching
+// history at all, so every assertion below fails against today's
+// implementation. It documents the invariant T015 must establish: on a
+// converged nonlinear (Newton-composed) step, the reactive element's history
+// advances EXACTLY ONCE -- not once per Newton iteration -- to the
+// reconstruction from the CONVERGED voltages, while StepResult::iterations
+// still reports however many Newton iterations the composed solve consumed.
+//
+// Netlist: VoltageSource -- Resistor -- node -- Diode to ground, Capacitor
+// across the diode (node to ground). hasNonlinear() must be true (Diode
+// present); reactiveCount() must be 1 (the Capacitor).
+//   index 0: VoltageSource
+//   index 1: Resistor
+//   index 2: Diode        <-- nonlinear
+//   index 3: Capacitor    <-- reactive
+// ---------------------------------------------------------------------------
+
+TEST_CASE("reactive-integrator: history advances exactly once per step on a reactive+diode transient (RED until T015)") {
+    constexpr int kMaxNodes = 3;
+    constexpr int kMaxComponents = 4;
+    constexpr int kMaxBranches = 1;
+    constexpr double kDt = 1.0e-3;
+    constexpr double kC = 1.0e-6;
+    constexpr double kR = 1000.0;
+    constexpr double kVin = 5.0;
+    constexpr double kIs = 1.0e-14;
+    constexpr double kN = 1.0;
+    constexpr double kVt = 0.025852;
+    constexpr int kSlot = 0;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId vinNode = nl.addNode();
+    const NodeId node = nl.addNode();
+
+    nl.add(VoltageSource{vinNode, kGround, kVin});  // index 0
+    nl.add(Resistor{vinNode, node, kR});            // index 1
+    nl.add(Diode{node, kGround, kIs, kN, kVt});     // index 2 -- nonlinear
+    nl.add(Capacitor{node, kGround, kC});           // index 3 -- reactive
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> newton;
+    ReactiveIntegrator<BackwardEuler, kMaxNodes, kMaxComponents, kMaxBranches>
+        integrator(kDt);
+
+    integrator.plan(nl, assembler, sys);
+    REQUIRE(integrator.hasNonlinear());
+    REQUIRE(integrator.reactiveCount() == 1);
+
+    // Known state: the zero initial condition plan() establishes (RS1) --
+    // the cap starts uncharged.
+    const double vPrevBefore = integrator.vPrev(kSlot);
+    const double iPrevBefore = integrator.iPrev(kSlot);
+
+    const StepResult result = integrator.step(nl, assembler, sys, newton);
+
+    // The composed nonlinear solve must converge, and StepResult::iterations
+    // must reflect the Newton iterations it consumed (>= 1, cf. NewtonSolver
+    // contract S6).
+    CHECK(result.converged);
+    CHECK(result.iterations >= 1);
+
+    // History must have moved -- exactly once -- away from the pre-step
+    // values to the reconstruction from the CONVERGED terminal voltage.
+    const double vN = sys.nodeVoltage(node) - sys.nodeVoltage(kGround);
+    const Companion expectedCompanion =
+        BackwardEuler::capacitorCompanion(kC, kDt, vPrevBefore, iPrevBefore);
+    const double expectedIPrev =
+        expectedCompanion.Geq * vN - expectedCompanion.Ieq;
+
+    CHECK(integrator.iPrev(kSlot) != doctest::Approx(iPrevBefore));
+    CHECK(integrator.vPrev(kSlot) == doctest::Approx(vN).epsilon(1.0e-12));
+    CHECK(integrator.iPrev(kSlot) ==
+          doctest::Approx(expectedIPrev).epsilon(1.0e-12));
+
+    // RED until T015 (nonlinear step branch): today step()'s hasNonlinear_
+    // branch is a marked placeholder (`return StepResult{};`) that neither
+    // runs Newton nor advances history, so result.converged/iterations and
+    // the post-step history above all fail against this test until T015
+    // lands the real nonlinear-compose-and-advance path.
 }
 
 }  // TEST_SUITE("reactive-integrator")
