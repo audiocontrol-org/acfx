@@ -10,19 +10,17 @@
 
 #include <cmath>
 
-// T006 -- ReactiveIntegrator closed-form doctest suite (RED for T007).
+// ReactiveIntegrator closed-form doctest suite (tasks.md T006/T008).
 // (specs/implicit-integration/contracts/reactive-integrator.md;
-// specs/implicit-integration/data-model.md; tasks.md T006).
+// specs/implicit-integration/data-model.md.)
 //
 // ReactiveIntegrator::step() (core/primitives/circuit/integration/
-// reactive-integrator.h) is currently a PLACEHOLDER: it returns
-// StepResult{converged=false, ...} and never advances node voltages or
-// cross-sample history. This suite integrates two first-order reactive
-// networks under BackwardEuler and compares the observed per-step state
-// against the EXACT discrete backward-Euler response computed independently
-// in the test. It is expected to FAIL (RED) until T007 lands the real
-// composed linear solve; it must still BUILD cleanly against the existing
-// ReactiveIntegrator/MnaAssembler/MnaSystem/NewtonSolver/Netlist surface.
+// reactive-integrator.h) composes the linear MNA solve and advances node
+// voltages + cross-sample history each step. This suite integrates reactive
+// networks under BackwardEuler and compares the observed per-step state against
+// the EXACT discrete backward-Euler response computed independently in the test.
+// It covers four cases: an RC low-pass, its RL dual, a series-RLC network (an
+// independent 2x2 v_C/i_L oracle), and a zero-reactive-element passthrough (S9).
 //
 // Case 1 -- RC low-pass (capacitor node voltage, contract "Read accessors"
 // via MnaSystem::nodeVoltage):
@@ -255,6 +253,7 @@ TEST_CASE("integration-closed-form: series RLC network matches an independent ba
 
     double vCPrevExact = 0.0;  // v_C[0] == v2[0], the pre-step history
     double iLPrevExact = 0.0;  // i_L[0], the pre-step history
+    double vCObservedLast = 0.0;  // last OBSERVED cap voltage (from the solver)
 
     for (int n = 0; n < kStepsRlc; ++n) {
         const StepResult result = integrator.step(nl, assembler, sys, newton);
@@ -283,13 +282,14 @@ TEST_CASE("integration-closed-form: series RLC network matches an independent ba
 
         vCPrevExact = v2Exact;
         iLPrevExact = iLExact;
+        vCObservedLast = vCObserved;
     }
 
     // This RLC is heavily overdamped (zeta ~= 1.58); after kStepsRlc * kDtRlc
-    // == 600us (several slow-pole time constants), the capacitor voltage
-    // should have visibly approached the DC steady state Vin (inductor ->
-    // short, capacitor -> open at DC).
-    CHECK(vCPrevExact == doctest::Approx(kVinRlc).epsilon(1.0e-2));
+    // == 600us (several slow-pole time constants), the OBSERVED capacitor voltage
+    // (from the solver, not the oracle) should have visibly approached the DC
+    // steady state Vin (inductor -> short, capacitor -> open at DC).
+    CHECK(vCObservedLast == doctest::Approx(kVinRlc).epsilon(1.0e-2));
 }
 
 // ---------------------------------------------------------------------------

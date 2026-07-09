@@ -413,4 +413,86 @@ TEST_CASE("reactive-integrator: history advances exactly once per step on a reac
     // companion and the converged terminal voltage, a single increment.
 }
 
+// Slot-accessor sentinel: the slot-indexed accessors guard on reactiveCount_,
+// not MaxComponents, so an over-range slot returns the -1 / 0.0 "no such slot"
+// sentinel and cannot be confused with a real reactive element at component
+// index 0 (the reactive element is placed at component index 0 here — exactly
+// the case a MaxComponents-bounded guard would misreport as component 0).
+TEST_CASE("reactive-integrator: slot accessors return the no-such-slot sentinel past reactiveCount_") {
+    constexpr int kMaxNodes = 3;
+    constexpr int kMaxComponents = 4;
+    constexpr int kMaxBranches = 1;
+
+    Netlist<kMaxNodes, kMaxComponents> nl;
+    const NodeId vinNode = nl.addNode();
+    const NodeId capNode = nl.addNode();
+    nl.add(Capacitor{capNode, kGround, 1.0e-6});   // index 0 -- reactive, slot 0
+    nl.add(Resistor{vinNode, capNode, 1000.0});    // index 1
+    nl.add(VoltageSource{vinNode, kGround, 5.0});  // index 2
+    nl.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    ReactiveIntegrator<BackwardEuler, kMaxNodes, kMaxComponents, kMaxBranches>
+        integrator(1.0e-3);
+    integrator.plan(nl, assembler, sys);
+
+    REQUIRE(integrator.reactiveCount() == 1);
+    // Valid slot 0 -> the real component index (0). Over-range slots (>=
+    // reactiveCount_) -> the -1 sentinel, NOT a spurious component 0.
+    CHECK(integrator.reactiveComponentIndex(0) == 0);
+    CHECK(integrator.reactiveComponentIndex(1) == -1);
+    CHECK(integrator.reactiveComponentIndex(kMaxComponents - 1) == -1);
+    CHECK(integrator.reactiveComponentIndex(-1) == -1);
+    // Valid-slot history reads (zero seed); over-range slots read 0 without
+    // indexing past reactiveCount_.
+    CHECK(integrator.vPrev(0) == doctest::Approx(0.0));
+    CHECK(integrator.iPrev(0) == doctest::Approx(0.0));
+    CHECK(integrator.vPrev(2) == doctest::Approx(0.0));
+    CHECK(integrator.iPrev(2) == doctest::Approx(0.0));
+}
+
+// Topology guard: step() indexes the netlist by the component indices plan()
+// recorded. A netlist whose topology drifted from the plan (here a different
+// component count) must be surfaced BY VALUE (the all-zero StepResult) rather
+// than indexing the stale plan into out-of-bounds access, and must not advance
+// history.
+TEST_CASE("reactive-integrator: step() surfaces a plan/netlist topology drift by value") {
+    constexpr int kMaxNodes = 3;
+    constexpr int kMaxComponents = 4;
+    constexpr int kMaxBranches = 1;
+
+    Netlist<kMaxNodes, kMaxComponents> planned;
+    const NodeId vinNode = planned.addNode();
+    const NodeId capNode = planned.addNode();
+    planned.add(Resistor{vinNode, capNode, 1000.0});    // index 0
+    planned.add(Capacitor{capNode, kGround, 1.0e-6});   // index 1 -- reactive
+    planned.add(VoltageSource{vinNode, kGround, 5.0});  // index 2
+    planned.prepare();
+
+    MnaSystem<kMaxNodes, kMaxBranches> sys;
+    MnaAssembler<kMaxNodes, kMaxComponents, kMaxBranches> assembler;
+    NewtonSolver<kMaxNodes, kMaxComponents, kMaxBranches> newton;
+    ReactiveIntegrator<BackwardEuler, kMaxNodes, kMaxComponents, kMaxBranches>
+        integrator(1.0e-3);
+    integrator.plan(planned, assembler, sys);
+
+    // A netlist with a DIFFERENT component count (2, not the planned 3): the
+    // recorded reactive index (1) no longer describes it.
+    Netlist<kMaxNodes, kMaxComponents> drifted;
+    const NodeId vin2 = drifted.addNode();
+    const NodeId cap2 = drifted.addNode();
+    drifted.add(Resistor{vin2, cap2, 1000.0});      // index 0
+    drifted.add(VoltageSource{vin2, kGround, 5.0}); // index 1 -- only 2 components
+    drifted.prepare();
+
+    const double iPrevBefore = integrator.iPrev(0);
+    StepResult result{true, 9, 9.0};
+    CHECK_NOTHROW(result = integrator.step(drifted, assembler, sys, newton));
+    CHECK_FALSE(result.converged);
+    CHECK(result.iterations == 0);
+    CHECK(result.voltageResidual == doctest::Approx(0.0));
+    CHECK(integrator.iPrev(0) == doctest::Approx(iPrevBefore));
+}
+
 }  // TEST_SUITE("reactive-integrator")

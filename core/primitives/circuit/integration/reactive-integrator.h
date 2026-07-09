@@ -38,10 +38,10 @@
 // element method for it (adding one would push history-shaped concerns onto the
 // stateless value-types — design record Approach D rejection).
 //
-// This header lands the two RULE POLICIES. The ReactiveIntegrator class itself
-// (StepResult, the two-phase plan()/step() surface, the internal CompanionSupply
-// and cross-sample history) is the next increment (T005) and is added to THIS
-// same header.
+// This header ships the two RULE POLICIES, the StepResult value type, and the
+// full ReactiveIntegrator class — its two-phase plan()/step() surface, the
+// internal ReactiveCompanionSupply, the cross-sample history, and both the
+// linear (MNA-composed) and nonlinear (Newton-composed) step() branches.
 //
 // C++17, header-only, standard library only; no platform or component-graphics
 // headers. double throughout (FR-022). The policy functions are noexcept,
@@ -104,10 +104,19 @@ struct Trapezoidal {
 // false the node voltages are the last (non-converged) iterate and MUST NOT be
 // trusted (research R8). All-zero default is the precondition-violation sentinel
 // returned by step()-before-plan() (S8).
+//
+// `iterations` and `voltageResidual` are MEANINGFUL ONLY on the nonlinear
+// (Newton-composed) path, where they carry the driven NewtonStatus's iteration
+// count and final residual. On the linear (direct MNA) path there is no Newton
+// loop and no residual to measure: `iterations` is a fixed 1 (one direct solve)
+// and `voltageResidual` is 0.0 — a placeholder, NOT a measured error. A consumer
+// gauging solve health must key on `converged`; do not read `voltageResidual` as
+// a linear-path accuracy signal (it reads 0.0 on both success and singular
+// failure there).
 struct StepResult {
     bool converged = false;       // did the composed solve converge?
-    int iterations = 0;           // Newton iterations consumed (0/1 for linear)
-    double voltageResidual = 0.0; // final residual from the composed solve
+    int iterations = 0;           // Newton iterations (nonlinear); 1 on the linear path
+    double voltageResidual = 0.0; // final Newton residual (nonlinear); 0.0 placeholder on linear
 };
 
 // ReactiveIntegrator — the stateful, per-sample implicit-integration driver
@@ -177,18 +186,30 @@ public:
     void plan(const Netlist<MaxNodes, MaxComponents>& nl,
               mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
               mna::MnaSystem<MaxNodes, MaxBranches>& sys) {
+        // Invalidate FIRST (mirrors NewtonSolver::plan): if this is a re-plan and
+        // assembler.plan() throws below, the integrator must NOT stay armed
+        // against a half-cleared assembler — a later step() would then pass the
+        // pre-plan guard and refresh() a stale plan in a release build where the
+        // assembler's own assert is compiled out. Re-arm only after BOTH the
+        // assembler plan and the integrator scan complete.
+        planned_ = false;
+        isReactive_.fill(false);
+        reactiveComponentIndex_.fill(0);
+        reactiveCount_ = 0;
+        hasNonlinear_ = false;
+        plannedComponentCount_ = 0;
+
         // P1: delegate branch allocation + topology validation to the assembler
         // (may throw on over-capacity / out-of-range / degenerate netlists).
         assembler.plan(nl, sys);
 
         // P2: scan the netlist ONCE, recording the reactive component indices,
-        // the per-component is-reactive mask, and whether any nonlinear element
-        // is present (hasNonlinear_ chooses the step branch once, at plan time).
-        isReactive_.fill(false);
-        reactiveComponentIndex_.fill(0);
-        reactiveCount_ = 0;
-        hasNonlinear_ = false;
+        // the per-component is-reactive mask, whether any nonlinear element is
+        // present (hasNonlinear_ chooses the step branch once), and the planned
+        // component count (the topology signature step() checks before trusting
+        // the recorded indices).
         const auto comps = nl.components();
+        plannedComponentCount_ = static_cast<int>(comps.size());
         for (std::size_t i = 0; i < comps.size(); ++i) {
             if (acfx::isReactive(comps[i])) {
                 isReactive_[i] = true;
@@ -251,6 +272,26 @@ public:
         // value, throw-free / allocation-free, as the all-zero sentinel.
         if (!planned_) {
             return StepResult{};
+        }
+
+        // Topology guard: step() trusts the component indices plan() recorded. If
+        // the caller passes a netlist whose topology drifted from the plan (a
+        // different component count, or a recorded reactive slot that is no longer
+        // a reactive element), those indices are stale and would drive
+        // out-of-bounds / mis-stamped access below — MnaAssembler::refresh() does
+        // NOT revalidate on the hot path. Surface the precondition violation BY
+        // VALUE (like the pre-plan guard), before any companion computation or
+        // solve, rather than risking UB (mirrors NewtonSolver's topology guard).
+        const auto guardComps = nl.components();
+        if (static_cast<int>(guardComps.size()) != plannedComponentCount_) {
+            return StepResult{};
+        }
+        for (int s = 0; s < reactiveCount_; ++s) {
+            const int ci = reactiveComponentIndex_[static_cast<std::size_t>(s)];
+            if (ci < 0 || ci >= static_cast<int>(guardComps.size()) ||
+                !acfx::isReactive(guardComps[static_cast<std::size_t>(ci)])) {
+                return StepResult{};
+            }
         }
 
         // S1: compute each reactive element's companion ONCE from its current
@@ -316,24 +357,29 @@ public:
     }
 
     // Component index of the reactiveSlot'th reactive element recorded by plan()
-    // (reactive slot -> component index). Out-of-range slots return -1.
+    // (reactive slot -> component index). Valid slots are [0, reactiveCount_);
+    // a slot outside that range has no reactive element and returns the -1 "no
+    // such slot" sentinel (guarding on reactiveCount_, NOT MaxComponents, so the
+    // sentinel actually fires and cannot be confused with a real component 0).
     int reactiveComponentIndex(int reactiveSlot) const noexcept {
-        if (reactiveSlot < 0 || reactiveSlot >= MaxComponents) {
+        if (reactiveSlot < 0 || reactiveSlot >= reactiveCount_) {
             return -1;
         }
         return reactiveComponentIndex_[static_cast<std::size_t>(reactiveSlot)];
     }
 
-    // Stored per-reactive-slot history, exposed for testing (S3/S4). Out-of-range
-    // slots return 0.
+    // Stored per-reactive-slot history, exposed for testing (S3/S4). Valid slots
+    // are [0, reactiveCount_); a slot outside that range has no history and
+    // returns 0 (guarding on reactiveCount_, so a genuinely-zero history term is
+    // not conflated with an over-range slot).
     double vPrev(int reactiveSlot) const noexcept {
-        if (reactiveSlot < 0 || reactiveSlot >= MaxComponents) {
+        if (reactiveSlot < 0 || reactiveSlot >= reactiveCount_) {
             return 0.0;
         }
         return vPrev_[static_cast<std::size_t>(reactiveSlot)];
     }
     double iPrev(int reactiveSlot) const noexcept {
-        if (reactiveSlot < 0 || reactiveSlot >= MaxComponents) {
+        if (reactiveSlot < 0 || reactiveSlot >= reactiveCount_) {
             return 0.0;
         }
         return iPrev_[static_cast<std::size_t>(reactiveSlot)];
@@ -422,6 +468,7 @@ private:
     // Reactive slot -> component index of the scanned reactive element.
     std::array<int, MaxComponents> reactiveComponentIndex_{};
     int reactiveCount_ = 0;      // number of reactive elements found
+    int plannedComponentCount_ = 0;  // topology signature step() checks
     bool hasNonlinear_ = false;  // any nonlinear element (Diode)?
     bool planned_ = false;       // two-phase guard — step() before plan()
 
