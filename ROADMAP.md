@@ -74,7 +74,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/progressive-dsp-platform
 
 ## multi:feature/phase-numerical-solvers
-- status: planned
+- status: closed
+- validated: yes
 - depends-on: multi:feature/phase-circuit-modeling
 - part-of: multi:feature/progressive-dsp-platform
 
@@ -257,7 +258,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-numerical-solvers
 
 ## design:primitive/implicit-integration
-- status: shipped
+- status: closed
+- validated: yes
 - analyze-clean: yes
 - spec: specs/implicit-integration
 - design-approved: yes
