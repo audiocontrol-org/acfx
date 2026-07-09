@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **newton-iteration**.
+Active Spec Kit feature: **implicit-integration**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/newton-iteration/plan.md` (spec: `specs/newton-iteration/spec.md`).
+current plan at `specs/implicit-integration/plan.md` (spec: `specs/implicit-integration/spec.md`).
 <!-- SPECKIT END -->

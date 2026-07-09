@@ -227,6 +227,21 @@ add_executable(acfx_core_tests
   core/newton-nofallback-test.cpp
   core/newton-global-step-test.cpp
   core/newton-plan-drift-test.cpp
+  # ---------------------------------------------------------------------------
+  # Implicit-integration primitive test suites (implicit-integration feature)
+  # ---------------------------------------------------------------------------
+  core/integration-integrator-test.cpp
+  # RT-safety (T017), no-fallback/rule-fidelity (T019), and plan-drift/
+  # accessor guard cases split from integration-integrator-test.cpp to stay
+  # under the Constitution VII per-file line budget.
+  core/integration-rtsafety-test.cpp
+  core/integration-nofallback-test.cpp
+  core/integration-guards-test.cpp
+  core/integration-closed-form-test.cpp
+  core/integration-convergence-order-test.cpp
+  core/integration-invariants-test.cpp
+  core/integration-composition-test.cpp
+  core/integration-equivalence-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
