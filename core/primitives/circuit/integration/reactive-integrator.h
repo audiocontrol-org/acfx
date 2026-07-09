@@ -253,59 +253,44 @@ public:
             return StepResult{};
         }
 
+        // S1: compute each reactive element's companion ONCE from its current
+        // history, before the solve — shared by both branches and held FIXED for
+        // the whole solve (Newton varies only diodes — FR-007; dissolves the
+        // per-iteration companion recomputation of backlog TASK-13).
+        computeReactiveCompanions(nl);
+        const auto supply = companionSupply();
+
         if (hasNonlinear_) {
-            // T015 nonlinear — Newton-composed solve is the next increment.
-            (void)newton;
-            return StepResult{};
+            // S2 (nonlinear): compose the shipped NewtonSolver, handing the fixed
+            // reactive companions as Newton's `base` supply and the
+            // integrator-owned warm start as the initial guess. The caller plans
+            // the NewtonSolver (newton.plan) for a nonlinear netlist; an unplanned
+            // solver surfaces converged == false by value via Newton's own
+            // pre-plan guard (never UB).
+            const newton::NewtonStatus st =
+                newton.solve(nl, supply, warmStart_, assembler, sys);
+            // S5: a non-converged solve is surfaced BY VALUE; history is NOT
+            // advanced from the untrustworthy iterate (no fallback, no rule
+            // switch, no throw on the hot path).
+            if (!st.converged) {
+                return StepResult{false, st.iterations, st.voltageResidual};
+            }
+            // S3/S4: reconstruct + advance history exactly ONCE, after Newton
+            // converges (never per Newton iteration).
+            advanceHistory(nl, sys);
+            return StepResult{true, st.iterations, st.voltageResidual};
         }
 
         // ---- linear branch (hasNonlinear_ == false) --------------------------
-        const auto comps = nl.components();
-
-        // S1: compute each reactive element's companion ONCE from its current
-        // history, keyed by component index (the supply's at() indexing).
-        for (int s = 0; s < reactiveCount_; ++s) {
-            const int compIdx = reactiveComponentIndex_[static_cast<std::size_t>(s)];
-            const Component& comp = comps[static_cast<std::size_t>(compIdx)];
-            const std::size_t ci = static_cast<std::size_t>(compIdx);
-            const double vPrev = vPrev_[static_cast<std::size_t>(s)];
-            const double iPrev = iPrev_[static_cast<std::size_t>(s)];
-            if (const auto* cap = std::get_if<Capacitor>(&comp)) {
-                reactiveCompanion_[ci] =
-                    Rule::capacitorCompanion(cap->C, dt_, vPrev, iPrev);
-            } else if (const auto* ind = std::get_if<Inductor>(&comp)) {
-                reactiveCompanion_[ci] =
-                    Rule::inductorCompanion(ind->L, dt_, vPrev, iPrev);
-            }
-        }
-
-        // S2: expose the fixed companions and compose with the linear MNA solve.
-        const auto supply = companionSupply();
+        // S2 (linear): stamp the fixed companions and solve the linear MNA system.
         assembler.refresh(nl, supply, sys);
         const bool converged = sys.solve();
-
-        // S5: a non-converged solve is surfaced BY VALUE; history is NOT advanced
-        // from the untrustworthy iterate.
+        // S5: a non-converged (singular) solve is surfaced BY VALUE; no advance.
         if (!converged) {
             return StepResult{false, 1, 0.0};
         }
-
-        // S3/S4: reconstruct per-element {v^n, i^n} from the converged voltages
-        // and this step's stamped companion, then advance history exactly once.
-        for (int s = 0; s < reactiveCount_; ++s) {
-            const int compIdx = reactiveComponentIndex_[static_cast<std::size_t>(s)];
-            const std::size_t ci = static_cast<std::size_t>(compIdx);
-            const auto t = terminalsOf(comps[ci]);
-            const double vN = sys.nodeVoltage(t.first) - sys.nodeVoltage(t.second);
-            const double iN =
-                reactiveCompanion_[ci].Geq * vN - reactiveCompanion_[ci].Ieq;
-            vPrev_[static_cast<std::size_t>(s)] = vN;
-            iPrev_[static_cast<std::size_t>(s)] = iN;
-        }
-        for (int n = 0; n < MaxNodes; ++n) {
-            warmStart_[static_cast<std::size_t>(n)] = sys.nodeVoltage(n);
-        }
-
+        // S3/S4: reconstruct + advance history exactly once.
+        advanceHistory(nl, sys);
         return StepResult{true, 1, 0.0};
     }
 
@@ -375,9 +360,55 @@ private:
     };
 
     // Build the supply view over this step's fixed companions + mask (used by
-    // the T007/T015 solve path).
+    // the linear MNA refresh and the Newton-composed solve path).
     ReactiveCompanionSupply companionSupply() const noexcept {
         return ReactiveCompanionSupply{reactiveCompanion_, isReactive_};
+    }
+
+    // S1 (shared by both step() branches): compute each reactive element's
+    // companion ONCE from its current history via the Rule policy, keyed by
+    // component index (the supply's at() indexing). Held fixed for the whole
+    // solve — Newton varies only the diodes over this fixed base (FR-007).
+    void computeReactiveCompanions(
+        const Netlist<MaxNodes, MaxComponents>& nl) noexcept {
+        const auto comps = nl.components();
+        for (int s = 0; s < reactiveCount_; ++s) {
+            const int compIdx = reactiveComponentIndex_[static_cast<std::size_t>(s)];
+            const std::size_t ci = static_cast<std::size_t>(compIdx);
+            const Component& comp = comps[ci];
+            const double vPrev = vPrev_[static_cast<std::size_t>(s)];
+            const double iPrev = iPrev_[static_cast<std::size_t>(s)];
+            if (const auto* cap = std::get_if<Capacitor>(&comp)) {
+                reactiveCompanion_[ci] =
+                    Rule::capacitorCompanion(cap->C, dt_, vPrev, iPrev);
+            } else if (const auto* ind = std::get_if<Inductor>(&comp)) {
+                reactiveCompanion_[ci] =
+                    Rule::inductorCompanion(ind->L, dt_, vPrev, iPrev);
+            }
+        }
+    }
+
+    // S3/S4 (shared by both step() branches): reconstruct each reactive
+    // element's {v^n, i^n} from the converged node voltages and THIS step's
+    // stamped companion (i^n = Geq*v^n - Ieq, research R3/R4), then advance
+    // cross-sample history exactly ONCE and refresh the warm start. Called only
+    // after the composed solve converged.
+    void advanceHistory(const Netlist<MaxNodes, MaxComponents>& nl,
+                        const mna::MnaSystem<MaxNodes, MaxBranches>& sys) noexcept {
+        const auto comps = nl.components();
+        for (int s = 0; s < reactiveCount_; ++s) {
+            const int compIdx = reactiveComponentIndex_[static_cast<std::size_t>(s)];
+            const std::size_t ci = static_cast<std::size_t>(compIdx);
+            const auto t = terminalsOf(comps[ci]);
+            const double vN = sys.nodeVoltage(t.first) - sys.nodeVoltage(t.second);
+            const double iN =
+                reactiveCompanion_[ci].Geq * vN - reactiveCompanion_[ci].Ieq;
+            vPrev_[static_cast<std::size_t>(s)] = vN;
+            iPrev_[static_cast<std::size_t>(s)] = iN;
+        }
+        for (int n = 0; n < MaxNodes; ++n) {
+            warmStart_[static_cast<std::size_t>(n)] = sys.nodeVoltage(n);
+        }
     }
 
     // ---- configuration (immutable after construction) ------------------------

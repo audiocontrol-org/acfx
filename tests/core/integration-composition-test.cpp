@@ -187,6 +187,9 @@ TEST_CASE("integration-composition: reactive+diode network composes through step
         integrator(kDt);
 
     integrator.plan(nl, assembler, sys);
+    // For a nonlinear netlist the caller plans the NewtonSolver too; step()
+    // composes it as the reactive companions' outer loop.
+    newton.plan(nl, assembler, sys);
     CHECK(integrator.hasNonlinear());
     CHECK(integrator.reactiveCount() == 1);
 
@@ -197,10 +200,9 @@ TEST_CASE("integration-composition: reactive+diode network composes through step
 
     const double vExpected = oracleSeriesDiode(kVin, kR, kIs, kN, kVt);
 
-    // RED until T015 (nonlinear step branch): step() currently routes
-    // hasNonlinear() into a placeholder that returns converged == false
-    // without ever composing NewtonSolver into the reactive companion solve,
-    // so neither of these can pass yet.
+    // The reactive+diode step composes NewtonSolver over the fixed reactive
+    // companion base; at DC the cap is open, leaving the series R+Diode operating
+    // point (independent bisection oracle).
     CHECK(result.converged);
     CHECK(sys.nodeVoltage(n2) == doctest::Approx(vExpected).epsilon(kTol));
 }

@@ -374,6 +374,9 @@ TEST_CASE("reactive-integrator: history advances exactly once per step on a reac
         integrator(kDt);
 
     integrator.plan(nl, assembler, sys);
+    // The caller plans the NewtonSolver for a nonlinear netlist; step() composes
+    // it as the outer loop over the fixed reactive companion base.
+    newton.plan(nl, assembler, sys);
     REQUIRE(integrator.hasNonlinear());
     REQUIRE(integrator.reactiveCount() == 1);
 
@@ -403,11 +406,9 @@ TEST_CASE("reactive-integrator: history advances exactly once per step on a reac
     CHECK(integrator.iPrev(kSlot) ==
           doctest::Approx(expectedIPrev).epsilon(1.0e-12));
 
-    // RED until T015 (nonlinear step branch): today step()'s hasNonlinear_
-    // branch is a marked placeholder (`return StepResult{};`) that neither
-    // runs Newton nor advances history, so result.converged/iterations and
-    // the post-step history above all fail against this test until T015
-    // lands the real nonlinear-compose-and-advance path.
+    // History advanced exactly once (after Newton converged), not per Newton
+    // iteration: the post-step iPrev reconstructs from the PRE-step-history
+    // companion and the converged terminal voltage, a single increment.
 }
 
 }  // TEST_SUITE("reactive-integrator")
