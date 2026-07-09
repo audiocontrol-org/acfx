@@ -217,6 +217,23 @@ public:
         reactiveCompanion_.fill(Companion{0.0, 0.0});
     }
 
+    // Seed a reactive element's initial history {vPrev, iPrev} to a
+    // caller-provided consistent initial condition (e.g. the true t=0
+    // terminal voltage / current), so a higher-order rule (Trapezoidal)
+    // integrates from consistent initial data. Off the hot path; call after
+    // plan() (which zeroes history) and before the first step(). No-op for
+    // an out-of-range slot. Does NOT change topology or the rule. History
+    // still DEFAULTS to zero (this is an explicit opt-in), so FR-016 and the
+    // zero-state closed-form tests are unaffected.
+    void seedHistory(int reactiveSlot, double vPrev, double iPrev) noexcept {
+        if (reactiveSlot < 0 || reactiveSlot >= reactiveCount_) {
+            return;
+        }
+        const std::size_t slot = static_cast<std::size_t>(reactiveSlot);
+        vPrev_[slot] = vPrev;
+        iPrev_[slot] = iPrev;
+    }
+
     // step() — the hot path (contract S1-S9; throw-free, allocation-free).
     // Computes each reactive element's companion ONCE from its current history
     // (S1), composes the fixed companions with the linear MnaSystem (S2) or the

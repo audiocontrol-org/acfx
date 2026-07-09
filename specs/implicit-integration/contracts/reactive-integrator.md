@@ -80,6 +80,26 @@ void reset() noexcept;
 - **RS1.** Returns cross-sample state (`vPrev_`, `iPrev_`, `warmStart_`) to zero state
   (FR-016). Does not change the plan (topology). Safe to call between transients.
 
+## `seedHistory()` — off the hot path (caller-provided consistent initial condition)
+
+```cpp
+void seedHistory(int reactiveSlot, double vPrev, double iPrev) noexcept;
+```
+
+- **IC1.** Sets one reactive element's initial history `{vPrev, iPrev}` to a caller-provided
+  consistent initial condition (e.g. the element's true `t=0` terminal voltage / current). This
+  is the mechanism by which the deferred DC-operating-point warm start is "a caller concern"
+  (spec Open Question 4): history still **defaults to zero** on `plan`/`reset` (FR-016), and this
+  is an explicit opt-in. No-op for a `reactiveSlot` outside `[0, reactiveCount_)`. Off the hot
+  path; call after `plan()` and before the first `step()`. Does **not** change topology or the
+  rule, and is **not** a silent rule switch (FR-015 intact).
+- **IC2 (why it matters).** A first-order rule (`BackwardEuler`) reads only the one history term
+  that is its own state, so a zero seed is harmless. `Trapezoidal` reads **both** history terms;
+  its 2nd-order accuracy (SC-002) requires the non-state term to equal the true initial
+  derivative, which a hard step from rest makes nonzero. Seeding the consistent IC lets
+  `Trapezoidal` demonstrate its ≈2nd-order convergence; without it, a step-from-zero-state
+  transient is inconsistent initial data and the observed order degrades to ≈1.
+
 ## `step()` — the hot path (throw-free, allocation-free)
 
 ```cpp

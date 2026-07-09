@@ -317,7 +317,13 @@ agreement to tolerance at matched samples.
   operating point.
 - **Initial conditions**: history defaults to zero state on `plan`/`reset`; the first
   step integrates from that state. A settled DC-operating-point warm start is a caller
-  concern (out of scope for v1).
+  concern (out of scope for v1) — the primitive provides the *mechanism* to express it
+  (`seedHistory(reactiveSlot, vPrev, iPrev)`, contract IC1/IC2) but does not auto-compute
+  the operating point. This mechanism matters for the higher-order rule: a hard
+  step-from-zero-state is inconsistent initial data for **trapezoidal** (its non-state
+  history term must equal the true initial derivative), so demonstrating trapezoidal's
+  2nd-order convergence (SC-002) requires seeding the consistent IC; backward-Euler is
+  unaffected (it reads only its own state term).
 - **Timestep change**: companions depend on `dt`; a `dt` change requires recomputing
   them (fine off the hot path). v1 targets a fixed audio `dt` per plan.
 - **Trapezoidal ringing on a stiff node**: trapezoidal is A-stable but not L-stable and
@@ -385,7 +391,10 @@ agreement to tolerance at matched samples.
   stiff/ringing case (no hidden fallback, Principle V). Trapezoidal ringing on a stiff node
   is a documented, faithfully-produced property.
 - **FR-016**: History MUST default to **zero state** on `plan`/`reset`. A DC-operating-point
-  warm start is a caller concern, out of scope for v1.
+  warm start is a caller concern, out of scope for v1 — but the primitive MUST expose an
+  off-hot-path `seedHistory(reactiveSlot, vPrev, iPrev)` mechanism (contract IC1/IC2) so a
+  caller can supply a consistent initial condition (an explicit opt-in; the default stays zero).
+  Auto-computing the DC operating point remains out of scope for v1.
 - **FR-017**: v1 MUST consume the existing frozen vocabulary (`core/primitives/circuit/`),
   the shipped MNA primitive, and the shipped Newton primitive; it MUST add **no new
   component types**.
@@ -437,6 +446,9 @@ agreement to tolerance at matched samples.
   discrete response to within tolerance.
 - **SC-002**: By timestep refinement, the observed global-error convergence order is ≈1 for
   backward-Euler and ≈2 for trapezoidal — demonstrating the rule is genuinely selectable.
+  (Trapezoidal is integrated from a caller-seeded consistent initial condition — `seedHistory`,
+  contract IC1/IC2 — since a step-from-zero-state is inconsistent initial data for a 2nd-order
+  rule; backward-Euler needs no seeding.)
 - **SC-003**: On topologies the lab solvers integrate, the primitive with rule =
   backward-Euler agrees with `LinearSolver` / `TransientClipper` / `OpAmpClipperSolver`
   node voltages to within tolerance across a transient.
@@ -486,5 +498,8 @@ agreement to tolerance at matched samples.
    backward-Euler the damped default; an *explicitly-selected, reported* adaptive/higher-order
    integrator (BDF2/Gear) is a future capability, never a silent switch (FR-015).
 4. **DC-operating-point initialization** — v1 defaults history to zero state; a settled
-   DC-OP warm start is left to the caller. Whether a later convenience path belongs here or
-   in a transient-assembly feature is captured, not v1.
+   DC-OP warm start is left to the caller. v1 provides the *mechanism* to express a caller
+   initial condition (`seedHistory`, contract IC1/IC2) — required to demonstrate trapezoidal's
+   2nd-order convergence (SC-002) from consistent initial data — but does **not** auto-compute
+   the operating point. Whether a later convenience path that auto-computes the DC-OP belongs
+   here or in a transient-assembly feature is captured, not v1.
