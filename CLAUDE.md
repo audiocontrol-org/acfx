@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **implicit-integration**.
+Active Spec Kit feature: **wdf-primitives**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/implicit-integration/plan.md` (spec: `specs/implicit-integration/spec.md`).
+current plan at `specs/wdf-primitives/plan.md` (spec: `specs/wdf-primitives/spec.md`).
 <!-- SPECKIT END -->
