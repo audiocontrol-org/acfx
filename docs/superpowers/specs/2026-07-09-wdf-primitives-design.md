@@ -162,9 +162,15 @@ A header-only primitive family under `core/primitives/circuit/wdf/`, namespace
   `reflected()` (computed from stored state), then a **down-sweep** that calls each
   leaf's `incident(a)` (reactive leaves do `state := a`). This node defines the leaf
   half of that protocol; the sweep orchestration is a tree/adaptor concern
-  (down-scope). `T = dt` is fixed at **prepare time** (off the hot path): the reactive
-  port resistances depend on `T`, so they are computed once when the sample rate is
-  set, mirroring implicit-integration's fixed-`dt`-per-plan.
+  (down-scope). **Leaf lifecycle:** a reactive leaf is **constructed with its physical
+  parameter and `dt`** (e.g. `Capacitor(C, dt)`, `Inductor(L, dt)`), computing its port
+  resistance `Rp` **once in the constructor** — there is no separate leaf-level
+  `prepare()` phase (that two-phase shape belongs to the *tree*, which sizes/scans a
+  whole netlist; a single leaf has nothing to size). The per-sample wave path
+  (`portResistance` / `reflected` / `incident`) is `noexcept` and heap-free. A
+  sample-rate change or a time-varying parameter is handled by reconstruction and tree
+  re-adaptation at the network/adaptation layer, **not** a per-leaf re-prepare API in v1
+  (Open questions 2–3).
 
 - **The adaptable/reflective split, reported not decided.** Each leaf reports whether
   it has a free port resistance (adaptable: R, C, L, resistive sources/terminations)
@@ -187,7 +193,8 @@ conventions they force, capturing (not implementing) adaptors/tree/roots; (c) ho
 `DEVELOPMENT-NOTES.md:232` by reusing the frozen physical constants as a parallel
 wave-domain reader without dragging nodal topology or statelessness into the wave
 family; and (d) inherits the nodal siblings' proven shape (concept-based seams,
-prepare-once/hot-path-`noexcept`, template-light structs, RT-safe, no-fallback).
+compute-`Rp`-once-at-construction / hot-path-`noexcept`, template-light structs,
+RT-safe, no-fallback).
 
 ### Rejected — Power / normalized waves (Approach B)
 
@@ -295,10 +302,22 @@ leaf papers over.
    wave-domain types** carrying no `NodeId` and (for reactive) holding state. Not a
    literal reader of `Component{a, b, …}` (Rejected D). A `Component`→WDF-leaf
    convenience adapter, if ever wanted, is a passive-networks/assembly concern.
-10. **Two-phase, mirroring the siblings.** A **prepare** step (throw-permitted, off the
-    hot path) fixes `T = dt` and computes each reactive leaf's port resistance once. The
-    per-sample wave path (`portResistance` / `reflected` / `incident`) is `noexcept` and
-    heap-free and does not re-prepare.
+10. **Leaf lifecycle — explicit construction with `(param, dt)`, no per-leaf prepare**
+    (pinned per third-party review, 2026-07-09). A reactive leaf is **constructed with
+    its physical parameter and `dt`** — `Capacitor(C, dt)`, `Inductor(L, dt)` — and
+    computes its port resistance `Rp` **once in the constructor**. There is **no
+    separate leaf-level `prepare()`/re-prepare API in v1**: the two-phase
+    prepare-once/scan pattern of the nodal siblings sizes a *whole netlist* and does not
+    apply to a single one-port. Memoryless leaves are likewise constructed with their
+    fixed parameter (Resistor `Resistor(R)`; resistive source/termination with `R`).
+    Construction (parameter/`dt` validation) is throw-permitted; the per-sample wave path
+    (`portResistance` / `reflected` / `incident`) is `noexcept` and heap-free. **Fixed vs.
+    per-sample:** fixed at construction = physical parameter, `dt`, and the derived `Rp`;
+    mutable per sample = a reactive leaf's stored wave `state` (via `incident`) and a
+    source's drive value `E`/`I` (the audio-input path — a per-sample setter; see Open
+    question 1). A sample-rate change or a swept parameter is handled by **reconstruction
+    + tree re-adaptation** at the network/adaptation layer (Open questions 2–3), never a
+    silent in-place `dt` mutation.
 11. **Root / non-adaptable seam — captured, not v1.** Short and open are the two
     reflective leaves in v1 (named terminations). The **ideal (non-resistive) voltage
     source** (`b = 2E − a`) and **nonlinear root** elements (diode, `b = f(a)`
@@ -345,11 +364,13 @@ leaf papers over.
    natural **output**. Whether a thin input/output helper lives at the leaf layer or is
    a network/assembly concern is captured, not v1 (leaning: assembly concern, since a
    probe needs a port within a tree).
-2. **Variable `dt` / sample-rate change.** v1 fixes `T = dt` at prepare time; a
-   sample-rate change re-runs prepare (recomputing reactive `Rp`), which is fine off the
-   hot path. Whether to expose a supported re-prepare path or hold `T` immutable per
-   prepare is deferred (audio rate is effectively fixed within a render block), matching
-   implicit-integration's variable-`dt` open question.
+2. **Variable `dt` / sample-rate change.** v1 fixes `T = dt` at **construction**
+   (Decision 10); a sample-rate change is handled by **reconstructing** the affected
+   leaves (recomputing reactive `Rp`) and re-adapting the tree, off the hot path. A
+   supported in-place re-prepare/`setSampleRate` path is deliberately deferred to the
+   network/adaptation layer rather than added per leaf (audio rate is effectively fixed
+   within a render block), consistent with implicit-integration's variable-`dt` open
+   question. The *need* is captured; the API is not v1.
 3. **Time-varying element parameters.** A potentiometer sweeping `R`, or a modulated
    `C`, changes a leaf's port resistance and therefore forces **re-adaptation** of the
    enclosing tree (adaptor coefficients depend on children `Rp`). The leaf can update its
@@ -384,6 +405,19 @@ leaf papers over.
   roadmap's deliberate four-way WDF split and the nodal phase's precedent of shipping
   focused primitives with named seams between them. Operator approved the scope and the
   chosen shape before this record was written.
+- Third-party review (2026-07-09) approved the direction — the phase boundary (WDF as a
+  parallel circuit-modeling family, not a replacement for MNA/Newton/integration; this
+  node owning only leaf one-ports + the wave convention + the ABI, with adaptors, trees,
+  adaptation, and nonlinear roots deferred) and every domain call (voltage waves,
+  non-selectable bilinear, duck-typed ABI, no inheritance, no per-leaf adaptation, no
+  silent reflection/`Rp` clamping) — and requested one spec-time clarification, accepted:
+  **pin the per-leaf construction/prepare lifecycle.** The design had over-applied the
+  nodal siblings' two-phase `prepare()` shape (which sizes a whole netlist) to a single
+  leaf. Resolution (Decision 10): reactive leaves are **explicitly constructed with
+  `(physical parameter, dt)`** — `Capacitor(C, dt)`, `Inductor(L, dt)` — computing `Rp`
+  once in the constructor, with **no per-leaf re-prepare/sample-rate API in v1**;
+  re-prepare and time-varying-parameter handling are deferred to the network/adaptation
+  layer (Open questions 2–3).
 - Architectural anchor: `DEVELOPMENT-NOTES.md:232` — *"the reference solver, MNA
   (Phase 5), and WDF (Phase 6) are all just alternative readers of one immutable
   vocabulary — the primitive never learns what a matrix or a wave is."* — establishing
