@@ -7,6 +7,7 @@
 #include "primitives/circuit/models/capacitor.h"
 #include "primitives/circuit/models/companion.h"
 #include "primitives/circuit/models/inductor.h"
+#include "primitives/circuit/integration/topology-signature.h"
 #include "primitives/circuit/netlist.h"
 #include "primitives/circuit/newton/newton-solver.h"
 #include "primitives/circuit/node.h"
@@ -88,6 +89,9 @@ public:
                   "ReactiveIntegrator requires MaxComponents >= 1");
     static_assert(MaxBranches >= 0,
                   "ReactiveIntegrator requires MaxBranches >= 0");
+    static_assert(MaxNodes <= 1000000,
+                  "ReactiveIntegrator requires MaxNodes <= 1e6 so the "
+                  "per-component topology signature cannot overflow");
 
     // Construction (contract C1). Off the hot path, so a bad configuration
     // THROWS std::invalid_argument with a descriptive message: dt <= 0 (the
@@ -139,6 +143,7 @@ public:
         reactiveCount_ = 0;
         hasNonlinear_ = false;
         plannedComponentCount_ = 0;
+        componentTopoSig_.fill(0ULL);
 
         // P1: delegate branch allocation + topology validation to the assembler
         // (may throw on over-capacity / out-of-range / degenerate netlists).
@@ -146,12 +151,14 @@ public:
 
         // P2: scan the netlist ONCE, recording the reactive component indices,
         // the per-component is-reactive mask, whether any nonlinear element is
-        // present (hasNonlinear_ chooses the step branch once), and the planned
-        // component count (the topology signature step() checks before trusting
-        // the recorded indices).
+        // present (hasNonlinear_ chooses the step branch once), the planned
+        // component count, and a per-component TOPOLOGY signature (kind + all
+        // terminal node ids) — the complete plan fingerprint step() checks before
+        // trusting the recorded indices (matching NewtonSolver's plan-drift guard).
         const auto comps = nl.components();
         plannedComponentCount_ = static_cast<int>(comps.size());
         for (std::size_t i = 0; i < comps.size(); ++i) {
+            componentTopoSig_[i] = componentTopoSig<MaxNodes>(comps[i]);
             if (acfx::isReactive(comps[i])) {
                 isReactive_[i] = true;
                 reactiveComponentIndex_[static_cast<std::size_t>(reactiveCount_)] =
@@ -215,22 +222,22 @@ public:
             return StepResult{};
         }
 
-        // Topology guard: step() trusts the component indices plan() recorded. If
-        // the caller passes a netlist whose topology drifted from the plan (a
-        // different component count, or a recorded reactive slot that is no longer
-        // a reactive element), those indices are stale and would drive
-        // out-of-bounds / mis-stamped access below — MnaAssembler::refresh() does
-        // NOT revalidate on the hot path. Surface the precondition violation BY
-        // VALUE (like the pre-plan guard), before any companion computation or
-        // solve, rather than risking UB (mirrors NewtonSolver's topology guard).
+        // Topology guard: step() trusts the component indices plan() recorded.
+        // MnaAssembler::refresh() (and NewtonSolver::solve()) do NOT revalidate
+        // topology on the hot path, so a netlist whose topology drifted from the
+        // plan would drive stale indices into out-of-bounds / mis-stamped access.
+        // Reject ANY drift by comparing the COMPLETE per-component topology
+        // signature (kind + every terminal node id) recorded at plan — not just
+        // the count or reactive-slot kind, so a same-count resistor→source swap, a
+        // moved diode, or a same-kind terminal rewiring is caught too (matching
+        // NewtonSolver's plan-drift guard). Surfaced BY VALUE (like the pre-plan
+        // guard), before any companion computation or solve; noexcept, no heap.
         const auto guardComps = nl.components();
         if (static_cast<int>(guardComps.size()) != plannedComponentCount_) {
             return StepResult{};
         }
-        for (int s = 0; s < reactiveCount_; ++s) {
-            const int ci = reactiveComponentIndex_[static_cast<std::size_t>(s)];
-            if (ci < 0 || ci >= static_cast<int>(guardComps.size()) ||
-                !acfx::isReactive(guardComps[static_cast<std::size_t>(ci)])) {
+        for (std::size_t i = 0; i < guardComps.size(); ++i) {
+            if (componentTopoSig<MaxNodes>(guardComps[i]) != componentTopoSig_[i]) {
                 return StepResult{};
             }
         }
@@ -409,7 +416,10 @@ private:
     // Reactive slot -> component index of the scanned reactive element.
     std::array<int, MaxComponents> reactiveComponentIndex_{};
     int reactiveCount_ = 0;      // number of reactive elements found
-    int plannedComponentCount_ = 0;  // topology signature step() checks
+    int plannedComponentCount_ = 0;  // planned component count (drift check)
+    // Per-component topology signature (kind + terminal node ids) recorded at
+    // plan(); step() rejects any netlist whose signature drifted.
+    std::array<unsigned long long, MaxComponents> componentTopoSig_{};
     bool hasNonlinear_ = false;  // any nonlinear element (Diode)?
     bool planned_ = false;       // two-phase guard — step() before plan()
 
