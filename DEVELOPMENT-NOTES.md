@@ -1149,3 +1149,4 @@ workflow(graduate): design:primitive/passive-tone-stacks merging -> validating
 workflow(graduate): design:feature/diode-clippers merging -> validating
 workflow(graduate): design:primitive/opamp-stages merging -> validating
 workflow(graduate): design:primitive/newton-iteration merging -> validating
+workflow(graduate): design:primitive/implicit-integration merging -> validating

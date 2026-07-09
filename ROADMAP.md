@@ -257,7 +257,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-numerical-solvers
 
 ## design:primitive/implicit-integration
-- status: planned
+- status: shipped
 - analyze-clean: yes
 - spec: specs/implicit-integration
 - design-approved: yes
