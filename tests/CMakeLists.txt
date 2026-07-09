@@ -227,6 +227,15 @@ add_executable(acfx_core_tests
   core/newton-nofallback-test.cpp
   core/newton-global-step-test.cpp
   core/newton-plan-drift-test.cpp
+  # ---------------------------------------------------------------------------
+  # Implicit-integration primitive test suites (implicit-integration feature)
+  # ---------------------------------------------------------------------------
+  core/integration-integrator-test.cpp
+  core/integration-closed-form-test.cpp
+  core/integration-convergence-order-test.cpp
+  core/integration-invariants-test.cpp
+  core/integration-composition-test.cpp
+  core/integration-equivalence-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
