@@ -96,8 +96,10 @@ scattering against an exact closed form.
 
 **Independent Test**: Construct a resistor one-port with resistance `R`; assert its port
 resistance equals `R` and its adapted reflected wave is exactly `0` for any incident
-wave; assert the general (unadapted) reflection `b = a·(R − Rp)/(R + Rp)` holds when the
-reference resistance differs from `R`.
+wave. (The general unadapted reflection `b = a·(R − Rp)/(R + Rp)` is an **analytical
+oracle used only by the test suite** to cross-check the adapted `b = 0` limit — it is
+NOT a public leaf-API capability; arbitrary reference-resistance behavior is the adaptor
+layer's concern.)
 
 **Acceptance Scenarios**:
 
@@ -245,25 +247,38 @@ API in v1.
 
 ### User Story 7 - Validate passivity and physical invariants (Priority: P2)
 
-Each passive leaf's scattering is validated against physical invariants: the reflection is
-**passive** (`|b| ≤ |a|`, energy non-increasing) for passive elements, the port resistance
-is positive, and the capacitor/inductor form a dual pair (port resistance and reflected-
-wave sign swapped).
+Each passive leaf's scattering is validated against physical invariants, using **two
+distinct criteria** because instantaneous and stateful passivity are different properties:
+
+- **Memoryless passive leaves** (adapted resistor, resistive termination) are validated by
+  the **instantaneous** scattering bound `|b| ≤ |a|` (energy non-increasing same-sample)
+  and `Rp > 0`.
+- **Reactive leaves** (capacitor, inductor) are validated by their **unit-delay scattering
+  relation**, **capacitor/inductor duality**, and a **wave-power balance across state
+  transitions** — NOT same-sample magnitude. (Same-sample `|b| ≤ |a|` is invalid for a
+  reactive leaf: `b[n] = a[n−1]` returns energy stored from a previous sample, so e.g.
+  `a[n−1]=1, a[n]=0` gives `b[n]=1 > |a[n]|=0` for a perfectly correct capacitor.)
 
 **Why this priority**: Passivity is the property that gives WDF its unconditional
 stability; asserting it per element (before adaptors combine them) is how this node earns
 trust. P2 because it validates rather than delivers new capability.
 
-**Independent Test**: For the passive leaves (resistor, capacitor, inductor, resistive
-termination), drive a range of incident waves and assert `|b| ≤ |a|`; assert `Rp > 0`;
-assert the lossless reactive leaves preserve wave energy (`|b| = |a|`) while the adapted
-resistor fully absorbs (`b = 0`); assert cap/inductor duality holds.
+**Independent Test**: For the **memoryless** passive leaves, drive a range of incident
+waves and assert `|b| ≤ |a|` and `Rp > 0`. For the **reactive** leaves, assert the exact
+unit-delay relation (`b[n] = a[n−1]` / `−a[n−1]`), assert cap/inductor duality, and assert
+the accumulated wave-power balance `Σ(a[k]² − b[k]²) ≥ 0` over a driven sequence (for the
+lossless capacitor it telescopes to the currently-stored `a[N]²`, demonstrating energy is
+**stored and returned**, never created or dissipated).
 
 **Acceptance Scenarios**:
 
-1. **Given** any passive leaf, **When** driven by incident waves, **Then** `|b| ≤ |a|`
-   (no energy created) and its port resistance is positive.
-2. **Given** a capacitor and an inductor under the same `dt`, **When** their port
+1. **Given** a memoryless passive leaf, **When** driven by incident waves, **Then**
+   `|b| ≤ |a|` (no energy created same-sample) and its port resistance is positive.
+2. **Given** a reactive leaf driven by an incident-wave sequence, **When** the wave-power
+   balance is accumulated, **Then** `Σ(a[k]² − b[k]²) ≥ 0` at every prefix and equals the
+   stored wave energy (`a[N]²` for the capacitor) — passive and lossless, without requiring
+   same-sample `|b| ≤ |a|`.
+3. **Given** a capacitor and an inductor under the same `dt`, **When** their port
    resistances and reflected-wave signs are compared, **Then** they exhibit the dual
    relationship (`Rp = T/2C` / `b = +state` vs. `Rp = 2L/T` / `b = −state`).
 
@@ -297,9 +312,9 @@ reflection to force `|b| ≤ |a|` when a parameter is out of range.
 
 - **Reference resistance ≠ natural resistance (unadapted port).** A resistor's general
   reflection `b = a·(R − Rp)/(R + Rp)` is nonzero when the reference resistance differs
-  from `R`. Adapted leaves use their natural port resistance (`Rp = R`) → `b = 0`; the
-  general form is exercised for correctness but adaptation itself (choosing `Rp` across a
-  tree) is a downstream concern.
+  from `R`. The leaf API is **adapted-only** (`Rp = R` → `b = 0`); the general form is a
+  test-suite oracle, and arbitrary reference-resistance behavior (choosing `Rp` across a
+  tree) is the downstream adaptor/adaptation concern, not a leaf capability.
 - **Zero initial state.** A reactive leaf's stored wave defaults to zero, so its first
   reflected wave is `0` (`b[0] = 0` for the capacitor, `−0` for the inductor). The first
   `incident(a)` establishes the state the next sample reflects.
@@ -327,8 +342,11 @@ reflection to force `|b| ≤ |a|` when a parameter is out of range.
   reference resistance `Rp`: incident `a = v + Rp·i`, reflected `b = v − Rp·i`, inverse
   `v = (a + b)/2` and `i = (a − b)/(2·Rp)`, current referenced into the port.
 - **FR-002**: A **resistor** one-port MUST report port resistance `Rp = R` and, adapted,
-  reflected wave `b = 0`; its general reflection MUST follow `b = a·(R − Rp)/(R + Rp)`
-  when the reference resistance differs from `R`.
+  reflected wave `b = 0`. The public leaf API is **adapted-only** (`portResistance` /
+  `reflected` / `incident` describe an adapted leaf); the general unadapted reflection
+  `b = a·(R − Rp)/(R + Rp)` is an analytical identity for the **test suite only** (a
+  validation oracle), NOT a public leaf capability — arbitrary reference-resistance
+  behavior belongs to the adaptor layer.
 - **FR-003**: A **capacitor** one-port MUST discretize via the **bilinear** rule to port
   resistance `Rp = T/(2C)` (`T = dt`) with reflected wave `b[n] = a[n−1]` — a unit delay of
   the incident wave.
@@ -372,9 +390,14 @@ reflection to force `|b| ≤ |a|` when a parameter is out of range.
 - **FR-016**: A non-physical parameter (`R ≤ 0`, `C ≤ 0`, `L ≤ 0`, `dt ≤ 0`) MUST be
   surfaced as a configuration error (precondition discipline), never clamped or substituted
   with a fallback value; reflections MUST never be clamped to force apparent passivity.
-- **FR-017**: Passivity MUST be a **validated property**, not an enforced clamp: for the
-  passive leaves the reflection MUST satisfy `|b| ≤ |a|` and the port resistance MUST be
-  positive.
+- **FR-017**: Passivity MUST be a **validated property**, not an enforced clamp, with
+  criteria distinguished by element memory: **memoryless** passive leaves (adapted
+  resistor, resistive termination) MUST satisfy the instantaneous bound `|b| ≤ |a|` with
+  `Rp > 0`; **reactive** leaves (capacitor, inductor) MUST instead satisfy a **wave-power
+  balance across state transitions** — the accumulated absorbed wave energy
+  `Σ(a[k]² − b[k]²)` MUST stay `≥ 0` (equalling the stored wave energy for a lossless
+  leaf). Same-sample `|b| ≤ |a|` MUST NOT be required of a reactive leaf (its `b[n]`
+  returns energy stored from a previous sample).
 - **FR-018**: The family MUST be placed under `core/primitives/circuit/wdf/`, namespace
   `acfx::wdf`, sibling to `acfx::mna` / `acfx::newton` / `acfx::integration`; the folder
   MUST be created in the same commit as the primitive.
@@ -384,9 +407,11 @@ reflection to force `|b| ≤ |a|` when a parameter is out of range.
   resistor `b = 0`; resistive voltage source `b = E`; resistive current source `b = R·I`;
   capacitor unit delay `b[n] = a[n−1]`; inductor `b[n] = −a[n−1]`; short `b = −a`; open
   `b = +a`), NOT transcribed published values.
-- **FR-021**: v1 MUST be validated against **physical invariants**: passivity (`|b| ≤ |a|`,
-  `Rp > 0`), capacitor/inductor **duality**, and agreement of a reactive leaf's discrete
-  port impedance with the **bilinear-discretized analog impedance**.
+- **FR-021**: v1 MUST be validated against **physical invariants**: memoryless-passivity
+  (`|b| ≤ |a|`, `Rp > 0`) for memoryless leaves; the reactive **wave-power balance**
+  (`Σ(a² − b²) ≥ 0`, energy stored-and-returned) for reactive leaves (FR-017);
+  capacitor/inductor **duality**; and agreement of a reactive leaf's discrete port
+  impedance with the **bilinear-discretized analog impedance**.
 - **FR-022**: A test MUST assert (via `AllocationSentinel`) that the per-sample wave path
   performs zero heap allocations across many samples.
 - **FR-023**: Validation MUST be **per-element** (individual one-port scattering, unit
@@ -435,9 +460,11 @@ reflection to force `|b| ≤ |a|` when a parameter is out of range.
 - **SC-002**: Each reactive leaf's port resistance equals its bilinear value exactly
   (`Rp = T/(2C)` capacitor, `Rp = 2L/T` inductor), and driving an incident-wave sequence
   reproduces the unit-delay relation at every sample.
-- **SC-003**: For every passive leaf and a range of incident waves, `|b| ≤ |a|` holds and
-  the port resistance is positive; the lossless reactive leaves preserve wave energy
-  (`|b| = |a|`) and the adapted resistor fully absorbs (`b = 0`).
+- **SC-003**: For every **memoryless** passive leaf and a range of incident waves,
+  `|b| ≤ |a|` holds and the port resistance is positive (the adapted resistor fully
+  absorbs, `b = 0`). For every **reactive** leaf, the accumulated wave-power balance
+  `Σ(a[k]² − b[k]²) ≥ 0` holds at every prefix and equals the stored wave energy — energy
+  stored and returned, validated **without** requiring same-sample `|b| ≤ |a|`.
 - **SC-004**: The per-sample wave path performs exactly **zero** heap allocations and takes
   no locks across a large batch of samples (asserted by `AllocationSentinel`).
 - **SC-005**: Every leaf is exercised through the single port interface generically (one

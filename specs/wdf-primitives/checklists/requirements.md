@@ -53,3 +53,17 @@
   are recorded as such, not blocking clarifications.
 - All checklist items pass — spec is ready for `/speckit-clarify` (expected to be a no-op
   given the resolved design) or `/speckit-plan`.
+- **Third-party spec review (2026-07-09), Request Changes → resolved.** One blocking issue
+  and one non-blocking observation, both accepted after technical verification:
+  1. **(Blocking) Passivity criterion was wrong for reactive one-ports.** Same-sample
+     `|b| ≤ |a|` is invalid for a reactive leaf (`b[n] = a[n−1]` returns previously-stored
+     energy; `a[n−1]=1, a[n]=0 → b[n]=1 > |a[n]|`). Fixed: FR-017/FR-021/SC-003/US7 now
+     split passivity into memoryless-instantaneous (`|b| ≤ |a|`, `Rp > 0`) vs. reactive
+     **wave-power balance across state transitions** (`Σ(a² − b²) ≥ 0`, telescoping to the
+     stored `a[N]²` for the lossless capacitor — energy stored and returned).
+  2. **(Non-blocking) General resistor reflection vs. adapted-only API.** The leaf API is
+     now explicitly **adapted-only**; the general `b = a(R−Rp)/(R+Rp)` is a test-suite
+     oracle, not a public capability (arbitrary reference resistance is the adaptor layer's
+     concern). Fixed: FR-002, US1, Edge Cases.
+  Reviewer's conclusion: after the passivity correction, the spec is ready for
+  implementation planning.
