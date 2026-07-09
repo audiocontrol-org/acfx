@@ -1,9 +1,19 @@
 #pragma once
 
+#include "primitives/circuit/components.h"
+#include "primitives/circuit/mna/mna-assembler.h"
+#include "primitives/circuit/mna/mna-system.h"
 #include "primitives/circuit/models/capacitor.h"
 #include "primitives/circuit/models/companion.h"
 #include "primitives/circuit/models/inductor.h"
+#include "primitives/circuit/netlist.h"
+#include "primitives/circuit/newton/newton-solver.h"
 #include "primitives/circuit/node.h"
+
+#include <array>
+#include <cstddef>
+#include <stdexcept>
+#include <string>
 
 // ReactiveIntegrator — the implicit-integration primitive: it discretizes a
 // netlist's reactive elements (capacitors, inductors) into per-step Norton
@@ -83,6 +93,246 @@ struct Trapezoidal {
         const double Geq = dt / (2.0 * L);
         return Companion{Geq, -(iPrev + Geq * vPrev)};
     }
+};
+
+// StepResult — the per-step result value returned by ReactiveIntegrator::step()
+// (contracts/reactive-integrator.md StepResult; data-model.md "StepResult"). It
+// surfaces the composed solve's outcome BY VALUE: `converged` mirrors
+// MnaSystem::solve() (linear) or the driven NewtonStatus (nonlinear); `false` is
+// a legitimate, surfaced outcome (S5), not an exception. When `converged` is
+// false the node voltages are the last (non-converged) iterate and MUST NOT be
+// trusted (research R8). All-zero default is the precondition-violation sentinel
+// returned by step()-before-plan() (S8).
+struct StepResult {
+    bool converged = false;       // did the composed solve converge?
+    int iterations = 0;           // Newton iterations consumed (0/1 for linear)
+    double voltageResidual = 0.0; // final residual from the composed solve
+};
+
+// ReactiveIntegrator — the stateful, per-sample implicit-integration driver
+// (contracts/reactive-integrator.md; data-model.md). Template-sized and
+// header-only; every buffer is a fixed-capacity std::array (zero heap on the hot
+// path). `Rule` (BackwardEuler default) is fixed for the life of the object and
+// is never silently switched at runtime (C2/research R8).
+//
+// Two-phase surface, mirroring the sibling engines (MnaAssembler / NewtonSolver):
+//   - plan(nl, assembler, sys) : the once-per-topology pass (may throw, off the
+//     hot path). Delegates branch allocation + topology validation to
+//     MnaAssembler::plan, then scans the netlist ONCE recording the reactive
+//     component indices, the per-component is-reactive mask, and whether any
+//     nonlinear element is present (choosing the Newton-vs-MNA branch once).
+//     Zeroes cross-sample state and marks planned_. Re-plannable.
+//   - step(nl, assembler, sys, newton) : the hot path (throw-free,
+//     allocation-free). step()-before-plan() is surfaced deterministically BY
+//     VALUE as StepResult{} (S8); the real per-sample solve is the next
+//     increment (T007 linear / T015 nonlinear).
+//
+// C++17, standard library only; no platform headers. double throughout.
+template <class Rule, int MaxNodes, int MaxComponents, int MaxBranches>
+class ReactiveIntegrator {
+public:
+    static_assert(MaxNodes >= 1,
+                  "ReactiveIntegrator requires MaxNodes >= 1 (ground)");
+    static_assert(MaxComponents >= 1,
+                  "ReactiveIntegrator requires MaxComponents >= 1");
+    static_assert(MaxBranches >= 0,
+                  "ReactiveIntegrator requires MaxBranches >= 0");
+
+    // Construction (contract C1). Off the hot path, so a bad configuration
+    // THROWS std::invalid_argument with a descriptive message: dt <= 0 (the
+    // companions divide by dt), or an invalid forwarded Newton config
+    // (maxIterations < 1 / voltageTol <= 0). `Rule` is fixed for life (C2).
+    // Zero-initializes all fixed-capacity state.
+    explicit ReactiveIntegrator(double dt, int maxIterations = 50,
+                                double voltageTol = 1e-9)
+        : dt_(dt), maxIterations_(maxIterations), voltageTol_(voltageTol) {
+        if (!(dt > 0.0)) {
+            throw std::invalid_argument(
+                "ReactiveIntegrator: dt must be > 0 (companions divide by dt), "
+                "got dt = " +
+                std::to_string(dt));
+        }
+        if (maxIterations < 1) {
+            throw std::invalid_argument(
+                "ReactiveIntegrator: forwarded Newton maxIterations must be "
+                ">= 1, got " +
+                std::to_string(maxIterations));
+        }
+        if (!(voltageTol > 0.0)) {
+            throw std::invalid_argument(
+                "ReactiveIntegrator: forwarded Newton voltageTol must be > 0, "
+                "got " +
+                std::to_string(voltageTol));
+        }
+        isReactive_.fill(false);
+        reactiveComponentIndex_.fill(0);
+        reactiveCompanion_.fill(Companion{0.0, 0.0});
+        vPrev_.fill(0.0);
+        iPrev_.fill(0.0);
+        warmStart_.fill(0.0);
+    }
+
+    // plan() — off the hot path, throw-permitted (contract P1/P2/P3).
+    void plan(const Netlist<MaxNodes, MaxComponents>& nl,
+              mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
+              mna::MnaSystem<MaxNodes, MaxBranches>& sys) {
+        // P1: delegate branch allocation + topology validation to the assembler
+        // (may throw on over-capacity / out-of-range / degenerate netlists).
+        assembler.plan(nl, sys);
+
+        // P2: scan the netlist ONCE, recording the reactive component indices,
+        // the per-component is-reactive mask, and whether any nonlinear element
+        // is present (hasNonlinear_ chooses the step branch once, at plan time).
+        isReactive_.fill(false);
+        reactiveComponentIndex_.fill(0);
+        reactiveCount_ = 0;
+        hasNonlinear_ = false;
+        const auto comps = nl.components();
+        for (std::size_t i = 0; i < comps.size(); ++i) {
+            if (acfx::isReactive(comps[i])) {
+                isReactive_[i] = true;
+                reactiveComponentIndex_[static_cast<std::size_t>(reactiveCount_)] =
+                    static_cast<int>(i);
+                ++reactiveCount_;
+            }
+            if (acfx::isNonlinear(comps[i])) {
+                hasNonlinear_ = true;
+            }
+        }
+
+        // P3: does not compute companions or advance history; initialize
+        // cross-sample state to zero (reset() semantics), then mark planned.
+        reset();
+        planned_ = true;
+    }
+
+    // reset() — off the hot path (contract RS1). Returns cross-sample state
+    // (vPrev_, iPrev_, warmStart_) and the per-step companion scratch to zero
+    // state; does NOT change the plan (topology). Safe between transients.
+    void reset() noexcept {
+        vPrev_.fill(0.0);
+        iPrev_.fill(0.0);
+        warmStart_.fill(0.0);
+        reactiveCompanion_.fill(Companion{0.0, 0.0});
+    }
+
+    // step() — the hot path (contract S8; throw-free, allocation-free). The real
+    // per-sample solve (compute companions once, compose with MNA/Newton, read
+    // and advance history) is the next increment. For now step() implements ONLY
+    // the precondition guard: step() before plan() is surfaced deterministically
+    // BY VALUE as StepResult{ converged=false, iterations=0, voltageResidual=0 }.
+    StepResult step(
+        const Netlist<MaxNodes, MaxComponents>& nl,
+        mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
+        mna::MnaSystem<MaxNodes, MaxBranches>& sys,
+        newton::NewtonSolver<MaxNodes, MaxComponents, MaxBranches>& newton) {
+        // S8: a precondition violation (step() before plan()) is surfaced by
+        // value, throw-free / allocation-free, as the all-zero sentinel.
+        if (!planned_) {
+            return StepResult{};
+        }
+        // T007 linear / T015 nonlinear real solve — placeholder until then.
+        (void)nl;
+        (void)assembler;
+        (void)sys;
+        (void)newton;
+        return StepResult{};
+    }
+
+    // ---- read accessors (contract "Read accessors"; T003 pins these names) ---
+
+    // True once plan() has run (mirrors MnaAssembler / NewtonSolver planned()).
+    bool planned() const noexcept { return planned_; }
+
+    // Does the planned netlist contain any nonlinear element (Diode)?
+    bool hasNonlinear() const noexcept { return hasNonlinear_; }
+
+    // Number of reactive elements found by the last plan() scan.
+    int reactiveCount() const noexcept { return reactiveCount_; }
+
+    // Per-component is-reactive mask read accessor (drives the internal
+    // ReactiveCompanionSupply's at()). Out-of-range indices are not reactive
+    // (mirrors NewtonSolver::isDiodeComponent).
+    bool isReactiveComponent(int componentIndex) const noexcept {
+        if (componentIndex < 0 || componentIndex >= MaxComponents) {
+            return false;
+        }
+        return isReactive_[static_cast<std::size_t>(componentIndex)];
+    }
+
+    // Component index of the reactiveSlot'th reactive element recorded by plan()
+    // (reactive slot -> component index). Out-of-range slots return -1.
+    int reactiveComponentIndex(int reactiveSlot) const noexcept {
+        if (reactiveSlot < 0 || reactiveSlot >= MaxComponents) {
+            return -1;
+        }
+        return reactiveComponentIndex_[static_cast<std::size_t>(reactiveSlot)];
+    }
+
+    // Stored per-reactive-slot history, exposed for testing (S3/S4). Out-of-range
+    // slots return 0.
+    double vPrev(int reactiveSlot) const noexcept {
+        if (reactiveSlot < 0 || reactiveSlot >= MaxComponents) {
+            return 0.0;
+        }
+        return vPrev_[static_cast<std::size_t>(reactiveSlot)];
+    }
+    double iPrev(int reactiveSlot) const noexcept {
+        if (reactiveSlot < 0 || reactiveSlot >= MaxComponents) {
+            return 0.0;
+        }
+        return iPrev_[static_cast<std::size_t>(reactiveSlot)];
+    }
+
+private:
+    // ReactiveCompanionSupply (data-model.md) — the view handed to
+    // MnaAssembler::refresh (linear) or NewtonSolver::solve as `base`
+    // (nonlinear). Satisfies MNA's CompanionSupply contract:
+    //   Companion at(int componentIndex) const noexcept
+    // returns this step's fixed reactive companion when the index is a reactive
+    // component, else a neutral companion {0, 0}. O(1), noexcept, alloc-free.
+    struct ReactiveCompanionSupply {
+        const std::array<Companion, MaxComponents>& reactiveCompanion;
+        const std::array<bool, MaxComponents>& isReactive;
+
+        Companion at(int componentIndex) const noexcept {
+            if (componentIndex < 0 || componentIndex >= MaxComponents) {
+                return Companion{0.0, 0.0};
+            }
+            const std::size_t i = static_cast<std::size_t>(componentIndex);
+            return isReactive[i] ? reactiveCompanion[i] : Companion{0.0, 0.0};
+        }
+    };
+
+    // Build the supply view over this step's fixed companions + mask (used by
+    // the T007/T015 solve path).
+    ReactiveCompanionSupply companionSupply() const noexcept {
+        return ReactiveCompanionSupply{reactiveCompanion_, isReactive_};
+    }
+
+    // ---- configuration (immutable after construction) ------------------------
+    double dt_;            // timestep (s); companions depend on it (> 0)
+    int maxIterations_;    // forwarded to NewtonSolver (nonlinear path)
+    double voltageTol_;    // forwarded to NewtonSolver (nonlinear path)
+
+    // ---- plan-time state (built once by plan(), off the hot path) ------------
+    // Per-component is-reactive mask (drives the supply's at()).
+    std::array<bool, MaxComponents> isReactive_{};
+    // Reactive slot -> component index of the scanned reactive element.
+    std::array<int, MaxComponents> reactiveComponentIndex_{};
+    int reactiveCount_ = 0;      // number of reactive elements found
+    bool hasNonlinear_ = false;  // any nonlinear element (Diode)?
+    bool planned_ = false;       // two-phase guard — step() before plan()
+
+    // ---- cross-sample state (the one stateful sibling) -----------------------
+    std::array<double, MaxComponents> vPrev_{};  // per-slot previous voltage
+    std::array<double, MaxComponents> iPrev_{};  // per-slot previous current
+    std::array<double, MaxNodes> warmStart_{};   // previous node voltages
+
+    // ---- per-step scratch (fixed-capacity; refreshed each step()) ------------
+    // This step's fixed reactive companion per reactive component index
+    // (computed once before the solve by the T007/T015 path; zero for now).
+    std::array<Companion, MaxComponents> reactiveCompanion_{};
 };
 
 } // namespace acfx::integration
