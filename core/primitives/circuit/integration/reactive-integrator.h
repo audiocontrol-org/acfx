@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <variant>
 
 // ReactiveIntegrator — the implicit-integration primitive: it discretizes a
 // netlist's reactive elements (capacitors, inductors) into per-step Norton
@@ -216,11 +217,14 @@ public:
         reactiveCompanion_.fill(Companion{0.0, 0.0});
     }
 
-    // step() — the hot path (contract S8; throw-free, allocation-free). The real
-    // per-sample solve (compute companions once, compose with MNA/Newton, read
-    // and advance history) is the next increment. For now step() implements ONLY
-    // the precondition guard: step() before plan() is surfaced deterministically
-    // BY VALUE as StepResult{ converged=false, iterations=0, voltageResidual=0 }.
+    // step() — the hot path (contract S1-S9; throw-free, allocation-free).
+    // Computes each reactive element's companion ONCE from its current history
+    // (S1), composes the fixed companions with the linear MnaSystem (S2) or the
+    // NewtonSolver (nonlinear, T015), reads the converged node voltages and
+    // reconstructs per-element {v^n, i^n} (S3), then advances cross-sample
+    // history exactly once (S4). A non-converged solve is surfaced BY VALUE
+    // without advancing history (S5); a step() before plan() is the all-zero
+    // sentinel (S8). Zero reactive elements is a clean passthrough (S9).
     StepResult step(
         const Netlist<MaxNodes, MaxComponents>& nl,
         mna::MnaAssembler<MaxNodes, MaxComponents, MaxBranches>& assembler,
@@ -231,12 +235,61 @@ public:
         if (!planned_) {
             return StepResult{};
         }
-        // T007 linear / T015 nonlinear real solve — placeholder until then.
-        (void)nl;
-        (void)assembler;
-        (void)sys;
-        (void)newton;
-        return StepResult{};
+
+        if (hasNonlinear_) {
+            // T015 nonlinear — Newton-composed solve is the next increment.
+            (void)newton;
+            return StepResult{};
+        }
+
+        // ---- linear branch (hasNonlinear_ == false) --------------------------
+        const auto comps = nl.components();
+
+        // S1: compute each reactive element's companion ONCE from its current
+        // history, keyed by component index (the supply's at() indexing).
+        for (int s = 0; s < reactiveCount_; ++s) {
+            const int compIdx = reactiveComponentIndex_[static_cast<std::size_t>(s)];
+            const Component& comp = comps[static_cast<std::size_t>(compIdx)];
+            const std::size_t ci = static_cast<std::size_t>(compIdx);
+            const double vPrev = vPrev_[static_cast<std::size_t>(s)];
+            const double iPrev = iPrev_[static_cast<std::size_t>(s)];
+            if (const auto* cap = std::get_if<Capacitor>(&comp)) {
+                reactiveCompanion_[ci] =
+                    Rule::capacitorCompanion(cap->C, dt_, vPrev, iPrev);
+            } else if (const auto* ind = std::get_if<Inductor>(&comp)) {
+                reactiveCompanion_[ci] =
+                    Rule::inductorCompanion(ind->L, dt_, vPrev, iPrev);
+            }
+        }
+
+        // S2: expose the fixed companions and compose with the linear MNA solve.
+        const auto supply = companionSupply();
+        assembler.refresh(nl, supply, sys);
+        const bool converged = sys.solve();
+
+        // S5: a non-converged solve is surfaced BY VALUE; history is NOT advanced
+        // from the untrustworthy iterate.
+        if (!converged) {
+            return StepResult{false, 1, 0.0};
+        }
+
+        // S3/S4: reconstruct per-element {v^n, i^n} from the converged voltages
+        // and this step's stamped companion, then advance history exactly once.
+        for (int s = 0; s < reactiveCount_; ++s) {
+            const int compIdx = reactiveComponentIndex_[static_cast<std::size_t>(s)];
+            const std::size_t ci = static_cast<std::size_t>(compIdx);
+            const auto t = terminalsOf(comps[ci]);
+            const double vN = sys.nodeVoltage(t.first) - sys.nodeVoltage(t.second);
+            const double iN =
+                reactiveCompanion_[ci].Geq * vN - reactiveCompanion_[ci].Ieq;
+            vPrev_[static_cast<std::size_t>(s)] = vN;
+            iPrev_[static_cast<std::size_t>(s)] = iN;
+        }
+        for (int n = 0; n < MaxNodes; ++n) {
+            warmStart_[static_cast<std::size_t>(n)] = sys.nodeVoltage(n);
+        }
+
+        return StepResult{true, 1, 0.0};
     }
 
     // ---- read accessors (contract "Read accessors"; T003 pins these names) ---
