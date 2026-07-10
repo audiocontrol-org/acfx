@@ -150,9 +150,11 @@ A header-only primitive family under `core/primitives/circuit/wdf/`, namespace
   | Short circuit (v = 0) | — | `−a` | none | no (reflective) |
   | Open circuit (i = 0) | — | `+a` | none | no (reflective) |
 
-  Derivation basis (voltage waves): a linear one-port with element law `v = R·i`
-  gives `b = a·(R − Rp)/(R + Rp)`, reflection-free at `Rp = R`; a Thévenin source
-  `v = E − R·i` gives `b = E` at `Rp = R`; the bilinear capacitor gives
+  Derivation basis (voltage waves; current `i` referenced INTO the port): a linear
+  one-port with element law `v = R·i` gives `b = a·(R − Rp)/(R + Rp)`, reflection-free
+  at `Rp = R`; a Thévenin source `v = E + R·i` (the sign consistent with current-into-port
+  — `v = E − R·i` would be singular at `Rp = R`) gives `b = E` at `Rp = R`; the bilinear
+  capacitor gives
   `Rp = T/(2C)` with `b[n] = a[n−1]` (store the incident wave, reflect it next
   sample); the inductor is its dual (`Rp = 2L/T`, `b[n] = −a[n−1]`); a short (`v = 0`)
   gives `b = −a`, an open (`i = 0`) gives `b = +a` — both independent of `Rp`, hence

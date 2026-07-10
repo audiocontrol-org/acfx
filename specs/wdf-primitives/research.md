@@ -16,16 +16,18 @@ constitutive law:
 | Resistor | `v = R·i` | `R` | `0` (adapted) |
 | Capacitor | `i = C·dv/dt` (bilinear, R2) | `T/(2C)` | `a[n−1]` (unit delay) |
 | Inductor | `v = L·di/dt` (bilinear, R2) | `2L/T` | `−a[n−1]` |
-| Resistive voltage source | `v = E − R·i` | `R` | `E` (adapted) |
-| Resistive current source | `i = I − v/R` | `R` | `R·I` (adapted) |
+| Resistive voltage source | `v = E + R·i` | `R` | `E` (adapted) |
+| Resistive current source | `i = v/R − I` | `R` | `R·I` (adapted) |
 | Resistive termination | `v = R·i` | `R` | `0` (matched) |
 | Short circuit | `v = 0` | (Rp-independent, R6) | `−a` |
 | Open circuit | `i = 0` | (Rp-independent, R6) | `+a` |
 
 **Rationale.** For a linear one-port `v = R·i`: `b = v − Rp·i = (R − Rp)·i` and
-`a = (R + Rp)·i`, so `b = a·(R − Rp)/(R + Rp)`, reflection-free at `Rp = R`. Thévenin source
-`v = E − R·i` gives `b = a·(R−Rp)/(R+Rp) + 2Rp/(R+Rp)·E`, which at `Rp = R` collapses to
-`b = E`; the Norton dual gives `b = R·I` at `Rp = R`. Short (`v = 0`): `b = −Rp·i = −a`; open
+`a = (R + Rp)·i`, so `b = a·(R − Rp)/(R + Rp)`, reflection-free at `Rp = R`. **Sign convention:
+current `i` is referenced INTO the port** (as declared above), so the Thévenin terminal law is
+`v = E + R·i` (NOT `v = E − R·i`, which would be singular at `Rp = R`): it gives
+`b = a·(R−Rp)/(R+Rp) + 2Rp/(R+Rp)·E`, which at `Rp = R` collapses to `b = E`; the Norton dual
+`i = v/R − I` gives `b = R·I` at `Rp = R`. Short (`v = 0`): `b = −Rp·i = −a`; open
 (`i = 0`): `b = v = a` — both independent of `Rp`. Voltage waves are the modern virtual-analog
 standard and keep the arithmetic in plain `double` with no `√Rp` normalization.
 
