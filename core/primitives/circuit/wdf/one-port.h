@@ -66,7 +66,15 @@ struct is_one_port<
         decltype(std::declval<const T&>().portResistance()),
         decltype(std::declval<const T&>().reflected()),
         decltype(std::declval<T&>().incident(std::declval<double>())),
-        decltype(T::isAdaptable)>> {
+        // isAdaptable MUST be a usable compile-time constant bool: sibling
+        // adaptor code branches on it via `if constexpr (T::isAdaptable)`, which
+        // requires a constant expression. Using the member as a NON-TYPE
+        // TEMPLATE ARGUMENT (std::bool_constant<T::isAdaptable>) forces
+        // constant-expression evaluation, so a non-static data member or a
+        // non-constexpr static — for which `decltype(T::isAdaptable)` alone is
+        // still well-formed — correctly drops back to the false primary
+        // template instead of a deferred error at the `if constexpr` site.
+        std::bool_constant<T::isAdaptable>>> {
     static constexpr bool value =
         // portResistance(): double, const-callable, noexcept.
         std::is_same_v<decltype(std::declval<const T&>().portResistance()), double> &&
@@ -77,7 +85,10 @@ struct is_one_port<
         // incident(double): returns void, noexcept.
         std::is_same_v<decltype(std::declval<T&>().incident(std::declval<double>())), void> &&
         noexcept(std::declval<T&>().incident(std::declval<double>())) &&
-        // isAdaptable: a static constant contextually convertible to bool.
+        // isAdaptable: contextually convertible to bool. (Its usability as a
+        // compile-time-constant bool is enforced by std::bool_constant<T::isAdaptable>
+        // in the void_t above, which is what gates selection of this
+        // specialization; this leg keeps the original convertibility guarantee.)
         std::is_convertible_v<decltype(T::isAdaptable), bool>;
 };
 

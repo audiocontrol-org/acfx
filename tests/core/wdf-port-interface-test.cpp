@@ -93,6 +93,29 @@ struct NotNoexceptReflectedStub {
     static constexpr bool isAdaptable = true;
 };
 
+// isAdaptable is a NON-STATIC data member -- otherwise fully conforming, but
+// `if constexpr (T::isAdaptable)` in sibling adaptor code needs a compile-time
+// constant, so this MUST NOT satisfy the trait (AUDIT-20260710-01). A plain
+// `decltype(T::isAdaptable)` is still well-formed for a non-static member, so
+// the tightened std::bool_constant<T::isAdaptable> gate is what rejects it.
+struct NonStaticIsAdaptableStub {
+    double portResistance() const noexcept { return 1.0; }
+    double reflected() const noexcept { return 0.0; }
+    void incident(double /*a*/) noexcept {}
+    bool isAdaptable = true;  // NON-static -- not a compile-time constant
+};
+
+// isAdaptable is a NON-constexpr static -- otherwise fully conforming, but it is
+// NOT a compile-time constant, so `if constexpr (T::isAdaptable)` would fail at
+// the adaptor site; this MUST NOT satisfy the trait (AUDIT-20260710-01).
+struct NonConstexprStaticIsAdaptableStub {
+    double portResistance() const noexcept { return 1.0; }
+    double reflected() const noexcept { return 0.0; }
+    void incident(double /*a*/) noexcept {}
+    static bool isAdaptable;  // NON-constexpr static -- not a compile-time constant
+};
+bool NonConstexprStaticIsAdaptableStub::isAdaptable = true;
+
 static_assert(acfx::wdf::is_one_port_v<ValidOnePortStub>,
               "ValidOnePortStub exposes the full noexcept OnePort surface "
               "and must satisfy is_one_port_v");
@@ -108,6 +131,14 @@ static_assert(!acfx::wdf::is_one_port_v<MissingIsAdaptableStub>,
 static_assert(!acfx::wdf::is_one_port_v<NotNoexceptReflectedStub>,
               "NotNoexceptReflectedStub's reflected() is not noexcept and "
               "must NOT satisfy is_one_port_v");
+static_assert(!acfx::wdf::is_one_port_v<NonStaticIsAdaptableStub>,
+              "NonStaticIsAdaptableStub's isAdaptable is a non-static data "
+              "member (not a compile-time constant) and must NOT satisfy "
+              "is_one_port_v (AUDIT-20260710-01)");
+static_assert(!acfx::wdf::is_one_port_v<NonConstexprStaticIsAdaptableStub>,
+              "NonConstexprStaticIsAdaptableStub's isAdaptable is a "
+              "non-constexpr static (not a compile-time constant) and must NOT "
+              "satisfy is_one_port_v (AUDIT-20260710-01)");
 
 }  // namespace
 
@@ -120,6 +151,8 @@ TEST_CASE("OnePort concept trait rejects stubs missing required members") {
     CHECK_FALSE(acfx::wdf::is_one_port_v<MissingPortResistanceStub>);
     CHECK_FALSE(acfx::wdf::is_one_port_v<MissingIsAdaptableStub>);
     CHECK_FALSE(acfx::wdf::is_one_port_v<NotNoexceptReflectedStub>);
+    CHECK_FALSE(acfx::wdf::is_one_port_v<NonStaticIsAdaptableStub>);
+    CHECK_FALSE(acfx::wdf::is_one_port_v<NonConstexprStaticIsAdaptableStub>);
 }
 
 // --- (b) runtime check of the voltage-wave inverse helpers --------------
