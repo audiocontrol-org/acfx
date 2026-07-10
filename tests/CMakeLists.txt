@@ -242,6 +242,17 @@ add_executable(acfx_core_tests
   core/integration-invariants-test.cpp
   core/integration-composition-test.cpp
   core/integration-equivalence-test.cpp
+  # ---------------------------------------------------------------------------
+  # WDF primitive test suites (wdf-primitives feature): T002 registration;
+  # story tasks fill assertions.
+  # ---------------------------------------------------------------------------
+  core/wdf-port-interface-test.cpp
+  core/wdf-resistor-test.cpp
+  core/wdf-reactive-test.cpp
+  core/wdf-sources-test.cpp
+  core/wdf-terminations-test.cpp
+  core/wdf-rt-safety-test.cpp
+  core/wdf-passivity-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
