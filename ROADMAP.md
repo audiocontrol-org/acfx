@@ -268,7 +268,7 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-numerical-solvers
 
 ## design:primitive/wdf-primitives
-- status: in-flight
+- status: shipped
 - analyze-clean: yes
 - spec: specs/wdf-primitives
 - design-approved: yes

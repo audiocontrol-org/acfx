@@ -1150,3 +1150,4 @@ workflow(graduate): design:feature/diode-clippers merging -> validating
 workflow(graduate): design:primitive/opamp-stages merging -> validating
 workflow(graduate): design:primitive/newton-iteration merging -> validating
 workflow(graduate): design:primitive/implicit-integration merging -> validating
+workflow(graduate): design:primitive/wdf-primitives merging -> validating
