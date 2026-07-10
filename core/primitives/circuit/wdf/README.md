@@ -18,6 +18,19 @@ Leaves satisfy a duck-typed `OnePort` interface with:
   - `incident(a)` — absorb incident wave
   - `isAdaptable` — trait marking port adaptability
 
+The interface itself (`is_one_port` / `is_one_port_v` concept trait, plus the
+`waveToVoltage` / `waveToCurrent` inverse helpers) lives in `one-port.h`; it
+carries no leaf implementations.
+
+## Leaf One-Ports (8)
+
+  - **`wave-elements.h`** — `Resistor` (memoryless, adapted `b = 0`);
+    `Capacitor`, `Inductor` (reactive, unit-delay `b[n] = ±a[n-1]`).
+  - **`wave-sources.h`** — `ResistiveVoltageSource` (adapted `b = E`),
+    `ResistiveCurrentSource` (adapted `b = R·I`).
+  - **`wave-terminations.h`** — `ResistiveTermination` (adapted `b = 0`);
+    `ShortCircuit`, `OpenCircuit` (reflective, non-adaptable, `b = ∓a` / `b = ±a`).
+
 ## Implementation Notes
 
 Reactive elements (capacitor, inductor) use **bilinear discretization**; 
