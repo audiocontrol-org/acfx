@@ -266,15 +266,42 @@ Includes use project-root-relative quoted paths (e.g.
 `#include "primitives/circuit/wdf/one-port.h"`), matching the C++ core (the `@/`
 alias is TS/host tooling only).
 
-**D11 — Validation approach.** Per the project's circuit-model validation stance
-([[circuit-model-validation-approach]]): prove the scattering **exact on closed
-forms** (two-resistor series and parallel dividers against Ohm's law; an
-`R‖(series L,C)` shape against its analytic transfer function), verify the
-**reflection-free property** of the adapted port numerically (`b_u` invariant under
-`a_u`), verify **losslessness / pseudo-passivity** of each junction (instantaneous
-pseudo-power conserved across ports), and an **allocation-sentinel** RT-safety test
-mirroring the shipped `wdf-rt-safety-test`. Exact closed forms first, then
-monotonic/passivity invariants — no transcribed published rationals.
+**D11 — Validation approach (scoped to what is testable WITHOUT a root driver).**
+Per the project's circuit-model validation stance
+([[circuit-model-validation-approach]]). The adaptor's scattering is a
+**single-sample algebraic map** at its ports and is validated directly — inject a
+known set of port waves, read the produced waves — with **no runnable tree and no
+root driver**:
+
+- **Exact scattering on closed forms** — a two-resistor **series** and a
+  two-resistor **parallel** adaptor, verified in one scattering step against the
+  Ohm's-law divider identities recovered via `waveToVoltage` / `waveToCurrent`
+  (memoryless; no time loop, no source root).
+- **Reflection-free property** of the adapted upward port — `reflected()` (`b_u`)
+  is numerically invariant under the upward incident `a_u` (D5).
+- **Losslessness / pseudo-passivity** — the *resistance-weighted* pseudo-power
+  balance. Power into port `k` is `v_k·i_k = (a_k² − b_k²)/(4·R_k)`, so a lossless
+  junction satisfies **`Σ_k G_k·a_k² = Σ_k G_k·b_k²`** (`G_k = 1/R_k`). Note the
+  *unweighted* `Σ a_k² = Σ b_k²` holds only when all branch resistances are equal
+  and is NOT the invariant to test; the conductance-weighted form is.
+- **Allocation-sentinel** RT-safety test mirroring the shipped
+  `wdf-rt-safety-test`.
+
+Exact closed forms first, then the weighted-passivity invariant — no transcribed
+published rationals. **Deferred:** full network **transfer-function** / frequency-
+response tests require a source, a root, and a runnable tree over time; they belong
+to the phase that owns the root driver (OQ1 → `wdf-passive-networks`), not to this
+primitive.
+
+**D12 — Compile-time typed child access.** Each adaptor exposes an indexed,
+compile-time-typed accessor `child<I>()` (and `const` overload) returning a
+reference to the `I`-th owned child. This is zero-cost (no indirection, resolved at
+compile time), matches the static-composition ethos, and gives tests and later
+phases a defined way to reach nested sources (set `E`), reactive elements, and
+probes without exposing a second connection mechanism or a runtime lookup. It
+resolves the owned-subtree-access question (former OQ6) as a first-class API rather
+than leaving it open. Named/typed-by-role access, if wanted later, can layer on top
+without disturbing this primitive.
 
 ---
 
@@ -302,11 +329,9 @@ dropped from scope.
    adaptable-children-only rule (D6) already reserves the root slot for these.
 5. **Named passive networks** (ladders, tone stacks assembled as WDF trees) →
    `wdf-passive-networks` / `wdf-complete-analog-stages`.
-6. **Parameter / output access into an owned subtree.** With children held by
-   value, reading a leaf output or setting a source value `E` requires accessors
-   into the tree (e.g. indexed child access, or the tree exposing typed child
-   references). Ergonomics question; resolve at spec time (does not change the
-   scattering).
+6. **Parameter / output access into an owned subtree.** *Resolved by D12* — the
+   compile-time typed accessor `child<I>()`. Retained here only as a pointer to
+   that decision; richer named/typed-by-role access remains a possible later layer.
 7. **Time-varying port resistances.** If a child's `Rp` changes at runtime
    (variable component / sample-rate), the adaptor's precomputed coefficients must
    be recomputed and re-propagated up the tree. Re-adaptation propagation is a
@@ -352,6 +377,14 @@ dropped from scope.
   of WDF from `wdf-primitives/plan.md` and `DEVELOPMENT-NOTES.md:232`.
 - **Validation stance.** [[circuit-model-validation-approach]] — exact closed
   forms + exact limits + monotonic/passivity invariants, not published rationals.
+- **Third-party review (2026-07-11).** An external architectural review endorsed
+  the recursive-`OnePort` abstraction and drove three refinements folded into this
+  record: (1) validation rescoped to root-driver-free single-sample tests, with
+  network transfer-function tests deferred to the root-driver-owning phase (D11);
+  (2) owned-subtree access firmed into the compile-time typed accessor `child<I>()`
+  (D12, former OQ6); (3) the junction invariant tightened to the conductance-
+  weighted pseudo-power balance `Σ G_k a_k² = Σ G_k b_k²` (D11), since unweighted
+  wave sums are not invariant when branch resistances differ.
 - **Backend & house rules.** Designed via `superpowers:brainstorming` driven under
   stack-control design house rules `stack-control-design-v1`
   (capture-over-YAGNI re-asserted at the scope-check; handoff routed to
