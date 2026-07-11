@@ -39,20 +39,25 @@ TEST_CASE("wdf adaptor child access reaches the exact owned child type") {
         Resistor(1000.0), ResistiveVoltageSource(1000.0, 0.0));
 
     // child<0>() is the Resistor; child<1>() is the ResistiveVoltageSource.
-    static_assert(std::is_same_v<std::decay_t<decltype(adaptor.child<0>())>, Resistor>,
-                  "child<0>() must return exactly Resistor, no erasure/slicing");
+    // Assert the FULL reference-qualified return type (not std::decay_t, which would
+    // strip & and const and let a by-value or const-incorrect accessor pass): the
+    // non-const accessor must return a mutable lvalue reference to the exact type.
+    static_assert(std::is_same_v<decltype(adaptor.child<0>()), Resistor&>,
+                  "child<0>() must return exactly Resistor& (mutable ref, no erasure/slicing)");
     static_assert(
-        std::is_same_v<std::decay_t<decltype(adaptor.child<1>())>, ResistiveVoltageSource>,
-        "child<1>() must return exactly ResistiveVoltageSource, no erasure/slicing");
+        std::is_same_v<decltype(adaptor.child<1>()), ResistiveVoltageSource&>,
+        "child<1>() must return exactly ResistiveVoltageSource& (mutable ref, no erasure/slicing)");
 
     CHECK(adaptor.child<0>().portResistance() == doctest::Approx(1000.0));
     CHECK(adaptor.child<1>().portResistance() == doctest::Approx(1000.0));
 
-    // const overload: readable through a const reference.
+    // const overload: readable through a const reference. Assert const-PRESERVATION —
+    // the const accessor must return `const Resistor&`, not a mutable ref or a by-value
+    // copy (AUDIT-BARRAGE-codex-01/claude-01: std::decay_t would hide such a regression).
     const auto& cref = adaptor;
     static_assert(
-        std::is_same_v<std::decay_t<decltype(cref.child<0>())>, Resistor>,
-        "const child<0>() must also return exactly Resistor");
+        std::is_same_v<decltype(cref.child<0>()), const Resistor&>,
+        "const child<0>() must return exactly const Resistor& (const-preserving reference)");
     CHECK(cref.child<0>().portResistance() == doctest::Approx(1000.0));
 
     // Up-sweep BEFORE mutation: b_u = -(Resistor.reflected() + source.reflected())
