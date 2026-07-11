@@ -278,7 +278,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - part-of: multi:feature/phase-wave-digital-filters
 
 ## design:primitive/wdf-adaptors
-- status: planned
+- status: in-flight
+- analyze-clean: yes
 - spec: specs/wdf-adaptors
 - design-approved: yes
 - design: docs/superpowers/specs/2026-07-10-wdf-adaptors-design.md
