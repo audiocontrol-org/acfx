@@ -37,8 +37,42 @@ Reactive elements (capacitor, inductor) use **bilinear discretization**;
 capacitors map to unit-delay filters. Non-physical parameters throw at 
 construction time (no fallbacks, no clamping).
 
+## Adaptors (N-port scattering junctions)
+
+  - **`series-adaptor.h`** / **`parallel-adaptor.h`** — `SeriesAdaptor<Child...>`
+    and `ParallelAdaptor<Child...>` connect N ≥ 1 child one-ports plus one
+    upward port. Each is itself a `OnePort`, so adaptors compose recursively
+    (as a child of another adaptor) into arbitrary-depth/width filter trees
+    built from the leaves above.
+  - **Local upward-port adaptation** — each adaptor makes its upward port the
+    single reflection-free (adapted) port: `R_up = Σ_child R_child` for the
+    series case, `1/R_up = Σ_child 1/R_child` for the parallel case. The
+    scattering coefficients are derived from these sums (`adaptor-detail.h`
+    holds the shared variadic-sweep machinery; each file supplies only its own
+    coefficient formula).
+  - **Adaptable children only** — an adaptor's children must all report
+    `isAdaptable == true`; a non-adaptable child (`ShortCircuit`, `OpenCircuit`,
+    or any future reflective root) is a **compile-time** `static_assert`
+    rejection, since a reflective port anywhere but the tree root would close a
+    delay-free loop the sweep cannot solve. The single permitted reflective
+    port is the tree **root**, owned and driven by the sibling nodes below —
+    never an adaptor child.
+  - **Convention and safety** — adaptors reuse the voltage-wave convention
+    above unchanged (no new wave convention). The per-sample up-sweep
+    (`reflected()`) / down-sweep (`incident(a)`) is `noexcept`, allocation-free,
+    and O(N); construction gathers and validates child port resistances and
+    precomputes all coefficients off the hot path, throwing
+    `std::invalid_argument` (naming the offending child) on a non-positive or
+    non-finite resistance — never clamping or substituting a fallback value.
+
 ## Out of Scope
 
-Adaptors, tree assembly/adaptation, nonlinear roots, and ideal-source roots are 
-sibling WDF nodes (wdf-adaptors, wdf-passive-networks, wdf-complete-analog-stages) 
-and are not covered here.
+Nonlinear roots and ideal-source roots are sibling WDF nodes
+(wdf-complete-analog-stages) and are not covered here. Within the adaptors
+themselves, the following are also out of scope (owned by sibling nodes):
+the single-sample **root driver**, **whole-tree topology / root-port
+selection**, **R-type / rigid adaptors**, and **named passive networks**
+(all `wdf-passive-networks`); the **ideal-source** and **nonlinear** roots
+(`wdf-complete-analog-stages`). Full network transfer-function / frequency-
+response tests, which require a source, a root, and a runnable tree over
+time, are deferred to the root-driver-owning sibling.
