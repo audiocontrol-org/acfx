@@ -253,6 +253,14 @@ add_executable(acfx_core_tests
   core/wdf-terminations-test.cpp
   core/wdf-rt-safety-test.cpp
   core/wdf-passivity-test.cpp
+  # WDF adaptor test suites (wdf-adaptors feature): T001 registration
+  core/wdf-series-adaptor-test.cpp
+  core/wdf-parallel-adaptor-test.cpp
+  core/wdf-adaptor-tree-test.cpp
+  core/wdf-adaptor-reflection-free-test.cpp
+  core/wdf-adaptor-passivity-test.cpp
+  core/wdf-adaptor-rt-safety-test.cpp
+  core/wdf-adaptor-child-access-test.cpp
 )
 
 # tests/ as an include root so test files write #include "support/...".
