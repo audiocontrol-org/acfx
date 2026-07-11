@@ -23,7 +23,7 @@ An N-port series scattering junction (shared port current, `Σ v = 0`) that is i
 | `children_` | `std::tuple<Child...>` | the owned child one-ports (by value, composition) |
 | `Rk_` | `std::array<double, N>` | each child's port resistance `R_k` (from `child.portResistance()`) |
 | `Rup_` | `double` | adapted upward port resistance `= Σ_k R_k` |
-| `coeff_` | `std::array<double, N>` | precomputed `2·R_k / R`, where `R = Σ_k R_k` |
+| `coeff_` | `std::array<double, N>` | precomputed child down-sweep coefficient `R_k / Rup_` (≡ `2·R_k / R_total` with the all-ports total `R_total = Rup_ + Σ_k R_k = 2·Rup_`) |
 | `cachedChildWave_` | `std::array<double, N>` | child reflected waves captured during the up-sweep, reused in the down-sweep |
 
 `N = sizeof...(Child)`.
@@ -33,9 +33,13 @@ An N-port series scattering junction (shared port current, `Σ v = 0`) that is i
 - `double portResistance() const noexcept` → `Rup_`.
 - `double reflected() const noexcept` (up-sweep) → caches `a_k = std::get<k>(children_).reflected()`
   for each `k`, returns `b_u = −Σ_k a_k` (the adapted-port series relation).
-- `void incident(double a_u) noexcept` (down-sweep) → with `S = a_u + Σ_k cachedChildWave_[k]`,
-  delivers to each child `child_k.incident( cachedChildWave_[k] − coeff_[k]·S )` (the series
-  scattering `b_k = a_k − (2·R_k/R)·Σ_i a_i`, `i` over all ports incl. upward).
+- `void incident(double a_u) noexcept` (down-sweep) → with `S = a_u + Σ_k cachedChildWave_[k]`
+  (the all-ports incident sum `Σ_i a_i`), delivers to each child
+  `child_k.incident( cachedChildWave_[k] − coeff_[k]·S )` where `coeff_[k] = R_k/Rup_`. This is
+  the series scattering `b_k = a_k − (2·R_k/R_total)·Σ_i a_i` with `R_total = 2·Rup_`, i.e.
+  `2·R_k/R_total = R_k/Rup_`; the sum `Σ_i a_i` runs over **all** ports incl. the upward port.
+  (Do NOT use `2·R_k/Rup_` — that double-counts; `R` in contract C4 is the all-ports total, not
+  the children-only sum.)
 
 > The `const`-ness of `reflected()` and the mutation of `cachedChildWave_` are reconciled in
 > the contract (the cache is logically part of the same sample's evaluation; realized via a
