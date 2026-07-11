@@ -208,8 +208,8 @@ descriptive `std::invalid_argument` at construction.
 2. **Given** a child port resistance that is non-positive or non-finite, **When** the
    adaptor is constructed, **Then** construction throws `std::invalid_argument` with a
    message naming the offending input.
-3. **Given** an attempt to construct an adaptor with no children, **When** construction
-   runs, **Then** it throws `std::invalid_argument` (an adaptor requires ≥1 child).
+3. **Given** an attempt to declare an adaptor with no children, **When** it is compiled,
+   **Then** it fails to compile (a `static_assert` requires ≥1 child — arity is static).
 
 ---
 
@@ -271,8 +271,9 @@ resistances).
 - **Single-child adaptor.** An adaptor over exactly one child is admissible (`R_up = R_child`
   for series; `R_up = R_child` for parallel) and must behave as a transparent pass-through
   in the wave domain.
-- **Empty child set.** Constructing an adaptor with zero children is rejected at
-  construction (`std::invalid_argument`).
+- **Empty child set.** An adaptor with zero children is rejected at **compile time**
+  (`static_assert` on arity ≥ 1); arity is statically known, so this is stronger than a
+  runtime throw.
 - **Degenerate-but-finite resistances.** Very small or very large (but positive, finite)
   child resistances are admissible; the admissible range and any conditioning safeguard for
   the `Σ R` / `Σ G` accumulation and the coefficient ratios are defined during planning
@@ -319,8 +320,10 @@ resistances).
   children's `portResistance()`; the per-sample `reflected()`/`incident()` path MUST be
   `noexcept`, allocation-free, lock-free, and O(N).
 - **FR-011**: Construction MUST **validate** inputs and throw `std::invalid_argument` (off
-  the hot path) for a non-positive or non-finite child port resistance and for an empty
-  child set; the system MUST NOT clamp, substitute, or otherwise fall back.
+  the hot path) for a non-positive or non-finite child port resistance; an **empty child
+  set** MUST be rejected at **compile time** (a `static_assert` on arity ≥ 1, since arity is
+  statically known — stronger than a runtime throw). The system MUST NOT clamp, substitute,
+  or otherwise fall back.
 - **FR-012**: Each adaptor MUST expose a compile-time-typed accessor `child<I>()` (and a
   `const` overload) returning a reference to the `I`-th owned child of its exact static
   type.
@@ -375,9 +378,10 @@ resistances).
 - **SC-005**: The per-sample up-sweep/down-sweep performs **zero** heap allocations over an
   arbitrarily long run (allocation sentinel), and no evaluation-path method is capable of
   throwing.
-- **SC-006**: Every non-physical construction input (non-positive resistance, non-finite
-  resistance, empty child set) produces a descriptive construction-time error and **no**
-  silently clamped or fabricated value.
+- **SC-006**: Every non-physical construction input produces a descriptive error with **no**
+  silently clamped or fabricated value — a non-positive or non-finite child resistance throws
+  `std::invalid_argument` at construction; an empty child set fails to compile
+  (`static_assert`).
 - **SC-007**: Building an adaptor with a non-adaptable child fails to compile (the
   delay-free-loop guard), demonstrated by a compile-fail test or documented static
   assertion.
