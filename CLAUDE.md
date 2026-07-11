@@ -46,7 +46,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **wdf-primitives**.
+Active Spec Kit feature: **wdf-adaptors**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/wdf-primitives/plan.md` (spec: `specs/wdf-primitives/spec.md`).
+current plan at `specs/wdf-adaptors/plan.md` (spec: `specs/wdf-adaptors/spec.md`).
 <!-- SPECKIT END -->
