@@ -11,6 +11,38 @@
   IV. ALL UI/UX WORK GOES THROUGH /frontend-design — NO EXCEPTIONS, NO OFFROADING.
       Every user-facing visual/interaction decision is produced via the frontend-design
       skill. No hand-rolled UI, no ad-hoc styling, no "it's simple" bypass.
+  V.  SCOPE IS THE OPERATOR'S CALL — NEVER CUT SCOPE ON "YAGNI". The operator decides
+      what is in and out of scope. The agent MUST NOT independently narrow, defer, or
+      drop functionality by invoking YAGNI, "simplicity", or "over-building". When scope
+      is open, present options and ASK — never decide unilaterally.
+================================================================================
+-->
+
+<!--
+================================================================================
+  SYNC IMPACT REPORT — amendment 2026-07-14 (c)
+  Version: 1.5.0 → 1.6.0  (MINOR: new NON-NEGOTIABLE principle added)
+  Added principle:
+    - V. Scope Is the Operator's Call (NON-NEGOTIABLE) — new 5th commandment; the
+      operator owns scope. The agent must not cut/defer/drop functionality on YAGNI or
+      "simplicity" grounds; when scope is open it presents options and asks.
+  Renumbered (labels only, meaning unchanged), old → new:
+    - V   Platform-Independent Core, Thin Adapters      →  VI
+    - VI  No Fallbacks, No Mock Data Outside Tests       →  VII
+    - VII Real-Time Safety in the Audio Path             →  VIII
+    - VIII Strict Typing & Small Modules                 →  IX
+    - IX  Test the Core Host-Side                        →  X
+    - X   Progressive Layered Architecture               →  XI
+    - XI  Measurable Engineering                         →  XII
+    - XII One Concept at a Time                          →  XIII
+  Cross-reference fix: "extends Principle IX" (Measurable Engineering) → "X".
+  Templates propagated (commandments header now lists 1–5; citation I–IV → I–V):
+    ✅ .specify/templates/checklist-template.md
+    ✅ .specify/templates/plan-template.md
+    ✅ .specify/templates/spec-template.md
+    ✅ .specify/templates/tasks-template.md
+  Also propagated to CLAUDE.md commandments block (5th commandment added).
+  Deferred TODOs: none.
 ================================================================================
 -->
 
@@ -138,28 +170,50 @@ incoherent, default-looking UI accumulates. One channel keeps the visual languag
 consistent and every design decision examined, exactly as Principle II keeps quality
 gates explicit and Principle III keeps names honest.
 
-### V. Platform-Independent Core, Thin Adapters
+### V. Scope Is the Operator's Call (NON-NEGOTIABLE)
+
+**THE OPERATOR DECIDES SCOPE — THE AGENT NEVER CUTS IT ON "YAGNI".** What is in and
+out of scope is the operator's decision, not the agent's.
+
+- The agent MUST NOT independently narrow, defer, drop, or "simplify away" functionality
+  by invoking YAGNI, "over-building", "we don't need it yet", or any equivalent. Those
+  are not valid reasons for an agent-side scope cut.
+- When scope is open or ambiguous, the agent **presents the options and asks** — it does
+  not silently decide. Recommendations are welcome; unilateral scope decisions are not.
+- Declining work on genuine **technical** grounds (it is impossible, unknowable until a
+  prerequisite exists, or actively unsafe) is different from a YAGNI cut and is allowed —
+  but it MUST be named as such, with the technical reason, and still surfaced for the
+  operator's call rather than acted on silently.
+- This overrides any tool, skill, or default guidance that instructs the agent to apply
+  YAGNI or trim scope on its own (including "YAGNI ruthlessly" style directives).
+
+Rationale: the operator holds context the agent does not — roadmap intent, future
+lessons, product direction. An agent-side scope cut disguised as prudence silently
+discards that intent and is discovered only later as missing work. Surfacing the choice
+keeps scope where it belongs and every omission visible and owned.
+
+### VI. Platform-Independent Core, Thin Adapters
 
 The DSP core compiles with no knowledge of JUCE, libDaisy, or Teensy. Dependencies
 point only inward (targets → core; core → nothing platform-specific). Each target
 is a thin shell that feeds the core audio and parameters. No desktop-side hardware
 stubs.
 
-### VI. No Fallbacks, No Mock Data Outside Tests
+### VII. No Fallbacks, No Mock Data Outside Tests
 
 Outside test code, the system MUST NOT implement fallbacks or use mock data.
 Missing functionality or data MUST raise a descriptive error naming what is absent.
 Fallbacks and mock data hide unimplemented paths and become permanent bug
 factories; an error surfaces the gap immediately.
 
-### VII. Real-Time Safety in the Audio Path
+### VIII. Real-Time Safety in the Audio Path
 
 No heap allocation, locks, or unbounded work in any `process()` / audio-callback
 path. The hot path stays templated/inlined; polymorphism is confined to the
 host-side block boundary (at most one virtual call per block). This is what keeps
 the core safe on a microcontroller and on a real-time audio thread.
 
-### VIII. Strict Typing & Small Modules
+### IX. Strict Typing & Small Modules
 
 Composition over inheritance; interface-first design across boundaries. No `any`,
 no unchecked casts, no suppressed type errors. Source files stay within 300–500
@@ -174,13 +228,13 @@ failures, run as explicit steps (never a git hook, per Principle II). This is th
 JS-runtime realization of the same strict-typing discipline the C++ core already
 holds — strong types and compiler-enforced rules on every runtime, not just the core.
 
-### IX. Test the Core Host-Side
+### X. Test the Core Host-Side
 
 The platform-independent core is unit-tested on the host with no hardware:
 parameter scaling, DSP correctness (impulse/frequency response against known-good
 values), stability guards (no NaN/denormal), and the no-allocation invariant.
 
-### X. Progressive Layered Architecture
+### XI. Progressive Layered Architecture
 
 The DSP core is organized into three layers — `labs/ → primitives/ → effects/` — as its
 **target architecture**, established by the `three-layer-structure` roadmap work (the
@@ -193,15 +247,15 @@ Educational code is not disposable: laboratory implementations evolve into produ
 primitives rather than being thrown away. (Program vision:
 `docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`.)
 
-### XI. Measurable Engineering
+### XII. Measurable Engineering
 
 Every effect is validated by objective measurements, not opinion: frequency response,
 impulse response, phase response, harmonic distortion (THD), latency, CPU usage, memory
 allocation, and numerical stability. Measurements are the primary acceptance evidence;
-listening tests complement them but never replace them. This extends Principle IX from
+listening tests complement them but never replace them. This extends Principle X from
 correctness invariants to a standard, reported metric suite for effects.
 
-### XII. One Concept at a Time
+### XIII. One Concept at a Time
 
 Each phase — and each laboratory — introduces a single major new idea and applies it to
 a complete effect before moving on. Advanced techniques (numerical solvers, wave digital
@@ -225,4 +279,4 @@ Progressive Audio DSP & Analog Modeling Platform prospectus
 (`docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`), tracked on the
 stack-control roadmap (the `progressive-dsp-platform` program node).
 
-**Version**: 1.5.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-07-14
+**Version**: 1.6.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-07-14

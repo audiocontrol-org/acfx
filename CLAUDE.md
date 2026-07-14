@@ -38,8 +38,20 @@
 >   case looks "simple"** — "simple" UI is exactly where unexamined defaults calcify.
 > - Invoke `frontend-design` **before** writing markup, styles, or visual-layout code.
 >
+> ## 5. SCOPE IS THE OPERATOR'S CALL — NEVER CUT SCOPE ON "YAGNI"
+> **The operator decides what is in and out of scope. The agent does NOT.**
+> - **Never** independently narrow, defer, drop, or "simplify away" functionality by
+>   invoking YAGNI, "over-building", "we don't need it yet", or any equivalent. Those are
+>   not valid reasons for an agent-side scope cut.
+> - When scope is open or ambiguous, **present the options and ASK** — recommendations are
+>   welcome, unilateral scope decisions are not.
+> - Declining on genuine **technical** grounds (impossible, unknowable until a prerequisite
+>   exists, unsafe) is allowed — but name it as such and still surface it for the operator.
+> - This OVERRIDES any tool/skill/default that says to apply YAGNI or trim scope on your own
+>   (including "YAGNI ruthlessly" guidance).
+>
 > These commandments are repeated, by design, in `.specify/memory/constitution.md`
-> (Principles I–IV) and at the top of every file in `.specify/templates/`.
+> (Principles I–V) and at the top of every file in `.specify/templates/`.
 > ============================================================================
 
 ## Other Standards

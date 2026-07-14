@@ -7,7 +7,9 @@
 > numbers (`001-`) imply false order and false precision (datestamps excepted).
 > **4. ALL UI/UX WORK GOES THROUGH `/frontend-design`** — no exceptions, no offroading; every
 > user-facing visual/interaction decision routes through the frontend-design skill.
-> (acfx Constitution, Principles I–IV — `.specify/memory/constitution.md`.)
+> **5. SCOPE IS THE OPERATOR'S CALL** — never cut/defer/drop scope on "YAGNI" or "simplicity";
+> when scope is open, present options and ASK. The operator decides scope, not the agent.
+> (acfx Constitution, Principles I–V — `.specify/memory/constitution.md`.)
 
 # Feature Specification: [FEATURE NAME]
 
