@@ -371,3 +371,11 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - status: planned
 - depends-on: multi:feature/phase-convolution
 - part-of: multi:feature/phase-reference-hardware
+
+## multi:feature/companion-training-site
+- status: planned
+
+## design:feature/svf-training-site
+- status: planned
+- part-of: multi:feature/companion-training-site
+- ref: docs/superpowers/specs/2026-07-14-svf-training-site-design.md
