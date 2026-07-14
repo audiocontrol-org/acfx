@@ -5,7 +5,9 @@
 > **2. NO GIT HOOKS, EVER** — this repo uses zero git hooks; none exist, none get added.
 > **3. DESCRIPTIVE NAMES, NEVER NUMERIC PREFIXES** — names carry information; fake sequence
 > numbers (`001-`) imply false order and false precision (datestamps excepted).
-> (acfx Constitution, Principles I–III — `.specify/memory/constitution.md`.)
+> **4. ALL UI/UX WORK GOES THROUGH `/frontend-design`** — no exceptions, no offroading; every
+> user-facing visual/interaction decision routes through the frontend-design skill.
+> (acfx Constitution, Principles I–IV — `.specify/memory/constitution.md`.)
 
 # Implementation Plan: [FEATURE]
 

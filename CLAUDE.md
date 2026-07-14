@@ -28,8 +28,18 @@
 > - **Exception: datestamps** (`2026-06-25-…`) are fine — a date carries real
 >   information, not invented ordering.
 >
+> ## 4. ALL UI/UX WORK GOES THROUGH `/frontend-design` — NO EXCEPTIONS, NO OFFROADING
+> **Every piece of user-facing visual/interaction work is produced via the
+> `frontend-design` plugin skill.**
+> - This covers ALL of it: websites and web apps (incl. the companion training site),
+>   plugin/standalone app UIs, the desktop workbench's controls, and any single layout,
+>   typography, color, spacing, or visual-design decision.
+> - **No hand-rolling UI outside the skill, no ad-hoc styling, no bypassing it because a
+>   case looks "simple"** — "simple" UI is exactly where unexamined defaults calcify.
+> - Invoke `frontend-design` **before** writing markup, styles, or visual-layout code.
+>
 > These commandments are repeated, by design, in `.specify/memory/constitution.md`
-> (Principles I–III) and at the top of every file in `.specify/templates/`.
+> (Principles I–IV) and at the top of every file in `.specify/templates/`.
 > ============================================================================
 
 ## Other Standards

@@ -8,6 +8,37 @@
       added. Quality gates are explicit and visible, never hidden hooks.
   III.DESCRIPTIVE NAMES, NEVER NUMERIC PREFIXES. Names carry information; numbers
       imply a false order and false precision. Datestamps are the one exception.
+  IV. ALL UI/UX WORK GOES THROUGH /frontend-design — NO EXCEPTIONS, NO OFFROADING.
+      Every user-facing visual/interaction decision is produced via the frontend-design
+      skill. No hand-rolled UI, no ad-hoc styling, no "it's simple" bypass.
+================================================================================
+-->
+
+<!--
+================================================================================
+  SYNC IMPACT REPORT — amendment 2026-07-14
+  Version: 1.3.0 → 1.4.0  (MINOR: new NON-NEGOTIABLE principle added)
+  Added principle:
+    - IV. All UI/UX Work Goes Through /frontend-design (NON-NEGOTIABLE) — new 4th
+      commandment; every user-facing visual/interaction decision routes through the
+      frontend-design plugin skill.
+  Renumbered (labels only, meaning unchanged), old → new:
+    - IV  Platform-Independent Core, Thin Adapters      →  V
+    - V   No Fallbacks, No Mock Data Outside Tests       →  VI
+    - VI  Real-Time Safety in the Audio Path             →  VII
+    - VII Strict Typing & Small Modules                  →  VIII
+    - VIII Test the Core Host-Side                       →  IX
+    - IX  Progressive Layered Architecture               →  X
+    - X   Measurable Engineering                         →  XI
+    - XI  One Concept at a Time                          →  XII
+  Cross-reference fix: "extends Principle VIII" (Measurable Engineering) → "IX".
+  Templates propagated (commandments header now lists 1–4; citation I–III → I–IV):
+    ✅ .specify/templates/checklist-template.md
+    ✅ .specify/templates/plan-template.md
+    ✅ .specify/templates/spec-template.md
+    ✅ .specify/templates/tasks-template.md
+  Also propagated to CLAUDE.md commandments block (4th commandment added).
+  Deferred TODOs: none.
 ================================================================================
 -->
 
@@ -71,40 +102,60 @@ Rationale: a name like `001-platform-foundation` lies twice — it implies there
 a `000`, and that order matters. `platform-foundation` ferries the information that
 actually matters: what the thing is.
 
-### IV. Platform-Independent Core, Thin Adapters
+### IV. All UI/UX Work Goes Through /frontend-design (NON-NEGOTIABLE)
+
+**ALL UI/UX WORK GOES THROUGH `/frontend-design` — NO EXCEPTIONS, NO OFFROADING.**
+Every piece of user-facing visual or interaction work MUST be produced via the
+`frontend-design` plugin skill.
+
+- This covers all of it: websites and web apps (including the companion training
+  site), plugin/standalone app UIs, the desktop workbench's controls, and any single
+  layout, typography, color, spacing, or visual-design decision.
+- No hand-rolling UI outside the skill, no ad-hoc styling, and no bypassing it because
+  a case looks "simple" — "simple" UI is exactly where unexamined defaults calcify.
+- Invoke `frontend-design` **before** writing markup, styles, or visual-layout code,
+  and let it drive the aesthetic and structural choices.
+
+Rationale: coherent, intentional design requires a single disciplined front door.
+Off-roading — "I'll just style this one thing myself" — is precisely how templated,
+incoherent, default-looking UI accumulates. One channel keeps the visual language
+consistent and every design decision examined, exactly as Principle II keeps quality
+gates explicit and Principle III keeps names honest.
+
+### V. Platform-Independent Core, Thin Adapters
 
 The DSP core compiles with no knowledge of JUCE, libDaisy, or Teensy. Dependencies
 point only inward (targets → core; core → nothing platform-specific). Each target
 is a thin shell that feeds the core audio and parameters. No desktop-side hardware
 stubs.
 
-### V. No Fallbacks, No Mock Data Outside Tests
+### VI. No Fallbacks, No Mock Data Outside Tests
 
 Outside test code, the system MUST NOT implement fallbacks or use mock data.
 Missing functionality or data MUST raise a descriptive error naming what is absent.
 Fallbacks and mock data hide unimplemented paths and become permanent bug
 factories; an error surfaces the gap immediately.
 
-### VI. Real-Time Safety in the Audio Path
+### VII. Real-Time Safety in the Audio Path
 
 No heap allocation, locks, or unbounded work in any `process()` / audio-callback
 path. The hot path stays templated/inlined; polymorphism is confined to the
 host-side block boundary (at most one virtual call per block). This is what keeps
 the core safe on a microcontroller and on a real-time audio thread.
 
-### VII. Strict Typing & Small Modules
+### VIII. Strict Typing & Small Modules
 
 Composition over inheritance; interface-first design across boundaries. No `any`,
 no unchecked casts, no suppressed type errors. Source files stay within 300–500
 lines; larger files are refactored for modularity.
 
-### VIII. Test the Core Host-Side
+### IX. Test the Core Host-Side
 
 The platform-independent core is unit-tested on the host with no hardware:
 parameter scaling, DSP correctness (impulse/frequency response against known-good
 values), stability guards (no NaN/denormal), and the no-allocation invariant.
 
-### IX. Progressive Layered Architecture
+### X. Progressive Layered Architecture
 
 The DSP core is organized into three layers — `labs/ → primitives/ → effects/` — as its
 **target architecture**, established by the `three-layer-structure` roadmap work (the
@@ -117,15 +168,15 @@ Educational code is not disposable: laboratory implementations evolve into produ
 primitives rather than being thrown away. (Program vision:
 `docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`.)
 
-### X. Measurable Engineering
+### XI. Measurable Engineering
 
 Every effect is validated by objective measurements, not opinion: frequency response,
 impulse response, phase response, harmonic distortion (THD), latency, CPU usage, memory
 allocation, and numerical stability. Measurements are the primary acceptance evidence;
-listening tests complement them but never replace them. This extends Principle VIII from
+listening tests complement them but never replace them. This extends Principle IX from
 correctness invariants to a standard, reported metric suite for effects.
 
-### XI. One Concept at a Time
+### XII. One Concept at a Time
 
 Each phase — and each laboratory — introduces a single major new idea and applies it to
 a complete effect before moving on. Advanced techniques (numerical solvers, wave digital
@@ -149,4 +200,4 @@ Progressive Audio DSP & Analog Modeling Platform prospectus
 (`docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`), tracked on the
 stack-control roadmap (the `progressive-dsp-platform` program node).
 
-**Version**: 1.3.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-06-29
+**Version**: 1.4.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-07-14
