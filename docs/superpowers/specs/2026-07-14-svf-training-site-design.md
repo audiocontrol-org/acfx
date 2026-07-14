@@ -199,12 +199,12 @@ consume the committed manifest. Two stages:
 3. Each producer writes a **fragment** (`wasm.fragment.json`, `static.fragment.json`)
    recording its objects, content hashes, and **source provenance** (the core/adapter
    source hash it was built from).
-4. Upload objects to **Backblaze B2**; they serve behind **Cloudflare** (immutable,
-   content-hashed URLs).
+4. Upload objects to the **public B2 bucket** over the S3 API; they serve behind the
+   **Cloudflare Worker** read-through cache (§4.6) at immutable content-hashed URLs.
 5. A single **manifest assembler** (review #3) inventories the fragments, validates them,
-   and writes the authoritative `site/public/manifest/svf.json` with absolute Cloudflare
-   URLs + provenance. **The manifest (small JSON) is committed to git; the binaries are
-   not.**
+   and writes the authoritative `site/public/manifest/svf.json` with absolute `CDN_BASE`
+   (Worker) URLs + provenance. **The manifest (small JSON) is committed to git; the
+   binaries are not.**
 
 **Stage 2 — site build (local for dev; Netlify for deploy — never CI):**
 - Astro builds the static site, reading the committed manifest; at runtime the browser
@@ -274,6 +274,42 @@ by hand. Two pieces:
   A resolver miss (a declared anchor that no longer resolves) is a build failure, not a
   silent dead link — surfacing repo drift instead of hiding it.
 
+### 4.6 Asset CDN — public B2 bucket + Cloudflare Worker (modeled on `oletizi/colony-cults`)
+
+The CDN is a direct adaptation of the proven `oletizi/colony-cults`
+`infra/cloudflare-cdn/` model (also used in `colony-cults-archive`, `offing`) — a
+read-through edge cache in front of a **public** B2 bucket. Lives at repo root
+`infra/cloudflare-cdn/`.
+
+- **Bucket (public):** `audiocontrol-acfx`, S3 endpoint `s3.us-west-004.backblazeb2.com`
+  (region `us-west-004`, download host `f004.backblazeb2.com`). Confirm the exact bucket
+  name + download host via `b2 account get` before first deploy.
+- **Credentials:** read from `~/.config/backblaze/b2-audiocontrol-acfx-credentials.yaml`
+  (`keyID` / `applicationKey` / `endpoint`). **Local only, never on a command line, never
+  committed, never echoed** — the publish step reads the file directly. This file is
+  outside the repo; nothing in the repo ever contains the secret.
+- **Write side (local, `make publish-assets`):** uploads the content-hashed objects to B2
+  over the **S3 API** (client TBD — `rclone` or `aws s3`/B2 CLI, §10c), setting
+  `Content-Type: application/wasm` on the `.wasm` object (the Worker passes B2's
+  content-type through, so it must be correct at upload). Writes go to B2 **directly**,
+  never through the Worker.
+- **Read side — Cloudflare Worker** (`infra/cloudflare-cdn/`, deployed with
+  `npx wrangler login` then `npx wrangler deploy`):
+  - `wrangler.toml`: `name = "audiocontrol-acfx-cdn"`, `main = "worker.ts"`, `workers_dev
+    = true`, `[vars] B2_DOWNLOAD_BASE = "https://f004.backblazeb2.com/file/audiocontrol-acfx"`,
+    `EDGE_TTL_SECONDS`.
+  - `worker.ts` — **strict TypeScript (Principle IX)**, adapted from the precedent's
+    `worker.js`: maps `<worker>/<key>` → `${B2_DOWNLOAD_BASE}/<key>`; caches **only 2xx**
+    via the explicit Cache API under a `CACHE_VERSION`-namespaced key; **never caches
+    errors**; adds `Access-Control-Allow-Origin: *`; sets
+    `Cache-Control: public, max-age=<ttl>, immutable`; GET/HEAD only. The image-resizing
+    (`?w=`) branch of the precedent is dropped — we serve wasm/audio/json, not images.
+- **`CDN_BASE`** (the Worker origin, e.g. `https://audiocontrol-acfx-cdn.oletizi.workers.dev`)
+  is what the manifest's absolute URLs are built from. `workers.dev` now; a custom-domain
+  zone (for purge-by-URL) is a later upgrade (§10c).
+- **Deploying the Worker is not "CI building"** — it is a local `npx wrangler deploy`, run
+  by the operator, exactly like the asset publish.
+
 ## 5. Data flow
 
 - **Asset load**: committed manifest → absolute Cloudflare URLs → browser fetches
@@ -338,12 +374,16 @@ CMake build are untouched. **All of these run on local hardware, not CI (§4.3).
 - **Emscripten SDK** — local build dependency for `adapters/web`. A new CMake preset
   `web` using the Emscripten toolchain.
 - **Playwright** — local E2E smoke test (§6).
-- **CDN publish tooling** — a B2 upload client (e.g. `rclone` / B2 CLI) plus the
-  Cloudflare config (CORS allow-origin, `Content-Type: application/wasm`, immutable
-  caching for content-hashed objects). Invoked by the local `make publish-assets` step.
-- **Static-build contract** — `npm run build` MUST emit a self-contained, deployable
-  static bundle (the Netlify-ready artifact) that references only the committed manifest +
-  CDN URLs; no server runtime. Hosting/deploy pipeline itself is out of scope (§10).
+- **Cloudflare Wrangler (`npx wrangler`)** — deploys the `infra/cloudflare-cdn/`
+  `worker.ts` (strict TS, Principle IX). Local `npx wrangler login` + `npx wrangler
+  deploy`; modeled on `oletizi/colony-cults` (§4.6).
+- **B2 upload client** — `rclone` or `aws s3`/B2 CLI (§10c) for the S3-API write to the
+  public bucket, reading the gitignored creds file; sets `Content-Type: application/wasm`.
+- **Netlify build config** — a `netlify.toml` (build `npm ci && npm run build`, publish
+  `site/dist`, `NODE_VERSION` pinned to `.nvmrc`, `CDN_BASE` env) mirroring the
+  colony-cults precedent. The **static-build contract**: `npm run build` MUST emit a
+  self-contained `site/dist` referencing only the committed manifest + CDN URLs, no server
+  runtime. Actually wiring the Netlify deploy is out of scope (§10).
 
 ## 9. Definition of done (this slice)
 
@@ -360,8 +400,11 @@ CMake build are untouched. **All of these run on local hardware, not CI (§4.3).
 7. The **doc auto-resolver** generates "Go deeper" links from lesson metadata; a resolver
    miss fails the build.
 8. Static "Hear it" assets are generated from the host asset-tool (on the CDN).
-9. Binaries are built locally and published to B2/Cloudflare; the committed manifest
-   pins immutable content-hashed URLs; the non-building staleness guard passes.
+9. Binaries built locally, uploaded to the public B2 bucket; the `infra/cloudflare-cdn/`
+   `worker.ts` is deployed (`npx wrangler deploy`) and a live read verifies
+   `Access-Control-Allow-Origin`, `Content-Type: application/wasm`, and MISS→HIT caching;
+   the committed manifest pins immutable content-hashed `CDN_BASE` URLs; the non-building
+   staleness guard passes.
 10. The Playwright smoke test passes locally (AudioWorklet init, cross-origin CDN load,
     user-gesture startup, visualizer render).
 11. `npm run build` emits a self-contained, Netlify-ready static bundle (no CI build).
@@ -386,8 +429,9 @@ this slice — the operator elected to build these generalizing layers now, not 
 
 ### 10b. Operator decisions taken this round (resolved)
 
-- **Assets** → built on **local hardware**, published to **B2 + Cloudflare**; manifest
-  (JSON) committed, binaries not; **CI builds nothing** (§4.3).
+- **Assets** → built on **local hardware**, published to a **public B2 bucket** fronted
+  by a **Cloudflare Worker** read-through cache modeled on `oletizi/colony-cults` (§4.6);
+  manifest (JSON) committed, binaries not; **CI builds nothing** (§4.3).
 - **E2E** → one **Playwright** smoke test now, run locally (§6).
 - **Non-audio target kinds** → capability/version envelope in the manifest, **no
   speculative kind** now (provisional, reversible — technical limit, §4.1).
@@ -396,8 +440,10 @@ this slice — the operator elected to build these generalizing layers now, not 
 
 ### 10c. Still open — awaiting operator decision (surfaced, not cut)
 
-- **Exact Cloudflare/B2 config** — CORS allow-origin value, cache-control policy, bucket
-  layout, and the upload client (`rclone` vs B2 CLI): pin during the implementation plan.
+- **B2/Cloudflare specifics** (§4.6) — confirm the exact bucket name + `f004` download
+  host (`b2 account get`); pick the S3 upload client (`rclone` vs `aws s3`/B2 CLI); set
+  `EDGE_TTL_SECONDS`; `ACAO: *` vs a site-origin allowlist; `workers.dev` now vs a
+  custom-domain zone (purge-by-URL) later.
 - **Whether CI runs the non-building checks at all** (§4.3/§6), or validation stays
   purely local `make` steps.
 - **Accounts / progress tracking / backend** — not needed for a training lesson; flagged
