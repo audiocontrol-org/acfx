@@ -448,3 +448,89 @@ this slice — the operator elected to build these generalizing layers now, not 
   purely local `make` steps.
 - **Accounts / progress tracking / backend** — not needed for a training lesson; flagged
   rather than silently excluded, to confirm.
+
+---
+
+# Governed design record (stack-control)
+
+> These sections satisfy the `design:feature/svf-training-site` design-to-spec exit
+> gate. They summarize the fully-detailed sections above; the sections above are
+> authoritative.
+
+## Problem domain
+
+acfx is a rigorous, spec-driven analog-DSP codebase, but its knowledge is locked inside
+C++ and Spec Kit artifacts. A learner cannot grasp the DSP concepts *or* how to build
+effects with acfx without reading the source. The problem: give newcomers a **guided
+training experience that teaches the DSP domain and how to use acfx together**, with the
+**real production code as the worked example** (never a lookalike). The first vertical
+slice proves the whole training-site machinery on a single effect — the State-Variable
+Filter — before scaling to more lessons.
+
+## Solution space
+
+Four axes were explored; each records the chosen option and the rejected ones (≥2
+alternatives).
+
+### Alternative A (CHOSEN): Astro + real-core WASM + one SVF slice + local-build → B2/Cloudflare CDN
+
+An Astro (content-first, TS-strict) site; the browser is *just another adapter*
+(`adapters/web`) compiling the real `core/effects/svf` to WASM run in an AudioWorklet;
+scoped to one complete SVF lesson; binaries built on local hardware and served from a
+public B2 bucket behind a Cloudflare Worker (modeled on `oletizi/colony-cults`). Chosen
+because the interactive demo *is* the code being taught, it extends the "same source
+everywhere" spine, and it validates the format on one slice before scaling.
+
+### Alternative B (REJECTED): JS / Web Audio reimplementation of the SVF
+
+Hand-write the demo DSP in JavaScript. Rejected — a lookalike that drifts from the real
+C++, contradicting "the code is the worked example" and violating Principle VII (no faked
+DSP).
+
+### Alternative C (REJECTED): full curriculum up front, Docusaurus, and/or pre-rendered clips only
+
+Plan all ~22 lessons now, on a docs-in-a-box generator, with static audio only. Rejected —
+over-builds site machinery before the format is validated (against the vertical-slice
+discipline the project is built on); Docusaurus fights a custom AudioWorklet demo; and
+pre-rendered-only is not interactive, which the operator required.
+
+## Decisions
+
+- Teaches **both** the DSP domain and how to use acfx; one **six-part** lesson anatomy
+  (Concept / Hear it / **Observe it** (live) / Play with it / Build it / Go deeper).
+- Real DSP via a **WASM `adapters/web` adapter** (audio ABI now; **analysis ABI
+  re-sequenced to Phase 5**, visualizer-coupled — surfaced per Commandment V, not cut).
+- **Astro + strict TypeScript** `site/`; interactive artifacts via a **typed registry**;
+  **manifest** as the single asset contract (two producers, one writer); **doc
+  auto-resolver** built now.
+- Assets **built on local hardware**, published to a **public B2 bucket + Cloudflare
+  Worker** (colony-cults model); manifest committed, binaries not; **CI builds nothing**.
+- **One Playwright** E2E smoke test; **Netlify** deploy target with a static-build
+  contract (hosting pipeline deferred).
+- All UI via **`/frontend-design`** (Commandment IV); all JS-runtime code **TypeScript
+  strict** (Principle IX). Implementation sequenced into six dependency-ordered phases.
+
+## Open questions
+
+- Exact B2/Cloudflare config (bucket-name/`f004` confirmation, upload client, TTL,
+  `ACAO: *` vs allowlist, workers.dev vs custom domain) — pin during the plan (§10c).
+- Whether CI runs the non-building validation checks at all, or validation stays local.
+- Accounts / progress tracking / backend — believed unnecessary; flagged to confirm.
+- vitest vs `node:test` for the parity/unit test runner.
+
+## Provenance
+
+- **Brainstorming:** `superpowers:brainstorming`, this session (2026-07-14), operator
+  (oletizi@mac.com) answering scope/format/engine/location decisions interactively.
+- **Third-party review ×2:** two external design reviews folded in — the first added the
+  lesson-asset abstraction, `Lesson`/`InteractiveArtifact` split, "Observe it", metadata
+  resolver, executable-target framing; the second added the analysis ABI, resolver-vs-
+  invariant clarification, single manifest writer, registry shape, fallback distinction,
+  and parity-oracle contract.
+- **Operator infra decisions:** local-build binaries → B2 + Cloudflare Worker; CI builds
+  nothing; CDN modeled on `oletizi/colony-cults` (`infra/cloudflare-cdn/`).
+- **Constitution amendments made this session:** Commandment IV (UI via
+  `/frontend-design`), Commandment V (operator owns scope / no YAGNI cuts), Principle IX
+  TypeScript mandate — constitution v1.6.0.
+- **Artifacts:** this design record; the Phase-1 implementation plan at
+  `docs/superpowers/plans/2026-07-14-svf-web-adapter-parity.md`; memory `asset-cdn-infra`.

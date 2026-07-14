@@ -376,6 +376,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - status: planned
 
 ## design:feature/svf-training-site
-- status: planned
+- status: in-flight
+- design: docs/superpowers/specs/2026-07-14-svf-training-site-design.md
+- design-approved: yes
 - part-of: multi:feature/companion-training-site
 - ref: docs/superpowers/specs/2026-07-14-svf-training-site-design.md
