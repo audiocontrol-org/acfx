@@ -52,7 +52,9 @@
 - **Real-time safety** — no heap allocation or locks in any `process()` /
   audio-callback path.
 - **Strict typing, small modules** — no `any` / unchecked casts; files within
-  ~300–500 lines.
+  ~300–500 lines. **All JavaScript-runtime code (site/, adapters/web, tooling) MUST
+  be TypeScript in `strict` mode** — no plain `.js`, no `any`, no `@ts-ignore`; the
+  compiler is a first-class rules-checker.
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->

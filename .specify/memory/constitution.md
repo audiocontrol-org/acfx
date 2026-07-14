@@ -16,6 +16,22 @@
 
 <!--
 ================================================================================
+  SYNC IMPACT REPORT — amendment 2026-07-14 (b)
+  Version: 1.4.0 → 1.5.0  (MINOR: Principle VIII materially expanded)
+  Modified principle:
+    - VIII. Strict Typing & Small Modules — added a mandatory TypeScript-in-strict-mode
+      requirement for ALL JavaScript-runtime code (site/, adapters/web glue+worklet,
+      build/tooling scripts): no plain .js, no `any`, no ts-ignore, no unchecked casts;
+      the compiler is an explicit rules-checker (never a git hook).
+  Templates: no change (they carry only the commandments header 1–4; Principle VIII is
+    not among the propagated commandments).
+  Also propagated to CLAUDE.md "Other Standards" strict-typing bullet.
+  Deferred TODOs: none.
+================================================================================
+-->
+
+<!--
+================================================================================
   SYNC IMPACT REPORT — amendment 2026-07-14
   Version: 1.3.0 → 1.4.0  (MINOR: new NON-NEGOTIABLE principle added)
   Added principle:
@@ -149,6 +165,15 @@ Composition over inheritance; interface-first design across boundaries. No `any`
 no unchecked casts, no suppressed type errors. Source files stay within 300–500
 lines; larger files are refactored for modularity.
 
+**TypeScript is mandatory for all JavaScript-runtime code.** Any code that runs in a
+browser or on Node (the companion `site/`, the `adapters/web` glue and AudioWorklet,
+build/tooling scripts) MUST be TypeScript compiled in `strict` mode — no plain `.js`
+source, no `any`, no `@ts-ignore`/`@ts-expect-error` to silence real errors, no
+unchecked casts. The compiler is a first-class rules-checker: type errors are build
+failures, run as explicit steps (never a git hook, per Principle II). This is the
+JS-runtime realization of the same strict-typing discipline the C++ core already
+holds — strong types and compiler-enforced rules on every runtime, not just the core.
+
 ### IX. Test the Core Host-Side
 
 The platform-independent core is unit-tested on the host with no hardware:
@@ -200,4 +225,4 @@ Progressive Audio DSP & Analog Modeling Platform prospectus
 (`docs/superpowers/specs/2026-06-29-acfx-progressive-dsp-prospectus.md`), tracked on the
 stack-control roadmap (the `progressive-dsp-platform` program node).
 
-**Version**: 1.4.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-07-14
+**Version**: 1.5.0 | **Ratified**: 2026-06-25 | **Last Amended**: 2026-07-14
