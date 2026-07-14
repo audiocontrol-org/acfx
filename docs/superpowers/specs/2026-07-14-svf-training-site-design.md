@@ -108,20 +108,27 @@ A new thin adapter alongside `workbench, plugin, daisy, teensy`.
   DaisySP). "Target," not "`SvfEffect`," is deliberate: the adapter is not hardwired to
   one effect, so a later lesson can compile a *primitive* or a *lab harness* through the
   same path.
-  - **Surfaced technical limit (operator's call — not a YAGNI cut):** the audio-target
-    ABI below is `process(block)`-shaped. Non-audio executables (measurements, benchmarks,
-    component models) are *not* `process()`-shaped, so a single ABI covering them cannot
-    be designed until at least one such lesson defines its real shape — this is a
-    genuine "shape unknown" limit, named per Commandment V, not an "we don't need it yet"
-    trim. If the operator wants a non-audio target-kind stubbed now, say so and it goes in;
-    otherwise its ABI is designed when the first such lesson is specced.
-- Exposes a minimal C ABI for an audio target:
-  `create / prepare(sampleRate, blockSize) / setParam(id, norm) / process(ptr, numSamples)`.
-- A TypeScript **AudioWorklet processor** wraps the module and runs `process()` on the
-  audio thread; the WASM heap buffer is reused per block (no per-block allocation —
-  Principle VIII holds in the browser too).
-- Output artifacts: `svf.wasm` + a TypeScript glue/worklet module, emitted into the
-  lesson-asset output (§4.4) for the site to consume.
+- A target **exports one or more declared capabilities** (not "every target has one
+  fixed API"). The manifest (§4.4) records which capabilities a target supports and their
+  version. This slice's SVF target exports two capability groups:
+  - **Audio capability (C ABI):**
+    `create / prepare(sampleRate, blockSize) / setParam(id, norm) / process(ptr, numSamples)`.
+    Drives "Play with it." A TypeScript **AudioWorklet processor** wraps it and runs
+    `process()` on the audio thread; the WASM heap buffer is reused per block (no
+    per-block allocation — Principle VIII holds in the browser too).
+  - **Analysis capability (C ABI) — review #1:** `getFrequencyResponse / getPoleZeroData /
+    renderImpulseResponse`, feeding "Observe it." **These are computed by the real
+    compiled target** — impulse/sweep run through the actual `process()`, or derived from
+    the target's own internal coefficients — **never re-derived in TypeScript** (a TS
+    reformulation would be the lookalike Principle VII forbids). SVF-specific for this
+    slice; generalized only when a second target needs it.
+- **Non-audio target kinds — decision (provisional, reversible):** define the
+  capability/version envelope in the manifest (above), but add **no** speculative
+  non-audio target kind now. Rationale is *technical*, not YAGNI (Commandment V): a
+  measurement/benchmark target is not `process()`-shaped and its ABI cannot be designed
+  until a lesson defines its real shape. The envelope makes adding one later additive.
+- Output artifacts: `svf.wasm` + a TypeScript glue/worklet module, **published to the
+  external asset CDN** and referenced by the manifest (§4.4).
 
 ### 4.2 `site/` — the Astro training site
 
@@ -141,58 +148,115 @@ site/
   src/components/artifacts/        # embeddable interactive-artifact islands (registered by kind)
     SvfDemo/                       # audio artifact:        worklet + WASM + controls + audible out
     SvfVisualizer/                 # visualization artifact: live response curve / poles-zeros / impulse
-  public/assets/svf/               # lesson-asset output (§4.4): svf.wasm, worklet, audio, json, manifest.json
+  public/manifest/svf.json         # lesson-asset manifest (assembled, §4.4); binaries live on the CDN
   astro.config.mjs
   tsconfig.json                    # strict: true
   package.json
 ```
 
 - Lessons authored in **MDX** (prose + embedded components + math).
-- **Interactive artifacts are embeddable islands resolved through a typed registry.** A
-  lesson embeds 0..N artifacts; the registry maps an artifact *kind* → its component, so
-  a lesson declares `demo` / `visualizer` (and, later, `spectrum` / `oscilloscope` /
-  `sandbox` / `exercise`) without importing components ad hoc. This slice registers and
-  ships two: `visualizer` (`<SvfVisualizer>`, "Observe it") and `demo` (`<SvfDemo>`,
-  "Play with it").
-- **Hard dependency invariant (Principle VI):** `site/` depends *only* on the exported
-  browser ABI (§4.1) and the lesson-asset contract (§4.4). It knows **nothing** about
-  `core/` internals — no core headers, no core source paths, no coupling to a specific
-  effect's internals. This mirrors how `plugin` / `daisy` / `workbench` adapters relate
-  to the core, and it is non-negotiable: the arrow is `core → adapters/web → site`, never
-  backward.
+- **Interactive artifacts are metadata-driven, resolved through a typed registry
+  (review #4).** Lessons declare artifacts by kind — `<Artifact kind="svf-visualizer"
+  lesson="svf" />` — not by importing components ad hoc; the registry earns its place
+  precisely because declaration is data, not hardcoded JSX. The shape is pinned and
+  strictly typed via a **discriminated union on `kind`** (no `unknown` at consumption):
+  ```ts
+  type ArtifactKind = "svf-demo" | "svf-visualizer";
+  interface ArtifactBase<K extends ArtifactKind, P> {
+    kind: K; assetBundle: string; props: Readonly<P>;
+  }
+  type ArtifactDeclaration =
+    | ArtifactBase<"svf-demo", SvfDemoProps>
+    | ArtifactBase<"svf-visualizer", SvfVisualizerProps>;
+  ```
+  This slice registers and ships two kinds; future kinds (`spectrum`, `oscilloscope`,
+  `sandbox`, `exercise`) extend the union.
+- **Hard dependency invariant (Principle VI) — clarified (review #2).** Two different
+  kinds of dependency, and only one is allowed:
+  - **Runtime / build dependency on DSP internals — PROHIBITED.** The site runtime and
+    interactive components depend *only* on the exported browser ABI (§4.1) and the
+    lesson-asset manifest (§4.4). No core headers, no core source, no coupling to an
+    effect's internals. The arrow is `core → adapters/web → site`, never backward.
+  - **Build-time repository-reference indexing — PERMITTED.** The doc auto-resolver
+    (§4.5) may inspect repository paths (`specs/…`, `core/…`, `ROADMAP.md`) as
+    *documentation metadata* to produce links, but must **not import, parse, or depend on
+    C++ implementation semantics**. It reads the repo as a filesystem index, not as a
+    program.
 - The visual design of both artifacts — and the overall lesson layout/typography — is
   produced via `/frontend-design` (Commandment IV).
 - All `.ts` / `.astro` / component / config source is TypeScript strict (Principle IX).
 
-### 4.3 Build wiring
+### 4.3 Build wiring — two stages, deliberately split
 
-One entry point (`make site` / equivalent) runs the two producers (§4.4) then the site:
+Binaries are **built on local hardware and published to the CDN**, never in CI
+(Emscripten in CI is slow; B2↔Cloudflare has free egress). CI and Netlify only ever
+consume the committed manifest. Two stages:
 
-1. **Emscripten** build `adapters/web` → `svf.wasm` + TypeScript worklet.
-2. **Host asset-tool** build + run → audio clips + response/pole-zero/impulse JSON.
-3. Both emit into `site/public/assets/svf/` and write/refresh `manifest.json` (§4.4).
-4. `npm run build` (Astro) in `site/` consumes the manifest.
+**Stage 1 — asset publish (local, operator-run: `make publish-assets`):**
+1. **Emscripten** build `adapters/web` → `svf.<hash>.wasm` + TypeScript worklet.
+2. **Host asset-tool** build + run → audio clips + response/pole-zero/impulse JSON, each
+   content-hashed.
+3. Each producer writes a **fragment** (`wasm.fragment.json`, `static.fragment.json`)
+   recording its objects, content hashes, and **source provenance** (the core/adapter
+   source hash it was built from).
+4. Upload objects to **Backblaze B2**; they serve behind **Cloudflare** (immutable,
+   content-hashed URLs).
+5. A single **manifest assembler** (review #3) inventories the fragments, validates them,
+   and writes the authoritative `site/public/manifest/svf.json` with absolute Cloudflare
+   URLs + provenance. **The manifest (small JSON) is committed to git; the binaries are
+   not.**
 
-Dev loop: `npm run dev` serves content with hot reload; re-run producer step 1 and/or 2
-when the core, adapter, or asset-tool changes.
+**Stage 2 — site build (local for dev; Netlify for deploy — never CI):**
+- Astro builds the static site, reading the committed manifest; at runtime the browser
+  fetches `.wasm` / audio from Cloudflare (cross-origin — §4.4 CORS).
 
-### 4.4 Lesson assets — generated from the real core (two producers, one contract)
+**CI builds nothing (operator directive).** Every compile/build/test in this design runs
+on **local hardware** as an explicit `make` target (Emscripten, the host asset-tool, the
+native parity reference, `astro build`, `tsc`, Playwright). Netlify runs the deploy build
+(hosting is deferred, §10). CI, if used at all, is restricted to **non-building**
+validation (manifest JSON validity, the provenance staleness hash-check of §6) — whether
+even that runs is an open operator decision (§10). No git hooks either (Commandment II).
+
+Dev loop: `npm run dev` serves content with hot reload against the committed manifest
+(pointing at already-published CDN assets); re-run Stage 1 locally only when the core,
+adapter, or asset-tool changes.
+
+### 4.4 Lesson assets — generated from the real core (two producers, one writer)
 
 All artifacts the site consumes are generated from the *real* core and described by a
-single typed **manifest contract** (`manifest.json` + `manifest.ts` reader). Two
-distinct producers write into that one contract — kept separate because they are
-genuinely different build kinds, not merged (a cross-compiler is not a data tool):
+single typed **manifest contract** (`svf.json` + a `manifest.ts` reader). Two producers
+feed it — kept separate because they are genuinely different build kinds (a cross-compiler
+is not a data tool) — but **each producer only writes its own fragment; a single manifest
+assembler is the sole writer of the manifest (review #3)** — no two writers racing one
+file:
 
 - **Producer A — WASM (Emscripten):** cross-compiles the `adapters/web` audio target →
-  `svf.wasm` + worklet. Runtime engine for "Observe it" and "Play with it."
+  `svf.<hash>.wasm` + worklet; exports the audio + analysis capabilities (§4.1). Runtime
+  engine for "Observe it" and "Play with it." Emits `wasm.fragment.json`.
 - **Producer B — host asset-tool (native):** links the same `core/effects/svf`, sweeps
-  the filter, and emits rendered audio clips + frequency-response / pole-zero / impulse
-  JSON. Feeds "Hear it" and seeds the visualizer's reference overlays.
+  the filter, emits rendered audio clips + frequency-response / pole-zero / impulse JSON.
+  Feeds "Hear it" and seeds the visualizer's reference overlays. Emits
+  `static.fragment.json`.
 
-The **manifest** is the contract the site binds to: it lists every asset (kind, path,
-params, sample rate, provenance) so the site never hardcodes filenames and future asset
-kinds (spectrogram, phase, bode) extend the manifest, not the site. This keeps §3
-"Hear it" / "Observe it" assets faithful to the real DSP (Principle VII — no faked data).
+The **manifest** is the contract the site binds to. It records, per asset: kind,
+**absolute Cloudflare URL**, content hash, declared **capabilities + version envelope**
+(§4.1), params, sample rate, and **provenance** (the core/adapter source hash it was
+built from). Consequences of the CDN model:
+
+- **Cross-origin serving (B2 + Cloudflare):** the `.wasm`, worklet, and audio are fetched
+  cross-origin, so they MUST be served with `Access-Control-Allow-Origin` for the site
+  origin and the `.wasm` with `Content-Type: application/wasm` (for
+  `WebAssembly.instantiateStreaming`). Content-hashed URLs are treated as immutable and
+  long-cached.
+- **No hardcoded filenames:** the site reads URLs from the manifest; future asset kinds
+  (spectrogram, phase, bode) extend the manifest, not the site.
+- **Provenance enables a non-building staleness guard (§6):** because binaries are built
+  locally, the committed manifest's source-hash lets a pure **hash comparison** (no
+  compile) detect "core changed but assets weren't rebuilt/published" — runnable as a
+  local `make` step and, optionally, as a non-building CI check.
+
+This keeps §3 "Hear it" / "Observe it" assets faithful to the real DSP (Principle VII —
+no faked data).
 
 ### 4.5 Lesson metadata + repo-doc auto-resolver
 
@@ -212,49 +276,74 @@ by hand. Two pieces:
 
 ## 5. Data flow
 
+- **Asset load**: committed manifest → absolute Cloudflare URLs → browser fetches
+  `.wasm` / worklet / audio cross-origin from B2-behind-Cloudflare (CORS + immutable
+  content-hashed URLs, §4.4).
 - **Play with it (audio)**: UI slider → normalized param → `setParam` on the worklet →
-  WASM `process()` on the real SVF target → audio out + response curve redrawn from the
-  module's coefficients.
-- **Observe it (visualization)**: same WASM module → the visualizer reads coefficients /
-  runs an offline sweep/impulse through `process()` → live response curve, pole/zero
-  positions, and impulse response redrawn as params change (no audio output on this path).
-- **Static assets**: host asset-tool → JSON + audio → manifest → rendered by the lesson.
-  Static overlays seed the visualizer's reference state before the live module loads.
-
-**Open decision (operator's call, §10):** whether generated assets are committed into the
-repo or produced at build time. Both are viable; surfaced here rather than chosen
-unilaterally.
+  WASM `process()` (audio capability) on the real SVF target → audio out + response curve
+  redrawn.
+- **Observe it (visualization)**: same WASM module's **analysis capability**
+  (`getFrequencyResponse / getPoleZeroData / renderImpulseResponse`, computed by the real
+  compiled target) → live response curve, pole/zero positions, and impulse response
+  redrawn as params change (no audio output on this path).
+- **Static assets**: host asset-tool → JSON + audio (on the CDN) → manifest → rendered by
+  the lesson. Static overlays seed the visualizer's reference state before the live
+  module loads.
 
 ## 6. Testing
 
+All tests run **locally** as explicit `make` targets (CI builds nothing, §4.3).
+
 - **Core DSP**: already covered by the existing host-side doctest suite. The WASM path
   runs *that same code*; we do not re-test the DSP, we test the bridge.
-- **WASM parity test** (Node, TypeScript): load the module, push a known impulse/sine
-  through `process()`, assert output matches the host suite's reference values — proving
-  the browser path does not distort the DSP.
-- **Site build check**: `astro build` (and `tsc --noEmit`) must pass in CI; broken MDX,
-  a missing WASM asset, or a type error fails the build.
-- **Interactive artifacts**: hand smoke-test at implementation (audio start/stop, sliders
-  move the curve, the visualizer tracks params). Automated E2E browser testing is an
-  **open operator decision** (§10), not excluded by default.
+- **WASM parity test — durable contract (review #6):** no numeric constants copied into a
+  TS test. A small **native reference executable** and the **WASM module** are both run
+  against the **same versioned input vectors**; their emitted output buffers are compared
+  within tolerance. The input-vector fixture is versioned with provenance recorded in the
+  manifest, so a stale fixture is detectable rather than silently trusted.
+- **Non-building staleness guard**: a pure hash comparison (§4.4) asserts the committed
+  manifest's provenance matches the current `core/` + `adapters/web` source — catching
+  "core changed, assets not republished." No compile; runs as a local `make` step (and
+  optionally a non-building CI check).
+- **Type + build check (local)**: `tsc --noEmit` and `astro build` must pass locally;
+  broken MDX, a manifest miss, or a type error fails the build.
+- **E2E smoke test — Playwright (decided, in scope):** one minimal Playwright test,
+  run locally, covering the browser-integration surface unit/build checks miss —
+  AudioWorklet init, **cross-origin asset load from the CDN**, user-gesture audio startup,
+  and the visualizer rendering.
 
 ## 7. Error handling
 
-- **No AudioWorklet/WASM support** → the demo island renders a graceful fallback: the
-  pre-generated audio clips + static response plot. Never a broken widget.
+Two senses of "fallback" are distinguished (review #5) so the static presentation is
+never misread as violating the no-fallback rule:
+
+- **Content fallback — ALLOWED.** When the live engine can't run (no AudioWorklet/WASM
+  support), the artifact renders **real, pre-generated core output** — the host-tool audio
+  clips + static response plot from the manifest. This is genuine DSP output, just
+  precomputed; never a broken widget.
+- **DSP fallback — PROHIBITED (Principle VII).** Silently replacing a failed WASM module
+  with a *substitute processor* (a TS reimplementation, a stand-in filter) is forbidden.
+- **WASM fetch/instantiate failure** → a visible, descriptive message in the artifact
+  card, optionally alongside the content fallback. The failure is surfaced, not hidden,
+  and never papered over with a lookalike DSP.
 - **Autoplay policy** → audio starts only on a user gesture (a "▶ Start" control).
-- **WASM fetch/instantiate failure** → a visible, descriptive message in the demo card.
-  No mock/fallback DSP (Principle VI) — the failure is surfaced, not hidden.
 
 ## 8. New toolchains (scoped, contained)
 
 Introduced for the first time, confined to the new subtrees; the C++ core and its
-CMake build are untouched:
+CMake build are untouched. **All of these run on local hardware, not CI (§4.3).**
 
 - **Node / npm** — for `site/` (Astro, TypeScript). New `.gitignore` entries
   (`node_modules/`, Astro build output).
-- **Emscripten SDK** — build dependency for `adapters/web`. A new CMake preset `web`
-  using the Emscripten toolchain.
+- **Emscripten SDK** — local build dependency for `adapters/web`. A new CMake preset
+  `web` using the Emscripten toolchain.
+- **Playwright** — local E2E smoke test (§6).
+- **CDN publish tooling** — a B2 upload client (e.g. `rclone` / B2 CLI) plus the
+  Cloudflare config (CORS allow-origin, `Content-Type: application/wasm`, immutable
+  caching for content-hashed objects). Invoked by the local `make publish-assets` step.
+- **Static-build contract** — `npm run build` MUST emit a self-contained, deployable
+  static bundle (the Netlify-ready artifact) that references only the committed manifest +
+  CDN URLs; no server runtime. Hosting/deploy pipeline itself is out of scope (§10).
 
 ## 9. Definition of done (this slice)
 
@@ -270,15 +359,19 @@ CMake build are untouched:
    host asset-tool) emit into it; nothing is faked.
 7. The **doc auto-resolver** generates "Go deeper" links from lesson metadata; a resolver
    miss fails the build.
-8. Static "Hear it" assets are generated from the host asset-tool.
-9. The visual layer was produced via `/frontend-design`.
-10. All JS-runtime source is TypeScript strict; no `any` / `@ts-ignore`.
+8. Static "Hear it" assets are generated from the host asset-tool (on the CDN).
+9. Binaries are built locally and published to B2/Cloudflare; the committed manifest
+   pins immutable content-hashed URLs; the non-building staleness guard passes.
+10. The Playwright smoke test passes locally (AudioWorklet init, cross-origin CDN load,
+    user-gesture startup, visualizer render).
+11. `npm run build` emits a self-contained, Netlify-ready static bundle (no CI build).
+12. The visual layer was produced via `/frontend-design`.
+13. All JS-runtime source is TypeScript strict; no `any` / `@ts-ignore`.
 
 ## 10. Scope
 
 Per Commandment V, scope is the operator's. This section separates what the operator has
-**decided is out** from what is **open and awaiting the operator's decision** — nothing
-here is an agent-side "YAGNI" cut.
+**decided** from what remains **open** — nothing here is an agent-side "YAGNI" cut.
 
 ### 10a. Operator-set slice boundary (decided)
 
@@ -291,12 +384,21 @@ The operator scoped this to **one vertical SVF lesson**. Consequences of that de
 The registry (§4.2), asset manifest (§4.4), and doc auto-resolver (§4.5) **are in scope**
 this slice — the operator elected to build these generalizing layers now, not defer them.
 
-### 10b. Open — awaiting operator decision (not cut, surfaced)
+### 10b. Operator decisions taken this round (resolved)
 
-- **Assets: commit vs. build-time generation** (§5) — both viable; operator to choose.
-- **Automated E2E browser testing** (§6) — include now or add later; operator to choose.
-- **Non-audio target kinds** in `adapters/web` (§4.1) — stub now or design when the first
-  such lesson exists (a genuine "shape unknown" technical limit, not a YAGNI trim).
-- **Accounts / progress tracking / backend / hosting + deployment pipeline** — the site
-  must eventually be served; whether any of this belongs in this slice is the operator's
-  call, flagged rather than silently excluded.
+- **Assets** → built on **local hardware**, published to **B2 + Cloudflare**; manifest
+  (JSON) committed, binaries not; **CI builds nothing** (§4.3).
+- **E2E** → one **Playwright** smoke test now, run locally (§6).
+- **Non-audio target kinds** → capability/version envelope in the manifest, **no
+  speculative kind** now (provisional, reversible — technical limit, §4.1).
+- **Deployment** → hosting out of scope; **Netlify** is the eventual target; the slice
+  must produce a **static-build contract** (§8) so it is deploy-ready.
+
+### 10c. Still open — awaiting operator decision (surfaced, not cut)
+
+- **Exact Cloudflare/B2 config** — CORS allow-origin value, cache-control policy, bucket
+  layout, and the upload client (`rclone` vs B2 CLI): pin during the implementation plan.
+- **Whether CI runs the non-building checks at all** (§4.3/§6), or validation stays
+  purely local `make` steps.
+- **Accounts / progress tracking / backend** — not needed for a training lesson; flagged
+  rather than silently excluded, to confirm.
