@@ -1,15 +1,14 @@
 # Quickstart / Validation: SVF Training Site (Vertical Slice)
 
 Runnable validation that the slice works end-to-end. All steps are **local** (CI builds
-nothing). Prereqs: Emscripten SDK (`source ~/emsdk/emsdk_env.sh`), Node ≥ 22, `npx wrangler`,
-an S3/B2 upload client, and the gitignored creds file
-`~/.config/backblaze/b2-audiocontrol-acfx-credentials.yaml`.
+nothing). Prereqs (installed 2026-07-14): Emscripten via Homebrew (`emcc`/`emcmake` on
+PATH — `brew install emscripten`), Node ≥ 22, `rclone` (`brew install rclone`), `npx wrangler`,
+and the gitignored creds file `~/.config/backblaze/b2-audiocontrol-acfx-credentials.yaml`.
 
 ## Phase 1 — `adapters/web` WASM audio ABI + parity (SC-002)
 
 ```bash
-source ~/emsdk/emsdk_env.sh
-make web-parity          # native ABI test + WASM build + parity test on shared vectors
+make web-parity          # native ABI test + WASM build (emcmake) + parity test on shared vectors
 ```
 Expected: native ABI test PASS; parity test PASS (every sample within 1e-6 of the native
 reference). See `docs/superpowers/plans/2026-07-14-svf-web-adapter-parity.md`.

@@ -28,19 +28,21 @@ Copied verbatim from the spec/constitution; every task implicitly includes these
 - **Descriptive names, no numeric prefixes** (Commandment III). **Commit and push early and often** (Commandment I); no AI attribution.
 - **No secrets in the repo** (relevant from Phase 3 on; nothing secret here).
 
-## Prerequisites (one-time, local hardware)
+## Prerequisites (installed 2026-07-14 via Homebrew)
 
-Emscripten is not assumed present (`emcc` is absent on at least one dev machine). Install the SDK locally and activate it in the shell used for the `web` preset:
+Emscripten and Node are installed on the dev machine via Homebrew — `emcc` and `emcmake`
+are on PATH (no `$EMSDK`, no `emsdk_env.sh` sourcing). Verify:
 
 ```bash
-git clone https://github.com/emscripten-core/emsdk ~/emsdk
-~/emsdk/emsdk install latest && ~/emsdk/emsdk activate latest
-source ~/emsdk/emsdk_env.sh   # exports EMSDK and puts emcc on PATH
-emcc --version                # verify
-node --version                # verify Node >= 22
+brew install emscripten   # already done: emcc 6.0.3 + emcmake on PATH
+emcc --version            # 6.0.3+
+command -v emcmake        # /opt/homebrew/bin/emcmake
+node --version            # >= 22 (v26 present)
 ```
 
-`source emsdk_env.sh` must be run in any shell that configures/builds the `web` preset (the preset reads `$env{EMSDK}`).
+The `web` preset is driven with **`emcmake cmake`** (below): emcmake injects the Emscripten
+CMake toolchain automatically, so nothing hardcodes an SDK path. (An emsdk install would
+also work; the plan is toolchain-path-agnostic via emcmake.)
 
 ## File Structure
 
@@ -105,8 +107,7 @@ Add to `configurePresets` (after `teensy`):
 {
   "name": "web",
   "inherits": "base",
-  "displayName": "WebAssembly adapter (Emscripten)",
-  "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+  "displayName": "WebAssembly adapter (Emscripten; configure via `emcmake cmake --preset web`)",
   "cacheVariables": { "ACFX_BUILD_WEB": "ON", "CMAKE_CXX_STANDARD": "20" }
 },
 {
@@ -342,10 +343,10 @@ if(EMSCRIPTEN)
 endif()
 ```
 
-- [ ] **Step 2: Configure + build the WASM (requires `source emsdk_env.sh`)**
+- [ ] **Step 2: Configure + build the WASM (via `emcmake`)**
 
 ```bash
-cmake --preset web
+emcmake cmake --preset web
 cmake --build build/web --target svf
 ls -la build/web/svf.wasm build/web/svf.mjs
 ```
@@ -682,9 +683,8 @@ describe("SVF WASM/native parity", () => {
 - [ ] **Step 2: Ensure both builds exist, then run the parity test**
 
 ```bash
-source ~/emsdk/emsdk_env.sh
-cmake --preset web     && cmake --build build/web     --target svf
-cmake --preset web-ref && cmake --build build/web-ref --target svf-reference
+emcmake cmake --preset web && cmake --build build/web --target svf
+cmake --preset web-ref     && cmake --build build/web-ref --target svf-reference
 cd adapters/web && npm test
 ```
 
@@ -718,7 +718,7 @@ web-ref:
 	ctest --test-dir build/web-ref -R acfx_web_abi_native_test --output-on-failure
 
 web-wasm:
-	cmake --preset web && cmake --build build/web --target svf
+	emcmake cmake --preset web && cmake --build build/web --target svf
 
 web-parity: web-ref web-wasm
 	cd adapters/web && npm install && npm run typecheck && npm test
@@ -735,7 +735,7 @@ A parity test proves the two agree.
 
 ## Build & test (local only — CI builds nothing)
 
-Prereq: `source ~/emsdk/emsdk_env.sh` (Emscripten), Node >= 22.
+Prereq: Emscripten on PATH (`brew install emscripten` → `emcc`/`emcmake`), Node >= 22.
 
 - `make web-ref`    — native ABI test + reference CLI
 - `make web-wasm`   — the WASM module (`build/web/svf.{mjs,wasm}`)
@@ -748,7 +748,6 @@ Depends only inward on `acfx_core` (Constitution VI). The analysis ABI
 - [ ] **Step 3: Run the full local flow**
 
 ```bash
-source ~/emsdk/emsdk_env.sh
 make web-parity
 ```
 
