@@ -429,6 +429,8 @@ git commit -m "build(web): emscripten WASM module (svf.mjs + svf.wasm)"
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
