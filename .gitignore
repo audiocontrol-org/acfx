@@ -29,6 +29,10 @@ site/node_modules/
 site/dist/
 site/.astro/
 
+# Playwright E2E (svf-training-site, T033) — run artifacts, not committed
+site/test-results/
+site/playwright-report/
+
 # CPM fetched dependencies + cache
 external/_deps/
 external/.cpm-cache/

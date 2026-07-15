@@ -11,6 +11,6 @@
       "@acfx/web/*": ["../adapters/web/*"]
     }
   },
-  "include": [".astro/types.d.ts", "src/**/*"],
-  "exclude": ["dist"]
+  "include": [".astro/types.d.ts", "src/**/*", "playwright.config.ts", "tests/**/*"],
+  "exclude": ["dist", "test-results", "playwright-report"]
 }

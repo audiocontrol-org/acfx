@@ -21,7 +21,7 @@ AU_DIR   ?= $(HOME)/Library/Audio/Plug-Ins/Components
 CLAP_DIR ?= $(HOME)/Library/Audio/Plug-Ins/CLAP
 
 .DEFAULT_GOAL := help
-.PHONY: help test build desktop daisy teensy all clean distclean install
+.PHONY: help test build desktop daisy teensy all clean distclean install e2e
 
 help:
 	@echo "acfx make targets:"
@@ -32,6 +32,7 @@ help:
 	@echo "  make all        build + daisy + teensy"
 	@echo "  make lesson-assets    Build native asset-tool + WASM, run both fragment producers, regenerate site/public/manifest/svf.json"
 	@echo "  make staleness-guard  Non-building hash check: manifest sourceProvenance vs current core/+adapters/web source"
+	@echo "  make e2e        Build the site + run the Playwright SVF-lesson smoke test locally (CI builds nothing)"
 	@echo "  make install    Build the plugin, then copy VST3/AU/CLAP bundles to your user plug-in folders (macOS)"
 	@echo "  make clean      Remove the build/ tree (keeps the CPM dependency cache under external/)"
 	@echo "  make distclean  Remove build/ AND the CPM dependency cache"
@@ -86,6 +87,15 @@ lesson-assets: web-wasm
 # sourceProvenance vs current core/+adapters/web source. No compile.
 staleness-guard:
 	cd tools && npm install && npm run staleness-guard -- --manifest=../site/public/manifest/svf.json
+
+# End-to-end smoke (T033, FR-013, SC-006): build the static site, make sure
+# Chromium is present, then run the ONE Playwright spec against the built
+# `dist/` served by `astro preview` (playwright.config.ts's webServer runs
+# preview itself). All local — CI builds nothing.
+e2e:
+	cd site && npm install && npm run build
+	cd site && npx playwright install chromium
+	cd site && npm run test:e2e
 
 clean:
 	rm -rf $(BUILD)
