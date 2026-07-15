@@ -17,6 +17,23 @@ console.log(
     `response=${assetsByKind('response').length}, impulse=${assetsByKind('impulse').length}, ` +
     `pole-zero=${assetsByKind('pole-zero').length}, worklet=${assetsByKind('worklet').length})`,
 );
+
+// Build-time sanity check for T023 (doc auto-resolver): resolves the SVF
+// lesson's declared repoAnchors into "Go deeper" links against the real repo.
+// This EXERCISES the fail-loud invariant during `astro build` — an anchor that
+// no longer resolves throws and fails the build (FR-009), never a dead link.
+import { svfLessonMeta } from '@content/svf/lesson.meta';
+import { resolveGoDeeper } from '@lib/repo-refs/resolver';
+
+const goDeeper = resolveGoDeeper(svfLessonMeta);
+console.log(
+  `[repo-refs] "Go deeper" resolved for effect "${svfLessonMeta.effect}": ` +
+    `spec=${goDeeper.spec.repoPath}, plan=${goDeeper.plan.repoPath}, ` +
+    `tasks=${goDeeper.tasks.repoPath}, tests=[${goDeeper.tests.map((r) => r.repoPath).join(', ')}], ` +
+    `implementation=[${goDeeper.implementation.map((r) => r.repoPath).join(', ')}], ` +
+    `roadmapNode=${goDeeper.roadmapNode.id} (found=${goDeeper.roadmapNode.found})`,
+);
+console.log(`[repo-refs] spec URL: ${goDeeper.spec.url}`);
 ---
 
 <html lang="en">
