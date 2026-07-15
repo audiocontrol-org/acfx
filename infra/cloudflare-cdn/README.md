@@ -79,3 +79,9 @@ cd infra/cloudflare-cdn
 npm install
 npx tsc --noEmit
 ```
+
+## Deployment record
+
+- **Deployed:** 2026-07-14 → `https://audiocontrol-acfx-cdn.oletizi.workers.dev` (this is `CDN_BASE`, matching the committed manifest).
+- **Bucket:** `audiocontrol-acfx` set to `allPublic` (required for the worker's anonymous friendly-URL fetch).
+- **Verified on the wire:** `Content-Type: application/wasm`, `Access-Control-Allow-Origin: *`, `Cache-Control: …immutable`, and `X-CDN-Cache: MISS`→`HIT`.
