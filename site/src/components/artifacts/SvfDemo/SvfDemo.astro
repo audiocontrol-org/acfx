@@ -1,0 +1,529 @@
+---
+// SvfDemo — the "play with it" interactive audio artifact (T027/T028).
+//
+// A learner feeds a rich sawtooth source through the REAL compiled SVF
+// (svf.wasm, running on the audio thread via the adapters/web AudioWorklet
+// engine) and sweeps cutoff / resonance / mode to hear the filter live. No
+// BiquadFilter, no JS filter — the only DSP is svf_process (FR-002).
+//
+// Visual direction (/frontend-design): an analog-instrument FACEPLATE. Deep
+// blue-graphite enclosure, engraved monospace labels, one warm "signal amber"
+// accent. The signature is a resonance-driven glow — the faceplate visibly
+// heats up as resonance nears self-oscillation, tying the look to the physics.
+//
+// Progressive enhancement: the server renders the CONTENT fallback (the real
+// pre-rendered audio clips from the manifest) visible; the client island
+// reveals the live faceplate only when AudioWorklet + WebAssembly are present,
+// and shows a visible descriptive error on a WASM fetch/instantiate failure
+// (FR-015). A DSP-fallback (a different processor) is never substituted.
+import type { SvfDemoProps } from '@lib/artifacts/registry';
+import { assetsByKind, wasmAsset } from '@lib/lesson-assets/manifest';
+import { cutoffHzToNormalized, formatCutoff, formatResonance } from './svf-param-map.ts';
+
+const { initialCutoffHz, initialResonance, initialMode } = Astro.props as SvfDemoProps;
+
+const wasmUrl = wasmAsset().url;
+const initialCutoffNorm = cutoffHzToNormalized(initialCutoffHz);
+
+// Content-fallback clips: the real, pre-rendered filter outputs (kind:"audio").
+const clips = assetsByKind('audio').map((asset) => {
+  const cutoffHz = asset.params?.['cutoffHz'];
+  const resonance = asset.params?.['resonance'];
+  const parts: string[] = [];
+  if (typeof cutoffHz === 'number') parts.push(formatCutoff(cutoffHz));
+  if (typeof resonance === 'number' && resonance > 0.5) parts.push(formatResonance(resonance));
+  return { url: asset.url, label: parts.length > 0 ? parts.join(' · ') : 'example' };
+});
+
+const uid = Math.random().toString(36).slice(2, 8);
+const cutoffId = `svf-cutoff-${uid}`;
+const resId = `svf-res-${uid}`;
+---
+
+<div
+  class="svf"
+  data-svf-demo
+  data-wasm-url={wasmUrl}
+  data-initial-cutoff-hz={String(initialCutoffHz)}
+  data-initial-resonance={String(initialResonance)}
+  data-initial-mode={initialMode}
+  style={`--svf-glow:${initialResonance.toFixed(3)}`}
+>
+  <div class="svf__panel">
+    <header class="svf__head">
+      <span class="svf__eyebrow">State-Variable Filter</span>
+      <span class="svf__badge">real WASM DSP</span>
+    </header>
+
+    <!-- Live interactive faceplate — hidden until the island confirms support. -->
+    <section class="svf__live" data-role="live" hidden>
+      <div class="svf__readouts">
+        <div class="svf__hero">
+          <span class="svf__hero-value" data-role="cutoff-readout">{formatCutoff(initialCutoffHz)}</span>
+          <span class="svf__hero-label">cutoff frequency</span>
+        </div>
+        <div class="svf__side">
+          <span class="svf__mode-value" data-role="mode-readout">LOW PASS</span>
+          <span class="svf__res-value" data-role="resonance-readout">{formatResonance(initialResonance)}</span>
+        </div>
+      </div>
+
+      <div class="svf__transport">
+        <button class="svf__power" data-role="start" type="button">
+          <span class="svf__power-dot" aria-hidden="true"></span>Start
+        </button>
+        <button class="svf__power svf__power--stop" data-role="stop" type="button" hidden>
+          <span class="svf__power-dot" aria-hidden="true"></span>Stop
+        </button>
+        <span class="svf__status" data-role="status" role="status" aria-live="polite">Ready.</span>
+      </div>
+
+      <p class="svf__error" data-role="error" role="alert" hidden></p>
+
+      <div class="svf__controls">
+        <div class="svf__fader">
+          <label class="svf__ctl-label" for={cutoffId}>Cutoff</label>
+          <input
+            id={cutoffId}
+            class="svf__range"
+            data-role="cutoff"
+            type="range"
+            min="0"
+            max="1"
+            step="0.001"
+            value={String(initialCutoffNorm)}
+            aria-label="Cutoff frequency, 20 Hz to 20 kHz"
+          />
+          <span class="svf__scale">20 Hz — 20 kHz</span>
+        </div>
+
+        <div class="svf__fader">
+          <label class="svf__ctl-label" for={resId}>Resonance</label>
+          <input
+            id={resId}
+            class="svf__range svf__range--res"
+            data-role="resonance"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={String(initialResonance)}
+            aria-label="Resonance, 0 to 1"
+          />
+          <span class="svf__scale">calm — self-oscillating</span>
+        </div>
+
+        <div class="svf__modes" role="group" aria-label="Filter mode">
+          <span class="svf__ctl-label">Mode</span>
+          <div class="svf__seg">
+            <button class="svf__seg-btn" data-role="mode" data-mode="lowpass" type="button" aria-pressed="true">LP</button>
+            <button class="svf__seg-btn" data-role="mode" data-mode="highpass" type="button" aria-pressed="false">HP</button>
+            <button class="svf__seg-btn" data-role="mode" data-mode="bandpass" type="button" aria-pressed="false">BP</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Content fallback: the real pre-rendered clips. Visible by default so a
+         no-JS / unsupported browser still hears the filter; the island hides it
+         once the live path is up. -->
+    <section class="svf__fallback" data-role="fallback">
+      <p class="svf__fallback-note">
+        Pre-rendered outputs of the real filter.
+        <span class="svf__fallback-sub">The live, interactive version loads when your browser supports AudioWorklet + WebAssembly.</span>
+      </p>
+      <ul class="svf__clips">
+        {
+          clips.map((clip) => (
+            <li class="svf__clip">
+              <span class="svf__clip-label">{clip.label}</span>
+              <audio class="svf__clip-audio" controls preload="none" src={clip.url}></audio>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+  </div>
+</div>
+
+<script>
+  import { initSvfDemos } from './svf-demo-controller.ts';
+  initSvfDemos();
+</script>
+
+<style>
+  .svf {
+    --void: #0f1219;
+    --face: #1b2130;
+    --raised: #252c3e;
+    --hairline: #333c52;
+    --ink: #eaedf5;
+    --dim: #7e889f;
+    --signal: #ff9f45;
+    --signal-hot: #ffc978;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    display: block;
+    color: var(--ink);
+    font-family: var(--sans);
+    container-type: inline-size;
+  }
+
+  .svf__panel {
+    background: linear-gradient(180deg, #202638 0%, var(--face) 55%, #171c29 100%);
+    border-radius: 16px;
+    padding: clamp(1.1rem, 3.5cqi, 1.9rem);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      inset 0 0 0 1px var(--hairline),
+      0 24px 48px -24px rgba(0, 0, 0, 0.85),
+      0 0 calc(var(--svf-glow, 0) * 46px) rgba(255, 159, 69, calc(var(--svf-glow, 0) * 0.28));
+    transition: box-shadow 160ms ease;
+  }
+
+  .svf__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 0.9rem;
+    margin-bottom: 1.1rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .svf__eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .svf__badge {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    border: 1px solid color-mix(in srgb, var(--signal) 40%, transparent);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    white-space: nowrap;
+  }
+
+  /* --- Readouts ---------------------------------------------------------- */
+  .svf__readouts {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .svf__hero {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .svf__hero-value {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(2.4rem, 9cqi, 3.6rem);
+    font-weight: 600;
+    line-height: 1;
+    color: var(--signal-hot);
+    text-shadow: 0 0 calc(8px + var(--svf-glow, 0) * 34px)
+      rgba(255, 159, 69, calc(0.12 + var(--svf-glow, 0) * 0.6));
+    transition: text-shadow 160ms ease;
+  }
+
+  .svf__hero-label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .svf__side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.3rem;
+    font-family: var(--mono);
+  }
+
+  .svf__mode-value {
+    font-size: 0.95rem;
+    letter-spacing: 0.16em;
+    color: var(--ink);
+  }
+
+  .svf__res-value {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+  }
+
+  /* --- Transport --------------------------------------------------------- */
+  .svf__transport {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin: 1.3rem 0 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .svf__power {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--void);
+    background: linear-gradient(180deg, var(--signal-hot), var(--signal));
+    border: none;
+    border-radius: 999px;
+    padding: 0.6rem 1.2rem;
+    cursor: pointer;
+    transition: filter 140ms ease, transform 80ms ease;
+  }
+
+  .svf__power:hover {
+    filter: brightness(1.08);
+  }
+
+  .svf__power:active {
+    transform: translateY(1px);
+  }
+
+  .svf__power:disabled {
+    filter: grayscale(0.5) brightness(0.8);
+    cursor: progress;
+  }
+
+  .svf__power--stop {
+    color: var(--ink);
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+  }
+
+  .svf__power-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  .svf__status {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.04em;
+    color: var(--dim);
+  }
+
+  .svf__error {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--signal-hot);
+    background: color-mix(in srgb, var(--signal) 12%, var(--void));
+    border: 1px solid color-mix(in srgb, var(--signal) 45%, transparent);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0.6rem 0 0;
+  }
+
+  /* --- Controls ---------------------------------------------------------- */
+  .svf__controls {
+    display: grid;
+    gap: 1.15rem;
+    margin-top: 1.4rem;
+    padding-top: 1.3rem;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .svf__fader {
+    display: grid;
+    grid-template-columns: 6.5rem 1fr auto;
+    align-items: center;
+    gap: 0.9rem;
+  }
+
+  .svf__ctl-label {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  .svf__scale {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+
+  .svf__range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--raised), #2f3750);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+  }
+
+  .svf__range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--signal-hot), var(--signal) 70%);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 0 12px rgba(255, 159, 69, 0.6);
+    cursor: grab;
+  }
+
+  .svf__range::-moz-range-thumb {
+    width: 1.15rem;
+    height: 1.15rem;
+    border: none;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--signal-hot), var(--signal) 70%);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 0 12px rgba(255, 159, 69, 0.6);
+    cursor: grab;
+  }
+
+  .svf__range--res::-webkit-slider-thumb {
+    background: radial-gradient(circle at 35% 30%, #ffd9a3, var(--signal) 70%);
+  }
+
+  .svf__modes {
+    display: grid;
+    grid-template-columns: 6.5rem 1fr;
+    align-items: center;
+    gap: 0.9rem;
+  }
+
+  .svf__seg {
+    display: inline-flex;
+    background: var(--void);
+    border-radius: 10px;
+    padding: 0.25rem;
+    box-shadow: inset 0 0 0 1px var(--hairline);
+    width: fit-content;
+  }
+
+  .svf__seg-btn {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 0.5rem 1.1rem;
+    cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+  }
+
+  .svf__seg-btn:hover {
+    color: var(--ink);
+  }
+
+  .svf__seg-btn[aria-pressed="true"] {
+    color: var(--void);
+    background: linear-gradient(180deg, var(--signal-hot), var(--signal));
+    box-shadow: 0 0 10px rgba(255, 159, 69, 0.4);
+  }
+
+  /* --- Content fallback -------------------------------------------------- */
+  .svf__fallback-note {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--ink);
+    margin: 0 0 1rem;
+  }
+
+  .svf__fallback-sub {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--dim);
+    margin-top: 0.25rem;
+  }
+
+  .svf__clips {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  .svf__clip {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+    background: var(--void);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 0.6rem 0.85rem;
+  }
+
+  .svf__clip-label {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    color: var(--signal-hot);
+    min-width: 6rem;
+  }
+
+  .svf__clip-audio {
+    flex: 1 1 12rem;
+    height: 2.2rem;
+  }
+
+  /* --- Focus + responsive + motion -------------------------------------- */
+  .svf__power:focus-visible,
+  .svf__seg-btn:focus-visible,
+  .svf__range:focus-visible {
+    outline: 2px solid var(--signal-hot);
+    outline-offset: 2px;
+  }
+
+  @container (max-width: 30rem) {
+    .svf__fader {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+    }
+
+    .svf__modes {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+    }
+
+    .svf__scale {
+      justify-self: start;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .svf__panel,
+    .svf__hero-value,
+    .svf__power,
+    .svf__seg-btn {
+      transition: none;
+    }
+  }
+</style>

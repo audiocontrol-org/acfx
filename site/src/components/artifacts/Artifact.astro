@@ -11,6 +11,9 @@
 // throws `ArtifactNotRegisteredError` (fail loud — no placeholder UI).
 import type { ArtifactDeclaration } from '@lib/artifacts/registry';
 import { resolveArtifactComponent } from '@lib/artifacts/registry';
+// Side-effect import: runs every artifact's registration so `kind` resolves
+// (T022 seam). Registrations install lazy loaders only — no eager bundling.
+import '@lib/artifacts/registrations.ts';
 
 interface Props {
   readonly declaration: ArtifactDeclaration;
