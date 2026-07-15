@@ -10,11 +10,11 @@
 // This is a producer, not the manifest writer: it emits ITS fragment only.
 // `assemble.ts` is the sole writer of the committed manifest.
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { computeSourceProvenance } from "./provenance.js";
 import type { Fragment, FragmentAssetEntry } from "./types.js";
 
 interface Args {
@@ -36,10 +36,6 @@ function parseArgs(argv: readonly string[]): Args {
     wasmPath: flags.get("wasm") ?? "build/web/svf.wasm",
     outDir: flags.get("out") ?? "build/web",
   };
-}
-
-function gitHead(cwd: string): string {
-  return execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
 }
 
 function sha256File(path: string): string {
@@ -67,7 +63,7 @@ function main(): void {
   const args = parseArgs(process.argv.slice(2));
   const cwd = process.cwd();
   const wasmPath = resolve(cwd, args.wasmPath);
-  const sourceProvenance = gitHead(cwd);
+  const sourceProvenance = computeSourceProvenance(cwd);
   const fragment = buildWasmFragment(wasmPath, sourceProvenance);
 
   const outDir = resolve(cwd, args.outDir);

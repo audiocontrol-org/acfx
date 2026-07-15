@@ -18,29 +18,40 @@
 // standalone build-product output directory a caller may relocate).
 //
 // --source-hash: `sourceProvenance` (contracts/lesson-asset-manifest.md) --
-// the git commit hash of the tree the assets were produced from. If omitted,
-// the tool shells out to `git rev-parse HEAD` at runtime (documented choice:
-// avoids every caller having to plumb the hash through by hand; pass
-// --source-hash explicitly for reproducible/offline builds where shelling
-// out to git is undesirable).
+// the DSP SOURCE hash the assets were produced from, "<coreTreeSha>:<webTreeSha>"
+// (`git rev-parse HEAD:core` + `git rev-parse HEAD:adapters/web`, joined with
+// ":"). Deliberately NOT whole-tree `git rev-parse HEAD`: a whole-tree hash
+// would make the staleness guard (tools/staleness-guard.ts) fire after ANY
+// commit anywhere in the repo, which is useless. Mirrors
+// tools/manifest/provenance.ts's computeSourceProvenance() -- keep both in
+// sync; the assembler fails loud if the two producers' fragments disagree.
+// If --source-hash is omitted, the tool shells out to git at runtime
+// (documented choice: avoids every caller having to plumb the hash through
+// by hand; pass --source-hash explicitly for reproducible/offline builds
+// where shelling out to git is undesirable).
 
 namespace {
 
-std::string runGitRevParseHead() {
+std::string runGitCommand(const std::string& command) {
     std::array<char, 128> buffer{};
     std::string result;
-    FILE* pipe = popen("git rev-parse HEAD 2>/dev/null", "r");
+    FILE* pipe = popen(command.c_str(), "r");
     if (!pipe)
-        throw std::runtime_error("failed to invoke `git rev-parse HEAD`");
+        throw std::runtime_error("failed to invoke `" + command + "`");
     while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
         result += buffer.data();
     const int status = pclose(pipe);
     while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
         result.pop_back();
     if (status != 0 || result.empty())
-        throw std::runtime_error(
-            "`git rev-parse HEAD` failed; pass --source-hash explicitly (not a git checkout?)");
+        throw std::runtime_error("`" + command + "` failed; pass --source-hash explicitly (not a git checkout?)");
     return result;
+}
+
+std::string computeSourceProvenance() {
+    const std::string coreTreeSha = runGitCommand("git rev-parse HEAD:core 2>/dev/null");
+    const std::string webTreeSha = runGitCommand("git rev-parse HEAD:adapters/web 2>/dev/null");
+    return coreTreeSha + ":" + webTreeSha;
 }
 
 struct Options {
@@ -83,7 +94,7 @@ int main(int argc, char** argv) {
     }
 
     try {
-        const std::string sourceHash = opts.sourceHash.empty() ? runGitRevParseHead() : opts.sourceHash;
+        const std::string sourceHash = opts.sourceHash.empty() ? computeSourceProvenance() : opts.sourceHash;
         const std::string provenance = "tools/lesson-assets@" + sourceHash;
 
         const std::vector<lessonassets::SvfAssetPreset> presets = lessonassets::defaultPresets();

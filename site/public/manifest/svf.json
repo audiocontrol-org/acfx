@@ -1,7 +1,7 @@
 {
   "version": 1,
   "lesson": "svf",
-  "sourceProvenance": "95c6f7a7babba3588588ebe26093665607224614",
+  "sourceProvenance": "33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0",
   "assets": [
     {
       "kind": "wasm",
@@ -12,7 +12,7 @@
         "audio"
       ],
       "capabilityVersion": 1,
-      "provenance": "tools/manifest/wasm-fragment@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/manifest/wasm-fragment@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "audio",
@@ -25,7 +25,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "impulse",
@@ -38,7 +38,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "response",
@@ -51,7 +51,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "audio",
@@ -64,7 +64,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "impulse",
@@ -77,7 +77,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "response",
@@ -90,7 +90,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "audio",
@@ -103,7 +103,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "impulse",
@@ -116,7 +116,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "response",
@@ -129,7 +129,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "audio",
@@ -142,7 +142,7 @@
         "resonance": 0.850000024
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "impulse",
@@ -155,7 +155,7 @@
         "resonance": 0.850000024
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     },
     {
       "kind": "response",
@@ -168,7 +168,7 @@
         "resonance": 0.850000024
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
     }
   ]
 }

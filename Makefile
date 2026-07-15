@@ -30,6 +30,8 @@ help:
 	@echo "  make daisy      Configure + build the Daisy firmware (needs the arm-none-eabi toolchain)"
 	@echo "  make teensy     Configure + build the Teensy firmware (needs the Teensy toolchain)"
 	@echo "  make all        build + daisy + teensy"
+	@echo "  make lesson-assets    Build native asset-tool + WASM, run both fragment producers, regenerate site/public/manifest/svf.json"
+	@echo "  make staleness-guard  Non-building hash check: manifest sourceProvenance vs current core/+adapters/web source"
 	@echo "  make install    Build the plugin, then copy VST3/AU/CLAP bundles to your user plug-in folders (macOS)"
 	@echo "  make clean      Remove the build/ tree (keeps the CPM dependency cache under external/)"
 	@echo "  make distclean  Remove build/ AND the CPM dependency cache"
@@ -66,6 +68,24 @@ web-wasm:
 
 web-parity: web-ref web-wasm
 	cd adapters/web && npm install && npm run typecheck && npm test
+
+# --- svf-training-site lesson assets + manifest (Phase 2). All local; this
+# does NOT upload to any CDN -- that is Phase 3 (`make publish-assets`). ---
+.PHONY: lesson-assets staleness-guard
+lesson-assets: web-wasm
+	$(CMAKE) --preset lesson-assets
+	$(CMAKE) --build build/lesson-assets --target acfx_lesson_assets_tool
+	./build/lesson-assets/tools/lesson-assets/acfx_lesson_assets_tool --out build/lesson-assets/svf-out
+	cd tools && npm install && npm run wasm-fragment -- --wasm=../build/web/svf.wasm --out=../build/web
+	cd tools && npm run assemble -- \
+		--static=../build/lesson-assets/svf-out/static.fragment.json \
+		--wasm=../build/web/wasm.fragment.json \
+		--out=../site/public/manifest/svf.json
+
+# Non-building staleness guard (FR-012): hash-compare committed manifest
+# sourceProvenance vs current core/+adapters/web source. No compile.
+staleness-guard:
+	cd tools && npm install && npm run staleness-guard -- --manifest=../site/public/manifest/svf.json
 
 clean:
 	rm -rf $(BUILD)
