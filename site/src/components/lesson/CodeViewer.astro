@@ -1,0 +1,335 @@
+---
+// CodeViewer — an engraved code screen behind glass, for the "Build it" tab.
+//
+// Given a curated {repoPath, startLine, endLine, caption}, it reads the REAL
+// file from the local repo at build time (load-source) and syntax-highlights it
+// with Shiki (highlight). It renders the excerpt as a bench-instrument readout:
+// a label plate (filename + language + real line range), the highlighted code
+// on a "screen" with an engraved gutter of REAL file line numbers, a control to
+// expand to the whole file, and a GitHub link that deep-links the exact range.
+//
+// Progressive enhancement: the excerpt and the GitHub link work with NO
+// JavaScript; the expand-to-full-file control is the only scripted part, and
+// the full file is inlined (hidden) at build time — expanding fetches nothing.
+//
+// Dependency invariant: the file is read as documentation TEXT and highlighted
+// lexically; nothing here parses C++ semantics (design §4.2).
+import type { CheckpointCode } from '../../content/svf/build-checkpoints.ts';
+import { loadSource } from '@lib/code-viewer/load-source';
+import { highlightSource } from '@lib/code-viewer/highlight';
+
+interface Props {
+  readonly code: CheckpointCode;
+}
+
+const { code } = Astro.props;
+
+// Build time: read the real file + range (fails the build if it drifted), then
+// highlight both the excerpt and the full file. Both are static HTML.
+const source = loadSource({
+  repoPath: code.repoPath,
+  startLine: code.startLine,
+  endLine: code.endLine,
+});
+const excerptHtml = await highlightSource(source.excerptText, source.lang, source.startLine);
+const fullHtml = await highlightSource(source.fullText, source.lang, 1);
+
+const langLabel = source.lang === 'cpp' ? 'C++' : source.lang === 'typescript' ? 'TS' : 'MD';
+const fullId = `cv-${code.repoPath.replace(/[^a-z0-9]+/gi, '-')}-${code.startLine}`;
+const rangeLabel = `L${source.startLine}–L${source.endLine}`;
+const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
+---
+
+<figure class="cv" data-code-viewer>
+  <figcaption class="cv__plate">
+    <span class="cv__lang">{langLabel}</span>
+    <span class="cv__file">{code.repoPath}</span>
+    <span class="cv__range" aria-label={rangeAria}>{rangeLabel}</span>
+  </figcaption>
+
+  <p class="cv__caption">{code.caption}</p>
+
+  <!-- Excerpt screen: real line numbers, visible with or without JS. -->
+  <div class="cv__screen" data-screen="excerpt">
+    <div class="cv__code" set:html={excerptHtml} />
+    <span class="cv__heat" aria-hidden="true"></span>
+  </div>
+
+  <!-- Full-file screen: inlined at build time, revealed on expand (no fetch). -->
+  <div class="cv__screen cv__screen--full" id={fullId} data-screen="full" hidden>
+    <div class="cv__code" set:html={fullHtml} />
+  </div>
+
+  <div class="cv__actions">
+    <button
+      class="cv__toggle"
+      type="button"
+      aria-expanded="false"
+      aria-controls={fullId}
+      data-toggle
+      data-label-collapsed="Expand full file"
+      data-label-expanded="Collapse to excerpt"
+    >
+      <span class="cv__toggle-txt">Expand full file</span>
+      <span class="cv__toggle-meta">{source.lineCount} lines</span>
+    </button>
+    <a class="cv__gh" href={source.githubUrl} target="_blank" rel="noreferrer">view on GitHub ↗</a>
+  </div>
+</figure>
+
+<style>
+  .cv {
+    margin: 0.95rem 0 0.2rem;
+    padding: 0;
+  }
+
+  /* Label plate — the instrument's engraved header strip. */
+  .cv__plate {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.7rem;
+    background: linear-gradient(180deg, var(--raised), var(--face));
+    border: 1px solid var(--hairline);
+    border-bottom: none;
+    border-radius: 9px 9px 0 0;
+  }
+
+  .cv__lang {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--void);
+    background: radial-gradient(circle at 40% 30%, var(--signal-hot), var(--signal) 78%);
+    border-radius: 4px;
+    padding: 0.14rem 0.42rem;
+  }
+
+  .cv__file {
+    flex: 1 1 12rem;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: var(--ink);
+    word-break: break-all;
+  }
+
+  .cv__range {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+
+  .cv__caption {
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    background: color-mix(in srgb, var(--signal) 5%, var(--face));
+    border-inline: 1px solid var(--hairline);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--body);
+  }
+
+  /* The screen: code behind glass, sunk into the faceplate. */
+  .cv__screen {
+    position: relative;
+    background: var(--void);
+    border: 1px solid var(--hairline);
+    border-top: none;
+    box-shadow: inset 0 1px 0 0 color-mix(in srgb, #ffffff 6%, transparent), inset 0 14px 26px -20px rgba(0, 0, 0, 0.9);
+    overflow: hidden;
+  }
+
+  /* The excerpt screen keeps the plate's square top and rounds only its base;
+     the toggle/actions sit below the full screen which takes the round base. */
+  .cv__screen[data-screen='excerpt'] {
+    border-radius: 0;
+  }
+  .cv__screen--full {
+    border-top: 1px solid var(--hairline-soft);
+    border-radius: 0 0 9px 9px;
+  }
+  /* When the full screen is hidden, the excerpt screen owns the rounded base. */
+  .cv__screen--full[hidden] {
+    display: none;
+  }
+  .cv:not([data-expanded]) .cv__screen[data-screen='excerpt'] {
+    border-radius: 0 0 9px 9px;
+  }
+
+  .cv__code {
+    overflow-x: auto;
+  }
+
+  /* Shiki output (injected via set:html — reach it with :global). Keep Shiki's
+     token colors; override only the background so the screen shows through. */
+  .cv__code :global(pre.shiki) {
+    margin: 0;
+    padding: 0.85rem 0.9rem;
+    background: transparent !important;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.62;
+  }
+
+  .cv__code :global(pre.shiki code) {
+    display: block;
+    width: fit-content;
+    min-width: 100%;
+  }
+
+  .cv__code :global(.line) {
+    display: block;
+    white-space: pre;
+  }
+
+  /* Engraved gutter: REAL file line numbers, glowing faint amber, sticky so
+     they hold their column while the code scrolls horizontally under them. */
+  .cv__code :global(.line)::before {
+    content: attr(data-ln);
+    position: sticky;
+    left: 0;
+    display: inline-block;
+    width: 2.6rem;
+    margin-right: 0.9rem;
+    padding-right: 0.7rem;
+    background: var(--void);
+    border-right: 1px solid var(--hairline-soft);
+    color: color-mix(in srgb, var(--signal) 42%, var(--dim));
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    user-select: none;
+  }
+
+  /* Resonance-heat: a warm glow banking up the base of the excerpt screen,
+     hinting the file continues past the excerpt. Hidden once expanded. */
+  .cv__heat {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 2.6rem;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--signal) 10%, var(--void)) 88%);
+    pointer-events: none;
+  }
+  .cv[data-expanded] .cv__heat {
+    display: none;
+  }
+  .cv[data-expanded] .cv__screen[data-screen='excerpt'] {
+    display: none;
+  }
+
+  .cv__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    margin-top: 0.55rem;
+  }
+
+  /* Bench toggle — reads like a labelled switch on the faceplate. */
+  .cv__toggle {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--signal);
+    background: linear-gradient(180deg, var(--raised), var(--face));
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 0.4rem 0.7rem;
+    cursor: pointer;
+    transition: box-shadow 140ms ease, color 140ms ease;
+  }
+  .cv__toggle:hover {
+    color: var(--signal-hot);
+    box-shadow: 0 0 18px -6px rgba(255, 159, 69, 0.45);
+  }
+  .cv__toggle:focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+  .cv__toggle-meta {
+    font-size: 0.64rem;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    text-transform: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cv__gh {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    text-decoration: none;
+    transition: color 140ms ease;
+  }
+  .cv__gh:hover {
+    color: var(--signal-hot);
+  }
+  .cv__gh:focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cv__toggle,
+    .cv__gh {
+      transition: none;
+    }
+  }
+
+  @media (max-width: 34rem) {
+    .cv__code :global(pre.shiki) {
+      font-size: 0.72rem;
+    }
+    .cv__code :global(.line)::before {
+      width: 2.1rem;
+      margin-right: 0.6rem;
+      padding-right: 0.5rem;
+    }
+  }
+</style>
+
+<script>
+  // Progressive enhancement: wire each code viewer's expand-to-full control.
+  // The excerpt and GitHub link already work without this; here we only toggle
+  // the full-file screen (inlined at build time) in and out of view.
+  function wireCodeViewer(root: HTMLElement): void {
+    const toggle = root.querySelector<HTMLButtonElement>('[data-toggle]');
+    const full = root.querySelector<HTMLElement>('[data-screen="full"]');
+    if (toggle === null || full === null) return;
+    const label = toggle.querySelector<HTMLElement>('.cv__toggle-txt');
+    if (label === null) return;
+
+    const collapsed = toggle.dataset.labelCollapsed ?? 'Expand full file';
+    const expanded = toggle.dataset.labelExpanded ?? 'Collapse to excerpt';
+
+    toggle.addEventListener('click', () => {
+      const nowExpanded = root.getAttribute('data-expanded') === null;
+      if (nowExpanded) {
+        root.setAttribute('data-expanded', '');
+        full.removeAttribute('hidden');
+      } else {
+        root.removeAttribute('data-expanded');
+        full.setAttribute('hidden', '');
+      }
+      toggle.setAttribute('aria-expanded', String(nowExpanded));
+      label.textContent = nowExpanded ? expanded : collapsed;
+    });
+  }
+
+  document
+    .querySelectorAll<HTMLElement>('[data-code-viewer]')
+    .forEach((root) => wireCodeViewer(root));
+</script>

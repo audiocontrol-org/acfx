@@ -75,14 +75,17 @@ export class UnresolvedAnchorError extends Error {
 }
 
 /** Branch used to construct GitHub blob URLs (design §4.5 uses `main`). */
-const DEFAULT_BRANCH = 'main';
+export const DEFAULT_BRANCH = 'main';
 
 /**
  * Walk up from this module's directory to the repository root (the dir holding
  * `.git`, a directory in a normal clone or a file in a worktree). Throws if no
  * `.git` is found before the filesystem root.
+ *
+ * Exported so the build-time code viewer (`code-viewer/load-source.ts`) resolves
+ * files against the SAME repo root, keeping one root-finding source of truth.
  */
-function findRepoRoot(): string {
+export function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (;;) {
     if (existsSync(join(dir, '.git'))) {
@@ -99,7 +102,7 @@ function findRepoRoot(): string {
 }
 
 /** GitHub `owner/repo`, derived from the `origin` remote URL. */
-interface RepoSlug {
+export interface RepoSlug {
   readonly owner: string;
   readonly repo: string;
 }
@@ -108,8 +111,11 @@ interface RepoSlug {
  * Derive `owner/repo` from `git remote get-url origin`, accepting both SSH
  * (`git@github.com:owner/repo(.git)`) and HTTPS
  * (`https://github.com/owner/repo(.git)`) forms.
+ *
+ * Exported so the build-time code viewer reuses the SAME origin-derived slug
+ * when constructing GitHub blob deep-links.
  */
-function repoSlug(repoRoot: string): RepoSlug {
+export function repoSlug(repoRoot: string): RepoSlug {
   let remoteUrl: string;
   try {
     remoteUrl = execFileSync('git', ['-C', repoRoot, 'remote', 'get-url', 'origin'], {

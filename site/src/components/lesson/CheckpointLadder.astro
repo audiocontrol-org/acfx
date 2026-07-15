@@ -11,6 +11,7 @@
 // (01..06) and this is a plain 01..04 step list inside the Build tab — one
 // numbering per axis, no nested rails.
 import { svfBuildCheckpoints } from '../../content/svf/build-checkpoints.ts';
+import CodeViewer from './CodeViewer.astro';
 
 const rungs = svfBuildCheckpoints;
 ---
@@ -26,6 +27,7 @@ const rungs = svfBuildCheckpoints;
         </div>
         <code class="step__path">{rung.repoPath}</code>
         <p class="step__milestone">{rung.milestone}</p>
+        <CodeViewer code={rung.code} />
         <p class="step__verify">
           <span class="step__verify-key">verify</span>
           {rung.verify}
