@@ -29,10 +29,11 @@ import type { SvfDemoMode } from '../SvfDemo/svf-param-map.ts';
 const { cutoffHz, resonance, mode } = Astro.props as SvfVisualizerProps;
 
 // The analyzer needs an ANALYSIS-capable wasm (getFrequencyResponse/getPoleZero/
-// renderImpulse). Prefer a manifest wasm that advertises the "analysis"
-// capability once the CDN publishes one; until then the island bundles the
-// analysis build shipped in `build/web` (see the controller). The audio-only
-// CDN wasm (capability "audio") does NOT export the analysis ABI.
+// renderImpulse): the manifest wasm asset advertising the "analysis"
+// capability (a CDN url — FR-014, T031). The controller loads it glue-free at
+// runtime (adapters/web/analysis/svf-analysis-wasm.ts) — no `build/web`
+// dependency. If no such asset is published, the controller falls back to the
+// static content snapshot with a visible error (FR-015).
 const analysisWasm = assetsByKind('wasm').find((a) => a.capabilities?.includes('analysis') === true);
 const analysisWasmUrl = analysisWasm?.url;
 const initialCutoffNorm = cutoffHzToNormalized(cutoffHz);

@@ -12,5 +12,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["loader", "worklet", "test"]
+  "include": ["loader", "worklet", "wasm", "analysis", "test"]
 }

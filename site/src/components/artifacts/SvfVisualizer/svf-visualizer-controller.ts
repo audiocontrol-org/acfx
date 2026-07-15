@@ -3,25 +3,25 @@
 // Three instrument wells — frequency response, z-plane pole/zero, impulse
 // response — all painted from the REAL compiled analysis ABI (T025) as the
 // learner sweeps cutoff / resonance / mode. There is NO filter math in this
-// file: every curve comes from `SvfModule` (getFrequencyResponse / getPoleZero
-// / renderImpulse), which the compiled `SvfEffect` computes (FR-003, Principle
-// VII). Log/dB axes and marker geometry are presentation only.
+// file: every curve comes from `SvfAnalysisWasm` (getFrequencyResponse /
+// getPoleZero / renderImpulse), which the compiled `SvfEffect` computes
+// (FR-003, Principle VII). Log/dB axes and marker geometry are presentation
+// only.
 //
-// WASM sourcing (the integration crux): the analysis ABI needs the full
-// Emscripten runtime (malloc/HEAPF32), so we load the generated glue module
-// `svf.mjs` and point it at an ANALYSIS-capable `svf.wasm` (one that exports
-// getFrequencyResponse/getPoleZero/renderImpulse). We PREFER a manifest wasm
-// that advertises the "analysis" capability (a CDN url — FR-014) once one is
-// published; until then we bundle the analysis build from `build/web` via
-// Vite's `?url` so `dist` stays self-contained. The audio-only CDN wasm the
-// manifest ships today does NOT export the analysis ABI. `SvfModule.load(mjsUrl)`
-// calls the factory with no options, so we bridge the chosen wasm url in through
-// a tiny wrapper module (a Blob) that injects Emscripten's `locateFile` — no
-// fork of the consumed `adapters/web` loader.
+// WASM sourcing (the integration crux, T031): the analysis wasm is loaded
+// GLUE-FREE, straight from the manifest's CDN url (`data-analysis-wasm-url`,
+// resolved by SvfVisualizer.astro from the `kind:"wasm"` asset whose
+// `capabilities` include `"analysis"` — FR-014). svf.wasm imports only two
+// host functions and exports its own memory (same pattern T026 proved for the
+// AudioWorklet audio engine), so `SvfAnalysisWasm` (adapters/web/analysis)
+// fetches + compiles + instantiates it directly, with NO dependency on the
+// generated Emscripten glue (`svf.mjs`) or the local `build/web` Emscripten
+// output — both are gitignored and only produced by a local Emscripten build,
+// never on Netlify/CI, so depending on either would break the static-build
+// contract. If the manifest has no analysis-capable wasm, or the load fails,
+// the visible error + content fallback below kicks in (FR-015).
 
-import svfGlueUrl from '../../../../../build/web/svf.mjs?url';
-import svfWasmUrl from '../../../../../build/web/svf.wasm?url';
-import { SvfModule } from '@acfx/web/loader/svf-module.ts';
+import { SvfAnalysisWasm } from '@acfx/web/analysis/svf-analysis-wasm.ts';
 import { modeToNormalized, type SvfMode } from '@acfx/web/worklet/svf-engine-core.ts';
 
 import {
@@ -119,29 +119,11 @@ interface AnalysisResult {
   readonly poleRadius: number;
 }
 
-/**
- * Bridge the chosen wasm url into `SvfModule.load` via a Blob wrapper module
- * that injects Emscripten's `locateFile` — the loader factory takes no options.
- */
-async function loadAnalysis(wasmUrl: string): Promise<SvfModule> {
-  const glueAbsUrl = new URL(svfGlueUrl, window.location.href).href;
-  const wrapperSource =
-    `import factory from ${JSON.stringify(glueAbsUrl)};\n` +
-    `export default (opts = {}) => factory({ ...opts, ` +
-    `locateFile: (path) => path.endsWith('.wasm') ? ${JSON.stringify(wasmUrl)} : path });\n`;
-  const blobUrl = URL.createObjectURL(new Blob([wrapperSource], { type: 'text/javascript' }));
-  try {
-    return await SvfModule.load(blobUrl);
-  } finally {
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
 class AnalysisEngine {
   private readonly freqs: Float32Array;
 
   private constructor(
-    private readonly mod: SvfModule,
+    private readonly mod: SvfAnalysisWasm,
     private readonly handle: number,
   ) {
     this.freqs = new Float32Array(RESPONSE_POINTS);
@@ -151,8 +133,8 @@ class AnalysisEngine {
     }
   }
 
-  static async create(cdnWasmUrl: string): Promise<AnalysisEngine> {
-    const mod = await loadAnalysis(cdnWasmUrl);
+  static async create(analysisWasmUrl: string): Promise<AnalysisEngine> {
+    const mod = await SvfAnalysisWasm.load(analysisWasmUrl);
     const handle = mod.create();
     mod.prepare(handle, SAMPLE_RATE, IMPULSE_SAMPLES, 1);
     return new AnalysisEngine(mod, handle);
@@ -218,8 +200,8 @@ class Well {
 // --- Panel orchestration ----------------------------------------------------
 
 interface PanelConfig {
-  /** Analysis-capable wasm url: a manifest CDN url when published, else the bundled build. */
-  readonly wasmUrl: string;
+  /** Analysis-capable wasm url from the manifest (a CDN url — FR-014), if published. */
+  readonly wasmUrl: string | undefined;
   readonly responseUrl: string | undefined;
   readonly impulseUrl: string | undefined;
   readonly initialCutoffHz: number;
@@ -228,14 +210,8 @@ interface PanelConfig {
 }
 
 function readConfig(root: HTMLElement): PanelConfig {
-  // Prefer an analysis-capable CDN wasm from the manifest; fall back to the
-  // analysis build bundled from `build/web` so the analyzer works before the
-  // CDN publishes one. (The audio-only CDN wasm cannot serve analysis.)
   const cdnAnalysisUrl = root.dataset['analysisWasmUrl'];
-  const wasmUrl =
-    cdnAnalysisUrl !== undefined && cdnAnalysisUrl.length > 0
-      ? cdnAnalysisUrl
-      : new URL(svfWasmUrl, window.location.href).href;
+  const wasmUrl = cdnAnalysisUrl !== undefined && cdnAnalysisUrl.length > 0 ? cdnAnalysisUrl : undefined;
   const cutoff = Number(root.dataset['initialCutoffHz'] ?? '1000');
   const resonance = Number(root.dataset['initialResonance'] ?? '0.1');
   const modeRaw = root.dataset['initialMode'] ?? 'lowpass';
@@ -325,6 +301,12 @@ class SvfVisualizerPanel {
 
     if (!analysisSupported()) {
       await this.showFallback('WebAssembly is unavailable — showing the pre-generated response and impulse.');
+      return;
+    }
+    if (this.config.wasmUrl === undefined) {
+      await this.showFallback(
+        'No analysis-capable WASM was published in the manifest — showing the pre-generated response and impulse.',
+      );
       return;
     }
 

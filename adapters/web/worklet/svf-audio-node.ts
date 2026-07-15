@@ -16,6 +16,7 @@ import {
   type SvfParamId,
   type SvfProcessorOptions,
 } from "./svf-engine-core.ts";
+import { compileSvfWasmFromUrl } from "../wasm/svf-wasm-runtime.ts";
 
 const PROCESSOR_NAME = "svf-processor";
 const DEFAULT_MAX_BLOCK_SIZE = 128; // AudioWorklet render quantum
@@ -45,15 +46,6 @@ export interface SvfAudioNode {
   disconnect(): void;
 }
 
-async function compileWasm(url: string | URL): Promise<WebAssembly.Module> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`failed to fetch svf.wasm (${response.status}) from ${String(url)}`);
-  }
-  const bytes = await response.arrayBuffer();
-  return WebAssembly.compile(bytes);
-}
-
 /**
  * Build the SVF worklet node against an existing AudioContext. Resolves once the
  * worklet module is registered and the wasm compiled + handed to the processor.
@@ -67,7 +59,7 @@ export async function createSvfAudioNode(
   // Register the worklet and compile the wasm in parallel.
   const [, wasmModule] = await Promise.all([
     context.audioWorklet.addModule(opts.workletUrl),
-    compileWasm(opts.wasmUrl),
+    compileSvfWasmFromUrl(opts.wasmUrl),
   ]);
 
   const processorOptions: SvfProcessorOptions = {

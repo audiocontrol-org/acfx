@@ -95,72 +95,18 @@ export interface SvfProcessorOptions {
 // can instantiate it directly in the AudioWorklet global scope with no Emscripten
 // JS glue (the glue is an ES module that relies on fetch/import — neither exists
 // inside AudioWorkletGlobalScope). See svf-processor.ts for why this matters.
+//
+// The instantiation itself (import object + `WebAssembly.Instance`) is shared
+// with the main-thread analysis engine (analysis/svf-analysis-wasm.ts, T031)
+// via wasm/svf-wasm-runtime.ts — re-exported here so existing worklet callers
+// (svf-processor.ts) and this module's own tests are unaffected.
+import {
+  instantiateSvfWasm,
+  type SvfWasmExports,
+} from "../wasm/svf-wasm-runtime.ts";
 
-/** The raw svf.wasm export surface (no Emscripten `_` prefix — these are the
- * genuine wasm exports, distinct from the glue's `EmscriptenSvf` in the loader). */
-export interface SvfWasmExports {
-  readonly memory: WebAssembly.Memory;
-  svf_create(): number;
-  svf_destroy(h: number): void;
-  svf_prepare(h: number, sampleRate: number, maxBlockSize: number, numChannels: number): void;
-  svf_set_param(h: number, paramId: number, normalized: number): void;
-  svf_process(h: number, samplesPtr: number, numSamples: number): void;
-  malloc(bytes: number): number;
-  free(ptr: number): void;
-}
-
-interface SvfWasmImports {
-  readonly env: {
-    emscripten_resize_heap(requestedSize: number): number;
-    _abort_js(): void;
-  };
-}
-
-const WASM_PAGE_BYTES = 65536;
-const WASM_MAX_HEAP_BYTES = 2147483648; // matches Emscripten getHeapMax()
-
-/**
- * Instantiate svf.wasm synchronously against a minimal host import object.
- *
- * `new WebAssembly.Instance(module, ...)` is synchronous and permitted in the
- * AudioWorklet scope for an already-compiled module (compilation happens on the
- * main thread). `emscripten_resize_heap` grows the wasm's own exported memory —
- * only ever called from an allocating `malloc`, which we do exactly once at
- * setup, never in the audio hot path (Principle VIII).
- */
-export function instantiateSvfWasm(module: WebAssembly.Module): SvfWasmExports {
-  // Closure over `memory`: the import functions are supplied BEFORE the memory
-  // exists (it is created inside the instance). They are only invoked on a later
-  // grow/abort, by which point `memory` is set.
-  let memory: WebAssembly.Memory | undefined;
-
-  const imports: SvfWasmImports = {
-    env: {
-      emscripten_resize_heap(requestedSize: number): number {
-        if (memory === undefined) return 0;
-        const req = requestedSize >>> 0;
-        if (req > WASM_MAX_HEAP_BYTES) return 0;
-        const oldBytes = memory.buffer.byteLength;
-        const deltaPages = Math.ceil((req - oldBytes) / WASM_PAGE_BYTES);
-        if (deltaPages <= 0) return 1;
-        try {
-          memory.grow(deltaPages);
-          return 1;
-        } catch {
-          return 0;
-        }
-      },
-      _abort_js(): void {
-        throw new Error("svf.wasm aborted");
-      },
-    },
-  };
-
-  const instance = new WebAssembly.Instance(module, imports as unknown as WebAssembly.Imports);
-  const exports = instance.exports as unknown as SvfWasmExports;
-  memory = exports.memory;
-  return exports;
-}
+export { instantiateSvfWasm };
+export type { SvfWasmExports };
 
 // --- Allocation-free heap processor ----------------------------------------
 
