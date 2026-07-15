@@ -207,7 +207,7 @@ TEST_CASE("svf ABI matches direct SvfEffect output") {
     svf_process(h, viaAbi.data(), n);
     svf_destroy(h);
 
-    for (int i = 0; i < n; ++i) CHECK(viaAbi[i] == doctest::Approx(direct[i]).epsilon(0.0f));
+    for (int i = 0; i < n; ++i) CHECK(viaAbi[i] == direct[i]); // bit-identical: ABI adds no DSP
 }
 ```
 
