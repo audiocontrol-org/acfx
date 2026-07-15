@@ -384,11 +384,15 @@ export function planUploads(manifest: LessonAssetManifest, staticDir: string, wa
 // merged into this script's own process.env.
 function rcloneEnvFor(remoteName: string, credentials: B2Credentials): Record<string, string> {
   const prefix = `RCLONE_CONFIG_${remoteName.toUpperCase()}_`;
+  // rclone's b2 backend uses B2's NATIVE api (api.backblazeb2.com) and must NOT
+  // be given the S3-compatible endpoint (s3.us-west-004…) — a schemeless host
+  // there triggers "unsupported protocol scheme". The credentials `endpoint`
+  // field is the S3 endpoint (used by the S3 API path), irrelevant to this
+  // native-b2 upload; deliberately not forwarded.
   return {
     [`${prefix}TYPE`]: "b2",
     [`${prefix}ACCOUNT`]: credentials.keyID,
     [`${prefix}KEY`]: credentials.applicationKey,
-    [`${prefix}ENDPOINT`]: credentials.endpoint,
   };
 }
 
