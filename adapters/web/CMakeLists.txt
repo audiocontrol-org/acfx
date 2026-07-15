@@ -6,7 +6,7 @@ message(STATUS "adapters/web: EMSCRIPTEN=${EMSCRIPTEN}")
 
 if(NOT EMSCRIPTEN)
   # Host build: the native ABI library + its doctest. (web-ref preset.)
-  add_library(acfx_web_abi STATIC svf-web-abi.cpp)
+  add_library(acfx_web_abi STATIC svf-web-abi.cpp svf-web-analysis.cpp)
   target_include_directories(acfx_web_abi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(acfx_web_abi PUBLIC acfx_core)
   target_compile_features(acfx_web_abi PUBLIC cxx_std_20)
@@ -26,7 +26,7 @@ endif()
 
 if(EMSCRIPTEN)
   # WASM build: one module from the ABI source. (web preset.)
-  add_executable(svf svf-web-abi.cpp)
+  add_executable(svf svf-web-abi.cpp svf-web-analysis.cpp)
   target_link_libraries(svf PRIVATE acfx_core)
   target_compile_features(svf PRIVATE cxx_std_20)
   set_target_properties(svf PROPERTIES
@@ -39,8 +39,8 @@ if(EMSCRIPTEN)
     "-sEXPORT_ES6=1"
     "-sENVIRONMENT=web,worker,node"
     "-sALLOW_MEMORY_GROWTH=1"
-    "-sEXPORTED_FUNCTIONS=['_svf_create','_svf_destroy','_svf_prepare','_svf_set_param','_svf_process','_malloc','_free']"
-    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPF32']"
+    "-sEXPORTED_FUNCTIONS=['_svf_create','_svf_destroy','_svf_prepare','_svf_set_param','_svf_process','_svf_render_impulse','_svf_get_frequency_response','_svf_get_pole_zero','_malloc','_free']"
+    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPF32','HEAP32']"
     "-sEXPORT_NAME=createSvfModule"
   )
 endif()
