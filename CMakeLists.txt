@@ -14,6 +14,7 @@ option(ACFX_BUILD_TESTS   "Build the host-side doctest suite for core/"      OFF
 option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
 option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
 option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
+option(ACFX_BUILD_WEB     "Build the WebAssembly (Emscripten) adapter"       OFF)
 
 # Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
 if(NOT DEFINED CPM_SOURCE_CACHE)
@@ -86,6 +87,10 @@ endif()
 if(ACFX_BUILD_TEENSY)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
   add_subdirectory(adapters/teensy)
+endif()
+
+if(ACFX_BUILD_WEB)
+  add_subdirectory(adapters/web)
 endif()
 
 if(ACFX_BUILD_TESTS)

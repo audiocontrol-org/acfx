@@ -13,6 +13,10 @@ build/
 build-*/
 out/
 
+# web adapter (Phase 1)
+adapters/web/node_modules/
+adapters/web/dist/
+
 # CPM fetched dependencies + cache
 external/_deps/
 external/.cpm-cache/

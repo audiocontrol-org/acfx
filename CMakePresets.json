@@ -48,13 +48,27 @@
       "cacheVariables": {
         "ACFX_BUILD_TEENSY": "ON"
       }
+    },
+    {
+      "name": "web",
+      "inherits": "base",
+      "displayName": "WebAssembly adapter (Emscripten; configure via `emcmake cmake --preset web`)",
+      "cacheVariables": { "ACFX_BUILD_WEB": "ON", "CMAKE_CXX_STANDARD": "20" }
+    },
+    {
+      "name": "web-ref",
+      "inherits": "base",
+      "displayName": "Native reference + native ABI test (host)",
+      "cacheVariables": { "ACFX_BUILD_WEB": "ON", "ACFX_BUILD_TESTS": "ON", "CMAKE_CXX_STANDARD": "20" }
     }
   ],
   "buildPresets": [
     { "name": "test", "configurePreset": "test" },
     { "name": "desktop", "configurePreset": "desktop" },
     { "name": "daisy", "configurePreset": "daisy" },
-    { "name": "teensy", "configurePreset": "teensy" }
+    { "name": "teensy", "configurePreset": "teensy" },
+    { "name": "web", "configurePreset": "web" },
+    { "name": "web-ref", "configurePreset": "web-ref" }
   ],
   "testPresets": [
     {
