@@ -48,6 +48,12 @@ const rungs = svfBuildCheckpoints;
   }
 
   .step {
+    /* Grid item: allow it to shrink below its content's intrinsic size so the
+       CodeViewer's long C++ lines scroll INSIDE the code screen instead of
+       blowing out the page width. WebKit does not resolve min-width:auto -> 0
+       from the scroll-container descendants on its own (the min-width:auto flex/
+       grid trap Chromium hides); making it explicit is the root-cause fix. */
+    min-width: 0;
     background: linear-gradient(180deg, var(--raised), var(--face));
     border-radius: 12px;
     box-shadow: inset 0 0 0 1px var(--hairline), 0 14px 30px -22px rgba(0, 0, 0, 0.9);
@@ -93,6 +99,7 @@ const rungs = svfBuildCheckpoints;
 
   .step__path {
     display: inline-block;
+    max-width: 100%;
     font-family: var(--mono);
     font-size: 0.8rem;
     color: var(--signal-hot);
@@ -101,7 +108,13 @@ const rungs = svfBuildCheckpoints;
     border-radius: 5px;
     padding: 0.12rem 0.45rem;
     margin-bottom: 0.7rem;
+    /* The engraved path chip must wrap on a narrow bench. The global inline-code
+       rule (.lesson__body :not(pre) > code) sets white-space:nowrap, which would
+       otherwise defeat word-break; re-assert normal wrapping here so the long
+       repo path breaks instead of pushing the page sideways. */
+    white-space: normal;
     word-break: break-all;
+    overflow-wrap: anywhere;
   }
 
   .step__milestone {

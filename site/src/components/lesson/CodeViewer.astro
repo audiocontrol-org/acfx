@@ -135,11 +135,18 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
     font-size: 0.9rem;
     line-height: 1.55;
     color: var(--body);
+    /* Captions name real API symbols (e.g. create/destroy/prepare/set_param/
+       process) — long slash-joined tokens with no natural break. Let them break
+       so the caption wraps on a narrow bench instead of widening the page. */
+    overflow-wrap: break-word;
   }
 
   /* The screen: code behind glass, sunk into the faceplate. */
   .cv__screen {
     position: relative;
+    /* Allow the screen to shrink inside its (now shrinkable) ancestors so the
+       code — not the page — is what scrolls horizontally. */
+    min-width: 0;
     background: var(--void);
     border: 1px solid var(--hairline);
     border-top: none;
@@ -165,6 +172,9 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
   }
 
   .cv__code {
+    /* The ONE horizontal scroller: long code lines scroll here, ancestors shrink.
+       min-width:0 keeps it from forcing the screen (and page) wider on WebKit. */
+    min-width: 0;
     overflow-x: auto;
   }
 
