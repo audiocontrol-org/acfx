@@ -71,13 +71,17 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
         {/* Excerpt leaf: rendered Markdown, visible with or without JS. */}
         <div class="rdoc__leaf" data-screen="excerpt">
           <div class="rdoc__body" set:html={excerptHtml} />
-          <span class="rdoc__more" aria-hidden="true" />
         </div>
 
         {/* Full-doc leaf: inlined at build time, revealed on expand (no fetch). */}
-        <div class="rdoc__leaf rdoc__leaf--full" id={fullId} data-screen="full" hidden>
+        <div class="rdoc__leaf" id={fullId} data-screen="full" hidden>
           <div class="rdoc__body" set:html={fullHtml} />
         </div>
+
+        {/* Continuation hint lives on the ONE pane (the bezel), not the leaf —
+            there is only one frame here, so only one place for its "more below"
+            glow to bleed to the edge. */}
+        <span class="rdoc__more" aria-hidden="true" />
       </div>
 
       <div class="cv__actions">
@@ -442,19 +446,12 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
     white-space: nowrap;
   }
 
-  /* --- The bezel (holder) the reading leaf floats inside ------------------- */
+  /* --- The bezel: the ONE reading pane — a paper-warm surface (NOT the dark
+     code void), directly below the manifest header. There is deliberately no
+     second framed "card" nested inside it: the excerpt/full leaves are bare
+     content wrappers, and the bezel itself carries the single lab-notebook
+     margin rule that marks this as a manuscript leaf, not a code screen. ---- */
   .rdoc__bezel {
-    min-width: 0;
-    background: var(--void);
-    border: 1px solid var(--hairline);
-    border-top: none;
-    border-radius: 0 0 9px 9px;
-    padding: 0.5rem;
-    box-shadow: inset 0 14px 26px -22px rgba(0, 0, 0, 0.9);
-  }
-
-  /* --- The reading leaf: a paper-warm surface (NOT the dark code void) ----- */
-  .rdoc__leaf {
     position: relative;
     min-width: 0;
     background: linear-gradient(
@@ -463,16 +460,19 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
       var(--face)
     );
     border: 1px solid var(--hairline-soft);
-    border-radius: 6px;
+    border-top: none;
+    border-radius: 0 0 9px 9px;
     /* Extra left padding clears the lab-notebook margin rule. */
     padding: 1rem 1.15rem 1.1rem 1.55rem;
+    box-shadow: inset 0 1px 0 0 color-mix(in srgb, #ffffff 8%, transparent);
     overflow: hidden;
   }
 
   /* Signature: the ruled left margin of a lab-notebook leaf — amber, echoing
      the instruments' signal accent, and clearly NOT the code screen's gutter of
-     line numbers. */
-  .rdoc__leaf::before {
+     line numbers. This is the ONE distinguishing accent for the pane; it does
+     not repeat on a nested card. */
+  .rdoc__bezel::before {
     content: '';
     position: absolute;
     top: 0.55rem;
@@ -488,15 +488,19 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
     );
   }
 
-  .rdoc__leaf--full {
-    border-top: 1px solid var(--hairline-soft);
+  /* Excerpt/full leaves are bare content wrappers now — no border, background,
+     radius, or padding of their own; the bezel is the only frame. */
+  .rdoc__leaf {
+    position: relative;
+    min-width: 0;
   }
-  .rdoc__leaf--full[hidden] {
+  .rdoc__leaf[hidden] {
     display: none;
   }
 
-  /* Continuation hint: a warm bank at the base of the excerpt leaf, echoing the
-     code screen's resonance-heat — the page continues past the excerpt. */
+  /* Continuation hint: a warm bank at the base of the ONE pane, echoing the
+     code screen's resonance-heat — the doc continues past the excerpt. Lives
+     on the bezel (not the leaf) so it bleeds to the pane's own rounded base. */
   .rdoc__more {
     position: absolute;
     inset: auto 0 0 0;
@@ -507,7 +511,6 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
       color-mix(in srgb, var(--signal) 9%, var(--face)) 90%
     );
     pointer-events: none;
-    border-radius: 0 0 6px 6px;
   }
   .cv[data-expanded] .rdoc__more {
     display: none;
