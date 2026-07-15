@@ -559,19 +559,33 @@ static std::string slurp(const char* path) {
     return s;
 }
 
-// Extract every number appearing in the JSON value for `key` (a flat array).
+// Extract the number(s) in the JSON value for `key`. Distinguishes an array value
+// (parse all numbers between [ ]) from a bare number (e.g. "sampleRate": 48000) — a
+// blind `find('[', k)` would grab the NEXT array's bracket for a bare value.
 static std::vector<double> numbersAfter(const std::string& j, const std::string& key) {
     std::vector<double> out;
     size_t k = j.find("\"" + key + "\"");
     if (k == std::string::npos) return out;
-    size_t lb = j.find('[', k), rb = j.find(']', lb);
-    size_t i = lb + 1;
-    while (i < rb) {
+    size_t colon = j.find(':', k);
+    if (colon == std::string::npos) return out;
+    size_t start = colon + 1;
+    while (start < j.size() && (j[start] == ' ' || j[start] == '\n' || j[start] == '\t')) ++start;
+    if (start >= j.size()) return out;
+    if (j[start] == '[') {                      // array value
+        size_t rb = j.find(']', start);
+        if (rb == std::string::npos) return out;
+        size_t i = start + 1;
+        while (i < rb) {
+            char* end = nullptr;
+            double v = std::strtod(j.c_str() + i, &end);
+            if (end == j.c_str() + i) { ++i; continue; }
+            out.push_back(v);
+            i = static_cast<size_t>(end - j.c_str());
+        }
+    } else {                                    // bare number
         char* end = nullptr;
-        double v = std::strtod(j.c_str() + i, &end);
-        if (end == j.c_str() + i) { ++i; continue; }
-        out.push_back(v);
-        i = static_cast<size_t>(end - j.c_str());
+        double v = std::strtod(j.c_str() + start, &end);
+        if (end != j.c_str() + start) out.push_back(v);
     }
     return out;
 }
