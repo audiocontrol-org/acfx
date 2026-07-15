@@ -60,6 +60,12 @@
       "inherits": "base",
       "displayName": "Native reference + native ABI test (host)",
       "cacheVariables": { "ACFX_BUILD_WEB": "ON", "ACFX_BUILD_TESTS": "ON", "CMAKE_CXX_STANDARD": "20" }
+    },
+    {
+      "name": "lesson-assets",
+      "inherits": "base",
+      "displayName": "Lesson-assets host tool (svf-training-site static assets)",
+      "cacheVariables": { "ACFX_BUILD_LESSON_ASSETS": "ON", "CMAKE_CXX_STANDARD": "20" }
     }
   ],
   "buildPresets": [
@@ -68,7 +74,8 @@
     { "name": "daisy", "configurePreset": "daisy" },
     { "name": "teensy", "configurePreset": "teensy" },
     { "name": "web", "configurePreset": "web" },
-    { "name": "web-ref", "configurePreset": "web-ref" }
+    { "name": "web-ref", "configurePreset": "web-ref" },
+    { "name": "lesson-assets", "configurePreset": "lesson-assets" }
   ],
   "testPresets": [
     {

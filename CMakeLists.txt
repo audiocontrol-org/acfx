@@ -15,6 +15,7 @@ option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF
 option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
 option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
 option(ACFX_BUILD_WEB     "Build the WebAssembly (Emscripten) adapter"       OFF)
+option(ACFX_BUILD_LESSON_ASSETS "Build the native lesson-assets host tool (svf-training-site)" OFF)
 
 # Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
 if(NOT DEFINED CPM_SOURCE_CACHE)
@@ -91,6 +92,10 @@ endif()
 
 if(ACFX_BUILD_WEB)
   add_subdirectory(adapters/web)
+endif()
+
+if(ACFX_BUILD_LESSON_ASSETS)
+  add_subdirectory(tools/lesson-assets)
 endif()
 
 if(ACFX_BUILD_TESTS)
