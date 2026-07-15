@@ -21,6 +21,9 @@ adapters/web/dist/
 tools/node_modules/
 tools/dist/
 
+# asset-CDN Cloudflare Worker (svf-training-site)
+infra/cloudflare-cdn/node_modules/
+
 # CPM fetched dependencies + cache
 external/_deps/
 external/.cpm-cache/

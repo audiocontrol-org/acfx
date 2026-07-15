@@ -1,0 +1,13 @@
+name = "audiocontrol-acfx-cdn"
+main = "worker.ts"
+compatibility_date = "2026-07-01"
+workers_dev = true
+
+# Read-only edge cache in front of the PUBLIC audiocontrol-acfx B2 bucket
+# (T015/T016). B2_DOWNLOAD_BASE is the B2 friendly download URL for the
+# bucket. The host (f004) is the us-west-004 region download host; confirm it
+# from `b2 account get` / `b2_authorize_account`'s downloadUrl and adjust if
+# needed.
+[vars]
+B2_DOWNLOAD_BASE = "https://f004.backblazeb2.com/file/audiocontrol-acfx"
+EDGE_TTL_SECONDS = "2592000"
