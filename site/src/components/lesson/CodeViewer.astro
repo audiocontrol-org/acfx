@@ -17,6 +17,7 @@
 import type { CheckpointCode } from '../../content/svf/build-checkpoints.ts';
 import { loadSource } from '@lib/code-viewer/load-source';
 import { highlightSource } from '@lib/code-viewer/highlight';
+import { renderMarkdown } from '@lib/code-viewer/render-markdown';
 
 interface Props {
   readonly code: CheckpointCode;
@@ -24,15 +25,23 @@ interface Props {
 
 const { code } = Astro.props;
 
-// Build time: read the real file + range (fails the build if it drifted), then
-// highlight both the excerpt and the full file. Both are static HTML.
+// Build time: read the real file + range (fails the build if it drifted). A
+// Markdown file (a repo doc) is RENDERED to HTML — the way Markdown is meant to
+// be read — inside a distinct "repo doc" frame; every other file is highlighted
+// as source and shown on a code screen. Both paths emit static, self-contained
+// HTML: the excerpt (collapsed) and the full file (revealed on expand).
 const source = loadSource({
   repoPath: code.repoPath,
   startLine: code.startLine,
   endLine: code.endLine,
 });
-const excerptHtml = await highlightSource(source.excerptText, source.lang, source.startLine);
-const fullHtml = await highlightSource(source.fullText, source.lang, 1);
+const isMarkdown = source.lang === 'markdown';
+const excerptHtml = isMarkdown
+  ? await renderMarkdown(source.excerptText)
+  : await highlightSource(source.excerptText, source.lang, source.startLine);
+const fullHtml = isMarkdown
+  ? await renderMarkdown(source.fullText)
+  : await highlightSource(source.fullText, source.lang, 1);
 
 const langLabel = source.lang === 'cpp' ? 'C++' : source.lang === 'typescript' ? 'TS' : 'MD';
 const fullId = `cv-${code.repoPath.replace(/[^a-z0-9]+/gi, '-')}-${code.startLine}`;
@@ -40,42 +49,98 @@ const rangeLabel = `L${source.startLine}–L${source.endLine}`;
 const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
 ---
 
-<figure class="cv" data-code-viewer>
-  <figcaption class="cv__plate">
-    <span class="cv__lang">{langLabel}</span>
-    <span class="cv__file">{code.repoPath}</span>
-    <span class="cv__range" aria-label={rangeAria}>{rangeLabel}</span>
-  </figcaption>
+{
+  isMarkdown ? (
+    /* Repo-doc case: a Markdown file, RENDERED — framed as a leaf clipped from
+       the lab manual. A "document manifest" header names the file and states it
+       is rendered from the repo; the reading leaf carries a lab-notebook margin
+       rule and NO line-number gutter (line numbers make no sense for prose).
+       Distinct from both the site's own lesson prose and the code screens. */
+    <figure class="cv rdoc" data-code-viewer>
+      <figcaption class="rdoc__manifest">
+        <span class="rdoc__kicker">Rendered · repo doc</span>
+        <span class="rdoc__file">{code.repoPath}</span>
+        <span class="rdoc__range" aria-label={rangeAria}>
+          {rangeLabel}
+        </span>
+      </figcaption>
 
-  <p class="cv__caption">{code.caption}</p>
+      <p class="cv__caption">{code.caption}</p>
 
-  <!-- Excerpt screen: real line numbers, visible with or without JS. -->
-  <div class="cv__screen" data-screen="excerpt">
-    <div class="cv__code" set:html={excerptHtml} />
-    <span class="cv__heat" aria-hidden="true"></span>
-  </div>
+      <div class="rdoc__bezel">
+        {/* Excerpt leaf: rendered Markdown, visible with or without JS. */}
+        <div class="rdoc__leaf" data-screen="excerpt">
+          <div class="rdoc__body" set:html={excerptHtml} />
+          <span class="rdoc__more" aria-hidden="true" />
+        </div>
 
-  <!-- Full-file screen: inlined at build time, revealed on expand (no fetch). -->
-  <div class="cv__screen cv__screen--full" id={fullId} data-screen="full" hidden>
-    <div class="cv__code" set:html={fullHtml} />
-  </div>
+        {/* Full-doc leaf: inlined at build time, revealed on expand (no fetch). */}
+        <div class="rdoc__leaf rdoc__leaf--full" id={fullId} data-screen="full" hidden>
+          <div class="rdoc__body" set:html={fullHtml} />
+        </div>
+      </div>
 
-  <div class="cv__actions">
-    <button
-      class="cv__toggle"
-      type="button"
-      aria-expanded="false"
-      aria-controls={fullId}
-      data-toggle
-      data-label-collapsed="Expand full file"
-      data-label-expanded="Collapse to excerpt"
-    >
-      <span class="cv__toggle-txt">Expand full file</span>
-      <span class="cv__toggle-meta">{source.lineCount} lines</span>
-    </button>
-    <a class="cv__gh" href={source.githubUrl} target="_blank" rel="noreferrer">view on GitHub ↗</a>
-  </div>
-</figure>
+      <div class="cv__actions">
+        <button
+          class="cv__toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls={fullId}
+          data-toggle
+          data-label-collapsed="Expand full doc"
+          data-label-expanded="Collapse to excerpt"
+        >
+          <span class="cv__toggle-txt">Expand full doc</span>
+          <span class="cv__toggle-meta">{source.lineCount} lines</span>
+        </button>
+        <a class="cv__gh" href={source.githubUrl} target="_blank" rel="noreferrer">
+          view on GitHub ↗
+        </a>
+      </div>
+    </figure>
+  ) : (
+    <figure class="cv" data-code-viewer>
+      <figcaption class="cv__plate">
+        <span class="cv__lang">{langLabel}</span>
+        <span class="cv__file">{code.repoPath}</span>
+        <span class="cv__range" aria-label={rangeAria}>
+          {rangeLabel}
+        </span>
+      </figcaption>
+
+      <p class="cv__caption">{code.caption}</p>
+
+      {/* Excerpt screen: real line numbers, visible with or without JS. */}
+      <div class="cv__screen" data-screen="excerpt">
+        <div class="cv__code" set:html={excerptHtml} />
+        <span class="cv__heat" aria-hidden="true" />
+      </div>
+
+      {/* Full-file screen: inlined at build time, revealed on expand (no fetch). */}
+      <div class="cv__screen cv__screen--full" id={fullId} data-screen="full" hidden>
+        <div class="cv__code" set:html={fullHtml} />
+      </div>
+
+      <div class="cv__actions">
+        <button
+          class="cv__toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls={fullId}
+          data-toggle
+          data-label-collapsed="Expand full file"
+          data-label-expanded="Collapse to excerpt"
+        >
+          <span class="cv__toggle-txt">Expand full file</span>
+          <span class="cv__toggle-meta">{source.lineCount} lines</span>
+        </button>
+        <a class="cv__gh" href={source.githubUrl} target="_blank" rel="noreferrer">
+          view on GitHub ↗
+        </a>
+      </div>
+    </figure>
+  )
+}
 
 <style>
   .cv {
@@ -307,6 +372,324 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
       width: 2.1rem;
       margin-right: 0.6rem;
       padding-right: 0.5rem;
+    }
+  }
+
+  /* ======================================================================== */
+  /* Repo-doc treatment: a rendered Markdown file, framed as a leaf clipped    */
+  /* from the lab manual — deliberately offset from BOTH the site's own lesson */
+  /* prose (bare serif on the open bench) and the code screens (dark glass +   */
+  /* numbered gutter). A "document manifest" header states it is rendered from */
+  /* the repo; the reading leaf is a lighter, paper-warm surface with a        */
+  /* lab-notebook margin rule and no gutter; the code fences INSIDE it become  */
+  /* little embedded instrument screens. */
+
+  /* --- Document manifest header (distinct from the code label plate) ------- */
+  .rdoc__manifest {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.7rem;
+    /* Warm-tinted strip: a document header, not a code plate. */
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--signal) 7%, var(--raised)),
+      var(--face)
+    );
+    border: 1px solid var(--hairline);
+    border-bottom: none;
+    border-radius: 9px 9px 0 0;
+  }
+
+  /* Engraved kicker that NAMES the treatment: "rendered from the repo". */
+  .rdoc__kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.36rem;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+    white-space: nowrap;
+  }
+  .rdoc__kicker::before {
+    /* A pilcrow marks this as rendered prose, not a code screen. */
+    content: '¶';
+    font-size: 0.82rem;
+    line-height: 1;
+    color: var(--signal-hot);
+  }
+
+  .rdoc__file {
+    flex: 1 1 12rem;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: var(--ink);
+    word-break: break-all;
+  }
+
+  .rdoc__range {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+
+  /* --- The bezel (holder) the reading leaf floats inside ------------------- */
+  .rdoc__bezel {
+    min-width: 0;
+    background: var(--void);
+    border: 1px solid var(--hairline);
+    border-top: none;
+    border-radius: 0 0 9px 9px;
+    padding: 0.5rem;
+    box-shadow: inset 0 14px 26px -22px rgba(0, 0, 0, 0.9);
+  }
+
+  /* --- The reading leaf: a paper-warm surface (NOT the dark code void) ----- */
+  .rdoc__leaf {
+    position: relative;
+    min-width: 0;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--signal) 4%, var(--raised)),
+      var(--face)
+    );
+    border: 1px solid var(--hairline-soft);
+    border-radius: 6px;
+    /* Extra left padding clears the lab-notebook margin rule. */
+    padding: 1rem 1.15rem 1.1rem 1.55rem;
+    overflow: hidden;
+  }
+
+  /* Signature: the ruled left margin of a lab-notebook leaf — amber, echoing
+     the instruments' signal accent, and clearly NOT the code screen's gutter of
+     line numbers. */
+  .rdoc__leaf::before {
+    content: '';
+    position: absolute;
+    top: 0.55rem;
+    bottom: 0.55rem;
+    left: 1.05rem;
+    width: 1px;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in srgb, var(--signal) 42%, transparent) 10%,
+      color-mix(in srgb, var(--signal) 42%, transparent) 90%,
+      transparent
+    );
+  }
+
+  .rdoc__leaf--full {
+    border-top: 1px solid var(--hairline-soft);
+  }
+  .rdoc__leaf--full[hidden] {
+    display: none;
+  }
+
+  /* Continuation hint: a warm bank at the base of the excerpt leaf, echoing the
+     code screen's resonance-heat — the page continues past the excerpt. */
+  .rdoc__more {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 2.4rem;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in srgb, var(--signal) 9%, var(--face)) 90%
+    );
+    pointer-events: none;
+    border-radius: 0 0 6px 6px;
+  }
+  .cv[data-expanded] .rdoc__more {
+    display: none;
+  }
+  .cv[data-expanded] .rdoc__leaf[data-screen='excerpt'] {
+    display: none;
+  }
+
+  /* --- Rendered Markdown body -------------------------------------------- */
+  /* This content lives inside `.lesson__body`, so the global lesson-prose rules
+     would otherwise style it as the page's PRIMARY voice. Chaining two scoped
+     component classes (`.rdoc .rdoc__body`) raises specificity above those
+     globals so the doc reads at its own, smaller "reference document" scale. */
+  .rdoc .rdoc__body {
+    min-width: 0;
+    color: var(--body);
+    font-family: var(--serif);
+    font-size: 0.98rem;
+    line-height: 1.62;
+    overflow-wrap: break-word;
+  }
+  .rdoc .rdoc__body :global(> :first-child) {
+    margin-top: 0;
+  }
+  .rdoc .rdoc__body :global(> :last-child) {
+    margin-bottom: 0;
+  }
+
+  .rdoc .rdoc__body :global(p) {
+    max-width: none;
+    margin: 0 0 0.85rem;
+    font-size: 0.98rem;
+    line-height: 1.62;
+    color: var(--body);
+  }
+
+  /* Doc headings read as MANUAL section headers: smaller than the lesson's own
+     serif headings, and h2 carries a hairline rule the lesson headings lack. */
+  .rdoc .rdoc__body :global(h1),
+  .rdoc .rdoc__body :global(h2),
+  .rdoc .rdoc__body :global(h3),
+  .rdoc .rdoc__body :global(h4) {
+    max-width: none;
+    font-family: var(--serif);
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--ink);
+  }
+  .rdoc .rdoc__body :global(h1) {
+    margin: 1.3rem 0 0.6rem;
+    font-size: 1.42rem;
+  }
+  .rdoc .rdoc__body :global(h2) {
+    margin: 1.5rem 0 0.6rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 1.16rem;
+  }
+  .rdoc .rdoc__body :global(h3) {
+    margin: 1.25rem 0 0.5rem;
+    font-size: 1.02rem;
+  }
+  .rdoc .rdoc__body :global(h4) {
+    margin: 1.1rem 0 0.45rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  .rdoc .rdoc__body :global(ul),
+  .rdoc .rdoc__body :global(ol) {
+    max-width: none;
+    margin: 0 0 0.85rem;
+    padding-left: 1.25rem;
+  }
+  .rdoc .rdoc__body :global(li) {
+    margin: 0 0 0.4rem;
+    font-size: 0.96rem;
+    line-height: 1.6;
+  }
+  .rdoc .rdoc__body :global(li::marker) {
+    color: var(--signal);
+  }
+
+  .rdoc .rdoc__body :global(strong) {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .rdoc .rdoc__body :global(em) {
+    color: var(--ink);
+    font-style: italic;
+  }
+
+  /* Inline code borrows the instrument's monospace voice; long paths/symbols
+     wrap so they never push the leaf (or the page) wider. */
+  .rdoc .rdoc__body :global(:not(pre) > code) {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    color: var(--signal-hot);
+    background: color-mix(in srgb, var(--signal) 9%, var(--void));
+    border: 1px solid var(--hairline-soft);
+    border-radius: 5px;
+    padding: 0.08em 0.36em;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* Code fences render as little embedded instrument screens: the dark void the
+     code viewer uses, with their OWN horizontal scroll (Markdown-remark already
+     stamps overflow-x:auto inline) so a long line scrolls INSIDE the box, never
+     the page. The inline background-color from Shiki is overridden here. */
+  .rdoc .rdoc__body :global(pre) {
+    max-width: 100%;
+    min-width: 0;
+    margin: 0 0 0.85rem;
+    padding: 0.75rem 0.85rem;
+    background: var(--void) !important;
+    border: 1px solid var(--hairline);
+    border-radius: 7px;
+    overflow-x: auto;
+    font-size: 0.76rem;
+    line-height: 1.6;
+  }
+  .rdoc .rdoc__body :global(pre code) {
+    font-family: var(--mono);
+    background: transparent !important;
+    padding: 0;
+    border: none;
+    color: inherit;
+    white-space: pre;
+  }
+
+  .rdoc .rdoc__body :global(blockquote) {
+    margin: 0 0 0.85rem;
+    padding: 0.1rem 0 0.1rem 0.9rem;
+    border-left: 2px solid color-mix(in srgb, var(--signal) 55%, transparent);
+    color: var(--dim);
+    font-style: italic;
+  }
+
+  .rdoc .rdoc__body :global(a) {
+    color: var(--signal-hot);
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in srgb, var(--signal) 55%, transparent);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .rdoc .rdoc__body :global(a:hover) {
+    text-decoration-color: var(--signal);
+  }
+
+  .rdoc .rdoc__body :global(hr) {
+    margin: 1.2rem 0;
+    border: none;
+    border-top: 1px solid var(--hairline);
+  }
+
+  /* GFM tables: scroll inside their own box rather than widening the page. */
+  .rdoc .rdoc__body :global(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 0 0 0.85rem;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .rdoc .rdoc__body :global(th),
+  .rdoc .rdoc__body :global(td) {
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--hairline);
+    text-align: left;
+  }
+  .rdoc .rdoc__body :global(img) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  @media (max-width: 34rem) {
+    .rdoc .rdoc__body :global(pre) {
+      font-size: 0.72rem;
     }
   }
 </style>
