@@ -74,8 +74,34 @@ export class UnresolvedAnchorError extends Error {
   }
 }
 
-/** Branch used to construct GitHub blob URLs (design §4.5 uses `main`). */
+/** Fallback branch for GitHub blob URLs (design §4.5 targets `main`). */
 export const DEFAULT_BRANCH = 'main';
+
+/**
+ * Branch to construct GitHub blob URLs against. The site links to code on the
+ * branch it was BUILT from, so "view on GitHub" resolves in a pre-merge branch
+ * preview AND in the production build on `main` after merge — a feature-branch
+ * file (e.g. `adapters/web/*`) is not yet on `main` and would 404 there.
+ * Order: explicit deploy/CI env (`BRANCH`, set by Netlify) → current git branch
+ * → `main` (detached HEAD / non-git).
+ */
+export function resolveBranch(repoRoot: string): string {
+  const envBranch = process.env.BRANCH?.trim();
+  if (envBranch !== undefined && envBranch !== '' && envBranch !== 'HEAD') {
+    return envBranch;
+  }
+  try {
+    const branch = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf-8',
+    }).trim();
+    if (branch !== '' && branch !== 'HEAD') {
+      return branch;
+    }
+  } catch {
+    // fall through to the default
+  }
+  return DEFAULT_BRANCH;
+}
 
 /**
  * Walk up from this module's directory to the repository root (the dir holding
@@ -146,7 +172,7 @@ function resolveRef(repoRoot: string, slug: RepoSlug, anchor: string, repoPath: 
   }
   return {
     repoPath,
-    url: `https://github.com/${slug.owner}/${slug.repo}/blob/${DEFAULT_BRANCH}/${repoPath}`,
+    url: `https://github.com/${slug.owner}/${slug.repo}/blob/${resolveBranch(repoRoot)}/${repoPath}`,
   };
 }
 

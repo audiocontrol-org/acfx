@@ -19,7 +19,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 
-import { DEFAULT_BRANCH, findRepoRoot, repoSlug } from '@lib/repo-refs/resolver';
+import { findRepoRoot, repoSlug, resolveBranch } from '@lib/repo-refs/resolver';
 
 /** Shiki language ids this viewer supports, derived from the file extension. */
 export type SourceLang = 'cpp' | 'typescript' | 'markdown';
@@ -118,7 +118,7 @@ export function loadSource(input: LoadSourceInput): LoadedSource {
   const excerptText = lines.slice(startLine - 1, endLine).join('\n');
 
   const slug = repoSlug(repoRoot);
-  const githubUrl = `https://github.com/${slug.owner}/${slug.repo}/blob/${DEFAULT_BRANCH}/${repoPath}#L${startLine}-L${endLine}`;
+  const githubUrl = `https://github.com/${slug.owner}/${slug.repo}/blob/${resolveBranch(repoRoot)}/${repoPath}#L${startLine}-L${endLine}`;
 
   return { fullText: raw, excerptText, startLine, endLine, lang, githubUrl, lineCount };
 }
