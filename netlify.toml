@@ -1,0 +1,19 @@
+# Netlify static-build contract for the SVF training site (FR-014).
+#
+# The site is fully static: `npm run build` emits a self-contained `site/dist/`
+# referencing ONLY:
+#   1. The committed manifest (site/public/manifest/svf.json)
+#   2. Absolute CDN URLs (https://audiocontrol-acfx-cdn.oletizi.workers.dev/…)
+#
+# NO runtime server is required. NO emscripten build, NO local `build/` artifact
+# publishing happens at deploy time — the WASM and lesson assets are prebuilt
+# locally, committed to the manifest, and served from the Cloudflare CDN.
+# CI builds nothing (see .github/workflows/ci.yml, FR-011).
+
+[build]
+base = "site"
+command = "npm ci && npm run build"
+publish = "site/dist"
+
+[build.environment]
+NODE_VERSION = "22"

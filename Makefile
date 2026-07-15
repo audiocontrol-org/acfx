@@ -21,7 +21,7 @@ AU_DIR   ?= $(HOME)/Library/Audio/Plug-Ins/Components
 CLAP_DIR ?= $(HOME)/Library/Audio/Plug-Ins/CLAP
 
 .DEFAULT_GOAL := help
-.PHONY: help test build desktop daisy teensy all clean distclean install e2e
+.PHONY: help test build desktop daisy teensy all clean distclean install e2e web-ref web-wasm web-parity lesson-assets staleness-guard publish-assets site-build
 
 help:
 	@echo "acfx make targets:"
@@ -30,12 +30,19 @@ help:
 	@echo "  make daisy      Configure + build the Daisy firmware (needs the arm-none-eabi toolchain)"
 	@echo "  make teensy     Configure + build the Teensy firmware (needs the Teensy toolchain)"
 	@echo "  make all        build + daisy + teensy"
-	@echo "  make lesson-assets    Build native asset-tool + WASM, run both fragment producers, regenerate site/public/manifest/svf.json"
-	@echo "  make staleness-guard  Non-building hash check: manifest sourceProvenance vs current core/+adapters/web source"
-	@echo "  make e2e        Build the site + run the Playwright SVF-lesson smoke test locally (CI builds nothing)"
 	@echo "  make install    Build the plugin, then copy VST3/AU/CLAP bundles to your user plug-in folders (macOS)"
 	@echo "  make clean      Remove the build/ tree (keeps the CPM dependency cache under external/)"
 	@echo "  make distclean  Remove build/ AND the CPM dependency cache"
+	@echo ""
+	@echo "  --- SVF training site (local; CI builds nothing) ---"
+	@echo "  make web-ref          Native ABI reference build + test"
+	@echo "  make web-wasm         Emscripten WASM build (emcmake; requires Emscripten)"
+	@echo "  make web-parity       web-ref + web-wasm + parity test (SC-002)"
+	@echo "  make lesson-assets    Asset-tool + WASM fragment producers; regenerate site/public/manifest/svf.json (FR-006, FR-008)"
+	@echo "  make staleness-guard  Non-building hash check: manifest sourceProvenance vs current core/+adapters/web source (FR-012)"
+	@echo "  make publish-assets   Upload content-hashed assets to B2 CDN (FR-010)"
+	@echo "  make site-build       Build the static site (Netlify ready); emits site/dist/ (FR-007, FR-009, FR-014, FR-017)"
+	@echo "  make e2e              Build site + run Playwright E2E smoke test (CI builds nothing; SC-006, FR-011, FR-013)"
 
 # The everyday loop: configure, build, and run the platform-independent core tests.
 test:
@@ -87,6 +94,18 @@ lesson-assets: web-wasm
 # sourceProvenance vs current core/+adapters/web source. No compile.
 staleness-guard:
 	cd tools && npm install && npm run staleness-guard -- --manifest=../site/public/manifest/svf.json
+
+# Upload content-hashed lesson assets to Backblaze B2 (S3 API), CDN-addressed
+# via audiocontrol-acfx-cdn.oletizi.workers.dev. Requires rclone + credentials.
+# (Phase 3 of quickstart; FR-010.)
+publish-assets:
+	cd tools && npm install && npm run publish-assets -- --manifest=../site/public/manifest/svf.json --static-dir=../build/lesson-assets/svf-out --wasm-path=../build/web/svf.wasm
+
+# Convenience target: build the static site ready for Netlify (FR-014).
+# The site is fully static, no server runtime — emits site/dist/ referencing only
+# the committed manifest + absolute CDN URLs (audiocontrol-acfx-cdn.oletizi.workers.dev).
+site-build:
+	cd site && npm ci && npm run build
 
 # End-to-end smoke (T033, FR-013, SC-006): build the static site, make sure
 # Chromium is present, then run the ONE Playwright spec against the built

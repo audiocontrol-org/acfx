@@ -50,11 +50,11 @@ design was produced via `/frontend-design`.
 
 ```bash
 make staleness-guard     # non-building hash check: manifest provenance vs current source
-cd site && npm run test:e2e   # one Playwright smoke: worklet init, cross-origin CDN load, gesture start, viz render
-npm run build            # emits a self-contained Netlify-ready site/dist
+make site-build          # build the static site; emits site/dist/ (Netlify ready)
+make e2e                 # build site + run Playwright E2E smoke test (installs Chromium if needed)
 ```
-Expected: staleness guard passes (no compile); Playwright smoke PASS; `site/dist` is
-self-contained (references only the committed manifest + CDN URLs). No CI build ran.
+Expected: staleness guard passes (no compile); site builds to a self-contained `site/dist/`
+(references only the committed manifest + CDN URLs); Playwright smoke PASS. No CI build ran.
 
 ## Definition of done (traceable to SC)
 
