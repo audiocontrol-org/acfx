@@ -15,7 +15,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { computeSourceProvenance } from "./provenance.js";
-import type { Fragment, FragmentAssetEntry } from "./types.js";
+import type { Capability, Fragment, FragmentAssetEntry } from "./types.js";
 
 interface Args {
   readonly wasmPath: string;
@@ -45,6 +45,21 @@ function sha256File(path: string): string {
 
 // Exported for straightforward unit testing / reuse; `main()` below is the
 // CLI entry point that resolves paths and writes the fragment file.
+// Advertise only the capabilities the wasm ACTUALLY exports (detected from the
+// module's export table) — so the fragment never claims a capability the binary
+// lacks (e.g. before the analysis ABI was compiled in).
+function detectCapabilities(wasmPath: string): Capability[] {
+  const mod = new WebAssembly.Module(readFileSync(wasmPath));
+  const exports = new Set(WebAssembly.Module.exports(mod).map((e) => e.name));
+  const caps: Capability[] = [];
+  if (exports.has("svf_process")) caps.push("audio");
+  if (exports.has("svf_get_pole_zero")) caps.push("analysis");
+  if (caps.length === 0) {
+    throw new Error(`${wasmPath} exports no recognized SVF capability (svf_process/svf_get_pole_zero)`);
+  }
+  return caps;
+}
+
 export function buildWasmFragment(wasmPath: string, sourceProvenance: string): Fragment {
   const sha256 = sha256File(wasmPath);
   const entry: FragmentAssetEntry = {
@@ -52,7 +67,7 @@ export function buildWasmFragment(wasmPath: string, sourceProvenance: string): F
     path: `svf.${sha256.slice(0, 8)}.wasm`,
     sha256,
     contentType: "application/wasm",
-    capabilities: ["audio"],
+    capabilities: detectCapabilities(wasmPath),
     capabilityVersion: 1,
     provenance: `tools/manifest/wasm-fragment@${sourceProvenance}`,
   };

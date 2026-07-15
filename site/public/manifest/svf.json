@@ -1,18 +1,19 @@
 {
   "version": 1,
   "lesson": "svf",
-  "sourceProvenance": "33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0",
+  "sourceProvenance": "33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7",
   "assets": [
     {
       "kind": "wasm",
-      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/svf.ec9e1086.wasm",
-      "sha256": "ec9e10866ccd70d1780a1a0ca72c5b64f0d6e21ee6ff7ef8f25a0ff695f64f27",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/svf.f70a5388.wasm",
+      "sha256": "f70a53885e134f22e355eaf5bcf05f5500f31c3acd6e59d19091d66dd9c5e165",
       "contentType": "application/wasm",
       "capabilities": [
-        "audio"
+        "audio",
+        "analysis"
       ],
       "capabilityVersion": 1,
-      "provenance": "tools/manifest/wasm-fragment@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/manifest/wasm-fragment@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "audio",
@@ -25,7 +26,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "impulse",
@@ -38,7 +39,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "response",
@@ -51,7 +52,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "audio",
@@ -64,7 +65,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "impulse",
@@ -77,7 +78,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "response",
@@ -90,7 +91,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "audio",
@@ -103,7 +104,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "impulse",
@@ -116,7 +117,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "response",
@@ -129,7 +130,7 @@
         "resonance": 0.100000001
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "audio",
@@ -142,7 +143,7 @@
         "resonance": 0.850000024
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "impulse",
@@ -155,7 +156,7 @@
         "resonance": 0.850000024
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     },
     {
       "kind": "response",
@@ -168,7 +169,7 @@
         "resonance": 0.850000024
       },
       "sampleRate": 48000,
-      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:d524e150f6944d1173df7f28b447df9cdffe3bc0"
+      "provenance": "tools/lesson-assets@33e2222ad8ea4da5f4d8c4d9b1c271b31848b6a0:8e9b5e7bce745fa72b24a6c7d279b36903c19dc7"
     }
   ]
 }
