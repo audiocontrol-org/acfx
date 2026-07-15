@@ -1,0 +1,105 @@
+---
+// LessonPart — one numbered station of the six-part anatomy, hung on the
+// signal rail (frontend-design). The six parts are a genuine ordered procedure
+// (Concept -> Hear -> Observe -> Play -> Build -> Go deeper), so the numbering
+// encodes real sequence, not decoration; each station is a node on the rail.
+//
+// `id` gives every part a stable anchor (the built-page verification greps
+// these). `hot` marks the hands-on stations (Play / Build) where the rail's
+// resonance-heat runs warmest — the node glows amber to match.
+interface Props {
+  readonly n: number;
+  readonly id: string;
+  readonly kicker: string;
+  readonly title: string;
+  readonly hot?: boolean;
+}
+
+const { n, id, kicker, title, hot = false } = Astro.props;
+const nn = String(n).padStart(2, '0');
+---
+
+<section class:list={['part', { 'part--hot': hot }]} id={id} aria-labelledby={`${id}-title`}>
+  <div class="part__node" aria-hidden="true">{nn}</div>
+  <header class="part__head">
+    <p class="part__kicker">{kicker}</p>
+    <h2 class="part__title" id={`${id}-title`}>{title}</h2>
+  </header>
+  <div class="part__content">
+    <slot />
+  </div>
+</section>
+
+<style>
+  .part {
+    position: relative;
+    padding: clamp(2.4rem, 6vw, 3.6rem) 0 0.4rem;
+  }
+
+  .part:first-child {
+    padding-top: clamp(1.8rem, 4vw, 2.6rem);
+  }
+
+  /* The station marker sits ON the rail (the rail lives in LessonLayout at the
+     column's left edge). Numbers are engraved-monospace, like a bench plate. */
+  .part__node {
+    position: absolute;
+    top: clamp(2.55rem, 6vw, 3.75rem);
+    left: calc(-1 * clamp(2.4rem, 6vw, 4rem) + clamp(0.7rem, 2vw, 1.1rem) + 1px);
+    transform: translate(-50%, 0);
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    background: var(--face);
+    box-shadow: inset 0 0 0 1px var(--hairline), 0 4px 10px -4px rgba(0, 0, 0, 0.8);
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: var(--dim);
+  }
+
+  .part--hot .part__node {
+    color: var(--void);
+    background: radial-gradient(circle at 38% 32%, var(--signal-hot), var(--signal) 72%);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--signal) 60%, transparent),
+      0 0 16px rgba(255, 159, 69, 0.55);
+  }
+
+  .part__head {
+    margin-bottom: 1.3rem;
+  }
+
+  .part__kicker {
+    margin: 0 0 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  .part--hot .part__kicker {
+    color: var(--signal-hot);
+  }
+
+  .part__title {
+    max-width: var(--measure);
+    margin: 0;
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.7rem, 4.5vw, 2.5rem);
+    line-height: 1.1;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+  }
+
+  /* The interactive artifacts + wells may run full column width; prose inside
+     the content is measure-capped by the global rule in LessonLayout. */
+  .part__content {
+    display: block;
+  }
+</style>

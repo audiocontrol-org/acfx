@@ -1,55 +1,27 @@
 ---
-// Placeholder landing page for the SVF training site scaffold.
-// Real UI/UX (layout, typography, interaction) is produced later via
-// /frontend-design (acfx Commandment IV / plan.md Phase 5-6); this page is
-// deliberately unstyled — it only proves the Astro build pipeline works.
-const title = 'acfx training — scaffold';
+// The SVF lesson page (T032). Loads the `lesson.mdx` content-collection entry,
+// renders its six-part body inside the bench/lab-manual shell, and lets the
+// embedded <Artifact> islands + build-time resolver do their work.
+//
+// The MDX body owns the six parts (Concept, Hear it, Observe it, Play with it,
+// Build it with acfx, Go deeper) and embeds both live artifacts by typed
+// declaration; this page just supplies the hero copy from frontmatter and the
+// surrounding layout.
+import { getEntry, render } from 'astro:content';
+import LessonLayout from '@components/lesson/LessonLayout.astro';
 
-// Build-time sanity check for T021 (manifest reader): proves loadManifest()
-// works against the real committed site/public/manifest/svf.json. Logged to
-// the build/dev console only — non-visual, adds no UI.
-import { assetsByKind, loadManifest } from '@lib/lesson-assets/manifest';
+const lesson = await getEntry('lessons', 'lesson');
+if (lesson === undefined) {
+  throw new Error(
+    'SVF lesson content entry "lesson" not found in the `lessons` collection ' +
+      '(expected site/src/content/svf/lesson.mdx).',
+  );
+}
 
-const manifest = loadManifest();
-console.log(
-  `[lesson-assets] lesson "${manifest.lesson}": ${manifest.assets.length} assets ` +
-    `(wasm=${assetsByKind('wasm').length}, audio=${assetsByKind('audio').length}, ` +
-    `response=${assetsByKind('response').length}, impulse=${assetsByKind('impulse').length}, ` +
-    `pole-zero=${assetsByKind('pole-zero').length}, worklet=${assetsByKind('worklet').length})`,
-);
-
-// Build-time sanity check for T023 (doc auto-resolver): resolves the SVF
-// lesson's declared repoAnchors into "Go deeper" links against the real repo.
-// This EXERCISES the fail-loud invariant during `astro build` — an anchor that
-// no longer resolves throws and fails the build (FR-009), never a dead link.
-import { svfLessonMeta } from '@content/svf/lesson.meta';
-import { resolveGoDeeper } from '@lib/repo-refs/resolver';
-
-const goDeeper = resolveGoDeeper(svfLessonMeta);
-console.log(
-  `[repo-refs] "Go deeper" resolved for effect "${svfLessonMeta.effect}": ` +
-    `spec=${goDeeper.spec.repoPath}, plan=${goDeeper.plan.repoPath}, ` +
-    `tasks=${goDeeper.tasks.repoPath}, tests=[${goDeeper.tests.map((r) => r.repoPath).join(', ')}], ` +
-    `implementation=[${goDeeper.implementation.map((r) => r.repoPath).join(', ')}], ` +
-    `roadmapNode=${goDeeper.roadmapNode.id} (found=${goDeeper.roadmapNode.found})`,
-);
-console.log(`[repo-refs] spec URL: ${goDeeper.spec.url}`);
+const { Content } = await render(lesson);
+const { title, description, eyebrow } = lesson.data;
 ---
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-  </head>
-  <body>
-    <main>
-      <h1>acfx training site</h1>
-      <p>
-        This is a placeholder page. The SVF lesson and its interactive
-        artifacts are not implemented yet — see
-        <code>specs/svf-training-site/tasks.md</code>.
-      </p>
-    </main>
-  </body>
-</html>
+<LessonLayout title={title} eyebrow={eyebrow} thesis={description}>
+  <Content />
+</LessonLayout>

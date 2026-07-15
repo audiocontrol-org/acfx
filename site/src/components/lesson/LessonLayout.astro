@@ -1,0 +1,317 @@
+---
+// LessonLayout — the "bench & lab manual" page shell that frames the SVF
+// lesson (frontend-design, Commandment IV / FR-016).
+//
+// Direction: the two interactive artifacts are lit analog INSTRUMENTS; this
+// page is the dark workbench they rest on plus the engineer's lab manual. The
+// manual voice is a real reading serif at a comfortable measure; the instrument
+// voice — eyebrows, section kickers, data, file paths — stays the engraved
+// monospace of the faceplates. One warm signal-amber accent, inherited from
+// the instruments, carries the SIGNATURE: a vertical "signal rail" down the
+// left of the column that links the six numbered stations and warms toward
+// amber-hot through the hands-on sections (Play / Build), echoing the
+// instruments' resonance-heat glow so page and instruments read as one system.
+//
+// Pure presentation: no DSP, no data access. The page (`index.astro`) resolves
+// content + metadata and slots it in.
+interface Props {
+  readonly title: string;
+  readonly eyebrow: string;
+  readonly thesis: string;
+}
+
+const { title, eyebrow, thesis } = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={thesis} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <div class="bench">
+      <main class="lesson">
+        <header class="lesson__hero">
+          <p class="lesson__eyebrow">{eyebrow}</p>
+          <h1 class="lesson__title">{title}</h1>
+          <p class="lesson__thesis">{thesis}</p>
+
+          <!-- Signature glyph: one input branches to three simultaneous taps —
+               the characteristic thing about a state-variable filter. -->
+          <div class="lesson__taps" aria-hidden="true">
+            <span class="lesson__tap-in">in</span>
+            <span class="lesson__tap-fan"></span>
+            <span class="lesson__tap-out">LP</span>
+            <span class="lesson__tap-out">BP</span>
+            <span class="lesson__tap-out">HP</span>
+          </div>
+        </header>
+
+        <div class="lesson__body">
+          <slot />
+        </div>
+
+        <footer class="lesson__foot">
+          <p class="lesson__foot-line">
+            Every sound, plot, and checkpoint on this page comes from the real
+            acfx SVF — the same code that runs on the desktop and the
+            microcontroller. Nothing here is a reimplementation.
+          </p>
+        </footer>
+      </main>
+    </div>
+
+    <style is:global>
+      :root {
+        --void: #0f1219;
+        --face: #161b26;
+        --raised: #1b2130;
+        --hairline: #2a3346;
+        --hairline-soft: #222a3a;
+        --ink: #eaedf5;
+        --body: #c7ced9;
+        --dim: #7e889f;
+        --signal: #ff9f45;
+        --signal-hot: #ffc978;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code",
+          "Cascadia Code", monospace;
+        --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
+          Palatino, "Source Serif 4", "Georgia", serif;
+        --measure: 34rem;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        background-color: var(--void);
+        background-image:
+          radial-gradient(
+            120% 80% at 50% -10%,
+            #1a2030 0%,
+            var(--void) 60%
+          ),
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.012) 0,
+            rgba(255, 255, 255, 0.012) 1px,
+            transparent 1px,
+            transparent 3px
+          );
+        color: var(--body);
+        font-family: var(--serif);
+        line-height: 1.72;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      .bench {
+        min-height: 100vh;
+        padding: clamp(1.5rem, 5vw, 4rem) clamp(1rem, 4vw, 2rem) 4rem;
+      }
+
+      .lesson {
+        max-width: 54rem;
+        margin: 0 auto;
+      }
+
+      /* --- Hero -------------------------------------------------------------- */
+      .lesson__hero {
+        padding: clamp(1rem, 4vw, 3rem) 0 clamp(2rem, 5vw, 3.5rem);
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .lesson__eyebrow {
+        margin: 0 0 1.4rem;
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--signal);
+      }
+
+      .lesson__title {
+        margin: 0;
+        font-family: var(--serif);
+        font-weight: 600;
+        font-size: clamp(2.3rem, 7vw, 4rem);
+        line-height: 1.04;
+        letter-spacing: -0.015em;
+        color: var(--ink);
+      }
+
+      .lesson__thesis {
+        max-width: var(--measure);
+        margin: 1.5rem 0 0;
+        font-size: clamp(1.1rem, 2.4vw, 1.35rem);
+        line-height: 1.6;
+        color: var(--body);
+      }
+
+      /* Three simultaneous taps — the SVF's signature, drawn in CSS. */
+      .lesson__taps {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        margin-top: 2.2rem;
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+
+      .lesson__tap-in {
+        color: var(--body);
+      }
+
+      .lesson__tap-fan {
+        width: 2.4rem;
+        height: 1px;
+        background: linear-gradient(90deg, var(--dim), var(--signal));
+        box-shadow: 0 0 8px rgba(255, 159, 69, 0.4);
+      }
+
+      .lesson__tap-out {
+        padding: 0.2rem 0.5rem;
+        border: 1px solid color-mix(in srgb, var(--signal) 45%, transparent);
+        border-radius: 999px;
+        color: var(--signal-hot);
+      }
+
+      /* --- Body + the signal rail ------------------------------------------- */
+      .lesson__body {
+        position: relative;
+        padding-left: clamp(2.4rem, 6vw, 4rem);
+      }
+
+      /* The rail itself: a vertical signal path down the left of the column,
+         cool at the concept end, warming to amber through the hands-on
+         sections. Static gradient — no animation, reduced-motion safe. */
+      .lesson__body::before {
+        content: "";
+        position: absolute;
+        top: 0.6rem;
+        bottom: 0;
+        left: clamp(0.7rem, 2vw, 1.1rem);
+        width: 2px;
+        background: linear-gradient(
+          180deg,
+          var(--hairline) 0%,
+          var(--hairline) 24%,
+          color-mix(in srgb, var(--signal) 30%, var(--hairline)) 46%,
+          color-mix(in srgb, var(--signal) 70%, var(--hairline)) 66%,
+          var(--signal) 82%,
+          color-mix(in srgb, var(--signal) 45%, var(--hairline)) 100%
+        );
+      }
+
+      /* --- Prose inside a part --------------------------------------------- */
+      .lesson__body :where(p, ul, ol) {
+        max-width: var(--measure);
+      }
+
+      .lesson__body p {
+        font-size: 1.12rem;
+        margin: 0 0 1.15rem;
+        color: var(--body);
+      }
+
+      .lesson__body :where(ul, ol) {
+        padding-left: 1.2rem;
+        margin: 0 0 1.15rem;
+      }
+
+      .lesson__body li {
+        margin: 0 0 0.5rem;
+        font-size: 1.08rem;
+      }
+
+      .lesson__body li::marker {
+        color: var(--signal);
+      }
+
+      .lesson__body strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .lesson__body em {
+        color: var(--signal-hot);
+        font-style: italic;
+      }
+
+      /* Inline code + engraved terms borrow the instrument's monospace voice. */
+      .lesson__body :not(pre) > code {
+        font-family: var(--mono);
+        font-size: 0.86em;
+        color: var(--signal-hot);
+        background: color-mix(in srgb, var(--signal) 9%, var(--void));
+        border: 1px solid var(--hairline-soft);
+        border-radius: 5px;
+        padding: 0.08em 0.38em;
+        white-space: nowrap;
+      }
+
+      .lesson__body h3 {
+        max-width: var(--measure);
+        margin: 2.1rem 0 0.7rem;
+        font-family: var(--serif);
+        font-weight: 600;
+        font-size: 1.4rem;
+        line-height: 1.25;
+        color: var(--ink);
+      }
+
+      .lesson__body a:not(.gd__card) {
+        color: var(--signal-hot);
+        text-underline-offset: 3px;
+        text-decoration-color: color-mix(in srgb, var(--signal) 55%, transparent);
+      }
+
+      .lesson__body a:not(.gd__card):hover {
+        text-decoration-color: var(--signal);
+      }
+
+      /* --- Footer ----------------------------------------------------------- */
+      .lesson__foot {
+        margin-top: 3.5rem;
+        padding-top: 1.6rem;
+        border-top: 1px solid var(--hairline);
+      }
+
+      .lesson__foot-line {
+        max-width: var(--measure);
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        line-height: 1.7;
+        letter-spacing: 0.02em;
+        color: var(--dim);
+      }
+
+      :where(a, button, input):focus-visible {
+        outline: 2px solid var(--signal-hot);
+        outline-offset: 2px;
+      }
+
+      @media (max-width: 34rem) {
+        .lesson__body {
+          padding-left: 1.9rem;
+        }
+        .lesson__body::before {
+          left: 0.35rem;
+        }
+      }
+    </style>
+  </body>
+</html>

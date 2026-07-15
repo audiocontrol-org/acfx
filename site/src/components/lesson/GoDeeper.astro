@@ -1,0 +1,130 @@
+---
+// GoDeeper — the "Go deeper" station (Part 6). Renders the build-time
+// auto-resolved links (FR-009): from the lesson's typed metadata the resolver
+// derives the effect's CURRENT spec / plan / tasks / tests / implementation and
+// its roadmap node as concrete GitHub blob links. An anchor that no longer
+// resolves throws during `astro build` (never a silent dead link), so a green
+// build IS the proof these links point at real files.
+import { svfLessonMeta } from '../../content/svf/lesson.meta.ts';
+import { resolveGoDeeper, type RepoRef } from '@lib/repo-refs/resolver';
+
+const links = resolveGoDeeper(svfLessonMeta);
+
+interface Card {
+  readonly kicker: string;
+  readonly repoPath: string;
+  readonly url: string;
+}
+
+function card(kicker: string, ref: RepoRef): Card {
+  return { kicker, repoPath: ref.repoPath, url: ref.url };
+}
+
+// The resolved blob URLs share a base (`…/blob/main/<repoPath>`); recover it
+// from the spec ref so the roadmap node can link to ROADMAP.md at that base.
+const blobBase = links.spec.url.slice(0, links.spec.url.length - links.spec.repoPath.length);
+
+const cards: readonly Card[] = [
+  card('spec', links.spec),
+  card('plan', links.plan),
+  card('tasks', links.tasks),
+  ...links.tests.map((ref) => card('tests', ref)),
+  ...links.implementation.map((ref) => card('source', ref)),
+  { kicker: 'roadmap', repoPath: 'ROADMAP.md', url: `${blobBase}ROADMAP.md` },
+];
+---
+
+<div class="gd">
+  <div class="gd__grid">
+    {
+      cards.map((c) => (
+        <a class="gd__card" href={c.url} target="_blank" rel="noreferrer">
+          <span class="gd__kicker">{c.kicker}</span>
+          <span class="gd__path">{c.repoPath}</span>
+          <span class="gd__arrow" aria-hidden="true">↗</span>
+        </a>
+      ))
+    }
+  </div>
+  <p class="gd__note">
+    These links are generated at build time from the lesson's typed metadata. If
+    any target file were moved or deleted, the build would fail rather than ship
+    a dead link.
+  </p>
+</div>
+
+<style>
+  .gd {
+    margin: 1.4rem 0 0.5rem;
+  }
+
+  .gd__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: 0.7rem;
+  }
+
+  .gd__card {
+    position: relative;
+    display: grid;
+    gap: 0.35rem;
+    text-decoration: none;
+    background: linear-gradient(180deg, var(--raised), var(--face));
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px var(--hairline);
+    padding: 0.8rem 0.9rem;
+    transition: box-shadow 140ms ease, transform 100ms ease;
+  }
+
+  .gd__card:hover {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--signal) 55%, var(--hairline)),
+      0 0 20px -6px rgba(255, 159, 69, 0.4);
+    transform: translateY(-1px);
+  }
+
+  .gd__kicker {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  .gd__path {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--ink);
+    word-break: break-all;
+    padding-right: 1rem;
+  }
+
+  .gd__arrow {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.8rem;
+    font-family: var(--mono);
+    color: var(--dim);
+    transition: color 140ms ease;
+  }
+
+  .gd__card:hover .gd__arrow {
+    color: var(--signal-hot);
+  }
+
+  .gd__note {
+    max-width: var(--measure);
+    margin: 1.1rem 0 0;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    line-height: 1.65;
+    color: var(--dim);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gd__card {
+      transition: none;
+    }
+  }
+</style>

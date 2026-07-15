@@ -1,0 +1,146 @@
+---
+// HearIt — the "Hear it" station (Part 2). Renders the REAL pre-generated
+// audio presets from the lesson-asset manifest (kind:"audio", FR-006/FR-008),
+// each paired with its frequency-response context (the matching kind:"response"
+// asset) so the learner reads what they are about to hear. These are the
+// static/SSR clips — no live engine, no fake data.
+//
+// Distinct from Part 4 ("Play with it"): that is the live faceplate; this is
+// the fixed reference set, generated offline from the same core.
+import { assetsByKind } from '@lib/lesson-assets/manifest';
+import {
+  formatCutoff,
+  formatResonance,
+  modeLabel,
+  type SvfDemoMode,
+} from '../artifacts/SvfDemo/svf-param-map.ts';
+
+const audio = assetsByKind('audio');
+const responses = assetsByKind('response');
+
+// The ABI's discrete mode bucket (0|1|2) -> UI mode id.
+const MODE_BY_BUCKET: readonly SvfDemoMode[] = ['lowpass', 'highpass', 'bandpass'];
+
+interface Preset {
+  readonly url: string;
+  readonly headline: string;
+  readonly modeText: string;
+  readonly resText: string;
+  readonly context: string;
+}
+
+function resContext(cutoffHz: number, resonance: number): string {
+  if (resonance >= 0.6) {
+    return `A tall resonant peak sits right at ${formatCutoff(cutoffHz)} — the response rings there before it rolls off.`;
+  }
+  return `Everything above ${formatCutoff(cutoffHz)} is progressively attenuated; the response is flat below it and falls at 12 dB/octave past the corner.`;
+}
+
+const presets: readonly Preset[] = audio.map((asset): Preset => {
+  const cutoffHz = asset.params?.['cutoffHz'] ?? 0;
+  const resonance = asset.params?.['resonance'] ?? 0;
+  const bucket = asset.params?.['mode'] ?? 0;
+  const mode = MODE_BY_BUCKET[bucket] ?? 'lowpass';
+  // The matching pre-generated response plot shares this preset's params.
+  const hasResponse = responses.some(
+    (r) => r.params?.['cutoffHz'] === cutoffHz && r.params?.['resonance'] === resonance,
+  );
+  return {
+    url: asset.url,
+    headline: formatCutoff(cutoffHz),
+    modeText: modeLabel(mode),
+    resText: formatResonance(resonance),
+    context: hasResponse
+      ? resContext(cutoffHz, resonance)
+      : 'Pre-generated from the real core.',
+  };
+});
+---
+
+<div class="hear">
+  <ul class="hear__list">
+    {
+      presets.map((preset) => (
+        <li class="hear__item">
+          <div class="hear__meta">
+            <span class="hear__headline">{preset.headline}</span>
+            <span class="hear__tags">
+              <span class="hear__mode">{preset.modeText}</span>
+              <span class="hear__res">{preset.resText}</span>
+            </span>
+          </div>
+          <p class="hear__context">{preset.context}</p>
+          <audio class="hear__audio" controls preload="none" src={preset.url} />
+        </li>
+      ))
+    }
+  </ul>
+</div>
+
+<style>
+  .hear {
+    max-width: var(--measure);
+    margin: 1.4rem 0 0.4rem;
+  }
+
+  .hear__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .hear__item {
+    background: linear-gradient(180deg, var(--raised), var(--face));
+    border-radius: 12px;
+    box-shadow: inset 0 0 0 1px var(--hairline), 0 12px 26px -20px rgba(0, 0, 0, 0.9);
+    padding: 0.95rem 1.05rem 1.05rem;
+  }
+
+  .hear__meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+  }
+
+  .hear__headline {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.35rem;
+    color: var(--signal-hot);
+    text-shadow: 0 0 14px rgba(255, 159, 69, 0.25);
+  }
+
+  .hear__tags {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .hear__mode {
+    color: var(--ink);
+  }
+
+  .hear__res {
+    color: var(--dim);
+  }
+
+  .hear__context {
+    margin: 0.6rem 0 0.85rem;
+    font-size: 0.98rem;
+    line-height: 1.6;
+    color: var(--body);
+  }
+
+  .hear__audio {
+    width: 100%;
+    height: 2.3rem;
+  }
+</style>
