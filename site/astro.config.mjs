@@ -30,5 +30,10 @@ export default defineConfig({
         allow: [repoRoot],
       },
     },
+    // Allow viewing the local `astro preview` over Tailscale MagicDNS (*.ts.net).
+    // Preview-server only — has no effect on the production static build/deploy.
+    preview: {
+      allowedHosts: ['.ts.net'],
+    },
   },
 });
