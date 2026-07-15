@@ -17,6 +17,10 @@ out/
 adapters/web/node_modules/
 adapters/web/dist/
 
+# tools TS package (svf-training-site)
+tools/node_modules/
+tools/dist/
+
 # CPM fetched dependencies + cache
 external/_deps/
 external/.cpm-cache/

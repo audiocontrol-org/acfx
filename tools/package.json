@@ -1,0 +1,15 @@
+{
+  "name": "@acfx/tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "wasm-fragment": "npm run build && node dist/wasm-fragment.js",
+    "assemble": "npm run build && node dist/assemble.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}

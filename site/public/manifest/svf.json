@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "lesson": "svf",
+  "sourceProvenance": "95c6f7a7babba3588588ebe26093665607224614",
+  "assets": [
+    {
+      "kind": "wasm",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/svf.ec9e1086.wasm",
+      "sha256": "ec9e10866ccd70d1780a1a0ca72c5b64f0d6e21ee6ff7ef8f25a0ff695f64f27",
+      "contentType": "application/wasm",
+      "capabilities": [
+        "audio"
+      ],
+      "capabilityVersion": 1,
+      "provenance": "tools/manifest/wasm-fragment@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "audio",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-low.2ce70ebb.wav",
+      "sha256": "2ce70ebbc9dd2a5ceac7ec955b50fa5ec1a5860d9de2056e966a2ce4430d5036",
+      "contentType": "audio/wav",
+      "params": {
+        "cutoffHz": 200,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "impulse",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-low-impulse.6807f7ed.json",
+      "sha256": "6807f7ed2224e2d3493c14f99fa52b1cd658620065a1a85c9cb4fac9ebd2d6d6",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 200,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "response",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-low-response.8c880153.json",
+      "sha256": "8c8801530c9cc0ceb86135d1328838ecac79f02fd6785b8a3d4ffb3f657c48ff",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 200,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "audio",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-mid.d2fcce88.wav",
+      "sha256": "d2fcce882c76463eb39faf21003ec2e39e8d617e57124252a9557c2452bb70fb",
+      "contentType": "audio/wav",
+      "params": {
+        "cutoffHz": 1000,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "impulse",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-mid-impulse.d20d1064.json",
+      "sha256": "d20d1064c7790bef966ef446373181596fd8fb38e2d1665a2d124615275c8e75",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 1000,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "response",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-mid-response.708be30a.json",
+      "sha256": "708be30a44cc32ad42c7d16e5d62397e61409eaed7c49572daa7584521cc94c5",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 1000,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "audio",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-high.58064de0.wav",
+      "sha256": "58064de0c332fa33d88cd949391a84ed17f89bfedccb570564dc4b549c3dbdb9",
+      "contentType": "audio/wav",
+      "params": {
+        "cutoffHz": 5000,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "impulse",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-high-impulse.1594931d.json",
+      "sha256": "1594931d5a027d61941fd90ae5174517a752221704ba1f1c32d6a9b1a734591a",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 5000,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "response",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-cutoff-high-response.2d55dc4d.json",
+      "sha256": "2d55dc4d1452f472335989602e2ccdefc2af6603a9b904be5face8f988f04d9d",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 5000,
+        "mode": 0,
+        "resonance": 0.100000001
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "audio",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-resonant.122ae5fd.wav",
+      "sha256": "122ae5fdcb1d5e7e0e00587cc9edb3f24acf869c171527334b36db7308d66096",
+      "contentType": "audio/wav",
+      "params": {
+        "cutoffHz": 800,
+        "mode": 0,
+        "resonance": 0.850000024
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "impulse",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-resonant-impulse.da5bedd4.json",
+      "sha256": "da5bedd479ade87d86223e39f3f882d8f5252be1981026029d239c2d9035002b",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 800,
+        "mode": 0,
+        "resonance": 0.850000024
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    },
+    {
+      "kind": "response",
+      "url": "https://audiocontrol-acfx-cdn.oletizi.workers.dev/lp-resonant-response.043445ec.json",
+      "sha256": "043445eccd791d085552ad4749d629a7d28e6aa2fc8fa373c706095975f71afe",
+      "contentType": "application/json",
+      "params": {
+        "cutoffHz": 800,
+        "mode": 0,
+        "resonance": 0.850000024
+      },
+      "sampleRate": 48000,
+      "provenance": "tools/lesson-assets@95c6f7a7babba3588588ebe26093665607224614"
+    }
+  ]
+}
