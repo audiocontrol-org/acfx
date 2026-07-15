@@ -11,6 +11,10 @@ if(NOT EMSCRIPTEN)
   target_link_libraries(acfx_web_abi PUBLIC acfx_core)
   target_compile_features(acfx_web_abi PUBLIC cxx_std_20)
 
+  add_executable(svf-reference svf-reference-main.cpp)
+  target_link_libraries(svf-reference PRIVATE acfx_web_abi acfx_core)
+  target_compile_features(svf-reference PRIVATE cxx_std_20)
+
   if(ACFX_BUILD_TESTS AND TARGET doctest)
     enable_testing()
     add_executable(acfx_web_abi_native_test test/svf-web-abi-native-test.cpp)
