@@ -410,6 +410,7 @@ git commit -m "build(web): emscripten WASM module (svf.mjs + svf.wasm)"
     "test": "vitest run"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
