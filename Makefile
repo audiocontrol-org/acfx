@@ -55,6 +55,18 @@ teensy:
 
 all: build daisy teensy
 
+# --- web adapter (Phase 1). All local; CI builds nothing. ---
+.PHONY: web-ref web-wasm web-parity
+web-ref:
+	$(CMAKE) --preset web-ref && $(CMAKE) --build build/web-ref --target svf-reference acfx_web_abi_native_test
+	$(CTEST) --test-dir build/web-ref -R acfx_web_abi_native_test --output-on-failure
+
+web-wasm:
+	rm -rf build/web && emcmake $(CMAKE) --preset web && $(CMAKE) --build build/web --target svf
+
+web-parity: web-ref web-wasm
+	cd adapters/web && npm install && npm run typecheck && npm test
+
 clean:
 	rm -rf $(BUILD)
 
