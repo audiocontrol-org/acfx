@@ -9,6 +9,7 @@
 // surrounding layout.
 import { getEntry, render } from 'astro:content';
 import LessonLayout from '@components/lesson/LessonLayout.astro';
+import { lessonPartTabs } from '../content/svf/lesson-parts.ts';
 
 const lesson = await getEntry('lessons', 'lesson');
 if (lesson === undefined) {
@@ -22,6 +23,6 @@ const { Content } = await render(lesson);
 const { title, description, eyebrow } = lesson.data;
 ---
 
-<LessonLayout title={title} eyebrow={eyebrow} thesis={description}>
+<LessonLayout title={title} eyebrow={eyebrow} thesis={description} tabs={lessonPartTabs}>
   <Content />
 </LessonLayout>

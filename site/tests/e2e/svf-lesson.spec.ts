@@ -6,7 +6,13 @@
 // It runs against the STATIC production build (`astro preview` over `dist/`,
 // see playwright.config.ts) and asserts real page state — nothing here is
 // stubbed or mocked.
-import { expect, test, type Page, type Response } from '@playwright/test';
+//
+// The lesson is a TABBED layout: the six parts are ARIA tabpanels, only one
+// visible at a time, and the live artifact islands are never unmounted across
+// tab switches (their AudioContext + WASM persist). So the test activates the
+// relevant tab before interacting with each island, and asserts the tab
+// semantics themselves (single visible panel, switching, hash deep-linking).
+import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
 
 const CDN_WASM_PATTERN = /svf\.[0-9a-f]+\.wasm$/;
 const LESSON_SECTION_IDS = [
@@ -23,14 +29,25 @@ function isCrossOrigin(page: Page, url: string): boolean {
   return new URL(url).origin !== new URL(page.url()).origin;
 }
 
+/** Activate a tab by its panel id and assert it became the single visible panel. */
+async function openTab(page: Page, id: string): Promise<Locator> {
+  await page.locator(`#${id}-tab`).click();
+  const panel = page.locator(`#${id}`);
+  await expect(panel).toBeVisible();
+  await expect(page.locator(`#${id}-tab`)).toHaveAttribute('aria-selected', 'true');
+  // Exactly one tabpanel is ever visible.
+  await expect(page.locator('[role="tabpanel"]:not([hidden])')).toHaveCount(1);
+  return panel;
+}
+
 test.describe('SVF lesson page', () => {
-  test('loads the six-part lesson with both live artifacts, a cross-origin CDN wasm fetch, a user-gesture audio start, and a live visualizer', async ({
+  test('tabbed six-part lesson: both islands persist across tabs, cross-origin CDN wasm, user-gesture audio start, live visualizer', async ({
     page,
   }) => {
     // Arm the cross-origin CDN wasm wait BEFORE navigating: the visualizer
-    // fetches its analysis wasm automatically on load (no user gesture is
-    // required to instantiate WebAssembly, only to resume an AudioContext),
-    // so the request can fire as soon as the page's hydration script runs.
+    // fetches its analysis wasm automatically on load — even though its tab
+    // panel starts hidden, the island still mounts and instantiates WASM (no
+    // user gesture is required for WebAssembly, only to resume an AudioContext).
     const cdnWasmResponsePromise: Promise<Response> = page.waitForResponse(
       (response) => CDN_WASM_PATTERN.test(new URL(response.url()).pathname) && isCrossOrigin(page, response.url()),
       { timeout: 30_000 },
@@ -38,35 +55,44 @@ test.describe('SVF lesson page', () => {
 
     await page.goto('/');
 
-    // --- 1. All six lesson sections are present -----------------------------
+    // --- 1. All six lesson sections exist as tabpanels ----------------------
     for (const id of LESSON_SECTION_IDS) {
-      await expect(page.locator(`#${id}`)).toBeVisible();
+      await expect(page.locator(`#${id}`)).toBeAttached();
     }
 
-    // --- 2. Both artifact islands are in the DOM ----------------------------
+    // --- 2. Tab semantics: six tabs, one panel visible on load (Concept) ----
+    await expect(page.getByRole('tab')).toHaveCount(6);
+    await expect(page.getByRole('tabpanel', { includeHidden: true })).toHaveCount(6);
+    await expect(page.locator('#concept')).toBeVisible();
+    await expect(page.locator('#concept-tab')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[role="tabpanel"]:not([hidden])')).toHaveCount(1);
+    // Panels for the other tabs start hidden.
+    await expect(page.locator('#play-with-it')).toBeHidden();
+    await expect(page.locator('#observe-it')).toBeHidden();
+
+    // --- 3. Both artifact islands are in the DOM (mounted, even while hidden) -
     const demo = page.locator('[data-svf-demo]');
     const visualizer = page.locator('[data-svf-visualizer]');
     await expect(demo).toBeAttached();
     await expect(visualizer).toBeAttached();
 
-    // --- 3. Cross-origin CDN asset load (FR-013) ----------------------------
+    // --- 4. Cross-origin CDN asset load (FR-013) ----------------------------
     // The visualizer's analysis-wasm fetch is cross-origin (a Cloudflare
     // Worker CDN host, not the preview server) and must resolve 200 with a
     // wasm content type — this is the integration surface a unit test can't
-    // reach.
+    // reach. It fires on load despite the Observe-it tab starting hidden.
     const cdnWasmResponse = await cdnWasmResponsePromise;
     expect(cdnWasmResponse.status()).toBe(200);
     expect(cdnWasmResponse.headers()['content-type']).toContain('wasm');
 
-    // The visualizer island only reveals its live section once that wasm has
-    // loaded and initialized successfully — confirms the island actually
-    // mounted on the real fetched asset, not merely that the markup exists.
+    // --- 5. Open "Observe it": the live visualizer (real, not faked) --------
+    await openTab(page, 'observe-it');
+    await expect(page.locator('#concept')).toBeHidden();
+
     const visualizerLive = visualizer.locator('[data-role="live"]');
     await expect(visualizerLive).toBeVisible({ timeout: 20_000 });
-    const visualizerError = visualizer.locator('[data-role="error"]');
-    await expect(visualizerError).toBeHidden();
+    await expect(visualizer.locator('[data-role="error"]')).toBeHidden();
 
-    // --- 4. Visualizer reaches its live analysis state (real, not faked) ---
     await expect(visualizer.locator('[data-role="status"]')).toHaveText('Live · real compiled analysis', {
       timeout: 20_000,
     });
@@ -76,10 +102,10 @@ test.describe('SVF lesson page', () => {
     expect(radiusText.length).toBeGreaterThan(0);
     expect(Number.isNaN(Number(radiusText))).toBe(false);
 
-    // All three LIVE canvases (scoped past the hidden content-fallback
-    // section, which also has three canvases of its own) are present and have
-    // been laid out with real pixel dimensions (a canvas Astro never sizes
-    // never paints).
+    // All three LIVE canvases are present and laid out with real pixel
+    // dimensions once the tab is shown (a canvas Astro never sizes never
+    // paints; a canvas in a hidden panel has no layout size — showing the tab
+    // is what gives it one).
     const canvases = visualizerLive.locator('canvas');
     await expect(canvases).toHaveCount(3);
     const boxes = await canvases.evaluateAll((elements) =>
@@ -93,9 +119,12 @@ test.describe('SVF lesson page', () => {
       expect(box.height).toBeGreaterThan(0);
     }
 
-    // --- 5. User-gesture audio start (FR-013) -------------------------------
-    // The demo island must have revealed its live (interactive) section too —
-    // it needs no network fetch to do so (the wasm loads lazily on Start).
+    // --- 6. Open "Play with it": user-gesture audio start (FR-013) ----------
+    await openTab(page, 'play-with-it');
+    await expect(page.locator('#observe-it')).toBeHidden();
+
+    // The demo island revealed its live (interactive) section — it needs no
+    // network fetch to do so (the wasm loads lazily on Start).
     await expect(demo.locator('[data-role="live"]')).toBeVisible();
 
     const startButton = demo.locator('[data-role="start"]');
@@ -109,5 +138,18 @@ test.describe('SVF lesson page', () => {
     await expect(demo).toHaveAttribute('data-playing', 'true', { timeout: 20_000 });
     await expect(demo.locator('[data-role="status"]')).toHaveText(/Live · real WASM DSP/, { timeout: 20_000 });
     await expect(demo.locator('[data-role="error"]')).toBeHidden();
+
+    // --- 7. Deep-linking: activating a tab syncs the URL hash ---------------
+    expect(new URL(page.url()).hash).toBe('#play-with-it');
+
+    // --- 8. The islands persisted across the tab switches (never remounted) --
+    // Switch back to Observe-it: the visualizer is still live (its WASM was not
+    // re-instantiated) and the demo is still playing (its AudioContext persists,
+    // just paused off-screen) — proving CSS visibility toggling, not remount.
+    await openTab(page, 'observe-it');
+    await expect(page.locator('#play-with-it')).toBeHidden();
+    await expect(visualizer.locator('[data-role="status"]')).toHaveText('Live · real compiled analysis');
+    // The demo island is still mounted with its playing state intact.
+    await expect(demo).toHaveAttribute('data-playing', 'true');
   });
 });

@@ -1,26 +1,35 @@
 ---
-// LessonPart — one numbered station of the six-part anatomy, hung on the
-// signal rail (frontend-design). The six parts are a genuine ordered procedure
-// (Concept -> Hear -> Observe -> Play -> Build -> Go deeper), so the numbering
-// encodes real sequence, not decoration; each station is a node on the rail.
+// LessonPart — one tabpanel of the six-part anatomy (frontend-design — tabbed
+// layout). The six parts are one ordered procedure; the ORDER now lives in the
+// tab bank's station index (01..06, rendered by LessonLayout from
+// `lesson-parts.ts`), so a part no longer carries its own numbered rail node —
+// that removed the nested-numbering weirdness (the old station 05 held its own
+// 01..04 rail).
 //
-// `id` gives every part a stable anchor (the built-page verification greps
-// these). `hot` marks the hands-on stations (Play / Build) where the rail's
-// resonance-heat runs warmest — the node glows amber to match.
+// Each part is a `role="tabpanel"` labelled by its tab button (`${id}-tab`).
+// `id` is the stable anchor the deep-link hash + "Go deeper" links + the
+// Playwright test resolve. Exactly one part is server-rendered active (visible);
+// the rest start `hidden`, and the tab controller toggles `hidden` on switch
+// WITHOUT unmounting the live artifact islands inside.
 interface Props {
-  readonly n: number;
   readonly id: string;
   readonly kicker: string;
   readonly title: string;
-  readonly hot?: boolean;
+  /** The one part rendered visible on load (the first tab). */
+  readonly active?: boolean;
 }
 
-const { n, id, kicker, title, hot = false } = Astro.props;
-const nn = String(n).padStart(2, '0');
+const { id, kicker, title, active = false } = Astro.props;
 ---
 
-<section class:list={['part', { 'part--hot': hot }]} id={id} aria-labelledby={`${id}-title`}>
-  <div class="part__node" aria-hidden="true">{nn}</div>
+<section
+  class="part"
+  id={id}
+  role="tabpanel"
+  aria-labelledby={`${id}-tab`}
+  tabindex="0"
+  hidden={!active}
+>
   <header class="part__head">
     <p class="part__kicker">{kicker}</p>
     <h2 class="part__title" id={`${id}-title`}>{title}</h2>
@@ -32,41 +41,35 @@ const nn = String(n).padStart(2, '0');
 
 <style>
   .part {
-    position: relative;
-    padding: clamp(2.4rem, 6vw, 3.6rem) 0 0.4rem;
+    padding: clamp(0.4rem, 2vw, 1rem) 0 0.4rem;
   }
 
-  .part:first-child {
-    padding-top: clamp(1.8rem, 4vw, 2.6rem);
+  /* Gentle reveal each time a panel becomes the active tab. Runs on show
+     because the controller toggles `hidden` (display:none -> block). */
+  .part:not([hidden]) {
+    animation: part-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   }
 
-  /* The station marker sits ON the rail (the rail lives in LessonLayout at the
-     column's left edge). Numbers are engraved-monospace, like a bench plate. */
-  .part__node {
-    position: absolute;
-    top: clamp(2.55rem, 6vw, 3.75rem);
-    left: calc(-1 * clamp(2.4rem, 6vw, 4rem) + clamp(0.7rem, 2vw, 1.1rem) + 1px);
-    transform: translate(-50%, 0);
-    display: grid;
-    place-items: center;
-    width: 2.1rem;
-    height: 2.1rem;
-    border-radius: 50%;
-    background: var(--face);
-    box-shadow: inset 0 0 0 1px var(--hairline), 0 4px 10px -4px rgba(0, 0, 0, 0.8);
-    font-family: var(--mono);
-    font-size: 0.82rem;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.02em;
-    color: var(--dim);
+  @keyframes part-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 
-  .part--hot .part__node {
-    color: var(--void);
-    background: radial-gradient(circle at 38% 32%, var(--signal-hot), var(--signal) 72%);
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--signal) 60%, transparent),
-      0 0 16px rgba(255, 159, 69, 0.55);
+  /* The tabpanel is focusable (deep-link / keyboard target) but shouldn't show a
+     focus ring on programmatic/pointer focus — only real keyboard focus. */
+  .part:focus {
+    outline: none;
+  }
+  .part:focus-visible {
+    outline: 2px solid var(--signal-hot);
+    outline-offset: 6px;
+    border-radius: 4px;
   }
 
   .part__head {
@@ -82,10 +85,6 @@ const nn = String(n).padStart(2, '0');
     color: var(--signal);
   }
 
-  .part--hot .part__kicker {
-    color: var(--signal-hot);
-  }
-
   .part__title {
     max-width: var(--measure);
     margin: 0;
@@ -97,9 +96,13 @@ const nn = String(n).padStart(2, '0');
     color: var(--ink);
   }
 
-  /* The interactive artifacts + wells may run full column width; prose inside
-     the content is measure-capped by the global rule in LessonLayout. */
   .part__content {
     display: block;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .part:not([hidden]) {
+      animation: none;
+    }
   }
 </style>

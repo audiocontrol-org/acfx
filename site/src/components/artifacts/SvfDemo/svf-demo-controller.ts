@@ -28,6 +28,8 @@ import {
   type SvfDemoMode,
 } from './svf-param-map.ts';
 
+import { ARTIFACT_VISIBILITY_EVENT, readVisibilityDetail } from '@lib/lesson/artifact-visibility';
+
 const SOURCE_FREQ_HZ = 55; // sawtooth fundamental (A1) — dense harmonics to sweep
 const MASTER_GAIN = 0.22; // conservative output level; resonance can add energy
 const FADE_SECONDS = 0.04; // click-free start/stop ramps
@@ -107,6 +109,9 @@ class SvfDemoPanel {
   private mode: SvfDemoMode;
   private graph: AudioGraph | undefined;
   private starting = false;
+  // True when this panel's tab was hidden mid-playback and we suspended the
+  // AudioContext ourselves — so re-showing resumes it (but a user Stop doesn't).
+  private autoSuspended = false;
 
   constructor(private readonly root: HTMLElement) {
     this.config = readConfig(root);
@@ -133,6 +138,13 @@ class SvfDemoPanel {
 
   /** Progressive enhancement: reveal the live panel only when the real path can run. */
   init(): void {
+    // Pause/resume across tab switches: the island is never unmounted, so its
+    // AudioContext + worklet persist — but it must not play from an unseen tab.
+    this.root.addEventListener(ARTIFACT_VISIBILITY_EVENT, (event) => {
+      const detail = readVisibilityDetail(event);
+      if (detail !== undefined) this.setVisible(detail.visible);
+    });
+
     if (!liveAudioSupported()) {
       // Leave the content fallback (pre-rendered clips) visible; explain why.
       this.setStatus('Live DSP needs AudioWorklet + WebAssembly — showing pre-rendered examples.');
@@ -227,11 +239,27 @@ class SvfDemoPanel {
     window.setTimeout(() => void context.close(), (FADE_SECONDS + 0.05) * 1000);
 
     this.graph = undefined;
+    this.autoSuspended = false;
     delete this.root.dataset['playing'];
     this.stopBtn.hidden = true;
     this.startBtn.hidden = false;
     this.startBtn.disabled = false;
     this.setStatus('Stopped. Press Start to hear the filter again.');
+  }
+
+  /** Tab hidden -> suspend live audio; tab shown again -> resume if we suspended. */
+  private setVisible(visible: boolean): void {
+    const graph = this.graph;
+    if (graph === undefined) return;
+    if (!visible) {
+      if (graph.context.state === 'running') {
+        this.autoSuspended = true;
+        void graph.context.suspend();
+      }
+    } else if (this.autoSuspended) {
+      this.autoSuspended = false;
+      void graph.context.resume();
+    }
   }
 
   private onCutoff(): void {

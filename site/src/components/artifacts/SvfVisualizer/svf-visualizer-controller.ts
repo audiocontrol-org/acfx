@@ -43,6 +43,8 @@ import {
   type PlotTheme,
 } from './svf-visualizer-plots.ts';
 
+import { ARTIFACT_VISIBILITY_EVENT, readVisibilityDetail } from '@lib/lesson/artifact-visibility';
+
 const SAMPLE_RATE = 48_000;
 const RESPONSE_POINTS = 256;
 const IMPULSE_SAMPLES = 512;
@@ -266,6 +268,12 @@ class SvfVisualizerPanel {
   private mode: SvfDemoMode;
   private engine: AnalysisEngine | undefined;
   private frame = 0;
+  // False while this panel's tab is hidden: skip rendering (the rAF loop) for
+  // correctness + perf; re-showing relayouts the wells and repaints once.
+  private visible = true;
+  // In content-fallback mode there's no live engine; this repaints the static
+  // wells (which have no size while the tab is hidden) once the tab is shown.
+  private fallbackRedraw: (() => void) | undefined;
 
   constructor(private readonly root: HTMLElement) {
     this.config = readConfig(root);
@@ -295,6 +303,18 @@ class SvfVisualizerPanel {
   }
 
   async init(): Promise<void> {
+    // Pause/resume across tab switches: the island is never unmounted (its WASM
+    // stays instantiated), so while its tab is hidden we just stop painting, and
+    // relayout + repaint once on re-show (the wells have no size while hidden).
+    this.root.addEventListener(ARTIFACT_VISIBILITY_EVENT, (event) => {
+      const detail = readVisibilityDetail(event);
+      if (detail !== undefined) this.setVisible(detail.visible);
+    });
+    // Seed visibility from the server-rendered tab state (this island's panel
+    // may start hidden), so an off-tab window resize won't repaint it.
+    const hostPanel = this.root.closest('[role="tabpanel"]');
+    this.visible = !(hostPanel instanceof HTMLElement && hostPanel.hidden);
+
     this.cutoffInput.value = String(cutoffHzToNormalized(this.config.initialCutoffHz));
     this.resonanceInput.value = String(this.config.initialResonance);
     this.reflectControls();
@@ -334,6 +354,7 @@ class SvfVisualizerPanel {
       });
     }
     const onResize = (): void => {
+      if (!this.visible) return;
       this.responseWell.resize();
       this.poleZeroWell.resize();
       this.impulseWell.resize();
@@ -351,11 +372,35 @@ class SvfVisualizerPanel {
 
   private onControl(): void {
     this.reflectControls();
-    if (this.frame !== 0) return;
+    if (!this.visible || this.frame !== 0) return;
     this.frame = window.requestAnimationFrame(() => {
       this.frame = 0;
       this.render();
     });
+  }
+
+  /** Tab hidden -> stop painting + cancel any pending frame; shown -> relayout. */
+  private setVisible(visible: boolean): void {
+    if (visible === this.visible) return;
+    this.visible = visible;
+    if (!visible) {
+      if (this.frame !== 0) {
+        window.cancelAnimationFrame(this.frame);
+        this.frame = 0;
+      }
+      return;
+    }
+    // Re-shown: the wells were 0-sized while hidden — resize to real pixels and
+    // repaint. Live path repaints from the engine; fallback repaints its static
+    // snapshot (whichever mode this island settled into).
+    if (this.engine !== undefined) {
+      this.responseWell.resize();
+      this.poleZeroWell.resize();
+      this.impulseWell.resize();
+      this.render();
+    } else if (this.fallbackRedraw !== undefined) {
+      this.fallbackRedraw();
+    }
   }
 
   private render(): void {
@@ -393,28 +438,40 @@ class SvfVisualizerPanel {
     const responseWell = new Well(fbResponse);
     const impulseWell = new Well(fbImpulse);
     const poleZeroWell = new Well(fbPoleZero);
-    drawEmptyPoleZero(poleZeroWell.surface(), this.theme);
 
+    let response: ResponseAsset | undefined;
+    let impulse: ImpulseAsset | undefined;
     try {
-      if (this.config.responseUrl !== undefined) {
-        const asset = await fetchResponseAsset(this.config.responseUrl);
+      if (this.config.responseUrl !== undefined) response = await fetchResponseAsset(this.config.responseUrl);
+      if (this.config.impulseUrl !== undefined) impulse = await fetchImpulseAsset(this.config.impulseUrl);
+    } catch (error) {
+      this.errorEl.textContent =
+        `${message} (pre-generated assets also failed: ${error instanceof Error ? error.message : String(error)})`;
+    }
+
+    // Repaint the static wells from the fetched snapshot. Retained so the tab
+    // controller can re-run it when this (initially hidden) tab is first shown,
+    // once the wells actually have layout size.
+    this.fallbackRedraw = (): void => {
+      responseWell.resize();
+      impulseWell.resize();
+      poleZeroWell.resize();
+      drawEmptyPoleZero(poleZeroWell.surface(), this.theme);
+      if (response !== undefined) {
         drawFrequencyResponse(
           responseWell.surface(),
-          Float32Array.from(asset.freqsHz),
-          Float32Array.from(asset.magsDb),
+          Float32Array.from(response.freqsHz),
+          Float32Array.from(response.magsDb),
           this.config.initialCutoffHz,
           this.config.initialResonance,
           this.theme,
         );
       }
-      if (this.config.impulseUrl !== undefined) {
-        const asset = await fetchImpulseAsset(this.config.impulseUrl);
-        drawImpulse(impulseWell.surface(), Float32Array.from(asset.samples), this.config.initialResonance, this.theme);
+      if (impulse !== undefined) {
+        drawImpulse(impulseWell.surface(), Float32Array.from(impulse.samples), this.config.initialResonance, this.theme);
       }
-    } catch (error) {
-      this.errorEl.textContent =
-        `${message} (pre-generated assets also failed: ${error instanceof Error ? error.message : String(error)})`;
-    }
+    };
+    this.fallbackRedraw();
   }
 
   private reflectControls(): void {

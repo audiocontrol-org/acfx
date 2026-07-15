@@ -1,111 +1,67 @@
 ---
-// CheckpointLadder — the "Build it with acfx" ladder (Part 5). Renders the
-// enumerated build-along checkpoints (`build-checkpoints.ts`), each a REAL
+// CheckpointLadder — the build-along checkpoints inside the "Build it" tab.
+// Renders the enumerated build milestones (`build-checkpoints.ts`), each a REAL
 // repository milestone the SVF travelled on its lab -> primitive -> effect ->
 // adapter climb, with the real path it lives at and a concrete way to verify
-// the state is green. This is the enumerated list the spec's US2 build-along
-// calls for (addresses analyze finding U1) — history replayed, not invented
-// tutorial steps.
+// the state is green. History replayed, not invented tutorial steps.
+//
+// Presented as a SIMPLE ordered list of steps (frontend-design — tabbed
+// layout): the old vertical "signal rail" connector was removed because it
+// competed with the outer numbering. Now the outer sequence is the tab bank
+// (01..06) and this is a plain 01..04 step list inside the Build tab — one
+// numbering per axis, no nested rails.
 import { svfBuildCheckpoints } from '../../content/svf/build-checkpoints.ts';
 
 const rungs = svfBuildCheckpoints;
 ---
 
-<ol class="ladder">
+<ol class="steps">
   {
     rungs.map((rung, i) => (
-      <li class="ladder__rung">
-        <div class="ladder__mark" aria-hidden="true">
-          <span class="ladder__dot" />
-          <span class="ladder__stage">{rung.stage}</span>
+      <li class="step">
+        <div class="step__head">
+          <span class="step__num">{String(i + 1).padStart(2, '0')}</span>
+          <span class="step__stage">{rung.stage}</span>
+          <h3 class="step__title">{rung.title}</h3>
         </div>
-        <div class="ladder__card">
-          <div class="ladder__top">
-            <span class="ladder__step">{String(i + 1).padStart(2, '0')}</span>
-            <h3 class="ladder__title">{rung.title}</h3>
-          </div>
-          <code class="ladder__path">{rung.repoPath}</code>
-          <p class="ladder__milestone">{rung.milestone}</p>
-          <p class="ladder__verify">
-            <span class="ladder__verify-key">verify</span>
-            {rung.verify}
-          </p>
-        </div>
+        <code class="step__path">{rung.repoPath}</code>
+        <p class="step__milestone">{rung.milestone}</p>
+        <p class="step__verify">
+          <span class="step__verify-key">verify</span>
+          {rung.verify}
+        </p>
       </li>
     ))
   }
 </ol>
 
 <style>
-  .ladder {
+  .steps {
     list-style: none;
-    counter-reset: none;
     margin: 1.5rem 0 0.5rem;
     padding: 0;
     display: grid;
-    gap: 0;
+    gap: 0.85rem;
+    counter-reset: none;
   }
 
-  .ladder__rung {
-    display: grid;
-    grid-template-columns: 6.5rem 1fr;
-    gap: 1rem;
-    position: relative;
-    padding-bottom: 1.1rem;
-  }
-
-  /* The rung's own mini-rail connector, echoing the page signal rail. */
-  .ladder__rung:not(:last-child)::before {
-    content: "";
-    position: absolute;
-    left: calc(0.52rem);
-    top: 1.4rem;
-    bottom: -0.1rem;
-    width: 2px;
-    background: linear-gradient(180deg, var(--signal), color-mix(in srgb, var(--signal) 25%, var(--hairline)));
-  }
-
-  .ladder__mark {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-    padding-top: 0.15rem;
-  }
-
-  .ladder__dot {
-    width: 1.05rem;
-    height: 1.05rem;
-    border-radius: 50%;
-    background: radial-gradient(circle at 38% 32%, var(--signal-hot), var(--signal) 72%);
-    box-shadow: 0 0 12px rgba(255, 159, 69, 0.5), inset 0 0 0 2px rgba(12, 15, 22, 0.55);
-    margin-left: 0.02rem;
-  }
-
-  .ladder__stage {
-    font-family: var(--mono);
-    font-size: 0.66rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--dim);
-  }
-
-  .ladder__card {
+  .step {
     background: linear-gradient(180deg, var(--raised), var(--face));
     border-radius: 12px;
     box-shadow: inset 0 0 0 1px var(--hairline), 0 14px 30px -22px rgba(0, 0, 0, 0.9);
     padding: 1rem 1.15rem 1.1rem;
-    margin-bottom: 0.2rem;
   }
 
-  .ladder__top {
+  .step__head {
     display: flex;
     align-items: baseline;
     gap: 0.7rem;
-    margin-bottom: 0.55rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.6rem;
   }
 
-  .ladder__step {
+  /* The step index — engraved, amber, but a plain enumerator (no rail node). */
+  .step__num {
     font-family: var(--mono);
     font-size: 0.72rem;
     font-variant-numeric: tabular-nums;
@@ -113,7 +69,18 @@ const rungs = svfBuildCheckpoints;
     color: var(--signal);
   }
 
-  .ladder__title {
+  .step__stage {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--void);
+    background: radial-gradient(circle at 40% 30%, var(--signal-hot), var(--signal) 78%);
+    border-radius: 999px;
+    padding: 0.18rem 0.6rem;
+  }
+
+  .step__title {
     margin: 0;
     font-family: var(--serif);
     font-weight: 600;
@@ -122,7 +89,7 @@ const rungs = svfBuildCheckpoints;
     color: var(--ink);
   }
 
-  .ladder__path {
+  .step__path {
     display: inline-block;
     font-family: var(--mono);
     font-size: 0.8rem;
@@ -135,14 +102,14 @@ const rungs = svfBuildCheckpoints;
     word-break: break-all;
   }
 
-  .ladder__milestone {
+  .step__milestone {
     margin: 0 0 0.7rem;
     font-size: 1.02rem;
     line-height: 1.6;
     color: var(--body);
   }
 
-  .ladder__verify {
+  .step__verify {
     margin: 0;
     padding-top: 0.65rem;
     border-top: 1px solid var(--hairline-soft);
@@ -152,7 +119,7 @@ const rungs = svfBuildCheckpoints;
     color: var(--dim);
   }
 
-  .ladder__verify-key {
+  .step__verify-key {
     display: inline-block;
     margin-right: 0.55rem;
     color: var(--signal);
@@ -162,17 +129,8 @@ const rungs = svfBuildCheckpoints;
   }
 
   @media (max-width: 34rem) {
-    .ladder__rung {
-      grid-template-columns: 1fr;
-      gap: 0.55rem;
-    }
-    .ladder__rung:not(:last-child)::before {
-      display: none;
-    }
-    .ladder__mark {
-      flex-direction: row;
-      align-items: center;
-      gap: 0.6rem;
+    .step__title {
+      flex-basis: 100%;
     }
   }
 </style>

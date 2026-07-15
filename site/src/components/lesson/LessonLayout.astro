@@ -14,13 +14,25 @@
 //
 // Pure presentation: no DSP, no data access. The page (`index.astro`) resolves
 // content + metadata and slots it in.
+//
+// TABBED layout (frontend-design): the six parts are one ordered procedure, so
+// the vertical "signal rail" that once linked them became a horizontal
+// channel-selector TAB BANK — engraved push-buttons with a station index
+// (01..06) and an amber LED, seated on a raised faceplate over the rail
+// gradient, rotated flat into a "signal bus". The two hands-on tabs (Play /
+// Build) run warm (resonance-heat). The bank is sticky so the whole structure
+// stays visible/navigable while reading; it scrolls horizontally on narrow
+// screens. Tab semantics + hash deep-linking live in `lesson-tabs.ts`.
+import type { LessonPartTab } from '../../content/svf/lesson-parts.ts';
+
 interface Props {
   readonly title: string;
   readonly eyebrow: string;
   readonly thesis: string;
+  readonly tabs: readonly LessonPartTab[];
 }
 
-const { title, eyebrow, thesis } = Astro.props;
+const { title, eyebrow, thesis, tabs } = Astro.props;
 ---
 
 <html lang="en">
@@ -49,9 +61,41 @@ const { title, eyebrow, thesis } = Astro.props;
           </div>
         </header>
 
+        <nav class="tabs" aria-label="Lesson parts">
+          <div class="tabs__scroll" data-lesson-tabs-scroll>
+            <div class="tabs__bank" role="tablist" aria-label="Lesson parts" data-lesson-tabs>
+              {
+                tabs.map((tab, i) => (
+                  <button
+                    class:list={['tab', { 'tab--hot': tab.hot }]}
+                    id={`${tab.id}-tab`}
+                    type="button"
+                    role="tab"
+                    aria-controls={tab.id}
+                    aria-selected={i === 0 ? 'true' : 'false'}
+                    tabindex={i === 0 ? 0 : -1}
+                  >
+                    <span class="tab__meta" aria-hidden="true">
+                      <span class="tab__led" />
+                      <span class="tab__index">{String(i + 1).padStart(2, '0')}</span>
+                    </span>
+                    <span class="tab__label">{tab.label}</span>
+                  </button>
+                ))
+              }
+            </div>
+          </div>
+          <div class="tabs__bus" aria-hidden="true"></div>
+        </nav>
+
         <div class="lesson__body">
           <slot />
         </div>
+
+        <script>
+          import { initLessonTabs } from './lesson-tabs.ts';
+          initLessonTabs();
+        </script>
 
         <footer class="lesson__foot">
           <p class="lesson__foot-line">
@@ -188,31 +232,162 @@ const { title, eyebrow, thesis } = Astro.props;
         color: var(--signal-hot);
       }
 
-      /* --- Body + the signal rail ------------------------------------------- */
-      .lesson__body {
-        position: relative;
-        padding-left: clamp(2.4rem, 6vw, 4rem);
+      /* --- The tab bank: an instrument channel selector --------------------- */
+      /* Sticky so the whole six-part structure stays visible + navigable while
+         reading a long panel. The bank sits on a raised faceplate; the rail
+         gradient survives as a horizontal "signal bus" under it. */
+      .tabs {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        margin: clamp(1.4rem, 4vw, 2.2rem) 0 clamp(1.8rem, 4vw, 2.6rem);
+        padding: 0.75rem 0 0.55rem;
+        background: linear-gradient(180deg, var(--void) 62%, transparent);
       }
 
-      /* The rail itself: a vertical signal path down the left of the column,
-         cool at the concept end, warming to amber through the hands-on
-         sections. Static gradient — no animation, reduced-motion safe. */
-      .lesson__body::before {
-        content: "";
-        position: absolute;
-        top: 0.6rem;
-        bottom: 0;
-        left: clamp(0.7rem, 2vw, 1.1rem);
-        width: 2px;
+      /* Horizontal scroll on narrow screens; the tablist itself stays intact
+         (roving-tabindex keyboard nav reveals off-screen tabs). */
+      .tabs__scroll {
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+      .tabs__scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .tabs__bank {
+        display: inline-flex;
+        gap: 0.35rem;
+        min-width: 100%;
+        padding: 0.4rem;
+        background: linear-gradient(180deg, var(--raised), var(--face));
+        border-radius: 14px;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.04),
+          inset 0 0 0 1px var(--hairline),
+          0 12px 26px -20px rgba(0, 0, 0, 0.9);
+      }
+
+      /* One engraved push-button. The index (01..06) keeps the ordinal cue the
+         old rail carried; the LED lights amber when the channel is selected. */
+      .tab {
+        position: relative;
+        display: inline-flex;
+        flex-direction: column;
+        gap: 0.34rem;
+        flex: 1 1 auto;
+        min-width: max-content;
+        padding: 0.6rem 0.85rem 0.68rem;
+        border: none;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--dim);
+        font-family: var(--mono);
+        text-align: left;
+        cursor: pointer;
+        transition:
+          background 140ms ease,
+          color 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .tab__meta {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
+      .tab__led {
+        width: 0.42rem;
+        height: 0.42rem;
+        border-radius: 50%;
+        background: var(--hairline);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+        transition: background 140ms ease, box-shadow 140ms ease;
+      }
+
+      .tab__index {
+        font-size: 0.62rem;
+        letter-spacing: 0.12em;
+        font-variant-numeric: tabular-nums;
+        color: var(--dim);
+        opacity: 0.75;
+      }
+
+      .tab__label {
+        font-size: 0.76rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        color: inherit;
+      }
+
+      .tab:hover {
+        color: var(--body);
+        background: color-mix(in srgb, var(--signal) 6%, transparent);
+      }
+
+      /* Hands-on channels (Play / Build) glow a warm ember even when idle. */
+      .tab--hot .tab__led {
+        background: color-mix(in srgb, var(--signal) 42%, var(--hairline));
+        box-shadow: 0 0 5px rgba(255, 159, 69, 0.28);
+      }
+      .tab--hot .tab__index {
+        color: color-mix(in srgb, var(--signal) 55%, var(--dim));
+        opacity: 0.9;
+      }
+
+      /* Selected channel: the button lifts and lights. */
+      .tab[aria-selected="true"] {
+        color: var(--ink);
+        background: linear-gradient(180deg, #232b3e, var(--face));
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--signal) 32%, var(--hairline)),
+          0 6px 14px -10px rgba(0, 0, 0, 0.9);
+      }
+      .tab[aria-selected="true"] .tab__index {
+        color: var(--signal);
+        opacity: 1;
+      }
+      .tab[aria-selected="true"] .tab__label {
+        color: var(--ink);
+      }
+      .tab[aria-selected="true"] .tab__led {
+        background: radial-gradient(circle at 40% 35%, var(--signal-hot), var(--signal) 70%);
+        box-shadow: 0 0 8px rgba(255, 159, 69, 0.7);
+      }
+      .tab--hot[aria-selected="true"] .tab__led {
+        box-shadow: 0 0 13px rgba(255, 159, 69, 0.85);
+      }
+
+      .tab:focus-visible {
+        outline: 2px solid var(--signal-hot);
+        outline-offset: 2px;
+      }
+
+      /* The signal bus: the old vertical rail's cool -> amber-hot gradient, laid
+         flat under the bank — cool at Concept (left), hot through Play / Build,
+         cooling into Go deeper (right). */
+      .tabs__bus {
+        height: 2px;
+        margin-top: 0.5rem;
+        border-radius: 2px;
         background: linear-gradient(
-          180deg,
+          90deg,
           var(--hairline) 0%,
-          var(--hairline) 24%,
-          color-mix(in srgb, var(--signal) 30%, var(--hairline)) 46%,
-          color-mix(in srgb, var(--signal) 70%, var(--hairline)) 66%,
-          var(--signal) 82%,
-          color-mix(in srgb, var(--signal) 45%, var(--hairline)) 100%
+          var(--hairline) 22%,
+          color-mix(in srgb, var(--signal) 30%, var(--hairline)) 44%,
+          color-mix(in srgb, var(--signal) 72%, var(--hairline)) 64%,
+          var(--signal) 80%,
+          color-mix(in srgb, var(--signal) 42%, var(--hairline)) 100%
         );
+      }
+
+      /* --- Body ------------------------------------------------------------- */
+      .lesson__body {
+        position: relative;
       }
 
       /* --- Prose inside a part --------------------------------------------- */
@@ -305,11 +480,15 @@ const { title, eyebrow, thesis } = Astro.props;
       }
 
       @media (max-width: 34rem) {
-        .lesson__body {
-          padding-left: 1.9rem;
+        .tab {
+          padding: 0.55rem 0.7rem 0.62rem;
         }
-        .lesson__body::before {
-          left: 0.35rem;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .tab,
+        .tab__led {
+          transition: none;
         }
       }
     </style>

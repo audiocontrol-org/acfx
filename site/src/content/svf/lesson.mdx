@@ -12,7 +12,7 @@ import GoDeeper from '../../components/lesson/GoDeeper.astro';
 import Artifact from '../../components/artifacts/Artifact.astro';
 import { svfVisualizerDeclaration, svfDemoDeclaration } from './artifacts.ts';
 
-<LessonPart n={1} id="concept" kicker="Concept" title="What a state-variable filter is">
+<LessonPart id="concept" kicker="Concept" title="What a state-variable filter is" active>
 
 A **state-variable filter** (SVF) is a single second-order structure that
 produces a **lowpass**, **bandpass**, and **highpass** output *at the same
@@ -60,7 +60,7 @@ circle.
 
 </LessonPart>
 
-<LessonPart n={2} id="hear-it" kicker="Hear it" title="Hear the filter on a real source">
+<LessonPart id="hear-it" kicker="Hear it" title="Hear the filter on a real source">
 
 Before touching a control, listen. Each clip below was rendered **offline from
 the real acfx core** — the exact `process()` you will run live further down —
@@ -78,7 +78,7 @@ and pre-generated; next you get the live instruments.
 
 </LessonPart>
 
-<LessonPart n={3} id="observe-it" kicker="Observe it" title="See the filter respond">
+<LessonPart id="observe-it" kicker="Observe it" title="See the filter respond">
 
 Here is the same filter as a **bench analyzer**, painted live from the real
 compiled analysis code — not redrawn in JavaScript. Three screens: the
@@ -95,7 +95,7 @@ transfer function from Part 1 made visible: the pole radius *is* the resonance.
 
 </LessonPart>
 
-<LessonPart n={4} id="play-with-it" kicker="Play with it" title="Play the real filter live" hot>
+<LessonPart id="play-with-it" kicker="Play with it" title="Play the real filter live">
 
 Now drive it yourself. This faceplate runs the **real `svf.wasm` on the audio
 thread** — the production DSP compiled to WebAssembly, not a Web-Audio
@@ -111,7 +111,7 @@ ago. Same code, same physics, now under your hands.
 
 </LessonPart>
 
-<LessonPart n={5} id="build-it" kicker="Build it with acfx" title="Build it the acfx way" hot>
+<LessonPart id="build-it" kicker="Build it with acfx" title="Build it the acfx way">
 
 You have heard it, seen it, and played it. Now build it — by **replaying the
 route the real SVF actually took through this repository**. acfx grows an effect
@@ -130,7 +130,7 @@ learning what a browser is. That inward-only dependency is the whole discipline:
 
 </LessonPart>
 
-<LessonPart n={6} id="go-deeper" kicker="Go deeper" title="Read the real source">
+<LessonPart id="go-deeper" kicker="Go deeper" title="Read the real source">
 
 Everything above is backed by files in the repository. These links are resolved
 at build time from the lesson's own metadata, so they always point at the
