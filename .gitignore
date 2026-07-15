@@ -24,6 +24,11 @@ tools/dist/
 # asset-CDN Cloudflare Worker (svf-training-site)
 infra/cloudflare-cdn/node_modules/
 
+# Astro training site (svf-training-site)
+site/node_modules/
+site/dist/
+site/.astro/
+
 # CPM fetched dependencies + cache
 external/_deps/
 external/.cpm-cache/
