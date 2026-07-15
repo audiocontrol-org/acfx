@@ -19,3 +19,24 @@ if(NOT EMSCRIPTEN)
     add_test(NAME acfx_web_abi_native_test COMMAND acfx_web_abi_native_test)
   endif()
 endif()
+
+if(EMSCRIPTEN)
+  # WASM build: one module from the ABI source. (web preset.)
+  add_executable(svf svf-web-abi.cpp)
+  target_link_libraries(svf PRIVATE acfx_core)
+  target_compile_features(svf PRIVATE cxx_std_20)
+  set_target_properties(svf PROPERTIES
+    OUTPUT_NAME "svf"
+    SUFFIX ".mjs"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+  )
+  target_link_options(svf PRIVATE
+    "-sMODULARIZE=1"
+    "-sEXPORT_ES6=1"
+    "-sENVIRONMENT=web,worker,node"
+    "-sALLOW_MEMORY_GROWTH=1"
+    "-sEXPORTED_FUNCTIONS=['_svf_create','_svf_destroy','_svf_prepare','_svf_set_param','_svf_process','_malloc','_free']"
+    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPF32']"
+    "-sEXPORT_NAME=createSvfModule"
+  )
+endif()
