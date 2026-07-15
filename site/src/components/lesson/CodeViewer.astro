@@ -468,25 +468,8 @@ const rangeAria = `lines ${source.startLine} to ${source.endLine}`;
     overflow: hidden;
   }
 
-  /* Signature: the ruled left margin of a lab-notebook leaf — amber, echoing
-     the instruments' signal accent, and clearly NOT the code screen's gutter of
-     line numbers. This is the ONE distinguishing accent for the pane; it does
-     not repeat on a nested card. */
-  .rdoc__bezel::before {
-    content: '';
-    position: absolute;
-    top: 0.55rem;
-    bottom: 0.55rem;
-    left: 1.05rem;
-    width: 1px;
-    background: linear-gradient(
-      180deg,
-      transparent,
-      color-mix(in srgb, var(--signal) 42%, transparent) 10%,
-      color-mix(in srgb, var(--signal) 42%, transparent) 90%,
-      transparent
-    );
-  }
+  /* (No amber left margin rule on the rendered-markdown pane — removed per
+     operator: too many competing vertical amber borders on the page.) */
 
   /* Excerpt/full leaves are bare content wrappers now — no border, background,
      radius, or padding of their own; the bezel is the only frame. */
