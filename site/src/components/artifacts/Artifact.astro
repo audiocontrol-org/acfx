@@ -1,0 +1,24 @@
+---
+// Thin dispatcher: given a fully-typed `ArtifactDeclaration`, resolves the
+// Phase-5-registered component for its `kind` via the artifact registry
+// (@lib/artifacts/registry) and renders it with the declaration's typed
+// `props`. Adds no styling/layout of its own — the visual/interaction design
+// of each artifact is a Phase-5 /frontend-design concern
+// (specs/svf-training-site/tasks.md T027-T030); this wrapper is pure
+// plumbing.
+//
+// Before Phase 5 registers a component, rendering this for any `kind`
+// throws `ArtifactNotRegisteredError` (fail loud — no placeholder UI).
+import type { ArtifactDeclaration } from '@lib/artifacts/registry';
+import { resolveArtifactComponent } from '@lib/artifacts/registry';
+
+interface Props {
+  readonly declaration: ArtifactDeclaration;
+}
+
+const { declaration } = Astro.props;
+const loader = resolveArtifactComponent(declaration.kind);
+const { default: Component } = await loader();
+---
+
+<Component {...declaration.props} />
