@@ -12,5 +12,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["manifest", "staleness-guard.ts"]
+  "include": ["manifest", "staleness-guard.ts", "publish-assets.ts"]
 }

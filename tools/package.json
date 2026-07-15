@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.build.json",
     "wasm-fragment": "npm run build && node dist/manifest/wasm-fragment.js",
     "assemble": "npm run build && node dist/manifest/assemble.js",
-    "staleness-guard": "npm run build && node dist/staleness-guard.js"
+    "staleness-guard": "npm run build && node dist/staleness-guard.js",
+    "publish-assets": "npm run build && node dist/publish-assets.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
