@@ -1,10 +1,8 @@
 ---
-// GoDeeper — the "Go deeper" station (Part 6). Renders the build-time
-// auto-resolved links (FR-009): from the lesson's typed metadata the resolver
-// derives the effect's CURRENT spec / plan / tasks / tests / implementation and
-// its roadmap node as concrete GitHub blob links. An anchor that no longer
-// resolves throws during `astro build` (never a silent dead link), so a green
-// build IS the proof these links point at real files.
+// GoDeeper — the "Go deeper" station. From the lesson's typed metadata the
+// resolver derives the SVF's source files (its four implementation layers) plus
+// its host test as GitHub links. An anchor that no longer resolves throws during
+// `astro build`, so a green build means these links point at real files.
 import { svfLessonMeta } from '../../content/svf/lesson.meta.ts';
 import { resolveGoDeeper, type RepoRef } from '@lib/repo-refs/resolver';
 
@@ -20,17 +18,9 @@ function card(kicker: string, ref: RepoRef): Card {
   return { kicker, repoPath: ref.repoPath, url: ref.url };
 }
 
-// The resolved blob URLs share a base (`…/blob/main/<repoPath>`); recover it
-// from the spec ref so the roadmap node can link to ROADMAP.md at that base.
-const blobBase = links.spec.url.slice(0, links.spec.url.length - links.spec.repoPath.length);
-
 const cards: readonly Card[] = [
-  card('spec', links.spec),
-  card('plan', links.plan),
-  card('tasks', links.tasks),
-  ...links.tests.map((ref) => card('tests', ref)),
   ...links.implementation.map((ref) => card('source', ref)),
-  { kicker: 'roadmap', repoPath: 'ROADMAP.md', url: `${blobBase}ROADMAP.md` },
+  ...links.tests.map((ref) => card('test', ref)),
 ];
 ---
 
@@ -46,11 +36,6 @@ const cards: readonly Card[] = [
       ))
     }
   </div>
-  <p class="gd__note">
-    These links are generated at build time from the lesson's typed metadata. If
-    any target file were moved or deleted, the build would fail rather than ship
-    a dead link.
-  </p>
 </div>
 
 <style>

@@ -366,7 +366,7 @@ class SvfVisualizerPanel {
       window.addEventListener('resize', onResize);
     }
 
-    this.setStatus('Live · real compiled analysis');
+    this.setStatus('Live · analysis');
     this.render();
   }
 

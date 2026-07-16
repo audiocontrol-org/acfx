@@ -1,7 +1,7 @@
 ---
 title: The State-Variable Filter
 eyebrow: acfx lesson · analog-style filters
-description: One input, three simultaneous outputs, two knobs. The state-variable filter is the hello-world of analog-style filters — and every sound, plot, and checkpoint here runs the real acfx code.
+description: One input, three simultaneous outputs, two controls — how the state-variable filter works, and the code that implements it.
 ---
 
 import LessonPart from '../../components/lesson/LessonPart.astro';
@@ -17,20 +17,18 @@ import { svfVisualizerDeclaration, svfDemoDeclaration } from './artifacts.ts';
 A **state-variable filter** (SVF) is a single second-order structure that
 produces a **lowpass**, **bandpass**, and **highpass** output *at the same
 time*, from the same internal state, on every sample. You do not pick one and
-rebuild the filter to get another — all three fall out of one topology. Two
+rebuild the filter to get another — all three come from one topology. Two
 controls shape them: **cutoff frequency**, the corner where the filter turns
-over, and **resonance** (Q), how much the response peaks right at that corner.
+over, and **resonance** (Q), how much the response peaks at that corner.
 
-That combination — three responses for the price of one, two intuitive knobs,
-a topology that stays stable and cheap — is why the SVF is the *hello-world* of
-analog-style filters. It is the first filter worth building because it teaches
-the two ideas every later filter reuses: a frequency-setting coefficient and a
-resonance-setting coefficient feeding back on a pair of integrators.
+Because it gives three responses from one structure with two simple controls,
+the SVF is a good filter to start with. It introduces the two ideas that later,
+more complex filters reuse: a coefficient that sets frequency and a coefficient
+that sets resonance, feeding back through a pair of integrators.
 
-Analog-prototype, the three outputs are three numerators over **one shared
-denominator** — same poles, different zeros. That shared denominator is the
-whole point: cutoff and resonance move the *poles*, and every output feels it
-together.
+As an analog prototype, the three outputs are three numerators over **one shared
+denominator** — same poles, different zeros. The shared denominator is the key:
+cutoff and resonance move the *poles*, and all three outputs respond together.
 
 <MathWell label="Transfer functions" note="one denominator · three numerators">
 <pre>{`H_LP(s) = ω₀²          / (s² + (ω₀/Q)·s + ω₀²)
@@ -38,12 +36,12 @@ H_BP(s) = (ω₀/Q)·s     / (s² + (ω₀/Q)·s + ω₀²)
 H_HP(s) = s²           / (s² + (ω₀/Q)·s + ω₀²)`}</pre>
 </MathWell>
 
-In the discrete world the SVF is a tiny feedback network of two integrators.
-Signal flow: the input has the lowpass and a resonance-scaled bandpass
-subtracted from it to form the **highpass**; the highpass is integrated to make
-the **bandpass**; the bandpass is integrated again to make the **lowpass** — and
-those two feed straight back into the next sample. One coefficient `f` sets the
-integrator gain (cutoff), one coefficient `q` sets the damping (resonance).
+In discrete time the SVF is a small feedback network of two integrators. The
+signal flow: the input, minus the lowpass and a resonance-scaled bandpass, forms
+the **highpass**; the highpass is integrated to make the **bandpass**; the
+bandpass is integrated again to make the **lowpass** — and those two feed back
+into the next sample. One coefficient `f` sets the integrator gain (cutoff), one
+coefficient `q` sets the damping (resonance).
 
 <MathWell label="Discrete recurrence" note="Chamberlin form · per sample">
 <pre>{`HP[n] = x[n] − LP[n−1] − q·BP[n−1]
@@ -54,88 +52,78 @@ f = 2·sin(π·fc/fs)          q ← resonance`}</pre>
 </MathWell>
 
 Lower `q` narrows the peak (higher Q); as `q` approaches zero the corner rings
-harder until the filter self-oscillates. Keep that picture in mind — you are
-about to *hear* it, then *see* the pole that causes it march toward the unit
-circle.
+harder, until the filter self-oscillates. The next two sections let you hear
+this, then see the pole responsible move toward the unit circle.
 
 </LessonPart>
 
-<LessonPart id="hear-it" kicker="Hear it" title="Hear the filter on a real source">
+<LessonPart id="hear-it" kicker="Hear it" title="Hear the filter on a source">
 
-Before touching a control, listen. Each clip below was rendered **offline from
-the real acfx core** — the exact `process()` you will run live further down —
-applied to a rich sawtooth source. Read the setting, then play it: notice how a
-low cutoff keeps only the body of the tone, a high cutoff lets the brightness
-through, and how a high-resonance setting adds a whistling peak right at the
-corner.
+Each clip below is the filter applied to a sawtooth source at a fixed setting.
+Read the setting, then play it: a low cutoff keeps only the body of the tone, a
+higher cutoff lets more brightness through, and a high-resonance setting adds a
+peak at the corner.
 
 <HearIt />
 
-Those first three sweep cutoff with resonance held calm — the pure effect of
-moving the corner. The last is the same filter with resonance pushed high: same
-two knobs, dramatically different character. Everything you just heard is fixed
-and pre-generated; next you get the live instruments.
+The first three vary cutoff with resonance held low, which isolates the effect
+of moving the corner. The last raises resonance on the same filter, adding the
+peak. These clips are fixed; the next two sections are interactive.
 
 </LessonPart>
 
 <LessonPart id="observe-it" kicker="Observe it" title="See the filter respond">
 
-Here is the same filter as a **bench analyzer**, painted live from the real
-compiled analysis code — not redrawn in JavaScript. Three screens: the
-**frequency response** (what each frequency is multiplied by), the **z-plane
-poles and zeros** (where the filter's resonance lives), and the **impulse
-response** (how it rings in time).
+The same filter, shown three ways as you change its controls. The **frequency
+response** shows what each frequency is multiplied by; the **z-plane poles and
+zeros** show where the resonance comes from; and the **impulse response** shows
+how the filter rings in time.
 
-Sweep cutoff and watch the whole response slide along the frequency axis. Then
-raise resonance and watch the **pole climb toward the unit circle** — the exact
-moment the response grows its peak and the impulse rings longer. This is the
-transfer function from Part 1 made visible: the pole radius *is* the resonance.
+Sweep cutoff and the whole response slides along the frequency axis. Raise
+resonance and the **pole moves toward the unit circle** — the same moment the
+response grows its peak and the impulse rings longer. This is the transfer
+function from the first section made visible: the pole's radius corresponds to
+the resonance.
 
 <Artifact declaration={svfVisualizerDeclaration} />
 
 </LessonPart>
 
-<LessonPart id="play-with-it" kicker="Play with it" title="Play the real filter live">
+<LessonPart id="play-with-it" kicker="Play with it" title="Change it while it plays">
 
-Now drive it yourself. This faceplate runs the **real `svf.wasm` on the audio
-thread** — the production DSP compiled to WebAssembly, not a Web-Audio
-lookalike. Start audio, then sweep cutoff and resonance and switch modes while
-it plays; the sound changes in real time because you are turning the same knobs
-the C++ effect exposes.
+This runs the filter live in your browser. Start audio, then change cutoff,
+resonance, and mode while it plays — the sound changes as you move the same two
+controls from the previous sections.
 
-Push resonance up until the filter starts to whistle and the faceplate heats up
-— that glow is the same resonance you watched drive the pole outward a moment
-ago. Same code, same physics, now under your hands.
+Raise resonance until the filter begins to whistle. That is the peak you watched
+the pole produce a moment ago, now audible; the panel warms as the filter nears
+self-oscillation.
 
 <Artifact declaration={svfDemoDeclaration} />
 
 </LessonPart>
 
-<LessonPart id="build-it" kicker="Build it with acfx" title="Build it the acfx way">
+<LessonPart id="build-it" kicker="Build it" title="How it's built in code">
 
-You have heard it, seen it, and played it. Now build it — by **replaying the
-route the real SVF actually took through this repository**. acfx grows an effect
-along one ladder: prove the idea in a **lab**, distill it into a **primitive**,
-lift it into an **effect**, then reach a platform through an **adapter**. Each
-rung below is a real milestone with a real path and a concrete way to confirm it
-is green. Nothing here is an invented tutorial step — it is history you can
-check out and run.
+The filter is built up in four layers, each a real file in the repository. A
+**lab** works out the math and decides how to implement it; a **primitive**
+wraps that into a small, reusable filter; an **effect** exposes it with
+parameters; and an **adapter** compiles it for a target — here, the browser.
+Each layer below shows the code and a way to run it.
 
 <CheckpointLadder />
 
-Read the ladder top to bottom and you have watched a single idea travel from a
-scratch derivation to a filter running in your browser — without the core ever
-learning what a browser is. That inward-only dependency is the whole discipline:
-`core/` stays platform-independent, and each adapter reaches down into it.
+One property holds across all four layers: the core filter code knows nothing
+about the browser, or any platform. Dependencies point inward — each adapter
+reaches into the core, never the other way — so the same filter code compiles
+unchanged whether the target is a plugin, hardware, or the web.
 
 </LessonPart>
 
-<LessonPart id="go-deeper" kicker="Go deeper" title="Read the real source">
+<LessonPart id="go-deeper" kicker="Go deeper" title="Read the source">
 
-Everything above is backed by files in the repository. These links are resolved
-at build time from the lesson's own metadata, so they always point at the
-*current* spec, plan, tasks, tests, and implementation for the SVF — straight to
-the source on GitHub.
+The code behind this lesson, on GitHub — the filter across its four layers, and
+the test that checks it.
 
 <GoDeeper />
 

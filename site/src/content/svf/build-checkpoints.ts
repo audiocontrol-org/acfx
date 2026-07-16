@@ -1,12 +1,9 @@
-// Build-along checkpoint ladder data (FR-001 "Build it with acfx"; addresses
-// analyze finding U1 — the checkpoints must be ENUMERATED, not hand-waved).
+// Build-along checkpoint ladder data ("Build it" section).
 //
-// Each checkpoint is a REAL repository milestone the SVF actually travelled on
-// its `lab -> primitive -> effect -> adapter` ladder, with the real repo path
-// it lives at and a concrete, independently-runnable way to verify the state is
-// green. These are history, not invented tutorial steps: every `repoPath` here
-// exists in the tree, and every `verify` names a command or file a reader can
-// run/open today.
+// The four layers the SVF is built from — `lab -> primitive -> effect ->
+// adapter` — each with the repo file it lives in, a short description of what
+// that layer does, and a way to run or read it. Every `repoPath` exists in the
+// tree and every `verify` names a command or file a reader can run/open.
 //
 // Strictly typed (Principle IX): a bad field is a compile error, and the ladder
 // component renders exactly these — no free-text drift between prose and data.
@@ -45,17 +42,14 @@ export interface BuildCheckpoint {
   readonly code: CheckpointCode;
 }
 
-/**
- * The four real rungs the SVF travelled, in development order. This IS the
- * enumerated checkpoint list the "Build it with acfx" section replays.
- */
+/** The four layers the SVF is built from, from the math down to the browser. */
 export const svfBuildCheckpoints: readonly BuildCheckpoint[] = [
   {
     stage: 'lab',
     title: 'Derive it in the lab',
     repoPath: 'core/labs/state-variable-filter/',
     milestone:
-      'The lab derives the Chamberlin SVF recurrence (HP/BP/LP/notch in lockstep) and records the design decision to wrap DaisySP’s proven Svf rather than re-implement the math — keeping core/ free of any platform headers.',
+      'The lab works out the Chamberlin SVF recurrence (HP/BP/LP/notch computed together) and settles on wrapping DaisySP’s Svf rather than re-implementing the math.',
     verify:
       'Read core/labs/state-variable-filter/README.md (Theory + Walkthrough); build & run the lab harness at harness/svf-harness.cpp.',
     code: {
@@ -71,7 +65,7 @@ export const svfBuildCheckpoints: readonly BuildCheckpoint[] = [
     title: 'Wrap it as a primitive',
     repoPath: 'core/primitives/filters/svf-primitive.h',
     milestone:
-      'acfx::SvfPrimitive is a thin, allocation-free wrapper over daisysp::Svf that owns mode selection (LP/HP/BP) and reset; the per-sample math stays DaisySP’s. The host test is green.',
+      'acfx::SvfPrimitive is a thin, allocation-free wrapper over daisysp::Svf that owns mode selection (LP/HP/BP) and reset; the per-sample math stays DaisySP’s.',
     verify:
       'Run the core test suite — tests/core/svf-test.cpp asserts lowpass passes lows, highpass passes highs, bandpass emphasises the centre, and high resonance stays NaN/denormal-free and bounded.',
     code: {
@@ -103,7 +97,7 @@ export const svfBuildCheckpoints: readonly BuildCheckpoint[] = [
     title: 'Compile it for the web',
     repoPath: 'adapters/web',
     milestone:
-      'adapters/web compiles the real SVF target to WebAssembly, depending only inward on acfx_core (core/ is untouched and gains no web knowledge). The audio ABI runs in an AudioWorklet and an analysis ABI exposes frequency-response / pole-zero / impulse. The WASM audio path is proven equal to the native reference by a parity test.',
+      'adapters/web compiles the SVF to WebAssembly, depending only inward on acfx_core. The audio ABI runs in an AudioWorklet, and an analysis ABI provides the frequency response, poles and zeros, and impulse response. A parity test checks the WASM output against the native reference.',
     verify:
       'Run the web-adapter vitest — adapters/web/test/svf-parity.test.ts compares the native reference and the WASM module against shared, versioned vectors (test/vectors/lowpass-sweep.json), with no numeric constants copied into the test.',
     code: {

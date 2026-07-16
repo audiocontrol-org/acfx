@@ -215,7 +215,7 @@ class SvfDemoPanel {
       this.root.dataset['playing'] = 'true';
       this.startBtn.hidden = true;
       this.stopBtn.hidden = false;
-      this.setStatus('Live · real WASM DSP · sawtooth source');
+      this.setStatus('Playing · sawtooth source');
     } catch (error) {
       // WASM fetch/instantiate FAILURE — show a visible, descriptive error and
       // fall back to the pre-rendered content clips. Never a substitute DSP.

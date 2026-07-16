@@ -93,7 +93,7 @@ test.describe('SVF lesson page', () => {
     await expect(visualizerLive).toBeVisible({ timeout: 20_000 });
     await expect(visualizer.locator('[data-role="error"]')).toBeHidden();
 
-    await expect(visualizer.locator('[data-role="status"]')).toHaveText('Live · real compiled analysis', {
+    await expect(visualizer.locator('[data-role="status"]')).toHaveText('Live · analysis', {
       timeout: 20_000,
     });
     const radiusReadout = visualizer.locator('[data-role="radius-readout"]');
@@ -136,7 +136,7 @@ test.describe('SVF lesson page', () => {
     await startButton.click();
 
     await expect(demo).toHaveAttribute('data-playing', 'true', { timeout: 20_000 });
-    await expect(demo.locator('[data-role="status"]')).toHaveText(/Live · real WASM DSP/, { timeout: 20_000 });
+    await expect(demo.locator('[data-role="status"]')).toHaveText(/Playing/, { timeout: 20_000 });
     await expect(demo.locator('[data-role="error"]')).toBeHidden();
 
     // --- 7. Deep-linking: activating a tab syncs the URL hash ---------------
@@ -148,7 +148,7 @@ test.describe('SVF lesson page', () => {
     // just paused off-screen) — proving CSS visibility toggling, not remount.
     await openTab(page, 'observe-it');
     await expect(page.locator('#play-with-it')).toBeHidden();
-    await expect(visualizer.locator('[data-role="status"]')).toHaveText('Live · real compiled analysis');
+    await expect(visualizer.locator('[data-role="status"]')).toHaveText('Live · analysis');
     // The demo island is still mounted with its playing state intact.
     await expect(demo).toHaveAttribute('data-playing', 'true');
   });

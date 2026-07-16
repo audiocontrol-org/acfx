@@ -20,7 +20,7 @@
 // program (design §4.2 "Hard dependency invariant").
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,12 +32,7 @@ import { fileURLToPath } from 'node:url';
  */
 export interface LessonMeta {
   readonly effect: 'svf';
-  readonly roadmapNode: 'design:feature/svf-training-site';
   readonly repoAnchors: {
-    /** Spec-Kit feature dir, e.g. "specs/svf-training-site". */
-    readonly specDir: string;
-    /** Feature slug, e.g. "svf-training-site". */
-    readonly featureSlug: string;
     /** Real implementation files the lesson references (repo-relative). */
     readonly sourcePaths: readonly string[];
   };
@@ -51,14 +46,11 @@ export interface RepoRef {
   readonly url: string;
 }
 
-/** The resolved "Go deeper" link set for a lesson (design §4.5). */
+/** The resolved "Go deeper" link set for a lesson — the source code behind the
+ *  SVF: its implementation files across layers plus the test that checks it. */
 export interface GoDeeperLinks {
-  readonly spec: RepoRef;
-  readonly plan: RepoRef;
-  readonly tasks: RepoRef;
-  readonly tests: readonly RepoRef[];
   readonly implementation: readonly RepoRef[];
-  readonly roadmapNode: { readonly id: string; readonly found: boolean };
+  readonly tests: readonly RepoRef[];
 }
 
 /**
@@ -177,51 +169,24 @@ function resolveRef(repoRoot: string, slug: RepoSlug, anchor: string, repoPath: 
 }
 
 /**
- * Verify a roadmap node id exists as a Markdown heading (`## <id>`) in
- * ROADMAP.md. Reads the file as text metadata only. Throws if ROADMAP.md is
- * missing or the heading is absent.
- */
-function resolveRoadmapNode(repoRoot: string, id: string): { id: string; found: boolean } {
-  const roadmapPath = join(repoRoot, 'ROADMAP.md');
-  if (!existsSync(roadmapPath)) {
-    throw new UnresolvedAnchorError(`roadmap node "${id}" → ROADMAP.md not found at ${roadmapPath}`);
-  }
-  const heading = `## ${id}`;
-  const found = readFileSync(roadmapPath, 'utf-8')
-    .split('\n')
-    .some((line) => line.trim() === heading);
-  if (!found) {
-    throw new UnresolvedAnchorError(`roadmap node "${id}" not found as heading "${heading}" in ROADMAP.md`);
-  }
-  return { id, found: true };
-}
-
-/**
- * Resolve a lesson's `repoAnchors` into concrete "Go deeper" links at build
- * time. Every anchor must resolve; the first that does not throws
- * `UnresolvedAnchorError`, failing the build (FR-009 / SC-005).
+ * Resolve a lesson's `repoAnchors` into concrete "Go deeper" source-code links
+ * at build time — the effect's implementation files plus its host test. Every
+ * anchor must resolve; the first that does not throws `UnresolvedAnchorError`,
+ * failing the build (FR-009 / SC-005) rather than shipping a dead link.
  *
  * Anchors:
- * - spec/plan/tasks — `<specDir>/{spec,plan,tasks}.md`
- * - tests — the effect's host test, by convention `tests/core/<effect>-test.cpp`
  * - implementation — each entry of `repoAnchors.sourcePaths`
- * - roadmap node — `roadmapNode`, verified present as a heading in ROADMAP.md
+ * - tests — the effect's host test, by convention `tests/core/<effect>-test.cpp`
  */
 export function resolveGoDeeper(meta: LessonMeta): GoDeeperLinks {
   const repoRoot = findRepoRoot();
   const slug = repoSlug(repoRoot);
-  const { specDir, sourcePaths } = meta.repoAnchors;
-
   const testPath = `tests/core/${meta.effect}-test.cpp`;
 
   return {
-    spec: resolveRef(repoRoot, slug, 'spec', join(specDir, 'spec.md')),
-    plan: resolveRef(repoRoot, slug, 'plan', join(specDir, 'plan.md')),
-    tasks: resolveRef(repoRoot, slug, 'tasks', join(specDir, 'tasks.md')),
-    tests: [resolveRef(repoRoot, slug, 'tests', testPath)],
-    implementation: sourcePaths.map((path, index) =>
+    implementation: meta.repoAnchors.sourcePaths.map((path, index) =>
       resolveRef(repoRoot, slug, `implementation[${index}]`, path),
     ),
-    roadmapNode: resolveRoadmapNode(repoRoot, meta.roadmapNode),
+    tests: [resolveRef(repoRoot, slug, 'tests', testPath)],
   };
 }
