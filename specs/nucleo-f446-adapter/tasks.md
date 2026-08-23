@@ -51,12 +51,12 @@ execution graph.
 
 **Purpose**: The build surface the rest of the work hangs off. Plan Phase A.
 
-- [ ] T001 [tier:fast] Create the adapter directory skeleton `adapters/nucleo/` with `support/` and `startup/` subdirectories, establishing the two-part shim/support split (FR-001, FR-003)
-- [ ] T002 [tier:balanced] Add `cmake/toolchains/nucleo-f446.cmake` targeting Cortex-M4 with `-mfpu=fpv4-sp-d16 -mfloat-abi=hard -fno-exceptions -fno-rtti`, mirroring `cmake/toolchains/daisy.cmake` (FR-006)
-- [ ] T003 [tier:balanced] Port the libstdc++ probe from `cmake/toolchains/daisy.cmake` into the Nucleo toolchain so a C-only `arm-none-eabi-gcc` fails configuration with a message naming the missing component (FR-007)
-- [ ] T004 [tier:balanced] Add `ACFX_BUILD_NUCLEO` option to `CMakeLists.txt` and a `nucleo` configure/build preset to `CMakePresets.json`, mirroring the `daisy` preset
-- [ ] T005 [tier:balanced] Pin TinyUSB `0.21.0`, `cmsis_device_f4`, and CMSIS core as `DOWNLOAD_ONLY` CPM packages in `cmake/dependencies.cmake` under `if(ACFX_BUILD_NUCLEO)`, with **real refs captured from the upstream repositories and verified by an actual fetch** — never a fabricated version number (FR-010, FR-011, research R12)
-- [ ] T006 [tier:fast] Record the new pins and their fetch-verification status in the comment block at the top of `cmake/dependencies.cmake`, matching the file's existing discipline
+- [x] T001 [tier:fast] Create the adapter directory skeleton `adapters/nucleo/` with `support/` and `startup/` subdirectories, establishing the two-part shim/support split (FR-001, FR-003)
+- [x] T002 [tier:balanced] Add `cmake/toolchains/nucleo-f446.cmake` targeting Cortex-M4 with `-mfpu=fpv4-sp-d16 -mfloat-abi=hard -fno-exceptions -fno-rtti`, mirroring `cmake/toolchains/daisy.cmake` (FR-006)
+- [x] T003 [tier:balanced] Port the libstdc++ probe from `cmake/toolchains/daisy.cmake` into the Nucleo toolchain so a C-only `arm-none-eabi-gcc` fails configuration with a message naming the missing component (FR-007)
+- [x] T004 [tier:balanced] Add `ACFX_BUILD_NUCLEO` option to `CMakeLists.txt` and a `nucleo` configure/build preset to `CMakePresets.json`, mirroring the `daisy` preset
+- [x] T005 [tier:balanced] Pin TinyUSB `0.21.0`, `cmsis_device_f4`, and CMSIS core as `DOWNLOAD_ONLY` CPM packages in `cmake/dependencies.cmake` under `if(ACFX_BUILD_NUCLEO)`, with **real refs captured from the upstream repositories and verified by an actual fetch** — never a fabricated version number (FR-010, FR-011, research R12)
+- [x] T006 [tier:fast] Record the new pins and their fetch-verification status in the comment block at the top of `cmake/dependencies.cmake`, matching the file's existing discipline
 
 ---
 
