@@ -2,21 +2,98 @@
 
 ---
 
-## 2026-08-23: <!-- session title -->
+## 2026-08-23: nucleo-f446-adapter — execute Phases 1–4, from gated to bootable firmware
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Pick up the implementation step last session deliberately held, and drive
+`specs/nucleo-f446-adapter` through the stack-control front door's `execute`: tier-dispatched
+per-task subagents, review each, ledger, commit and push at every phase boundary.
 
 **Accomplished:**
-- <!-- compose -->
+- **Cleared the execute gate honestly.** The compass hard-refused (`ahead`; exit gate `node-marker
+  analyze-clean` unmet). Last session *had* analyzed, but the marker was never recorded — and two
+  commits landed **after** that analysis (73→79 FRs, 66→70 tasks, design record amended). Rather
+  than stamp the marker on last session's word, re-verified mechanically against the **current**
+  artifacts: 79/79 FR coverage, 13/13 SC coverage, T001–T070 contiguous with no gaps or duplicates,
+  36/36 design-record D-numbers defined with zero dangling citations, and the D15→D28 supersession
+  correctly propagated into `spec.md`, `tasks.md` and `data-model.md`.
+- **19 of 72 tasks across Phases 1–4**, each dispatched to a fresh subagent at its declared tier
+  (`fast`→haiku, `balanced`→sonnet, `powerful`→opus), reviewed, ledgered, committed and pushed.
+- **Phase 1 — build surface.** Nucleo toolchain, `ACFX_BUILD_NUCLEO` option + presets, and three
+  CPM pins (TinyUSB `0.21.0`, `cmsis_device_f4` `v2.6.11`, `CMSIS_5` `5.9.0`) verified first by live
+  `git ls-remote` and then by an actual fetch. The CMSIS_5-vs-CMSIS_6 ambiguity R12 left open was
+  settled by evidence — `cmsis_device_f4`'s release notes name CMSIS Core v5.9.0, and
+  `stm32f446xx.h:169` literally includes `core_cm4.h`.
+- **Phase 2 — build graph.** `acfx_nucleo_support` declared unconditionally (verified structurally
+  at `if()` nesting depth 0, which is the entire point of R8/D1), the `acfx_add_effect_nucleo`
+  factory, and the host-test link seam.
+- **Phase 3 — bootable firmware.** Linker script, hand-written `Reset_Handler`, a vector table
+  derived from the CMSIS `IRQn_Type` enum (113 entries, OTG_FS at index 67), `SystemCoreClock` =
+  168 MHz per FR-014/D6, and `main()`. Two `.elf` images, verified structurally: `.isr_vector`
+  452 bytes at 0x08000000, initial SP 0x20020000, reset vector 0x08000255 (Thumb bit set).
+- **Phase 4 — sample-format conversion.** Suite 744 → **779, all passing**.
+- **Six backlog items captured** (TASK-22 … TASK-27) — only TASK-23/24 appear in the auto-derived
+  section below, because that derivation reads commit messages and the rest were captured mid-phase.
+- **Two tasks added mid-flight with operator approval** (`T010a` C-runtime startup, `T012a` entry
+  point), using **lettered ids rather than a renumber** because the execution ledger is keyed by
+  task id.
 
 **Didn't Work:**
-- <!-- compose -->
+- **I verified the ARM toolchain with `--version` and was wrong.** I told the operator firmware
+  could link and the libstdc++ probe would pass. A subagent then actually compiled
+  `#include <algorithm>` and found Homebrew's `arm-none-eabi-gcc` is **C-only**. `--version`
+  succeeding proves the driver binary exists, nothing more. The complete Arm GNU Toolchain was
+  already installed at `/Applications/ArmGNUToolchain/`, merely shadowed on PATH — so the operator's
+  approval to "provision a toolchain" needed no installation at all.
+- **I misdiagnosed a build failure and stated the wrong cause.** Claimed a subagent had "poisoned"
+  the CMake cache with `CPM_SOURCE_CACHE:PATH=OFF`. That value is CPM's own default cache entry; my
+  story couldn't explain why it survived a clean wipe. The real defect: `CMakeLists.txt` guards with
+  `if(NOT DEFINED CPM_SOURCE_CACHE)`, but CPM *creates* that variable, so **every reconfigure**
+  skips the guard and re-fetches CPM over the network (TASK-23).
+- **`stackctl backlog capture` silently discarded a finding.** A new id with a new body but a `--ref`
+  an existing item already held returned exit 0 and created nothing (TASK-26). Only caught by
+  re-reading the store.
+- **`ctest` reported 744/744 green while `configure` was broken**, running a stale binary. Caught
+  only by checking exit codes rather than the pass line.
+- **The `fast` tier produced two substantively wrong contract tests** (T016): an expectation helper
+  documented as scaling that never multiplied by 32768, and a `wasTruncated == false` assertion
+  contradicted by its own adjacent comment.
 
 **Course Corrections:**
-- <!-- compose -->
+- **Reverted a completed, verified task on operator direction.** T014's CI job — a real Arm
+  toolchain provisioning step, action version checked upstream — was reverted wholesale when the
+  operator ruled platform-specific work out of the CI pipeline. Flagged that FR-048/D18 still name
+  CI cross-compile+link as "verification layer 1" and left the requirement **unedited**: amending a
+  requirement is the operator's call, not mine.
+- **Instructed every implementation agent to refuse to edit tests and surface disagreements
+  instead.** That single constraint is what caught both wrong contract tests. Had the implementation
+  been bent to satisfy them, conversion would have shipped with no scaling.
+- **Stopped chasing LSP diagnostics** once established as host-clangd false positives — missing
+  `compile_commands` entries, and "aliases are not supported on darwin" for an ELF/ARM target.
+- **Routed every scope question to the operator rather than deciding**: startup ownership, `main()`
+  ownership, the T009 execution-order split, CI provisioning. Four asks, four operator decisions.
 
 **Insights:**
-- <!-- compose -->
+- **"It links" is not a boot check.** Building the vector table into a STATIC library produced two
+  `.elf` files that linked with zero errors and contained **no vector table at all** — `.isr_vector`
+  size 0, `g_vectorTable` absent, `.text` sitting at the reset address. A linker only extracts an
+  archive member that resolves an undefined symbol, and `KEEP` cannot rescue a section never
+  included; `Reset_Handler` survived only incidentally, via `ENTRY()`. T015's stated criterion —
+  "links one `.elf` per effect" — would have been satisfied **verbatim** by an unbootable image.
+- **A check that cannot fail gets believed** — last session's always-zero `truncatedFrames` counter,
+  restated four more times in one session: the vector table above; `ctest` green off a stale binary;
+  a CI gate with no cross-compiler; and an allocation sentinel whose every assertion is `== 0`, with
+  **no positive control anywhere** proving it ever fires (TASK-27 — hand-verified it does, today).
+- **Reviews that read artifacts miss what only running them reveals.** A checklist, `analyze`, and a
+  third-party review all passed this spec at 100% coverage, yet nothing owned `Reset_Handler`,
+  `.bss` init, static-constructor init, or `main()` — so US1's MVP could not have booted or even
+  linked (TASK-24). Coverage of stated requirements says nothing about sufficiency of the artifact
+  set.
+- **Lettered task ids beat renumbering once execution starts.** Last session recorded renumbering as
+  a documentation hazard; mid-execution it becomes a correctness one, because the ledger keys resume
+  safety on task id. `T010a`/`T012a` cost nothing; a renumber would have invalidated 16 entries.
+- **Verification strength deserves recording, not just verification.** The dependency-pin header now
+  distinguishes fetch-and-build from fetch-resolved-only from captured-but-unfetched — three
+  honestly different confidence levels that a single "verified" label would have flattened.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 12
