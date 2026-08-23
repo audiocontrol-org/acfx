@@ -36,6 +36,10 @@ enforce is a data contract.
   overshoot, and nothing counts it.
 - **I-SF3**: Exactly `frames` frames are read and written; no access past the payload, including
   the `frames == 0` case.
+- **I-SF3a**: A payload that is not a whole number of frames is truncated to whole frames and
+  the remainder counted (FR-028a). Truncation preserves L/R alignment downstream; whole-packet
+  rejection would discard good frames, and silent acceptance would misalign every subsequent
+  frame.
 - **I-SF4**: No heap allocation.
 
 ---
@@ -59,7 +63,10 @@ The statically sized buffer between the USB packet cadence and the DSP's indepen
 |---|---|---|
 | Read requests a block, ring holds fewer frames | Silence fills the shortfall | `inputUnderruns` / `outputUnderruns` |
 | Write arrives, ring full | Oldest frames dropped | `inputOverruns` / `outputOverruns` |
-| Capture-only: IN polled, no OUT stream feeding it | Silence emitted | `inputStarved` |
+| Capture-only: IN polled, **no OUT stream open at all** | Silence emitted | `inputStarved` |
+| Torn payload: byte count not a whole number of frames | Truncate to whole frames | `truncatedFrames` |
+| Stream start, ring below startup fill | Consumer **waits**; no block drawn | *(none — not an error)* |
+| Sustained one-way excursion | **No re-centring**; drift stays visible in the counters | *(the existing under/overrun counters)* |
 
 **Invariants**
 
@@ -73,6 +80,14 @@ The statically sized buffer between the USB packet cadence and the DSP's indepen
   I-AR2's substitution — the DSP cadence never stretches to match the ring (FR-030a).
 - **I-AR5**: Packet size does not propagate into block size. A 0-frame or 49-frame packet
   changes occupancy, never the block.
+- **I-AR6**: At stream start the consumer **waits** for the startup fill before drawing its
+  first block (FR-030b). Starting early would manufacture a burst of underruns on every open,
+  polluting the statistic the harness asserts against.
+- **I-AR7**: The ring **never re-centres** (FR-030c). Both directions are paced by the same SOF
+  clock, so persistent drift is a fault to surface, not to mask — and masking it would mean
+  audible, uncounted frame drops, which I-AR2 forbids.
+- **I-AR8**: On bus reset or re-enumeration the ring is cleared and I-AR6's wait applies again,
+  so the device never drains a stale partial ring (FR-053).
 
 **Deliberately unspecified**: capacity, water marks, and startup fill are derived from HIL
 measurement per research R5 and pinned in Phase H. Values invented before measurement would be
@@ -92,12 +107,20 @@ capture-only starvation count, one denominator, one worst-case timing.
 | `outputUnderruns` | USB polled IN, output ring was empty |
 | `outputOverruns` | DSP produced faster than USB drained |
 | `inputStarved` | Capture-only: silence emitted (**D22**) |
+| `truncatedFrames` | Remainder discarded from a torn payload (FR-028a) |
 | `blocksProcessed` | Denominator — lets the counters become a rate |
 | `worstBlockMicros` | Longest observed block; makes the CPU budget directly observable |
 
 **Invariants**
 
-- **I-TS1**: Every counter is monotonically non-decreasing within a power cycle.
+- **I-TS1**: Every counter is monotonically non-decreasing **modulo 2^32** within a power cycle
+  (FR-034a). Counters wrap rather than saturating, so consumers take **deltas between
+  snapshots** — which is what a rate over an interval needs anyway. They are not resettable at
+  runtime, and survive suspend and bus reset unchanged (FR-054).
+- **I-TS1a**: The counters are **mutually exclusive** — one event increments exactly one
+  counter. `inputStarved` covers IN-silence when *no playback stream is open*;
+  `outputUnderruns` covers IN-silence when the playback stream *is* open but the ring was
+  momentarily empty (FR-029a). Different causes, different counters.
 - **I-TS2**: `blocksProcessed` increments exactly once per DSP block. Without a correct
   denominator the other six are uninterpretable — a raw count of 400 underruns means nothing
   until you know whether it was over 400 blocks or 4 million.
@@ -186,7 +209,8 @@ reach (FR-003).
 |---|---|---|
 | Clock configuration | HSE bypass on the ST-Link 8 MHz MCO; PLL M=4 N=168 P=2 Q=7 (**D6**) | 168 MHz SYSCLK, **exactly** 48 MHz PLLQ. Lock failure is fatal (**D7**) |
 | `SystemCoreClock` | Owned by the adapter (**D14**) | TinyUSB derives PHY turnaround from it; a wrong value degrades timing *silently* |
-| Fault indicator | LD2 (PA5) blink pattern, then halt (FR-015a) | Initialized **before** clock validation — it runs on reset-default HSI, since without a PLL there is no USB to report over |
+| Fault indicator | LD2 (PA5): **three short pulses, long gap, repeating**, then halt (FR-015a/b) | Initialized **before** clock validation (FR-015c) — it runs on reset-default HSI, since without a PLL there is no USB to report over. Cadence is approximate; the pattern's shape carries the signal |
+| USB lifecycle handling | Suspend, resume, bus reset (FR-051–FR-055) | Rings cleared on reset with the startup-fill wait reapplied; counters survive unchanged so the event's cost stays measurable |
 | Vector table | Generated from CMSIS `IRQn_Type` (**D13**) | Must span `OTG_FS_IRQn` = 67; a core-exceptions-only table faults on the first USB interrupt |
 | USB descriptor set | UAC2 + MIDI + CDC, IAD-grouped (**D5**, FR-018a) | One advertised format per direction: 48 kHz / 16-bit / stereo (**D4**) |
 | Block timer | DWT `CYCCNT` at 168 MHz (research R6) | Must fail loud if it reads stuck-at-zero (I-TS4) |

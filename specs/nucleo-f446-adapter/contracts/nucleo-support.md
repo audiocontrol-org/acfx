@@ -44,6 +44,11 @@ void interleaveToInt16(const float* const* src, std::int16_t* dst,
 - **SF3** — Exact frame counts. Exactly `frames` frames are read and written, for every
   `frames` in [0, 49]. `frames == 0` is a valid no-op, not an error. No access past the
   payload. (US2 AS4, FR-028)
+- **SF3a** — Torn payloads truncate. A byte count that is not a whole number of stereo frames
+  yields the whole frames plus a reportable remainder count; L/R alignment downstream is
+  preserved. (FR-028a, I-SF3a)
+- **SF2a** — Ties away from zero. Round-to-nearest resolves exact .5 cases away from zero, so
+  the rounding is fully specified rather than platform-dependent. (FR-038a)
 - **SF4** — No allocation. Neither function allocates. (US2 AS5, FR-030)
 - **SF5** — `noexcept`. Both are callable from the audio path.
 
@@ -88,6 +93,14 @@ public:
 - **AR5** — No allocation, no locks. Storage is a fixed member array. Single-producer /
   single-consumer, sufficient under the single-context assumption (**D26**, FR-046). (FR-030)
 - **AR6** — `noexcept` throughout; callable from the audio path.
+- **AR7** — Startup wait. Until occupancy first reaches the fill target, `read()` reports the
+  ring as not-yet-ready rather than manufacturing a burst of underruns on every stream open.
+  (FR-030b, I-AR6)
+- **AR8** — No re-centring. The ring never drops or duplicates frames to steer occupancy back
+  toward a target; drift stays visible in the counters. (FR-030c, I-AR7)
+- **AR9** — `reset()` clears contents and re-arms the AR7 wait, so a bus reset restarts from a
+  defined state rather than draining a stale partial ring. It does **not** touch the counters.
+  (FR-053, FR-054, I-AR8)
 
 **`CapacityFrames` is deliberately a template parameter with no default.** Its value is derived
 from HIL measurement per research R5 and pinned in Phase H (**D23**, FR-035). A default here
@@ -106,6 +119,7 @@ struct AudioTransportStats {
     std::uint32_t outputUnderruns = 0;
     std::uint32_t outputOverruns  = 0;
     std::uint32_t inputStarved    = 0;   // capture-only silence (D22)
+    std::uint32_t truncatedFrames = 0;   // torn-payload remainder (FR-028a)
     std::uint32_t blocksProcessed = 0;   // denominator
     std::uint32_t worstBlockMicros = 0;  // makes the CPU budget observable
 };
@@ -119,7 +133,11 @@ double errorRate(std::uint32_t count, const AudioTransportStats&) noexcept;
 
 ### Guarantees
 
-- **TS1** — Monotonic. Every counter is non-decreasing within a power cycle. (I-TS1)
+- **TS1** — Monotonic **modulo 2^32**. Counters wrap rather than saturating; consumers take
+  deltas between snapshots. Not resettable at runtime. (FR-034a, I-TS1)
+- **TS1a** — Mutually exclusive. One event increments exactly one counter; `inputStarved` and
+  `outputUnderruns` cover *different* conditions and never both fire for the same silence.
+  (FR-029a, I-TS1a)
 - **TS2** — `blocksProcessed` increments exactly once per DSP block, so the other counters are
   interpretable as rates rather than bare totals. (FR-034, US9 AS2)
 - **TS3** — `worstBlockMicros` is a maximum, never an average, and never implicitly resets.

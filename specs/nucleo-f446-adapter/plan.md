@@ -74,8 +74,10 @@ lines. `acfx_core` must never learn about USB (FR-004). Ring capacity, water mar
 fill are **measurement-derived and deliberately unpinned** (**D23**, FR-035).
 
 **Scale/Scope**: One new adapter directory, one new support library, one new toolchain file, one
-new CMake factory, one new preset, one new host test suite, one HIL harness. 56 functional
-requirements across 9 user stories.
+new CMake factory, one new preset, one new host test suite, one HIL harness. **73 functional
+requirements across 10 user stories** (grown from 56/9 by the real-time/transport requirements
+review — see [`checklists/realtime-transport.md`](./checklists/realtime-transport.md) §
+Resolution).
 
 ## Constitution Check
 
@@ -203,9 +205,11 @@ forced lock failure blinks LD2 and halts.
 the OTG_FS ISR, and the `tud_task()` loop. Exit: the device enumerates driverless with audio,
 MIDI, and serial functions visible on a host.
 
-**Phase E — Audio path (US5, US7).** Wire the polled data path to the ring and the ring to the
-effect's fixed 48-frame block; handle the capture-only case. Exit: audio passes through an
-effect and is audibly transformed.
+**Phase E — Audio path and USB lifecycle (US5, US7, US10).** Wire the polled data path to the
+ring and the ring to the effect's fixed 48-frame block; handle the capture-only case; handle
+suspend, resume, and bus reset, including clearing the rings and re-arming the startup-fill wait
+while leaving the counters intact. Exit: audio passes through an effect and is audibly
+transformed, and survives a host sleep/wake cycle.
 
 **Phase F — Parameters (US6 hardware half).** MIDI CC in, through the mapping, into the shadow
 block, applied once per block. Exit: a controller moves a parameter live.

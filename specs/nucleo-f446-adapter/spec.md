@@ -109,6 +109,28 @@ tuned design.
   up, so no USB channel — CDC included — can report the fault; the single LED is the only
   signal available without a debug probe.
 
+### Session 2026-08-23 (from the real-time/transport requirements review)
+
+Raised by [`checklists/realtime-transport.md`](./checklists/realtime-transport.md), which found
+gaps and conflicts in the requirements above rather than merely confirming them.
+
+- Q: Are USB suspend/resume and bus reset in scope? (CHK031, CHK032) → A: **Yes, specified now**,
+  including what happens to ring contents and counters. This is a whole lifecycle class, not an
+  edge case; left undefined it surfaces later as a mystery hang or stale audio after a host
+  sleeps — the same failure mode **D22** exists to prevent for the capture-only case.
+- Q: Ring startup policy, and does it re-centre after a sustained excursion? (CHK017, CHK018) →
+  A: The consumer **waits for the startup fill** before drawing its first block, and there is
+  **no re-centring**. Both directions are paced by the same SOF clock, so a persistent one-way
+  drift is a real fault that belongs in the counters — not something to mask with frame drops
+  that are themselves audible and would need a counter of their own.
+- Q: What happens when a counter overflows? (CHK010) → A: Counters **wrap** naturally; the
+  harness computes **deltas between snapshots**. US9 wants a rate over an interval, not a
+  lifetime total, so the monotonicity invariant is amended to *monotonic modulo 2^32*.
+- Q: What is the policy for a payload that is not a whole number of stereo frames? (CHK016) →
+  A: **Truncate to whole frames**, process those, and count the discarded remainder. This
+  preserves L/R channel alignment downstream; discarding 47 good frames because the 48th was
+  torn is the worse trade, and misaligned stereo is a distinctive, hard-to-diagnose symptom.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Cross-compile an effect to a NUCLEO-F446RE firmware image (Priority: P1)
@@ -364,6 +386,35 @@ full counter set and passes or fails against the configured bar.
 
 ---
 
+### User Story 10 - Survive host-initiated USB lifecycle events (Priority: P2)
+
+A user's laptop sleeps and wakes, or the USB bus resets, while the device is streaming. The
+device returns to normal operation rather than hanging, replaying stale audio, or requiring a
+power cycle.
+
+**Why this priority**: Suspend and bus reset are routine host behaviour, not exotic faults, and
+they are the events most likely to be hit by a long HIL soak run. Undefined behaviour here
+produces exactly the symptom class — a hang or stale audio — that **D22** was written to prevent
+for the capture-only case. P2 because normal streaming is demonstrable without it.
+
+**Independent Test**: Sleep and wake the host with the device streaming; separately, force a bus
+reset. Confirm audio resumes and the counters tell a coherent story across the event.
+
+**Acceptance Scenarios**:
+
+1. **Given** the device is streaming, **When** the host suspends the bus, **Then** the device
+   stops producing and consuming audio and does not spin in a busy loop waiting for packets.
+2. **Given** a suspended device, **When** the host resumes, **Then** streaming resumes without a
+   power cycle and without replaying audio buffered before the suspend.
+3. **Given** the device is streaming, **When** a bus reset or re-enumeration occurs, **Then**
+   the rings are cleared and the startup-fill wait applies again, so the device restarts from a
+   defined state rather than a stale one.
+4. **Given** any of these events, **When** it occurs, **Then** the statistics counters are
+   **not** reset — they remain power-cycle-scoped so a harness can observe the event's cost
+   across it.
+
+---
+
 ### Edge Cases
 
 - **Zero-length packet.** The host sends an isochronous packet carrying no frames. Handled as
@@ -383,6 +434,13 @@ full counter set and passes or fails against the configured bar.
   count, which is zero; the dirty-flag walk is a no-op.
 - **Nothing reading the CDC channel.** No host has the serial port open. Telemetry writes must
   not block or stall the audio path when the channel is unread.
+- **Torn packet.** A payload arrives whose byte count is not a whole number of stereo frames.
+  The whole frames are consumed and the remainder is discarded and counted (FR-028a), so L/R
+  alignment is preserved downstream.
+- **Counter wrap.** A counter passes 2^32 during a long soak run. It wraps; consumers compute
+  deltas between snapshots rather than treating any counter as a lifetime total (FR-034a).
+- **Suspend during a partially filled ring.** The host suspends mid-stream. On resume the
+  startup-fill wait applies again rather than draining a stale partial ring (FR-051, US10 AS3).
 - **MIDI CC with no mapping.** A CC arrives that maps to no `ParamId`. It is ignored without
   disturbing any parameter slot.
 - **Sustained rate mismatch.** The host's SOF cadence and the assembled block cadence drift
@@ -414,6 +472,10 @@ full counter set and passes or fails against the configured bar.
 - **FR-004**: `acfx_core` MUST NOT acquire any knowledge of USB, TinyUSB, or the board;
   dependencies point strictly inward. The adapter may depend on core; core must never depend on
   the adapter.
+- **FR-004a**: `acfx_nucleo_support` MUST NOT include TinyUSB, CMSIS, or board headers, and MUST
+  compile with no toolchain file under the host test preset. This is the enforceable form of
+  FR-002 — without it, "host-testable" is an aspiration rather than a property, and the
+  untested-glue gap **D1** exists to close would reopen silently.
 - **FR-005**: Each shipped source file MUST remain within the ~300–500 line budget.
 
 #### Build, toolchain, and dependencies
@@ -451,6 +513,14 @@ full counter set and passes or fails against the configured bar.
   only channel available: without a locked PLL, USB cannot enumerate, so neither CDC nor MIDI
   can carry the fault. The LED driver required for this MUST be the minimum needed to signal
   the pattern, consistent with FR-003.
+- **FR-015b**: The fault pattern MUST be **three short pulses followed by a long gap, repeating
+  indefinitely**, so it is unambiguously distinguishable both from a dark board and from any
+  steady or heartbeat indication used during normal operation. Quantifying the pattern is what
+  makes SC-007 checkable by eye rather than a matter of opinion.
+- **FR-015c**: The LED GPIO MUST be initialized **before** clock validation runs, so a
+  bring-up failure has a working indicator. It therefore runs on the reset-default internal
+  oscillator and its blink cadence is approximate — acceptable, because the pattern's shape and
+  not its timing is what carries the signal.
 - **FR-016**: Documentation MUST state that the ST-Link USB cable is **required at runtime**,
   not merely for debugging, because it supplies the clock — two cables, always.
 - **FR-017**: Documentation MUST state the required USB-C breakout wiring to PA11/PA12 on the
@@ -466,6 +536,10 @@ full counter set and passes or fails against the configured bar.
   extends **D5**'s composite arrangement by one function; TinyUSB's `cdc_uac2` example — the
   descriptor template the design record already names — carries CDC, and the function stays
   driverless on macOS, Linux, and Windows 10+.
+- **FR-018b**: **Every** effect firmware MUST carry the CDC telemetry function, not only
+  instrumented builds. One device shape keeps the descriptor set single-sourced and means the
+  HIL harness can be pointed at any firmware; two shapes would make telemetry availability a
+  property a developer has to remember.
 - **FR-019**: The device MUST be class-compliant, requiring no host driver installation.
 - **FR-020**: The device MUST advertise **48 kHz, 16-bit, stereo only**, with one streaming
   alt-setting per streaming interface in addition to the zero-bandwidth alt-setting (**D4**).
@@ -491,9 +565,21 @@ full counter set and passes or fails against the configured bar.
 - **FR-028**: The implementation MUST accept packet payloads carrying **0 to 49 stereo frames
   inclusive**, including short and zero-length packets (**D21**). No code path may assume a
   fixed 48-frame payload.
+- **FR-028a**: A payload whose byte count is **not a whole number of stereo frames** MUST be
+  truncated to whole frames, with the whole frames consumed and the remainder discarded and
+  counted (Clarifications 2026-08-23). Truncation rather than whole-packet rejection preserves
+  L/R channel alignment downstream; misaligned stereo is a distinctive and hard-to-diagnose
+  symptom, which is why this case gets a requirement instead of being assumed unreachable.
 - **FR-029**: The host opening the **capture stream alone** (mic at its streaming
   alt-setting, speaker at zero-bandwidth) MUST be handled explicitly: the IN endpoint emits
   silence and `inputStarved` increments (**D22**).
+- **FR-029a**: The counters MUST be **mutually exclusive**: a single event increments exactly
+  one of them. Specifically, silence emitted on the IN endpoint increments `inputStarved` when
+  **no playback stream is open at all** (the FR-029 capture-only condition), and
+  `outputUnderruns` when the playback stream **is** open but the output ring was momentarily
+  empty. These are different conditions with different causes — a host configuration versus a
+  rate mismatch — and conflating them makes both counters untrustworthy. A counter whose meaning
+  is ambiguous is worse than no counter, because it will be believed.
 
 #### Audio buffering and error accounting
 
@@ -505,6 +591,16 @@ full counter set and passes or fails against the configured bar.
   (FR-028) are absorbed by the ring and MUST NOT propagate into the block size. This decoupling
   is what gives FR-035's startup fill and water marks their meaning and what gives FR-031's
   four counters a distinct producer and consumer on each side.
+- **FR-030b**: At stream start the consumer MUST **wait until the ring reaches its startup
+  fill** before drawing its first block (Clarifications 2026-08-23). Starting immediately would
+  guarantee a burst of underruns on every stream open, polluting the very statistic the HIL
+  harness asserts against. The *policy* is fixed here; the fill *value* remains
+  measurement-derived per FR-035.
+- **FR-030c**: The ring MUST NOT re-centre itself after a sustained excursion (Clarifications
+  2026-08-23). Both directions are paced by the same SOF clock, so a persistent one-way drift
+  indicates a real fault and MUST remain visible in the counters. Masking it by dropping or
+  duplicating frames would be an audible, uncounted substitution — precisely what FR-032
+  forbids.
 - **FR-031**: Input underflow MUST emit silence; input overflow MUST drop the oldest frames;
   output underflow MUST emit silence; output overflow MUST drop the oldest frames (**D24**).
 - **FR-032**: Every substitution in FR-031 MUST increment its corresponding counter. No
@@ -514,7 +610,10 @@ full counter set and passes or fails against the configured bar.
   not absent.
 - **FR-033**: The adapter MUST expose an `AudioTransportStats` record carrying
   `inputUnderruns`, `inputOverruns`, `outputUnderruns`, `outputOverruns`, `inputStarved`,
-  `blocksProcessed`, and `worstBlockMicros`.
+  `blocksProcessed`, `worstBlockMicros`, and `truncatedFrames` (the FR-028a remainder count).
+  The eighth field extends the record as drafted in the design record; it is added because
+  FR-028a's discarded remainder would otherwise be an uncounted substitution, which FR-032
+  forbids.
 - **FR-033a**: The full `AudioTransportStats` set MUST be readable at runtime over the CDC
   serial function (FR-018a), in a form a host-side harness can parse (Clarifications
   2026-08-23). Reading the counters MUST NOT allocate, block, or otherwise perturb the audio
@@ -522,10 +621,19 @@ full counter set and passes or fails against the configured bar.
 - **FR-034**: `blocksProcessed` MUST be maintained as a denominator so counters can be
   expressed as rates, and `worstBlockMicros` MUST be maintained so the CPU budget is directly
   observable rather than inferred from dropout symptoms.
+- **FR-034a**: Counters are 32-bit and **wrap**; they are monotonic **modulo 2^32**
+  (Clarifications 2026-08-23). Consumers MUST compute **deltas between snapshots** rather than
+  treating any counter as a lifetime total — which is what US9 needs anyway, since a rate over
+  an interval is the meaningful quantity. Counters MUST NOT be resettable at runtime; they are
+  power-cycle-scoped, so a harness can observe cost across a suspend or bus reset (US10 AS4).
+- **FR-034b**: If the block timing source fails to initialize, that MUST surface loudly rather
+  than reporting `worstBlockMicros = 0`. A zero meaning "not measured" is indistinguishable from
+  a zero meaning "instantaneous", which defeats the observability FR-034 exists to provide.
 - **FR-035**: Ring-buffer **capacity, water marks, and startup fill** MUST be derived from
-  hardware-in-the-loop measurement and pinned in the implementation plan with their measured
-  justification (**D23**). They MUST NOT be invented ahead of measurement. Ring-buffer
-  *semantics* (FR-031, FR-032) are fixed here; only these three quantities are measurement-derived.
+  hardware-in-the-loop measurement and pinned, with their measured justification, in the
+  post-hardware measurement phase — **not** ahead of it (**D23**). Ring-buffer *semantics*
+  (FR-031, FR-032, FR-030b, FR-030c) are fixed here; only these three **quantities** are
+  measurement-derived.
 
 #### Effect integration
 
@@ -541,11 +649,12 @@ full counter set and passes or fails against the configured bar.
 - **FR-038**: The support library MUST convert interleaved 16-bit USB payloads to
   non-interleaved float channel buffers on the way in, and reverse that on the way out,
   without allocating, for any payload size permitted by FR-028.
-- **FR-038a**: The conversion MUST scale by **32768**, round to nearest on the way out, and
-  **clamp** the result to [-32768, 32767] (Clarifications 2026-08-23). The clamp is
-  load-bearing rather than defensive: an effect that overshoots 1.0 would otherwise wrap to
-  the opposite rail and emit loud broadband noise, which is precisely the class of silent,
-  uncounted degradation FR-032 exists to prevent.
+- **FR-038a**: The conversion MUST scale by **32768** in both directions, round to nearest on
+  the way out with **ties resolved away from zero**, and **clamp** the result to
+  [-32768, 32767] (Clarifications 2026-08-23). The clamp is load-bearing rather than defensive:
+  an effect that overshoots 1.0 would otherwise wrap to the opposite rail and emit loud
+  broadband noise, which is precisely the class of silent, uncounted degradation FR-032 exists
+  to prevent.
 
 #### Parameter control
 
@@ -576,9 +685,36 @@ full counter set and passes or fails against the configured bar.
   the interrupt handler MUST only enqueue (**D26**). Verified against the pinned stack version:
   transfer callbacks dispatch from the task loop while the device-controller event handler only
   queues.
+- **FR-046a**: **The audio path** — the region governed by FR-030's no-allocation, no-lock
+  constraint — is hereby defined as everything executed between a packet's arrival and its
+  reply: payload validation and truncation (FR-028a), format conversion (FR-038), ring access
+  (FR-030), the parameter dirty-flag walk (FR-042), `process()` itself, and the telemetry write
+  (FR-033a). Naming the region explicitly is what makes FR-030 enforceable; left to inference,
+  the parameter flush and the telemetry write would sit in an unexamined grey zone precisely
+  because they do not look like audio code.
+- **FR-046b**: Every stage named in FR-046a MUST individually satisfy the no-allocation and
+  no-lock constraint, and MUST be covered by the existing allocation-sentinel discipline where
+  it is host-reachable.
 - **FR-047**: The single-context assumption MUST be documented as load-bearing for FR-041's
   lock-free shadow block, with the explicit trigger for revisiting it named: sampling
   peripherals from a timer interrupt would break it (**D26**).
+
+#### USB lifecycle
+
+- **FR-051**: On **bus suspend**, the device MUST stop producing and consuming audio and MUST
+  NOT spin waiting for packets that will not arrive (Clarifications 2026-08-23, US10 AS1).
+- **FR-052**: On **resume**, streaming MUST restart without a power cycle, and MUST NOT replay
+  audio buffered before the suspend (US10 AS2). Stale audio after a host sleeps is the
+  hang-or-stale-audio symptom class **D22** exists to prevent, applied to a different trigger.
+- **FR-053**: On **bus reset or re-enumeration**, the rings MUST be cleared and the FR-030b
+  startup-fill wait MUST apply again, so the device restarts from a defined state rather than
+  draining a stale partial ring (US10 AS3).
+- **FR-054**: Statistics counters MUST survive suspend, resume, and bus reset unchanged
+  (US10 AS4). They are power-cycle-scoped per FR-034a precisely so a harness can measure what
+  such an event cost.
+- **FR-055**: Alt-setting transitions MUST be defined for every combination of the two streaming
+  interfaces — both closed, playback only, capture only (FR-029), and both open — and moving
+  between any two of those states MUST NOT require a power cycle.
 
 #### Verification
 
@@ -605,9 +741,10 @@ full counter set and passes or fails against the configured bar.
 - **Audio ring buffer**: Statically sized, lock-free, no-allocation buffer between the USB
   packet cadence and the DSP's independent fixed 48-frame block cadence. Semantics fixed by
   FR-031/FR-032; capacity, water marks, and startup fill measurement-derived per FR-035.
-- **`AudioTransportStats`**: The seven-field observability record (four error counters, the
-  capture-only starvation counter, the block denominator, and the worst-case block time)
-  against which the HIL harness asserts.
+- **`AudioTransportStats`**: The eight-field observability record (four error counters, the
+  capture-only starvation counter, the truncated-remainder counter, the block denominator, and
+  the worst-case block time) against which the HIL harness asserts. Counters are mutually
+  exclusive (FR-029a) and wrap modulo 2^32 (FR-034a).
 - **`ParameterSource`**: The abstraction through which parameter changes reach the effect;
   USB MIDI is the first implementation, physical peripherals shape the contract.
 - **Parameter shadow block**: One slot plus dirty flag per `ParamId`, bounded at the effect's
@@ -654,8 +791,13 @@ full counter set and passes or fails against the configured bar.
   Teensy adapters currently carry.
 - **SC-010**: No heap allocation and no lock occurs in the audio path, demonstrated by the
   existing no-allocation test discipline.
-- **SC-011**: `worstBlockMicros` is recorded for every shipped Nucleo firmware, making each
-  effect's CPU headroom against the frame period directly observable rather than inferred.
+- **SC-011**: `worstBlockMicros` is captured by the HIL harness over the CDC telemetry channel
+  for every shipped Nucleo firmware and recorded alongside that firmware's harness results,
+  making each effect's CPU headroom against the frame period directly observable rather than
+  inferred.
+- **SC-013**: A host suspend/resume cycle and a bus reset each leave the device streaming
+  normally afterwards with no power cycle, and the counters remain readable across the event so
+  its cost is measurable rather than invisible.
 - **SC-012**: Every shipped source file remains within the ~300–500 line budget, and
   `nucleo-main.cpp` contains no logic that could have lived in the host-testable support
   library.

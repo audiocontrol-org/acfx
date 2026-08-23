@@ -163,6 +163,19 @@ explicit validation step rather than an edge case someone remembers to try.
 
 ---
 
+## 7a. USB lifecycle
+
+With the device streaming, sleep the host and wake it; separately, force a bus reset.
+
+**Proves**: SC-013 (US10) — streaming resumes with no power cycle, no audio buffered before the
+suspend is replayed, and the counters survive the event so its cost stays measurable.
+
+After a bus reset the rings are cleared and the startup-fill wait applies again (FR-053), so the
+device restarts from a defined state rather than draining a stale partial ring. Counters are
+**not** reset by any of these events — only by a power cycle (FR-034a, FR-054).
+
+---
+
 ## 8. Parameters over MIDI
 
 Send CCs from any controller or host application.
@@ -236,6 +249,7 @@ procedure in [`research.md`](./research.md) § R5:
 | 5 — enumeration | yes | SC-001 |
 | 6 — passthrough | yes | SC-002 |
 | 7 — capture-only | yes | SC-005 |
+| 7a — USB lifecycle | yes | SC-013 |
 | 8 — parameters | yes | SC-006 |
 | 9 — telemetry/HIL | yes | SC-004, SC-011 |
 | 10 — measurement | yes | closes FR-035; feeds open questions 1 and 2 |
