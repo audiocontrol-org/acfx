@@ -2,6 +2,60 @@
 
 ---
 
+## 2026-08-23: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 33
+  - fix(nucleo): enable the Cortex-M4F FPU in Reset_Handler — the board now enumerates
+  - feat(nucleo): T030 - TinyUSB init, OTG_FS ISR, tud_task() service loop
+  - chore(nucleo): ledger T027 (composite USB descriptors, byte-walk verified)
+  - feat(nucleo): T027 (US4) — composite USB descriptors, audio+MIDI+CDC
+  - chore(nucleo): ledger T029 — OTG_FS endpoint budget closes
+  - docs(nucleo): R14 — OTG_FS endpoint + FIFO budget closes (T029)
+  - chore(nucleo): ledger T026 (tusb_config.h)
+  - feat(nucleo): T026 tusb_config.h — audio/MIDI/CDC config, VBUS detect off
+  - chore(nucleo): ledger T025 (PA11/PA12 AF10) and T028 (TinyUSB 0.21.0 API recon)
+  - feat(nucleo): T025 - PA11/PA12 alternate-function GPIO for OTG_FS
+  - docs(nucleo): T028 — record TinyUSB 0.21.0 API read off the pinned tree
+  - chore(nucleo): ledger T024 — clock bring-up verified on real silicon
+  - feat(nucleo): T024 (US4) register-level clock bring-up, HSE bypass + PLL
+  - chore(nucleo): ledger T050 (fault blink pattern, delay loop verified in object code)
+  - feat(nucleo): T050 - fatal clock-fault LED pattern (US8)
+  - chore(nucleo): ledger T049 (LD2 GPIO init, disassembly-verified)
+  - feat(nucleo): T049 init fault LED GPIO before clock validation
+  - chore(nucleo): ledger T023 and close Phase 5 (US3)
+  - test(nucleo): complete allocation-free coverage for audio-ring APIs and add positive control
+  - chore(nucleo): ledger T022 (audio-ring.h, 38 AR cases green) and file TASK-29
+  - feat(nucleo): T022 (US3) — statically sized SPSC audio ring
+  - chore(nucleo): ledger T021 (transport-stats.h, host-verified 11/11)
+  - feat(nucleo): T021 transport-stats.h (US3)
+  - chore(nucleo): ledger T019/T020 and record the T020 file-placement deviation
+  - test(nucleo): rewrite the TransportStats RED tests to assert the contract
+  - test(nucleo): RED tests for AudioTransportStats contract TS1/TS1a/TS2/TS4
+  - test(nucleo): assert the write/read returns T019 left unchecked
+  - fix(nucleo-audio-ring-test): second round review findings (T019)
+  - spec(nucleo): pin the AudioRing constructor exception type and the startupFill==0 edge
+  - test(nucleo): fix AudioRing RED tests (T019 review findings)
+  - spec(nucleo): give AudioRing the observable state AR7 already required
+  - test(nucleo): RED tests for audio-ring contract AR1-AR3, AR5, AR7-AR9
+  - chore(nucleo): renumber T010a/T012a to T071/T072 to clear the execute gate
+- Files changed: 27
+- Backlog touched: TASK-24, TASK-25, TASK-27, TASK-28, TASK-29, TASK-30, TASK-31
+
 ## 2026-08-23: nucleo-f446-adapter — execute Phases 1–4, from gated to bootable firmware
 
 **Goal:** Pick up the implementation step last session deliberately held, and drive
