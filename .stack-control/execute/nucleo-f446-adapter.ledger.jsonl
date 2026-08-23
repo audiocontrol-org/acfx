@@ -1,0 +1,16 @@
+{"id": "T001", "tierLabel": "fast", "model": "haiku", "commitRange": "b8d2b4c..755f9bc", "reviewClean": true}
+{"id": "T002", "tierLabel": "balanced", "model": "sonnet", "commitRange": "b8d2b4c..755f9bc", "reviewClean": true}
+{"id": "T003", "tierLabel": "balanced", "model": "sonnet", "commitRange": "b8d2b4c..755f9bc", "reviewClean": true}
+{"id": "T004", "tierLabel": "balanced", "model": "sonnet", "commitRange": "b8d2b4c..755f9bc", "reviewClean": true}
+{"id": "T005", "tierLabel": "balanced", "model": "sonnet", "commitRange": "b8d2b4c..755f9bc", "reviewClean": true}
+{"id": "T006", "tierLabel": "fast", "model": "haiku", "commitRange": "b8d2b4c..755f9bc", "reviewClean": true}
+{"id": "T007", "tierLabel": "powerful", "model": "opus", "commitRange": "d9d41ca..55290d5", "reviewClean": true}
+{"id": "T008", "tierLabel": "balanced", "model": "sonnet", "commitRange": "d9d41ca..55290d5", "reviewClean": true}
+{"id": "T009", "tierLabel": "fast", "model": "haiku", "commitRange": "d9d41ca..55290d5", "reviewClean": true}
+{"id": "T010", "tierLabel": "balanced", "model": "sonnet", "commitRange": "09d502f..8548f69", "reviewClean": true}
+{"id": "T010a", "tierLabel": "balanced", "model": "sonnet", "commitRange": "09d502f..8548f69", "reviewClean": true}
+{"id": "T011", "tierLabel": "balanced", "model": "sonnet", "commitRange": "09d502f..8548f69", "reviewClean": true}
+{"id": "T012", "tierLabel": "balanced", "model": "sonnet", "commitRange": "09d502f..8548f69", "reviewClean": true}
+{"id": "T012a", "tierLabel": "balanced", "model": "sonnet", "commitRange": "09d502f..8548f69", "reviewClean": true}
+{"id": "T013", "tierLabel": "balanced", "model": "sonnet", "commitRange": "09d502f..8548f69", "reviewClean": true}
+{"id": "T015", "tierLabel": "fast", "model": "haiku", "commitRange": "09d502f..8548f69", "reviewClean": true}
