@@ -18,6 +18,14 @@ failure gets built in.
 
 ## R1 — TinyUSB 0.21.0 audio data path
 
+> **SUPERSEDED IN PART BY R13 (T028).** R13 records the API read directly off the pinned
+> TinyUSB tree `d34550b3aaa115e7ec09bea0c9e676531bf95dfb`. Three claims below are corrected
+> there: (a) `rx_done`/`tx_done` were *renamed* to `tud_audio_rx_done_isr` /
+> `tud_audio_tx_done_isr`, not simply deleted — the deleted family is the older
+> `*_pre_read_cb` / `*_post_load_cb` set; (b) the close callback is
+> `tud_audio_set_itf_close_ep_cb`, lower-case `ep`; (c) the `_n_` variants are **not** needed
+> for the duplex case. R13's file:line citations win over anything written here.
+
 **Decision**: Service the audio data path by **polling** `tud_audio_read()` /
 `tud_audio_write()` from the main loop. Do not write against `rx_done` / `tx_done`.
 
@@ -303,3 +311,353 @@ research and are called out so it is clear they were left alone on purpose:
   but what rate constitutes a failing build is the operator's.
 - **MIDI CC mapping convention (OQ7)** — R9 supplies the *mechanism* and a recommendation, and
   explicitly does not apply it.
+
+---
+
+## R13 — TinyUSB 0.21.0 audio/MIDI/CDC API, READ OFF THE PINNED TREE (T028)
+
+**Date**: 2026-08-23 · **Task**: T028 [US4] · **Status**: verified by reading source, not recalled
+
+**Provenance — this is a pinned-source record, not a memory dump.** Every name, signature and
+line number below was read from the CPM cache of the exact pin in `cmake/dependencies.cmake`:
+
+- Tree: `external/.cpm-cache/tinyusb/d34550b3aaa115e7ec09bea0c9e676531bf95dfb`
+- Commit: **`d34550b3aaa115e7ec09bea0c9e676531bf95dfb`**, TinyUSB **0.21.0**
+  (`version.yml` records `"0-latest": "0.21.0"`)
+- Paths below are relative to that tree root. Nothing here was taken from training data,
+  upstream `master`, or any other TinyUSB version. If a name below disagrees with anything
+  written earlier in this document, **the line citation wins**.
+
+### R13.0 — CORRECTION TO R1: the `rx_done`/`tx_done` story is more dangerous than "removed"
+
+R1 records that 0.21.0 "removed the `rx_done`/`tx_done` data-path callbacks". Reading the pinned
+tree, that is **half right, and the wrong half is the trap**:
+
+1. **Genuinely gone.** The pre-0.19 four-callback family —
+   `tud_audio_rx_done_pre_read_cb`, `tud_audio_rx_done_post_read_cb`,
+   `tud_audio_tx_done_pre_load_cb`, `tud_audio_tx_done_post_load_cb` — does **not exist
+   anywhere in the pinned tree**. A recursive grep of the whole checkout for those four names
+   returns zero hits. So does a grep for their enabling macros `CFG_TUD_AUDIO_ENABLE_ENCODING`
+   and `CFG_TUD_AUDIO_ENABLE_DECODING`. Code written against them cannot work.
+2. **But a `rx_done`/`tx_done` pair DOES still exist under new names**, with an `_isr` suffix
+   and a different signature: `tud_audio_rx_done_isr` (`src/class/audio/audio_device.h:251`)
+   and `tud_audio_tx_done_isr` (`src/class/audio/audio_device.h:243`). A reader who greps the
+   0.21.0 tree for `rx_done`, sees hits, and concludes "R1 was wrong, the callbacks are still
+   here" will write against a *different* contract than the one they remember.
+3. **The silent-link mechanism is broader than R1 states, and this is the real finding.**
+   *Every* audio application callback in 0.21.0 is declared `TU_ATTR_WEAK` with a permissive
+   default body in `src/class/audio/audio_device.c:277-336`. `tud_audio_set_itf_cb`
+   (`audio_device.c:325`) and `tud_audio_set_itf_close_ep_cb` (`audio_device.c:332`) both have
+   weak stubs that ignore their arguments and `return true;`. So a **typo or a stale name in
+   ANY audio callback** — not just the data-path pair — links cleanly against the weak stub,
+   enumerates fine, and leaves the adapter deaf with no diagnostic. There is no `-Wmissing-*`
+   that catches it. The only defence is spelling the names off this record.
+
+**Consequence for later tasks:** do not treat "it compiled and linked" as any evidence that a
+callback is wired. The acceptance evidence for an alt-setting callback must be an observed
+*side effect* (LED, counter, log line) when the host opens the stream.
+
+### R13.1 — Alt-setting open / close callbacks (CONFIRMED, exact names)
+
+Both exist, both take **only** `rhport` and the raw control request — there is no direction
+argument, no interface argument, no alt argument in the signature.
+
+| Callback | Declared | Weak stub | Signature |
+|---|---|---|---|
+| open / set-alt | `audio_device.h:359` | `audio_device.c:325` | `bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_request)` |
+| close / clear-alt | `audio_device.h:362` | `audio_device.c:332` | `bool tud_audio_set_itf_close_ep_cb(uint8_t rhport, tusb_control_request_t const *p_request)` |
+
+**Spelling note that matters.** R1 guessed `tud_audio_set_itf_close_EP_cb` (capital `EP`). In
+0.21.0 the canonical name is **lower-case `ep`**; the capitalised form survives only as a
+backward-compatibility `#define` at `audio_device.h:365`:
+
+    #define tud_audio_set_itf_close_EP_cb   tud_audio_set_itf_close_ep_cb
+
+Either spelling therefore links, but new code should use the lower-case canonical name.
+
+**Where the driver invokes them** (this is what fixes the semantics):
+
+- `tud_audio_set_itf_close_ep_cb` is called **once per direction being torn down**, from inside
+  the per-direction branches of `audiod_set_interface()`: for the IN/microphone endpoint at
+  `audio_device.c:1102` (inside `if (audio->ep_in_as_intf_num == itf)`, line 1091) and for the
+  OUT/speaker endpoint at `audio_device.c:1126` (inside `if (audio->ep_out_as_intf_num == itf)`,
+  line 1115). In both cases the driver has already closed the endpoint and cleared the FIFO
+  (`tu_fifo_clear`, lines 1099 / 1123) before the callback runs.
+- `tud_audio_set_itf_cb` is called **exactly once per SET_INTERFACE**, after all endpoints for
+  the new alt setting have been opened and the first transfer scheduled —
+  `audio_device.c:1251`, commented in-source as "Invoke one callback for a final set interface".
+- Returning `false` from either callback aborts the SET_INTERFACE via `TU_VERIFY` and the
+  request is stalled. Both weak defaults return `true`.
+
+### R13.2 — How the two directions are distinguished (answers the stereo-in AND stereo-out question)
+
+The callbacks carry **no** direction parameter. The device distinguishes speaker/OUT from
+microphone/IN by decoding the control request itself, exactly as the driver does internally at
+`audio_device.c:1078-1079`:
+
+    uint8_t const itf = tu_u16_low(p_request->wIndex);   // audio streaming interface number
+    uint8_t const alt = tu_u16_low(p_request->wValue);   // alternate setting; 0 == stream closed
+
+The application then compares `itf` against **its own** streaming-interface numbers from its
+descriptor. The shipped pattern is in `examples/device/uac2_headset/src/main.c:526-556`, which
+tests `ITF_NUM_AUDIO_STREAMING_SPK == itf` in both callbacks; those constants come from that
+example's own interface enum at `examples/device/uac2_headset/src/usb_descriptors.h:29-35`
+(`ITF_NUM_AUDIO_CONTROL = 0, ITF_NUM_AUDIO_STREAMING_SPK, ITF_NUM_AUDIO_STREAMING_MIC`).
+
+**Design consequence for this adapter (both directions, one audio function).** A single audio
+function (`CFG_TUD_AUDIO = 1`) carries both directions: `audiod_function_t` holds `ep_in`,
+`ep_in_as_intf_num`, `ep_in_alt` *and* `ep_out`, `ep_out_as_intf_num`, `ep_out_alt`
+independently, and the open path fills them in separate `CFG_TUD_AUDIO_ENABLE_EP_IN` /
+`CFG_TUD_AUDIO_ENABLE_EP_OUT` blocks (`audio_device.c:1185-1226`). So:
+
+- The `_n_` multi-instance variants are **not** needed for stereo-in-with-stereo-out — R1's
+  open question is answered **no**. `_n_` indexes *audio functions*, not directions.
+  `func_id` 0 is correct for this design and the non-`_n_` inlines are the right entry points.
+- The host opens and closes the two streams **independently**, so the adapter must track two
+  separate "streaming?" flags keyed on its own SPK and MIC interface numbers. Treating
+  `set_itf_close_ep_cb` as a single global "audio stopped" event is a bug: it fires for one
+  direction while the other may still be live.
+- There is **no public accessor** for the driver's internal `ep_in_alt` / `ep_out_alt`. The
+  only public state query is `tud_audio_n_mounted(uint8_t func_id)` / `tud_audio_mounted(void)`
+  (`audio_device.h:177`, `:202`; implementation `audio_device.c:421`), which reports the audio
+  *function* mounted, not per-direction streaming. Per-direction state is the application's
+  to keep.
+
+### R13.3 — Polled read/write entry points (CONFIRMED, plan's assumption holds)
+
+`tud_audio_read()` and `tud_audio_write()` **do exist under exactly those names**. They are
+`TU_ATTR_ALWAYS_INLINE static inline` wrappers over the `_n_` forms with `func_id` 0.
+
+| Entry point | Declared | Defined | Signature / semantics |
+|---|---|---|---|
+| `tud_audio_read` | `audio_device.h:208` | `audio_device.h:403-405` | `uint16_t tud_audio_read(void *buffer, uint16_t bufsize)` → `tud_audio_n_read(0, ...)` |
+| `tud_audio_n_read` | `audio_device.h:182` | `audio_device.c:448-451` | `uint16_t tud_audio_n_read(uint8_t func_id, void *buffer, uint16_t bufsize)` → `tu_fifo_read_n(&ep_out_ff, ...)`; returns **bytes** read |
+| `tud_audio_available` | `audio_device.h:206` | `audio_device.h:399-401` | `uint16_t tud_audio_available(void)` → bytes currently in the OUT FIFO |
+| `tud_audio_n_available` | `audio_device.h:181` | `audio_device.c:443-446` | `uint16_t tud_audio_n_available(uint8_t func_id)` |
+| `tud_audio_write` | `audio_device.h:213` | `audio_device.h:419-421` | `uint16_t tud_audio_write(const void *data, uint16_t len)` → `tud_audio_n_write(0, ...)` |
+| `tud_audio_n_write` | `audio_device.h:188` | `audio_device.c:500-503` | `uint16_t tud_audio_n_write(uint8_t func_id, const void *data, uint16_t len)` → `tu_fifo_write_n(&ep_in_ff, ...)`; returns **bytes** accepted |
+| `tud_audio_clear_ep_out_ff` | `audio_device.h:207` | `audio_device.h:407-409` | `bool tud_audio_clear_ep_out_ff(void)` |
+| `tud_audio_clear_ep_in_ff` | `audio_device.h:214` | `audio_device.h:423-425` | `bool tud_audio_clear_ep_in_ff(void)` |
+
+Both are **compiled out unless the matching direction is enabled**: `tud_audio_read` and
+friends live inside `#if CFG_TUD_AUDIO_ENABLE_EP_OUT` (`audio_device.h:397-415`) and
+`tud_audio_write` inside `#if CFG_TUD_AUDIO_ENABLE_EP_IN` (`audio_device.h:417-441`). Getting
+the config macros wrong produces a *compile* error here, not a silent one — which is the good
+case.
+
+**Two return-value traps to code against:**
+
+- Both `_n_` bodies open with `TU_VERIFY(func_id < CFG_TUD_AUDIO && _audiod_fct[func_id].p_desc
+  != NULL)` (`audio_device.c:449`, `:501`). In a `uint16_t`-returning function that expands to
+  `return 0`. So **a read or write issued before the audio function is opened returns 0, not an
+  error** — indistinguishable from "no data". Do not read a 0 return as "the stream is idle".
+- The FIFOs are **byte** FIFOs with no frame framing. `tud_audio_read` will happily return a
+  partial frame. The adapter must handle non-frame-multiple returns rather than assume
+  alignment (`examples/device/uac2_headset/src/main.c:573-599` shows the byte-count arithmetic).
+
+The polled loop shape is exactly what R1 assumed and is demonstrated in
+`examples/device/uac2_headset/src/main.c:564-601`: once per millisecond, `tud_audio_read()`
+into a buffer, transform, `tud_audio_write()` out.
+
+### R13.4 — Data-transfer-complete hooks that replaced the old pre/post family
+
+Present, but **optional and not needed for a polled design**. Recorded so nobody reaches for
+them by half-memory:
+
+| Hook | Declared | Weak stub | Signature |
+|---|---|---|---|
+| TX complete | `audio_device.h:243-244` | `audio_device.c:282-289` | `bool tud_audio_tx_done_isr(uint8_t rhport, uint16_t n_bytes_sent, uint8_t func_id, uint8_t ep_in, uint8_t cur_alt_setting)` |
+| RX complete | `audio_device.h:251-252` | `audio_device.c:294-301` | `bool tud_audio_rx_done_isr(uint8_t rhport, uint16_t n_bytes_received, uint8_t func_id, uint8_t ep_out, uint8_t cur_alt_setting)` |
+
+Call sites: `audio_device.c:487` (RX, from `audiod_rx_xfer_isr`, *after* the received packet has
+already been copied into the OUT FIFO and the next receive scheduled) and `audio_device.c:553`
+(TX, from `audiod_tx_xfer_isr`, *after* the next packet has been loaded from the IN FIFO). Both
+run in **ISR context**; the in-source comment at `audio_device.h:241-242` explicitly says they
+are "normally not needed" because the data transfer should be driven by the audio clock.
+Returning `false` from either aborts the driver's transfer chain via `TU_VERIFY` — a live
+hazard if one is defined carelessly. **D-decision stands: this adapter defines neither.**
+
+### R13.5 — `CFG_TUD_AUDIO_*` macros T026 must set in `tusb_config.h`
+
+Read off the configuration block at `src/class/audio/audio_device.h:38-162`. Split by whether
+omission is caught at compile time.
+
+**Hard-required — omission is a `#error`, so T026 cannot silently miss these:**
+
+| Macro | Where enforced | What it gates |
+|---|---|---|
+| `CFG_TUD_AUDIO` | default `0` at `src/tusb_option.h:653` | Number of audio functions. Must be `1`; the whole class driver is compiled out at `0`. |
+| `CFG_TUD_AUDIO_ENABLE_EP_IN` | default `0`, `audio_device.h:47-49` | Microphone/IN direction. Gates `tud_audio_write` (`:417`) and all IN state. **Must be `1`.** |
+| `CFG_TUD_AUDIO_ENABLE_EP_OUT` | default `0`, `audio_device.h:51-53` | Speaker/OUT direction. Gates `tud_audio_read` (`:397`). **Must be `1`.** |
+| `CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX` | `#error` at `audio_device.h:57-59` | Largest IN packet across all alt settings; drives the linear buffer. |
+| `CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX` | `#error` at `audio_device.h:73-75` | Largest OUT packet across all alt settings. |
+| `CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ` | defaults to `0` (`:89-91`), which then trips the `#error` at `:110-112` | Software IN FIFO depth. Must be `>= ..._EP_IN_SZ_MAX`; the default of 0 always fails the check, so this is effectively mandatory. |
+| `CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ` | defaults to `0` (`:99-101`), trips `#error` at `:128-130` | Software OUT FIFO depth. Same rule. |
+
+**Soft — silently defaulted, so T026 should set them deliberately:**
+
+| Macro | Default | Line | Note |
+|---|---|---|---|
+| `CFG_TUD_AUDIO_CTRL_BUF_SZ` | `64` | `audio_device.h:42-44` | EP0 control buffer for class requests. Interacts with `CFG_TUD_ENDPOINT0_BUFSIZE` at `audio_device.c:428-435`. |
+| `CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL` | **`1`** | `audio_device.h:147-149` | **Defaults ON.** Selects `audiod_tx_packet_size()` (rate-varying packets driven by FIFO level vs. the IN FIFO threshold) instead of the plain `tu_min16(fifo_count, ep_in_sz)` path — see `audio_device.c:538-543`. It also makes `audiod_parse_flow_control_params()` scan the descriptor (`:1198-1200`). This is a real behavioural choice for a device with no local clock and it is ON unless explicitly set to `0`. **Flagged for the operator — not decided here.** |
+| `CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP` | `0` | `audio_device.h:152-154` | See R13.6. |
+| `CFG_TUD_AUDIO_ENABLE_INTERRUPT_EP` | `0` | `audio_device.h:157-159` | UAC2 status interrupt EP. Off is correct here; leaving it off also saves an endpoint against the R2 budget. |
+
+Sizing helper: `TUD_AUDIO_EP_SIZE(_is_highspeed, _maxFrequency, _nBytesPerSample, _nChannels)`
+at `src/device/usbd.h:809` — the shipped examples compute their `*_SZ_MAX` from it.
+
+Note that the `CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX` / `_N_BYTES_PER_SAMPLE_*` / `_SAMPLE_RATE`
+macros seen in the examples' `tusb_config.h` are **not driver macros** — a grep of
+`audio_device.c` and `audio_device.h` for `CFG_TUD_AUDIO` yields only the twenty names in the
+tables above. The examples define them purely to compute their own descriptors and EP sizes,
+and say so in their own comments ("This value is not required by the driver, it parses this
+information from the descriptor"). This adapter may adopt the same convention, but must not
+expect the driver to read them.
+
+**Adjacent, for the same file (T026):** MIDI takes `CFG_TUD_MIDI_RX_EPSIZE` /
+`CFG_TUD_MIDI_TX_EPSIZE`, both defaulting to `TUD_EPSIZE_BULK_MAX` with the older
+`CFG_TUD_MIDI_EP_BUFSIZE` honoured as a fallback (`src/class/midi/midi_device.h:37-50`). CDC
+takes `CFG_TUD_CDC_TX_BUFSIZE` / `CFG_TUD_CDC_RX_BUFSIZE` and `CFG_TUD_CDC_TX_EPSIZE` /
+`CFG_TUD_CDC_RX_EPSIZE`, same default and same legacy `CFG_TUD_CDC_EP_BUFSIZE` fallback
+(`src/class/cdc/cdc_device.h:39-60`), plus `CFG_TUD_CDC_NOTIFY` defaulting to `0` (`:39-41`).
+
+### R13.6 — No feedback endpoint: CONFIRMED permitted (FR-027, D20)
+
+The pinned driver **does not require a feedback endpoint for an async OUT stream**. Absence is
+expressed by simply leaving `CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP` at its default of `0`
+(`audio_device.h:152-154`) and omitting the feedback EP from the descriptor. Evidence:
+
+- Every feedback code path in the driver is inside `#if CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP` or
+  `#if CFG_TUD_AUDIO_ENABLE_EP_OUT && CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP` — the feedback state,
+  `audiod_fb_send`, `audiod_fb_params_prepare`, the SOF-interrupt enable, and the
+  `tud_audio_n_fb_set` / `tud_audio_feedback_update` API all vanish at `0`. There is **no
+  `#error`, `TU_ASSERT` or runtime check anywhere that demands a feedback EP when
+  `CFG_TUD_AUDIO_ENABLE_EP_OUT` is `1`.**
+- The endpoint-open loop classifies descriptors as data vs. feedback at
+  `audio_device.c:1168-1180` (UAC2: `bmAttributes.usage == 0 || == 2` is data, `== 1` is
+  feedback). With the macro off, the `is_feedback_ep` result is explicitly discarded —
+  `(void) is_feedback_ep;` at `audio_device.c:1237` and `:1240`. A descriptor with no feedback
+  EP simply never produces that classification.
+- The teardown path's feedback cleanup is likewise guarded (`audio_device.c:1131-1137`), and
+  the SOF interrupt is only enabled when some function actually has `ep_fb != 0`
+  (`audio_device.c:1266-1274`).
+- **Shipped precedent in the pinned tree:** `examples/device/uac2_headset` runs UAC2 with *both*
+  an OUT and an IN stream and **never defines `CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP`** — see its
+  `src/tusb_config.h:101-165`, which sets `CFG_TUD_AUDIO_ENABLE_EP_IN 1` (`:134`) and
+  `CFG_TUD_AUDIO_ENABLE_EP_OUT 1` (`:151`) and no feedback macro at all. By contrast
+  `examples/device/uac2_speaker_fb/src/tusb_config.h:146` sets it to `1`, and that is the
+  example whose name advertises feedback. So the no-feedback duplex configuration is not a
+  clever corner — it is the shipped default of the closest example.
+
+D20 / FR-027 therefore stand as written. (Whether a *host* is happy with an async OUT stream
+carrying no feedback is a host-behaviour question the pinned source cannot answer; that belongs
+to HIL, not to this record.)
+
+### R13.7 — MIDI and CDC entry points for the composite (CONFIRMED)
+
+MIDI, from `src/class/midi/midi_device.h`:
+
+| Entry point | Line | Signature |
+|---|---|---|
+| `tud_midi_mounted` | `:101-103` (over `:68`) | `bool tud_midi_mounted(void)` → `tud_midi_n_mounted(0)` |
+| `tud_midi_available` | `:105-107` (over `:71`) | `uint32_t tud_midi_available(void)` → `tud_midi_n_available(0, 0)`; **bytes**, not packets |
+| `tud_midi_packet_read` | `:123-125` (over `:87`) | `bool tud_midi_packet_read(uint8_t packet[4])` — one 4-byte USB-MIDI event packet; `false` when none |
+| `tud_midi_packet_read_n` | `:127-129` (over `:90`) | `uint32_t tud_midi_packet_read_n(uint8_t packets[], uint32_t max_packets)` → packets read |
+| `tud_midi_packet_write` | `:131-133` (over `:93`) | `bool tud_midi_packet_write(const uint8_t packet[4])` |
+| `tud_midi_packet_write_n` | `:135-137` (over `:96`) | `uint32_t tud_midi_packet_write_n(const uint8_t packets[], uint32_t n_packets)` |
+| `tud_midi_stream_read` | `:109-111` (over `:74`) | `uint32_t tud_midi_stream_read(void *buffer, uint32_t bufsize)` — byte-stream form |
+| `tud_midi_stream_write` | `:118-121` (over `:84`) | `uint32_t tud_midi_stream_write(uint8_t cable_num, const uint8_t *buffer, uint32_t bufsize)` |
+| `tud_midi_rx_cb` | `:60` | `void tud_midi_rx_cb(uint8_t itf)` — optional arrival notification |
+
+For FR-045's CC handling the **packet** form (`tud_midi_packet_read`) is the right entry point:
+one call yields one complete 4-byte event, which removes running-status and partial-message
+reassembly from the adapter entirely. Note the in-source warning at `midi_device.h:79-80`: the
+demux stream reader shares internal state with `tud_midi_n_stream_read` and the two must not be
+mixed on one interface — a reason to pick one form and stay on it.
+
+CDC, from `src/class/cdc/cdc_device.h`:
+
+| Entry point | Line | Signature |
+|---|---|---|
+| `tud_cdc_connected` | `:209-211` (over `:108`) | `bool tud_cdc_connected(void)` — host has asserted DTR |
+| `tud_cdc_write` | `:249-251` (over `:138`) | `uint32_t tud_cdc_write(void const *buffer, uint32_t bufsize)` → bytes queued |
+| `tud_cdc_write_str` | `:253-255` (over `:146`) | `uint32_t tud_cdc_write_str(char const *str)` |
+| `tud_cdc_write_flush` | `:257-259` (over `:151`) | `uint32_t tud_cdc_write_flush(void)` → bytes actually sent |
+| `tud_cdc_write_available` | `:261-263` (over `:154`) | `uint32_t tud_cdc_write_available(void)` — free TX FIFO space |
+| `tud_cdc_write_clear` | `:265-267` (over `:157`) | `bool tud_cdc_write_clear(void)` |
+| `tud_cdc_available` | `:225-227` (over `:120`) | `uint32_t tud_cdc_available(void)` |
+| `tud_cdc_read` | `:233-235` (over `:123`) | `uint32_t tud_cdc_read(void *buffer, uint32_t bufsize)` |
+
+`tud_cdc_write` only fills the TX FIFO; `tud_cdc_write_flush` is what pushes it to the wire.
+For a diagnostics channel, check `tud_cdc_write_available()` before writing and treat a short
+return from `tud_cdc_write` as dropped diagnostics to be counted rather than blocked on — a
+blocking retry in the main loop would starve the audio poll.
+
+### R13.8 — Examples: no shipped stereo-in-with-stereo-out template (plan's claim CONFIRMED)
+
+The tree ships eight audio examples (`examples/device/`): `audio_test`,
+`audio_test_freertos`, `audio_test_multi_rate`, `audio_4_channel_mic`,
+`audio_4_channel_mic_freertos`, `uac2_headset`, `uac2_speaker_fb`, `cdc_uac2`. Their
+`tusb_config.h` channel counts were read directly:
+
+- IN-only: `audio_test` (1 ch TX), `audio_test_freertos` (1 ch), `audio_test_multi_rate` (1 ch),
+  `audio_4_channel_mic` / `_freertos` (4 ch TX).
+- OUT-only: `uac2_speaker_fb` (2 ch RX, **with** feedback EP).
+- Both directions: **`uac2_headset`** — `CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX 1`,
+  `..._N_CHANNELS_RX 2` (`examples/device/uac2_headset/src/tusb_config.h:118-119`); and
+  **`cdc_uac2`** — TX 1, RX 1 (`examples/device/cdc_uac2/src/tusb_config.h:117-118`).
+
+So **no shipped example is stereo-in *and* stereo-out**. The plan's claim holds.
+
+**Closest example: `examples/device/uac2_headset`.** It is duplex UAC2 in a single audio
+function with no feedback EP, and it demonstrates the exact three things this adapter needs —
+per-interface direction dispatch in the alt-setting callbacks
+(`src/main.c:526-556`), the polled `tud_audio_read` → transform → `tud_audio_write` loop
+(`src/main.c:564-601`), and a hand-rolled duplex descriptor. Its gap from this design is
+channel count on the IN side (1 vs. 2) and the interrupt EP it enables (`tusb_config.h:109`),
+which this design does not want.
+
+**Second reference: `examples/device/cdc_uac2`** — the only shipped composite that combines CDC
+with UAC2 in one device (`CFG_TUD_CDC 1`, `CFG_TUD_AUDIO 1`, `CFG_TUD_MIDI 0` at
+`examples/device/cdc_uac2/src/tusb_config.h:97-101`). It is the right model for the
+descriptor/IAD layout of the CDC half, and confirms nothing in the audio driver objects to
+sharing a device with CDC. **No shipped example combines audio + MIDI + CDC**, so the
+three-function composite descriptor is this feature's own work.
+
+**Correction to D9's premise.** R1 records that `uac2_headset` "references
+`TUD_AUDIO_HEADSET_STEREO_DESC_LEN`, defined only in a *different* example's header, so it is
+broken on master and on 0.21.0 alike". In the pinned tree that reference exists but is
+**dead**: `examples/device/uac2_headset/src/usb_descriptors.c:78` defines `CONFIG_TOTAL_LEN` in
+terms of that undefined macro, and `CONFIG_TOTAL_LEN` is then **never used anywhere in the
+file** — a grep for it returns only line 78. The live descriptors use the versioned macros
+`TUD_AUDIO10_HEADSET_STEREO_DESCRIPTOR` and `TUD_AUDIO20_HEADSET_STEREO_DESCRIPTOR`, both
+defined in the example's **own** header (`usb_descriptors.h:199` and `:90`, with lengths at
+`:173` and `:51`). Because an unused `#define` is never expanded, the example compiles and is
+usable as a reference. D9's *conclusion* (pin 0.21.0, don't track master) is unaffected and
+still stands on its other grounds — but the "the headset example is broken" reasoning should
+not be repeated, because it would wrongly discourage the one example worth copying.
+
+Separately, the shipped descriptor **template macros** in `src/device/usbd.h` are only four and
+none of them is duplex: `TUD_AUDIO10_MIC_ONE_CH_DESCRIPTOR` (`:562`),
+`TUD_AUDIO20_MIC_ONE_CH_DESCRIPTOR` (`:679`), `TUD_AUDIO20_MIC_FOUR_CH_DESCRIPTOR` (`:728`),
+`TUD_AUDIO20_SPEAKER_MONO_FB_DESCRIPTOR` (`:776`). Any duplex descriptor is hand-assembled from
+the per-element `TUD_AUDIO20_DESC_*` pieces, which is what `uac2_headset` does.
+
+### R13.9 — What this changes for downstream tasks
+
+- **T026 (`tusb_config.h`)**: the seven hard-required and four soft `CFG_TUD_AUDIO_*` macros in
+  R13.5, plus the MIDI/CDC macros noted there. Decide `CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL`
+  explicitly rather than inheriting its default of `1`.
+- **T035 and the alt-setting tasks**: use `tud_audio_set_itf_cb` /
+  `tud_audio_set_itf_close_ep_cb` (lower-case `ep`), decode `wIndex`/`wValue` per R13.2, and
+  keep **two** independent per-direction streaming flags. Non-`_n_` entry points throughout;
+  `func_id` 0.
+- **Any task that "verifies" a callback fired**: linking is not evidence (R13.0 item 3).
+  Require an observed side effect.
+
+**Still not answered by source, and deliberately left open**: whether a macOS/Windows host will
+run an async OUT stream with no feedback EP at an acceptable glitch rate (HIL, OQ2), and the
+FIFO depths to give `..._SW_BUF_SZ` (HIL, OQ1 / **D23**). The shipped examples use
+`4 × EP_SZ` for full speed as a starting point
+(`examples/device/uac2_headset/src/tusb_config.h:148,165`), which is a starting point and not a
+measurement.
