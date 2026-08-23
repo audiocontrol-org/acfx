@@ -41,6 +41,15 @@
 #include "clock-init.h"
 #include "otg-fs-gpio-init.h"
 
+// TinyUSB's own public API (tusb_init/tusb_int_handler/tud_task). Pulled in as
+// a SYSTEM include by acfx_nucleo_tinyusb's PUBLIC target_include_directories
+// (adapters/nucleo/CMakeLists.txt), which is also where tusb_config.h's
+// directory (this one) is added to the include path so tusb_option.h's bare
+// `#include "tusb_config.h"` resolves. This header is C++-safe: it wraps its
+// declarations in `#ifdef __cplusplus extern "C" { ... }`, so no extern "C"
+// wrapper is needed here.
+#include "tusb.h"
+
 // See the file header: this is the TinyUSB-visible core clock, and it is
 // derived from the same constants InitSystemClock() programs into the PLL.
 extern "C" {
@@ -204,7 +213,111 @@ constexpr uint32_t kLongGapIterations = 3600000u;   // ~1.35s (3,600,000 / 2,667
   }
 }
 
+// Enables the OTG_FS peripheral's AHB2 bus clock (RCC_AHB2ENR.OTGFSEN).
+//
+// MUST run before InitTinyUsbStack() below (see main()'s ordering comment).
+// It would be reasonable to assume TinyUSB's own STM32 DWC2 port does this as
+// part of bringing the core up — it has a function named exactly for that,
+// dwc2_clock_init(rhport, role), called first thing inside dcd_init()
+// (external/.cpm-cache/tinyusb/.../src/portable/synopsys/dwc2/dcd_dwc2.c:452).
+// Reading its STM32 implementation
+// (.../src/portable/synopsys/dwc2/dwc2_stm32.h) shows it is an EMPTY inline
+// stub on this MCU family — `(void) rhport; (void) role;` and nothing else.
+// TinyUSB does not enable this clock, on this port, ever. Nothing else in
+// this adapter did either, before this task (otg-fs-gpio-init.h's own header
+// comment says so explicitly: pin muxing only, no peripheral clock). Without
+// it, every OTG_FS register — including the ones dcd_init() reads while
+// bringing the core up — reads back as zero, its TU_ASSERT checks against
+// those zero reads fail, and tusb_init() returns false with no further
+// diagnostic: a device that is silently, permanently dead on the USB side.
+void InitOtgFsClock()
+{
+  RCC->AHB2ENR |= RCC_AHB2ENR_OTGFSEN;
+  // Read-back forces the write to retire before InitTinyUsbStack() touches
+  // any OTG_FS register immediately after this call returns — the same
+  // peripheral-clock-enable/readback pairing clock-init.h's InitSystemClock()
+  // uses for PWR and RCC.
+  static_cast<void>(RCC->AHB2ENR & RCC_AHB2ENR_OTGFSEN);
+}
+
+// Initialises the TinyUSB device stack on root-hub port 0 (FR-046).
+//
+// Calls `tusb_init(rhport, rh_init)` — the CURRENT (0.21.0) API — not the
+// older `tud_init(rhport)`: reading device/usbd.h shows `tud_init` is
+// `TU_ATTR_DEPRECATED("Please use tusb_init(rhport, rh_init) instead")` as of
+// this pinned version. Passing `rh_init = nullptr` selects tusb.h's
+// documented backward-compatible path (`tusb_rhport_init(rhport, NULL)`),
+// which builds a `{.role = TUSB_ROLE_DEVICE, .speed = ...}` init struct from
+// `CFG_TUSB_RHPORT0_MODE` — exactly the device/full-speed mode
+// tusb_config.h (T026) already pins — so there is nothing this call needs to
+// state that tusb_config.h does not already state once, in one place.
+//
+// Returns bool; the return value IS checked (per this task's brief) — see
+// main()'s handling of it below. `tusb_init`'s 2-argument form expands
+// directly to `tusb_rhport_init(0, NULL)` (src/tusb.h), which is itself
+// `TU_ASSERT`-guarded at every internal step (device-controller init
+// included), so a `false` return means SOMETHING in stack bring-up failed,
+// not merely "not yet ready".
+[[nodiscard]] bool InitTinyUsbStack()
+{
+  return tusb_init(0, nullptr);
+}
+
 }  // namespace
+
+// The OTG_FS interrupt handler (FR-046). Overrides the WEAK
+// `OTG_FS_IRQHandler` alias to `Default_Handler` that vector-table.cpp
+// declares for every IRQ slot (see that file's header comment, which names
+// this exact override as the intended mechanism) — giving this an
+// `extern "C"` definition with C linkage and the exact CMSIS name is
+// sufficient; no vector-table edit is needed or made.
+//
+// THIS ONLY ENQUEUES, per FR-046 and the task brief: `tusb_int_handler`
+// (declared in tusb.h, defined in tusb.c, confirmed by name against both the
+// pinned tree and this repo's own vendored hw/bsp/stm32f4/family.c, which
+// installs an OTG_FS_IRQHandler calling this exact function the exact same
+// way) reads the DWC2 controller's interrupt-status registers and pushes
+// decoded events onto TinyUSB's internal queue for tud_task() to drain from
+// the main loop below. No audio work, no DSP, no blocking call, no LED
+// access happens here or in anything this calls — SetFaultLed()/
+// BusyWaitApprox() above are never reachable from an interrupt context.
+//
+// `rhport = 0`: the only root-hub port this adapter uses (CFG_TUSB_RHPORT0_MODE
+// in tusb_config.h; the same 0 passed to InitTinyUsbStack() above).
+// `in_isr = true`: this function IS an ISR — it tells TinyUSB's internal
+// event queue push to use its ISR-safe path rather than the task-context one.
+//
+// Interrupt priority: left at the CMSIS/NVIC reset default (0 — the highest
+// priority on this part's 4-bit priority scheme), considered and not
+// changed. This is deliberate, not an oversight: OTG_FS is currently the
+// ONLY interrupt source enabled anywhere in this firmware (no SysTick, no
+// other peripheral IRQ), so there is no other interrupt for it to preempt or
+// be preempted by, and therefore no priority ordering to get wrong. A later
+// task that adds a second interrupt source is the one that needs to revisit
+// this, with both priorities considered together.
+//
+// NVIC enable: there is deliberately no explicit `NVIC_EnableIRQ(OTG_FS_IRQn)`
+// call anywhere in this file. Reading the pinned tree shows TinyUSB already
+// does this itself, in the correct order: `tud_rhport_init()`
+// (src/device/usbd.c) calls `dcd_init(rhport, rh_init)` and THEN
+// `dcd_int_enable(rhport)`; on the DWC2/STM32 port `dcd_int_enable` is
+// `dwc2_dcd_int_enable`, which calls `NVIC_EnableIRQ` on this exact IRQ
+// number (dwc2_stm32.h's `_dwc2_controller[]` table). So `InitTinyUsbStack()`
+// above — a single call to `tusb_init()` — already performs "NVIC enable
+// after the stack is initialised" as an internal step, in the right order,
+// without this file repeating it. A second, redundant `NVIC_EnableIRQ` call
+// here would not be wrong (the call is idempotent), but it would restate,
+// outside TinyUSB, an ordering guarantee TinyUSB already owns and already
+// gets right — exactly the kind of implicit-dependency-turned-explicit-and-
+// therefore-duplicated-logic this codebase's comments elsewhere argue
+// against. If a future TinyUSB upgrade ever stops doing this, the OTG_FS
+// interrupt simply never firing (board enumerates negotiation-wise up to the
+// point USB requires an interrupt, then stalls) is the observable symptom
+// that would send a reader back to this comment.
+extern "C" void OTG_FS_IRQHandler()
+{
+  tusb_int_handler(0, true);
+}
 
 // Firmware entry point. `Reset_Handler` in the startup code calls this after
 // zeroing .bss and copying .data; it must never return (there is nothing to
@@ -222,11 +335,17 @@ constexpr uint32_t kLongGapIterations = 3600000u;   // ~1.35s (3,600,000 / 2,667
 //      peripheral clock; see InitOtgFsGpio's precondition comment) — the
 //      relative order versus clock bring-up itself does not matter, since
 //      GPIO configuration does not depend on SYSCLK.
-//   3. TinyUSB init (tusb_init() against the composite descriptor).
-//   4. The tud_task() service loop, run forever.
-// Steps 1, 2, and 2b exist so far, so the loop below is an explicit, empty
-// spin: a deliberate placeholder for the eventual service loop, not
-// simulated behaviour.
+//   3. OTG_FS peripheral clock (RCC_AHB2ENR.OTGFSEN) — MUST come before step
+//      4: see InitOtgFsClock's comment for why TinyUSB will not do this for
+//      us. Done below (T030).
+//   4. TinyUSB init (tusb_init() against the composite descriptor,
+//      InitTinyUsbStack() above) — installs the DWC2 device controller,
+//      which per InitTinyUsbStack's/OTG_FS_IRQHandler's comments also
+//      enables the OTG_FS NVIC interrupt as its own last internal step, so
+//      nothing below needs to enable it again. Done below (T030).
+//   5. The tud_task() service loop, run forever (T030; the audio/MIDI data
+//      path itself is T032-T035, telemetry is T058 — see the loop's comment).
+// All five steps exist now.
 int main() {
   InitFaultLed();
 
@@ -249,6 +368,50 @@ int main() {
   // comment); this call must not be moved ahead of that one.
   acfx::nucleo::InitOtgFsGpio();
 
+  // OTG_FS peripheral clock (T030). MUST come before InitTinyUsbStack() below
+  // — see InitOtgFsClock's comment for why TinyUSB itself will not do this on
+  // this MCU family, and why skipping or reordering this leaves every OTG_FS
+  // register reading as zero.
+  InitOtgFsClock();
+
+  // TinyUSB device-stack init (FR-046, T030). The return value IS checked
+  // (task brief: "no fallbacks... report or halt loudly"). A `false` return
+  // means bring-up genuinely failed somewhere inside tusb_init()'s chain of
+  // TU_ASSERTs (see InitTinyUsbStack's comment) — not "not ready yet", and
+  // there is no retry that would make it ready. This is deliberately NOT
+  // folded into SignalFatalClockFaultAndHalt()'s three-pulse pattern above:
+  // that pattern is FR-015's specific, already-load-bearing signal for a PLL
+  // bring-up failure, and reusing it here for a DIFFERENT failure (USB stack
+  // init, with a fully locked, working clock) would make a future reader
+  // seeing that exact blink pattern wrongly suspect the clock. A distinct,
+  // named fault signal for this case is a design decision this task does not
+  // own (no such signal is specified for FR-046); until one is, the correct
+  // "halt loudly, no silent degradation" behaviour is: do not enter the
+  // tud_task() loop at all. No audio/MIDI/CDC ever comes up, no half-
+  // initialised stack is serviced, and the board's silence on the USB side
+  // (in contrast to a healthy board's normal enumeration) IS the visible
+  // failure signal available to the operator's host-side check.
+  const bool tinyUsbInitOk = InitTinyUsbStack();
+  if (!tinyUsbInitOk) {
+    for (;;) {
+    }
+  }
+
+  // The service loop (T030). tud_task() drains the event queue
+  // OTG_FS_IRQHandler's tusb_int_handler() call enqueues into, running every
+  // mounted class driver's (audio/MIDI/CDC) protocol state machine from task
+  // context — polled, per tusb_config.h's CFG_TUSB_OS = OPT_OS_NONE (no RTOS
+  // to hand events to instead).
+  //
+  // Nothing else belongs in this loop YET. The audio sample-format
+  // conversion/ring/DSP data path (polled tud_audio_read()/tud_audio_write())
+  // is T032-T035; CDC telemetry snapshots are T058. Both land as additional
+  // statements in this same loop, after tud_task() — not as replacements for
+  // it, and not as anything that blocks or spends unbounded time before
+  // tud_task() runs again, since USB servicing cadence depends on this loop
+  // iterating promptly.
   for (;;) {
+    tud_task();
+    // T032-T035 (audio data path) and T058 (CDC telemetry) land here.
   }
 }

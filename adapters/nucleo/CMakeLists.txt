@@ -14,12 +14,12 @@
 # platform-independent sample-format/ring-buffer/parameter/MIDI-CC half of the
 # adapter, declared unconditionally at the top level — see root CMakeLists.txt).
 #
-# TinyUSB is partially wired in: acfx_nucleo_usb below compiles the descriptor
-# set (usb-descriptors.cpp) against TinyUSB's HEADERS. TinyUSB's own .c sources
-# are still NOT compiled — the task that calls tusb_init(), installs the
-# OTG_FS ISR, and services tud_task() owns that, and pulling the stack's
-# sources into the link before anything calls them would add compile surface
-# nothing references.
+# TinyUSB is now fully wired in (T030): acfx_nucleo_usb compiles the descriptor
+# set (usb-descriptors.cpp) against TinyUSB's HEADERS, and acfx_nucleo_tinyusb
+# below compiles the STACK'S OWN .c sources — core, the device-class drivers
+# this composite actually enables, and the Synopsys DWC2 device-controller
+# driver R14 established this part uses. nucleo-main.cpp calls tusb_init(),
+# installs the OTG_FS ISR, and services tud_task().
 
 if(NOT DEFINED cmsis_device_f4_SOURCE_DIR OR NOT DEFINED CMSIS_5_SOURCE_DIR)
   message(FATAL_ERROR
@@ -116,6 +116,100 @@ target_include_directories(acfx_nucleo_usb SYSTEM PRIVATE
 target_link_libraries(acfx_nucleo_usb PRIVATE acfx::nucleo_support)
 add_library(acfx::nucleo_usb ALIAS acfx_nucleo_usb)
 
+# TinyUSB's OWN sources (T030). Nothing in the tree before this task compiled a
+# single TinyUSB .c file — tusb_config.h (T026) and usb-descriptors.* (T027)
+# were compiled in isolation against the stack's HEADERS only. This is the
+# library that actually puts the stack in the image.
+#
+# THE FILE LIST BELOW WAS READ OFF THE PINNED TREE, NOT ASSUMED. Two upstream
+# CMake helpers exist and were considered first:
+#   - src/CMakeLists.txt's tinyusb_sources_get()/tinyusb_target_add(): pulls in
+#     EVERY class driver (HID, MSC, DFU, MTP, net, printer, USBTMC, vendor,
+#     video, MIDI2 — none of which this composite enables) AND the entire host
+#     stack (usbh.c, hub.c, four *_host.c files) AND typec/usbc.c. Every one of
+#     those is compiled out to an empty translation unit by its own `#if
+#     CFG_TUD_x`/`CFG_TUH_ENABLED` guard (checked line-by-line against this
+#     pinned tree), so using it would not be WRONG, but it would compile ~20
+#     files' worth of dead guard-checks into every firmware image for no
+#     benefit — the opposite of this repo's "no compile surface nothing
+#     references" policy stated above. Rejected for that reason.
+#   - hw/bsp/stm32f4/family.cmake's family_configure_example(): the actual
+#     per-family reference for which DWC2 portable files an STM32F4 build
+#     needs — dcd_dwc2.c, hcd_dwc2.c, dwc2_common.c. hcd_dwc2.c is the HOST
+#     controller driver; this device-only composite (CFG_TUH_ENABLED unset,
+#     defaulting to 0) never needs it, so it is deliberately NOT added below —
+#     the one intentional deviation from that file's list.
+# So: an explicit list, hand-picked from BOTH upstream helpers' contents,
+# trimmed to exactly what CFG_TUD_AUDIO/CFG_TUD_MIDI/CFG_TUD_CDC (tusb_config.h)
+# actually enable. Note this list does NOT include a device/usbd_control.c —
+# that file does not exist in the pinned 0.21.0 tree; usbd.c owns control-
+# transfer handling itself in this version (confirmed by reading usbd.c, which
+# defines usbd_control_xfer_cb() inline).
+add_library(acfx_nucleo_tinyusb OBJECT
+  # --- Core (src/CMakeLists.txt's tinyusb_sources_get(), "common"/"device" groups) ---
+  "${TinyUSB_SOURCE_DIR}/src/tusb.c"
+  "${TinyUSB_SOURCE_DIR}/src/common/tusb_fifo.c"
+  "${TinyUSB_SOURCE_DIR}/src/device/usbd.c"
+  # --- The three class drivers CFG_TUD_AUDIO/CFG_TUD_MIDI/CFG_TUD_CDC enable
+  # (tusb_config.h) — everything else in tinyusb_sources_get()'s class/ list is
+  # left out because this composite's tusb_config.h leaves it at 0. ---
+  "${TinyUSB_SOURCE_DIR}/src/class/audio/audio_device.c"
+  "${TinyUSB_SOURCE_DIR}/src/class/midi/midi_device.c"
+  "${TinyUSB_SOURCE_DIR}/src/class/cdc/cdc_device.c"
+  # --- Device-controller driver: Synopsys DWC2, device side only (R14) ---
+  "${TinyUSB_SOURCE_DIR}/src/portable/synopsys/dwc2/dcd_dwc2.c"
+  "${TinyUSB_SOURCE_DIR}/src/portable/synopsys/dwc2/dwc2_common.c"
+)
+target_compile_definitions(acfx_nucleo_tinyusb PRIVATE STM32F446xx)
+# CFG_TUD_MIDI_RX_BUFSIZE / CFG_TUD_MIDI_TX_BUFSIZE — GENUINELY MISSING from
+# tusb_config.h (T026), discovered by this task's first real compile of
+# TinyUSB's midi_device.c against it (previously that file was never
+# compiled at all — see the top-of-file banner comment). Unlike
+# CFG_TUD_MIDI_RX_EPSIZE/TX_EPSIZE (which midi_device.h falls back to
+# TUD_EPSIZE_BULK_MAX for when unset — midi_device.h:37-49), midi_device.c
+# uses CFG_TUD_MIDI_RX_BUFSIZE/TX_BUFSIZE directly with NO #ifndef fallback
+# anywhere in the pinned tree (midi_device.c:65-66): an undefined-macro
+# compile error, not a silent default. tusb_config.h defines the matching
+# BUFSIZE/EPSIZE pair for every OTHER class it configures (CDC's
+# CFG_TUD_CDC_RX_BUFSIZE/TX_BUFSIZE sit right next to its EPSIZE macros) but
+# omits MIDI's BUFSIZE pair entirely — an omission, not a decision.
+#
+# THIS TASK DOES NOT EDIT tusb_config.h (out of T030's scope per its brief).
+# Reported instead as a finding for tusb_config.h's owner to fold in
+# properly. Set here, PRIVATE to this OBJECT library only (nothing else
+# needs it), to the same value as the already-decided
+# CFG_TUD_MIDI_RX_EPSIZE/TX_EPSIZE (64, the full-speed bulk max both
+# explicitly state) — the value these macros would already resolve to had
+# tusb_config.h defined them the same way it defines CDC's pair.
+target_compile_definitions(acfx_nucleo_tinyusb PRIVATE
+  CFG_TUD_MIDI_RX_BUFSIZE=64
+  CFG_TUD_MIDI_TX_BUFSIZE=64
+)
+# tusb_config.h's directory, PUBLIC (unlike acfx_nucleo_usb's PRIVATE copy of
+# this same include): both this library's own C sources AND nucleo-main.cpp
+# (a source of the executable target, not of this OBJECT library — it never
+# gets acfx_nucleo_usb's PRIVATE include at all) `#include "tusb.h"`, which
+# `#include`s "tusb_config.h" by bare name. PUBLIC on an OBJECT library
+# propagates as a normal (non-SYSTEM) usage requirement to whatever links this
+# library, which is exactly what nucleo-main.cpp needs to resolve that include.
+target_include_directories(acfx_nucleo_tinyusb PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+# TinyUSB's own headers + the CMSIS headers its DWC2/STM32 port needs
+# (dwc2_stm32.h does `#include "stm32f4xx.h"`, the CMSIS umbrella that
+# dispatches to stm32f446xx.h — confirmed NOT to require ST's HAL: reading
+# cmsis_device_f4's stm32f4xx.h shows the HAL include is gated on
+# USE_HAL_DRIVER, which nothing here defines). SYSTEM + PUBLIC for the same
+# -Wvolatile reason as acfx_nucleo_usb above, and PUBLIC so nucleo-main.cpp's
+# own `#include "tusb.h"` also gets -isystem treatment, not just this
+# library's own sources.
+target_include_directories(acfx_nucleo_tinyusb SYSTEM PUBLIC
+  "${TinyUSB_SOURCE_DIR}/src"
+  "${cmsis_device_f4_SOURCE_DIR}/Include"
+  "${CMSIS_5_SOURCE_DIR}/CMSIS/Core/Include"
+)
+add_library(acfx::nucleo_tinyusb ALIAS acfx_nucleo_tinyusb)
+
 # Nucleo linker script (STM32F446RE internal flash), shared by all firmwares.
 set(_nucleo_lds "${CMAKE_CURRENT_SOURCE_DIR}/startup/nucleo-f446.ld")
 set(_nucleo_main "${CMAKE_CURRENT_SOURCE_DIR}/nucleo-main.cpp")
@@ -128,6 +222,7 @@ acfx_add_effect_nucleo(
   SOURCE ${_nucleo_main}
   LINKER_SCRIPT ${_nucleo_lds}
   LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
+                 acfx::nucleo_tinyusb
 )
 
 # Modulated delay — firmware for the second effect.
@@ -138,4 +233,5 @@ acfx_add_effect_nucleo(
   SOURCE ${_nucleo_main}
   LINKER_SCRIPT ${_nucleo_lds}
   LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
+                 acfx::nucleo_tinyusb
 )
