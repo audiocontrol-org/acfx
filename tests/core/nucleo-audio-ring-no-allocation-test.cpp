@@ -119,3 +119,62 @@ TEST_CASE("AR5: mixed write/read sequence allocates nothing") {
     const std::size_t allocations = AllocationSentinel::allocations();
     CHECK_MESSAGE(allocations == 0, "mixed sequence allocated ", allocations);
 }
+
+TEST_CASE("AR5: startupFill allocates nothing") {
+    AudioRing<48> ring(24);
+
+    AllocationSentinel::reset();
+    for (int iter = 0; iter < 1000; ++iter) {
+        (void)ring.startupFill();
+    }
+
+    const std::size_t allocations = AllocationSentinel::allocations();
+    CHECK_MESSAGE(allocations == 0, "startupFill allocated ", allocations);
+}
+
+TEST_CASE("AR5: state allocates nothing") {
+    AudioRing<48> ring(24);
+
+    AllocationSentinel::reset();
+    for (int iter = 0; iter < 1000; ++iter) {
+        (void)ring.state();
+    }
+
+    const std::size_t allocations = AllocationSentinel::allocations();
+    CHECK_MESSAGE(allocations == 0, "state allocated ", allocations);
+}
+
+TEST_CASE("AR5: stop allocates nothing") {
+    AudioRing<48> ring(24);
+    std::vector<float> src_l(kBlockFrames, 0.5f);
+    std::vector<float> src_r(kBlockFrames, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+
+    AllocationSentinel::reset();
+    for (int iter = 0; iter < 100; ++iter) {
+        ring.write(src, 4);
+        ring.stop();
+    }
+
+    const std::size_t allocations = AllocationSentinel::allocations();
+    CHECK_MESSAGE(allocations == 0, "stop allocated ", allocations);
+}
+
+TEST_CASE("allocation sentinel positive control: deliberate allocation increments counter") {
+    AllocationSentinel::reset();
+
+    const std::size_t before = AllocationSentinel::allocations();
+    CHECK_MESSAGE(before == 0, "counter should be zero before allocation");
+
+    // Force a heap allocation using new that cannot be optimized away by the
+    // compiler. Store and access the pointer in volatile to prevent elision.
+    volatile int* ptr = new int(42);
+    CHECK_MESSAGE(*ptr == 42, "validate allocation succeeded");
+    delete ptr;
+
+    const std::size_t after = AllocationSentinel::allocations();
+    CHECK_MESSAGE(after > before,
+                  "sentinel counter must increment on deliberate allocation; "
+                  "if this fails the sentinel is disabled and all no-allocation "
+                  "assertions are vacuous");
+}
