@@ -64,6 +64,28 @@ target_include_directories(acfx_analysis INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/
 target_compile_features(acfx_analysis INTERFACE cxx_std_17)
 
 # ---------------------------------------------------------------------------
+# acfx_nucleo_support -- the platform-independent half of the NUCLEO-F446RE
+# adapter (nucleo-f446-adapter feature, D1's two-layer decomposition): sample-
+# format conversion, de-interleaving, the audio ring buffer, the parameter seam,
+# and the MIDI-CC mapping. Header-only (INTERFACE), like acfx_core and
+# acfx_analysis above.
+#
+# DELIBERATELY DECLARED UNCONDITIONALLY -- do NOT move this inside
+# `if(ACFX_BUILD_NUCLEO)`. Per research R8: the host doctest suite builds under
+# the `test` preset, which sets no toolchain and enables only ACFX_BUILD_TESTS,
+# so a support library gated behind ACFX_BUILD_NUCLEO would be invisible to the
+# host tests -- silently reproducing the untested-glue blind spot that D1's
+# split exists to close (FR-002, FR-004a). That is also why this target carries
+# NO TinyUSB, CMSIS, or board headers: anything needing silicon belongs in
+# nucleo-main.cpp (FR-003). acfx_core / acfx_analysis set the precedent:
+# declared at top level, consumed by whichever targets are enabled.
+# ---------------------------------------------------------------------------
+add_library(acfx_nucleo_support INTERFACE)
+add_library(acfx::nucleo_support ALIAS acfx_nucleo_support)
+target_include_directories(acfx_nucleo_support INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/adapters/nucleo/support")
+target_compile_features(acfx_nucleo_support INTERFACE cxx_std_17)
+
+# ---------------------------------------------------------------------------
 # Subdirectories, gated by the build-surface options.
 # ---------------------------------------------------------------------------
 if(ACFX_BUILD_DESKTOP)

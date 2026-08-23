@@ -260,7 +260,10 @@ target_include_directories(acfx_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
 # adapters/workbench on the include path so the serde test (and its TU) resolve
 # #include "workbench-settings.h".
 target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
-target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host acfx_analysis doctest::doctest)
+target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host acfx_analysis acfx_nucleo_support doctest::doctest)
+# acfx_nucleo_support wires the host coverage seam (FR-049). Each core/nucleo-*-test.cpp
+# source is added to the list above by the task that authors it, so this link deliberately
+# stands ahead of any such entry: it is the platform, not the sources.
 target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
 
 # Per-test-case ctest registration when doctest ships its CMake helper; otherwise

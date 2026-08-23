@@ -148,6 +148,9 @@ endfunction()
 #                         SOURCE <daisy-main.cpp> LINKER_SCRIPT <lds>)
 #   acfx_add_effect_teensy(NAME <target> EFFECT_TYPE <type> EFFECT_HEADER <path>
 #                          SOURCE <teensy-main.cpp> LINKER_SCRIPT <lds>)
+#   acfx_add_effect_nucleo(NAME <target> EFFECT_TYPE <type> EFFECT_HEADER <path>
+#                          SOURCE <nucleo-main.cpp> LINKER_SCRIPT <lds>
+#                          LINK_LIBRARIES <lib>...)
 # ============================================================================
 
 # Create a Daisy (STM32H750) firmware executable for one effect. Assumes the
@@ -161,6 +164,32 @@ function(acfx_add_effect_daisy)
   add_executable(${ARG_NAME} ${ARG_SOURCE})
   target_compile_features(${ARG_NAME} PRIVATE cxx_std_20)
   target_link_libraries(${ARG_NAME} PRIVATE acfx_core daisy)
+  _acfx_inject_effect(${ARG_NAME} "${ARG_EFFECT_TYPE}" "${ARG_EFFECT_HEADER}")
+
+  target_link_options(${ARG_NAME} PRIVATE
+    -T "${ARG_LINKER_SCRIPT}"
+    -Wl,-Map=${ARG_NAME}.map,--cref
+    -Wl,--gc-sections
+  )
+  set_target_properties(${ARG_NAME} PROPERTIES SUFFIX ".elf")
+endfunction()
+
+# Create a NUCLEO-F446RE (STM32F446RE) firmware executable for one effect. Unlike
+# libDaisy/teensy_platform, the nucleo adapter has no single pre-existing platform
+# library to link implicitly: the adapter CMakeLists assembles acfx_nucleo_support,
+# TinyUSB, and cmsis_device_f4 itself, so LINK_LIBRARIES lets the caller pass
+# whichever of those a given firmware image needs. CPU/FPU/ABI flags and
+# -ffunction-sections/-fdata-sections come from cmake/toolchains/nucleo-f446.cmake
+# and are NOT duplicated here.
+function(acfx_add_effect_nucleo)
+  set(options "")
+  set(oneValue NAME EFFECT_TYPE EFFECT_HEADER SOURCE LINKER_SCRIPT)
+  set(multiValue LINK_LIBRARIES)
+  cmake_parse_arguments(ARG "${options}" "${oneValue}" "${multiValue}" ${ARGN})
+
+  add_executable(${ARG_NAME} ${ARG_SOURCE})
+  target_compile_features(${ARG_NAME} PRIVATE cxx_std_20)
+  target_link_libraries(${ARG_NAME} PRIVATE acfx_core ${ARG_LINK_LIBRARIES})
   _acfx_inject_effect(${ARG_NAME} "${ARG_EFFECT_TYPE}" "${ARG_EFFECT_HEADER}")
 
   target_link_options(${ARG_NAME} PRIVATE
