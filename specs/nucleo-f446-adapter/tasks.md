@@ -131,7 +131,7 @@ execution graph.
 
 > **Depends on US8's T049/T050** (LED indicator) — FR-015c requires the indicator to exist before clock validation runs.
 
-- [ ] T024 [US4] [tier:powerful] Implement register-level clock bring-up in `adapters/nucleo/nucleo-main.cpp`: HSE **bypass** on the ST-Link 8 MHz MCO, PLL M=4 N=168 P=2 Q=7 → 168 MHz SYSCLK and **exactly** 48 MHz on PLLQ (FR-014, **D6**). Hardware-verified in the spike — cross-check `RCC_PLLCFGR`, `HSERDY`, `PLLRDY`, and `RCC_CFGR.SWS` against the recorded values
+- [x] T024 [US4] [tier:powerful] Implement register-level clock bring-up in `adapters/nucleo/nucleo-main.cpp`: HSE **bypass** on the ST-Link 8 MHz MCO, PLL M=4 N=168 P=2 Q=7 → 168 MHz SYSCLK and **exactly** 48 MHz on PLLQ (FR-014, **D6**). Hardware-verified in the spike — cross-check `RCC_PLLCFGR`, `HSERDY`, `PLLRDY`, and `RCC_CFGR.SWS` against the recorded values
 - [ ] T025 [US4] [tier:balanced] Configure PA11/PA12 alternate-function GPIO for OTG_FS in `adapters/nucleo/nucleo-main.cpp`
 - [ ] T026 [US4] [tier:balanced] Write `adapters/nucleo/tusb_config.h` with `CFG_TUD_VBUS_DETECT_HW 0` (VBUS deliberately unwired — the board is ST-Link powered and feeding breakout VBUS into the 5 V rail puts two supplies in contention), plus audio, MIDI, and CDC class enables (FR-015 [VBUS], FR-022, **D17**)
 - [ ] T027 [US4] [tier:powerful] Author `adapters/nucleo/usb-descriptors.h` and `usb-descriptors.cpp` locally from the `TUD_AUDIO20_DESC_*` primitives: a composite device grouping UAC2 audio (**stereo-in with stereo-out**, which no shipped template provides), USB MIDI, and CDC serial via IADs, advertising exactly one 48 kHz/16-bit/stereo format per direction. Assert in a descriptor comment that the **absence of a feedback endpoint is deliberate** (FR-027, **D20**) — with no local clock there is no rate to report, and an absence nobody names is one a later reader "fixes" (FR-018, FR-018a, FR-018b, FR-020, FR-021, FR-027, **D5**, **D10**)
@@ -206,8 +206,8 @@ execution graph.
 
 - [x] T049 [US8] [tier:balanced] Initialize the LD2 (PA5) GPIO in `adapters/nucleo/nucleo-main.cpp` **before** clock validation, accepting that it runs on the reset-default HSI and its cadence is therefore approximate — the pattern's shape, not its timing, carries the signal (FR-015c)
 - [x] T050 [US8] [tier:balanced] Implement the fatal-fault path: **three short pulses, long gap, repeating indefinitely**, then halt — distinguishable both from a dark board and from any normal-operation indication (FR-015a, FR-015b)
-- [ ] T051 [US8] [tier:balanced] Make PLL-lock failure fatal: no fallback to the internal oscillator, no progression to USB initialization, under any configuration (FR-015, **D7**)
-- [ ] T052 [US8] [tier:fast] Verify US8 on hardware: with the ST-Link cable disconnected the board blinks the fault pattern and does not enumerate; a dark LED is a **failure**, not an inconclusive result (quickstart § 4, SC-007)
+- [~] T051 [US8] **DEFERRED by operator 2026-08-23** (fatal-clock policy; operator: not pursuing the error condition now) — [tier:balanced] Make PLL-lock failure fatal: no fallback to the internal oscillator, no progression to USB initialization, under any configuration (FR-015, **D7**)
+- [~] T052 [US8] **DEFERRED by operator 2026-08-23** — also unsatisfiable as written, see backlog TASK-30: unplugging ST-Link removes power AND clock, so a dark LD2 proves nothing — [tier:fast] Verify US8 on hardware: with the ST-Link cable disconnected the board blinks the fault pattern and does not enumerate; a dark LED is a **failure**, not an inconclusive result (quickstart § 4, SC-007)
 
 **Checkpoint**: A failed board is distinguishable from an unpowered one by eye, with no debug probe.
 
