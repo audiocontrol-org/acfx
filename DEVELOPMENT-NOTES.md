@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-08-23: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 12
+  - chore(nucleo): ledger Phase 4
+  - feat(nucleo): Phase 4 (US2) — sample-format conversion, host-verified
+  - chore(nucleo): track the execute ledger (Phase 1-3, 16 entries)
+  - feat(nucleo): Phase 3 — bootable firmware images cross-compile and link
+  - docs(nucleo): add T012a entry point; record T014 superseded by operator CI direction
+  - docs(nucleo): add T010a C-runtime startup; capture TASK-23/TASK-24
+  - chore(nucleo): ledger + mark T007-T009 complete
+  - feat(nucleo): Phase 2 build graph — unconditional support target, effect factory, host link
+  - docs(nucleo): record first-fetch verification of the three Nucleo pins
+  - chore(nucleo): ledger + mark T001-T006 complete
+  - feat(nucleo): Phase 1 build surface — toolchain, preset, CPM pins
+  - chore(roadmap): record analyze-clean on design:gap/nucleo-f446-adapter
+- Files changed: 25
+- Backlog touched: TASK-23, TASK-24
+
 ## 2026-08-23: nucleo-f446-adapter — design-approved → runnable spec (+ design record reconciled)
 
 **Goal:** Take `design:gap/nucleo-f446-adapter` — approved design record, exit gate 7/7 — through
