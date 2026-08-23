@@ -115,43 +115,43 @@ TEST_CASE("AR7: once Running, ring is never demoted by starvation") {
     CHECK(isSilence(dst_l.data(), 8));
 }
 
-TEST_CASE("AR7: read while Priming does not count underrun for empty ring") {
+TEST_CASE("AR7: read while Priming fills with silence (count is caller's obligation)") {
     AudioRing<48> ring(24);  // startupFillFrames = 24
 
     // Ring is in Priming with occupancy 0
     CHECK(ring.state() == RingState::Priming);
 
-    // Read while Priming: substitutions are reported but caller MUST NOT record as underrun
+    // Calling read() while Priming is a caller error (contract AR7): the ring should only
+    // be read while Running. However, the ring is still predictable — it returns silence
+    // and a substitution count. The contract's AR7 emphasis is that the count is MEANINGLESS
+    // in Priming (an empty ring while filling is normal, not a shortfall) and the caller
+    // MUST NOT record it as an underrun. The ring reports the fact; deciding its meaning is
+    // the transport's job. This test verifies the ring's half: silence is returned.
     std::vector<float> dst_l(8);
     std::vector<float> dst_r(8);
     float* dst[2] = {dst_l.data(), dst_r.data()};
 
-    const int substituted = ring.read(dst, 8);
-    // Contract says substitution count is returned but is meaningless for Priming reads
-    // (caller error to read while not Running, but ring still fills with silence)
+    ring.read(dst, 8);
     CHECK(isSilence(dst_l.data(), 8));
-    // The count may be reported, but caller must not increment the underrun counter
 }
 
-TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 0 (immediate Running)") {
-    AudioRing<48> ring(0);  // startupFillFrames = 0: Running immediately
+TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 0") {
+    AudioRing<48> ring(0);  // startupFillFrames = 0
 
-    // Construction with 0 fill threshold: ring should be Running on first write (or immediately)
-    // Read the contract's transition table: Priming -> Running when occupancy reaches startupFill()
-    // With startupFill() = 0, this threshold is crossed on first write or even at construction
-
-    // Actually, let's verify: does an occupancy of 0 satisfy >= 0?
-    // If so, ring is Running immediately.
-    // If startupFill() = 0 and occupancy() = 0, then occupancy >= startupFill is true,
-    // so the transition should have happened at construction or first write.
+    // Per contract state-transition table: construction ALWAYS yields Priming,
+    // even when startupFill() == 0. The threshold is evaluated at the END of write(),
+    // and only there. So a ring with startupFill() == 0 is Priming until its first write.
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 0);
 
     std::vector<float> src_l(1, 0.5f);
     std::vector<float> src_r(1, 0.5f);
     const float* src[2] = {src_l.data(), src_r.data()};
 
+    // First write carries occupancy from 0 to 1, which satisfies >= 0 (startupFill).
     ring.write(src, 1);
-    // After writing to reach occupancy 1, which is > 0 (startupFill), must be Running
     CHECK(ring.state() == RingState::Running);
+    CHECK(ring.occupancy() == 1);
 }
 
 TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 48") {
@@ -172,17 +172,19 @@ TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 48") {
     CHECK(ring.occupancy() == 48);
 }
 
-TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 96 (doesn't fit capacity)") {
-    // This should throw at construction because startupFillFrames > CapacityFrames
-    CHECK_THROWS_AS(AudioRing<48> ring(96), std::exception);
+TEST_CASE("AR7: constructor throws std::invalid_argument if startupFillFrames > CapacityFrames") {
+    // Such a ring could never reach Running and would prime forever, silently.
+    // Constructor must throw std::invalid_argument to be fail-loud.
+    CHECK_THROWS_AS(AudioRing<48> ring(49), std::invalid_argument);
+    CHECK_THROWS_AS(AudioRing<16> ring(17), std::invalid_argument);
+    CHECK_THROWS_AS(AudioRing<32> ring(100), std::invalid_argument);
+    CHECK_THROWS_AS(AudioRing<48> ring(96), std::invalid_argument);
 }
 
-TEST_CASE("AR7: constructor throws if startupFillFrames > CapacityFrames") {
-    // Such a ring could never reach Running and would prime forever, silently.
-    // Constructor must throw to be fail-loud.
-    CHECK_THROWS_AS(AudioRing<48> ring(49), std::exception);
-    CHECK_THROWS_AS(AudioRing<16> ring(17), std::exception);
-    CHECK_THROWS_AS(AudioRing<32> ring(100), std::exception);
+TEST_CASE("AR7: constructor throws std::invalid_argument if startupFillFrames is negative") {
+    // Negative fill threshold is nonsensical and must be rejected at construction.
+    CHECK_THROWS_AS(AudioRing<48> ring(-1), std::invalid_argument);
+    CHECK_THROWS_AS(AudioRing<32> ring(-10), std::invalid_argument);
 }
 
 TEST_CASE("AR7: constructor accepts startupFillFrames == CapacityFrames") {

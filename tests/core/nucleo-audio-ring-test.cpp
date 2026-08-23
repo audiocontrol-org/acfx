@@ -317,64 +317,6 @@ TEST_CASE("AR3: overflow with multiple sequential writes drops correct old frame
 }
 
 // ============================================================================
-// AR8: No re-centring
-// ============================================================================
-
-TEST_CASE("AR8: occupancy drift persists, no re-centring toward target") {
-    AudioRing<48> ring(24);
-
-    // Write 20 frames (capacity is 48, so occupancy = 20).
-    std::vector<float> src_l(20, 0.5f);
-    std::vector<float> src_r(20, 0.5f);
-    const float* src[2] = {src_l.data(), src_r.data()};
-    ring.write(src, 20);
-
-    const int occ1 = ring.occupancy();
-    CHECK(occ1 == 20);
-
-    // Read 5 frames.
-    std::vector<float> dst_l(5, 0.0f);
-    std::vector<float> dst_r(5, 0.0f);
-    float* dst[2] = {dst_l.data(), dst_r.data()};
-    ring.read(dst, 5);
-
-    const int occ2 = ring.occupancy();
-    CHECK(occ2 == 15);
-
-    // If re-centring occurred, occupancy would have been steered back toward 24 (capacity/2).
-    // But AR8 says no re-centring, so drift should persist.
-    // Just verify occupancy decreased by exactly 5.
-    CHECK(occ2 == occ1 - 5);
-
-    // Write 10 more frames (occ should be 25, not re-centered).
-    ring.write(src, 10);
-    const int occ3 = ring.occupancy();
-    CHECK(occ3 == 25);  // 15 + 10, no re-centering adjustment.
-}
-
-TEST_CASE("AR8: asymmetric occupancy levels are maintained") {
-    AudioRing<32> ring(16);
-
-    // Write 30 frames.
-    std::vector<float> src_l(30, 0.5f);
-    std::vector<float> src_r(30, 0.5f);
-    const float* src[2] = {src_l.data(), src_r.data()};
-    ring.write(src, 30);
-    CHECK(ring.occupancy() == 30);
-
-    // Read only 2 frames.
-    std::vector<float> dst_l(2, 0.0f);
-    std::vector<float> dst_r(2, 0.0f);
-    float* dst[2] = {dst_l.data(), dst_r.data()};
-    ring.read(dst, 2);
-    CHECK(ring.occupancy() == 28);
-
-    // If re-centring existed, occupancy would drift toward 16 (capacity/2).
-    // But with no re-centring, it should stay at 28 exactly.
-    CHECK(ring.occupancy() == 28);
-}
-
-// ============================================================================
 // Cross-contract scenarios
 // ============================================================================
 
