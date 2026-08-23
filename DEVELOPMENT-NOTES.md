@@ -2,24 +2,90 @@
 
 ---
 
-## 2026-08-23: <!-- session title -->
+## 2026-08-23: nucleo-f446-adapter — design-approved → runnable spec (+ design record reconciled)
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Take `design:gap/nucleo-f446-adapter` — approved design record, exit gate 7/7 — through
+the stack-control front door's `define` step to a complete, coverage-clean Spec Kit spec ready for
+`/stack-control:execute`. Implementation deliberately held as a separate, operator-initiated step.
 
 **Accomplished:**
-- <!-- compose -->
+- **Full Spec Kit chain inside one capability-mediation bracket.** `specify` → `clarify` → `plan`
+  (+ `research` R1–R12, `data-model`, `contracts/nucleo-support.md`, `quickstart`) → `checklist` →
+  `tasks` → `analyze`. Ended at **79 FRs / 13 SCs / 10 user stories / 70 tier-tagged tasks**, with
+  **100% requirement and success-criterion coverage** and `spec-check` green.
+- **Three review passes, each of which found real defects rather than confirming quality.** The
+  self-authored real-time/transport checklist found 9 substantive gaps in a spec written an hour
+  earlier; `analyze` found 7 more; the operator's third-party review found 2 blocking issues and 5
+  cleanups. All 40 + 7 + 7 resolved.
+- **Design record reconciled (D27–D36).** Four divergences had opened between the approved record
+  and the spec. Amended in place with an amendment log, D1–D26 keeping their numbers because 79
+  requirements cite them.
+- **Model-tier requirement injected at the tasks seam** from the single source, so all 70 tasks
+  were *born* tagged (`fast` 27 / `balanced` 34 / `powerful` 9) rather than annotated after.
+- **Pointers + wiring.** Roadmap `spec:` pointer set via `workflow link-spec`; `feature.json` and
+  the `CLAUDE.md` SPECKIT marker repointed off `svf-training-site`. `TASK-21` captured.
 
 **Didn't Work:**
-- <!-- compose -->
+- **`/speckit-analyze`'s prerequisite script refused to run.** `check-prerequisites.sh` hard-rejects
+  a descriptive branch name, and Commandment 3 forbids the `NNN-` prefix it demands — so it fires on
+  every acfx feature. `setup-plan.sh`/`setup-tasks.sh` already bypass the guard via
+  `feature_json_matches_feature_dir`; this one does not. Analyzed the artifacts directly instead,
+  computing coverage mechanically. Recurring (TF-09), captured again as friction.
+- **Inserting tasks after review forced a full renumber.** No lettered task-id precedent exists in
+  `specs/*/tasks.md` (unlike FRs, which use `FR-010a`), so four post-review insertions meant
+  rewriting every ID plus every cross-reference in the dependency graph, parallel examples and
+  summary table. Done safely with a one-pass old→new map, but the hazard is real and undocumented.
+- **`session-end` still has no dry-run**, so it committed and pushed the journal before the
+  narrative existed — composed in this follow-up, same as the last two closes. It also left the
+  freshly captured `TASK-21` file uncommitted, since a backlog entry is not a "doc working file".
 
 **Course Corrections:**
-- <!-- compose -->
+- **Ran the requirements checklist against my own just-written spec and treated its output as
+  findings, not reassurance.** It surfaced a genuine counter-assignment conflict (FR-029/FR-031 both
+  described capture-only silence), a binding rule living outside the requirements entirely, and an
+  absent USB lifecycle class. A checklist that only confirms quality has not been run properly.
+- **Split every finding into "operator decides" vs "I repair."** Policy questions — USB lifecycle
+  scope, ring startup/re-centring, counter overflow, torn-payload policy, the CDC channel — went to
+  the operator (Commandment 5). Traceability and consistency defects I fixed directly. Conflating
+  the two would have been an agent-side scope decision wearing a bug-fix costume.
+- **Pushed back on one review item instead of accepting all seven.** Adopted the structural split of
+  telemetry serialization out of the audio path, but rejected the inference that this relaxes its
+  bounds: D26 gives the firmware a *single execution context*, so a blocking CDC write starves audio
+  servicing from outside the audio path exactly as well as from inside — it would just do so
+  invisibly, having left `worstBlockMicros`. FR-033c relocates the work; FR-033d keeps its bounds.
+- **Refused to invent the numbers D23 deliberately left open.** Ring capacity, water marks and
+  startup fill stay unpinned through spec, plan and contract — `CapacityFrames` is a template
+  parameter with *no default*, so the absence is structural rather than a comment. The task says
+  "measure, do not pick."
 
 **Insights:**
-- <!-- compose -->
+- **A superseded premise can outlive its decision while keeping its number.** D15 prepared the effect
+  at 49 frames because the endpoint is sized at 49 — true only while the block followed the packet.
+  My own clarification made the ring the decoupling boundary and killed that premise, but D15 kept
+  its number and its 49, so the spec carried transport framing across the exact boundary built to
+  stop it. Neither I nor two review passes caught it; the third-party reviewer did. **Amending a
+  decision's premise obliges re-reading every decision that rested on it.**
+- **Naming a region is what makes a constraint enforceable.** FR-046a was added because "the audio
+  path" was undelimited — and the very gap it predicted (the parameter flush and telemetry write
+  being overlooked *because they don't look like audio code*) then reproduced itself in the task
+  list, where no task covered them. The requirement diagnosed its own violation one artifact later.
+- **A counter can be dead on arrival and worse than absent.** `truncatedFrames` would have
+  incremented by zero forever — a stereo frame is 4 bytes, so a torn remainder is always 1–3 bytes
+  and never a whole frame. An always-zero counter is worse than no counter, because it gets believed.
+  Renamed to an event count.
+- **Reading the build graph changed the architecture.** The host suite builds under a preset with no
+  toolchain, so declaring `acfx_nucleo_support` behind `ACFX_BUILD_NUCLEO` would have made it
+  invisible to the tests — silently reopening the untested-glue gap D1's decomposition exists to
+  close. Ten minutes in `CMakeLists.txt` produced a constraint the design record could not have known.
+- **The unverified claims are the ones worth writing down.** `research.md` tabulates four items as
+  *lookups, not assumptions* — chief among them that TinyUSB 0.21.0 removed the `rx_done`/`tx_done`
+  callbacks, so code written against them **links silently** and leaves a board that enumerates
+  perfectly and passes no audio, with nothing to grep for.
 
-**Quantitative (auto-derived from git; verify before publishing):**
-- Commits: 9
+**Quantitative (auto-derived from git; verified before publishing):**
+- Commits: 11 (auto-derived count of 9 predated the session-end and backlog commits)
+  - chore(backlog): capture TASK-21 cpm-package-lock convention gap
+  - chore(session): session-end journal + tooling friction
   - docs(nucleo-f446-adapter): amend the design record; D27-D36, D15 superseded
   - docs(nucleo-f446-adapter): act on third-party review; 73 -> 79 requirements
   - docs(nucleo-f446-adapter): close the seven cross-artifact analysis findings
@@ -29,8 +95,8 @@
   - docs(nucleo-f446-adapter): plan, research, data model, contract, quickstart
   - docs(nucleo-f446-adapter): clarify four gaps the design record left open
   - docs(nucleo-f446-adapter): spec from the approved design record
-- Files changed: 13
-- Backlog touched: (none)
+- Files changed: 16
+- Backlog touched: TASK-21 (captured this session, not progressed)
 
 ## 2026-07-09: implicit-integration — design → runnable spec (planned → analyze-clean)
 
