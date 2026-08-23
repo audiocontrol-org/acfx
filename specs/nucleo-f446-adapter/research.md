@@ -66,6 +66,11 @@ wants: audio OUT (iso), audio IN (iso), MIDI IN + OUT (bulk, one endpoint pair),
 F446 OTG_FS endpoint count. If the budget does not close, that is a finding to surface — per
 the spec's Assumptions, not something to quietly work around by dropping a function.
 
+> **DISCHARGED BY R14 (T029).** The budget **closes** on both axes: 4 IN / 3 OUT non-control
+> endpoints against 5 / 5 available, and 225 of 320 FIFO words. No function is dropped and no
+> finding is escalated. R14 carries the endpoint table and the FIFO arithmetic T027 builds
+> against.
+
 **Alternatives rejected**: a vendor-specific control request for telemetry (risks a Windows
 driver prompt, cutting against the driverless proposition); MIDI SysEx telemetry (mixes
 telemetry into the control path and its packet framing is fiddly); debugger-only readback (puts
@@ -661,3 +666,327 @@ FIFO depths to give `..._SW_BUF_SZ` (HIL, OQ1 / **D23**). The shipped examples u
 `4 × EP_SZ` for full speed as a starting point
 (`examples/device/uac2_headset/src/tusb_config.h:148,165`), which is a starting point and not a
 measurement.
+
+---
+
+## R14 — OTG_FS endpoint and FIFO-RAM budget for the three-function composite (T029)
+
+**Date**: 2026-08-23 · **Task**: T029 [US4] · **Status**: verified against ST's own device
+header and the pinned TinyUSB FIFO allocator — **the budget CLOSES on both constraints**
+
+**Decision**: The three-function composite (UAC2 duplex audio + USB MIDI + CDC ACM) **fits** the
+STM32F446 OTG_FS core with room to spare. It needs **4 IN and 3 OUT** non-control endpoints
+against **5 and 5** available, and **225 of 320** FIFO words (900 of 1280 bytes). T027 may write
+the full descriptor — including the CDC notification endpoint — without dropping, sharing, or
+shrinking anything. R2's "**Must be confirmed during implementation** against the F446 OTG_FS
+endpoint count" is hereby discharged, and the spec's Assumptions entry ("Adding the CDC function
+keeps the device within full-speed bandwidth and interface-count limits") is confirmed on the
+endpoint and FIFO-RAM axes.
+
+**Rationale for recording it rather than just doing it**: the failure mode of an over-subscribed
+budget is not a compile error. `dfifo_alloc` fails via `TU_ASSERT`
+(`src/portable/synopsys/dwc2/dcd_dwc2.c:237`), which in a release build returns `false` up
+through `dcd_edpt_open` and manifests as a *partial* enumeration — some interfaces alive, one
+silently dead. That is exactly the confusing symptom the arithmetic below buys us out of, and
+it is why the numbers are written down instead of merely satisfied.
+
+**Provenance**: every figure below is a file:line citation from a pinned tree in
+`cmake/dependencies.cmake`. Nothing is from training data.
+
+- ST CMSIS device headers, `cmsis_device_f4` **v2.6.11** (`cmake/dependencies.cmake:118`),
+  cached at `external/.cpm-cache/cmsis_device_f4/a45b3a84e2ff802229afbb6a7c26dd2abff6ca38`.
+- TinyUSB **0.21.0** (`cmake/dependencies.cmake:112`), cached at
+  `external/.cpm-cache/tinyusb/d34550b3aaa115e7ec09bea0c9e676531bf95dfb` — the same tree R13
+  was read from. Paths below are relative to those two roots.
+- `adapters/nucleo/tusb_config.h` as landed by **T026** (commit `d97c827`) for the packet sizes.
+
+### R14.1 — How many device-mode endpoints the silicon provides
+
+**Primary source — ST's own device header**, `Include/stm32f446xx.h`, under the banner
+`/****************************** USB Exported Constants ************************/`:
+
+```
+15911:#define USB_OTG_FS_HOST_MAX_CHANNEL_NBR                12U
+15912:#define USB_OTG_FS_MAX_IN_ENDPOINTS                    6U    /* Including EP0 */
+15913:#define USB_OTG_FS_MAX_OUT_ENDPOINTS                   6U    /* Including EP0 */
+15914:#define USB_OTG_FS_TOTAL_FIFO_SIZE                     1280U /* in Bytes */
+```
+
+So: **6 IN and 6 OUT endpoints, EP0 inclusive** → endpoint *numbers* 0–5, of which **EP1–EP5
+(5 numbers) are available for non-control use in each direction**.
+
+**Corroboration 1 — the pinned TinyUSB port derives its limit from that same header**, so the
+driver and the silicon cannot disagree:
+`src/portable/synopsys/dwc2/dwc2_stm32.h:50-52` (the `OPT_MCU_STM32F4` arm) sets
+`#define EP_MAX_FS  USB_OTG_FS_MAX_IN_ENDPOINTS` and `#define DFIFO_DEPTH_FS  320`, and
+`:148-150` wires those into the controller table as
+`{ ..., .ep_count = EP_MAX_FS, .otg_dfifo_depth = DFIFO_DEPTH_FS }`. The file's own header
+comment (`:34-35`) defines the units: "`EP_MAX` : Max number of bi-directional endpoints
+including EP0" and "`DFIFO_DEPTH_FS/HS` : DFIFO depth in 32-bit words (`OTG_DFIFO_DEPTH`)".
+
+**Corroboration 2**: `src/common/tusb_mcu.h:262-267` independently sets
+`#define TUP_DCD_ENDPOINT_MAX 6` for `OPT_MCU_STM32F4`.
+
+**RM0390 note — read this before trusting a recollection of "6 endpoints".** ST's prose counts
+the same silicon differently: the reference-manual/datasheet wording for the F446 OTG_FS is
+"1 bidirectional control endpoint0, 5 IN endpoints, 5 OUT endpoints" (plus 12 host channels and
+1.25 Kbyte of dedicated RAM). That is **the same core** — 1 + 5 = 6 per direction — but the
+"5" in the prose is the *non-control* count while the "6" in the header is the *inclusive*
+count. Getting these two confused in either direction is a one-endpoint error in a budget with
+one endpoint of slack, so the table in R14.3 states both. *Honest gap*: the RM0390 PDF itself
+was not fetched — two attempts at
+`st.com/resource/en/reference_manual/rm0390-…pdf` and at the F446 datasheet timed out — so the
+prose figures above are secondhand, and the header at `stm32f446xx.h:15912-15914` is the
+citation this record actually rests on. It is ST-authored and machine-checkable in-tree, which
+is the stronger source for this purpose anyway.
+
+**One important thing the header does NOT constrain**: STM32F4 is *not* in the
+`CFG_TUD_ENDPOINT_ONE_DIRECTION_ONLY` list (`src/common/tusb_mcu.h:774-776`, default `0`), so
+**the same endpoint number may carry both an IN and an OUT endpoint**. TinyUSB's own composite
+example relies on this — the generic (non-exception) branch of
+`examples/device/cdc_uac2/src/usb_descriptors.c:123-127` assigns `EPNUM_AUDIO_IN 0x01` and
+`EPNUM_AUDIO_OUT 0x01`. This is what makes the budget comfortable rather than tight.
+
+### R14.2 — The FIFO RAM budget
+
+**1280 bytes = 320 words of 32 bits**, dedicated SRAM shared between the single RX FIFO and all
+TX FIFOs. Sources: `stm32f446xx.h:15914` (`USB_OTG_FS_TOTAL_FIFO_SIZE 1280U /* in Bytes */`)
+and `dwc2_stm32.h:52` (`DFIFO_DEPTH_FS 320`, in 32-bit words). 320 × 4 = 1280. The two agree.
+
+Do **not** confuse this with `stm32f446xx.h:1056` `USB_OTG_FIFO_SIZE 0x1000UL` — that is the
+4 KB *address window* stride used to reach each endpoint's FIFO through the peripheral aperture
+(`USB_OTG_FIFO_BASE 0x1000UL` at `:1055`), not the amount of RAM behind it.
+
+**The sizing rules, quoted, not guessed.** `src/portable/synopsys/dwc2/dcd_dwc2.c:187-201`
+states them and cites the RM:
+
+> According to "FIFO RAM allocation" section in RM, FIFO RAM are allocated as follows (each
+> word 32-bits):
+> - Each EP IN needs at least max packet size
+> - All EP OUT shared a unique OUT FIFO which uses […]
+>   - 13 for setup packets + control words (up to 3 setup packets).
+>   - 1 for global NAK (not required/used here).
+>   - Largest-EPsize/4 + 1. (FS: 64 bytes, HS: 512 bytes). Recommended is "2 x (Largest-EPsize/4 + 1)"
+>   - 2 for each used OUT endpoint.
+>
+> Therefore, GRXFSIZ = 13 + 1 + 2 x (Largest-EPsize/4 + 1) + 2 x EPOUTnum
+
+Implemented at `:200-202`:
+
+```c
+static inline uint16_t calc_device_grxfsiz(uint16_t largest_ep_size, uint8_t ep_count) {
+  return (uint16_t)(13 + 1 + 2 * ((largest_ep_size / 4) + 1) + 2 * ep_count);
+}
+```
+
+Three details of the implementation that change the arithmetic and are easy to get wrong:
+
+1. The `2 x EPOUTnum` term is fed the controller's **total** `ep_count` (**6**), not the number
+   of OUT endpoints this device actually uses — see the call sites at `:216` and `:256`, both
+   passing `dwc2_controller->ep_count`. So that term is a fixed **12 words** here regardless of
+   how many OUT endpoints the descriptor declares.
+2. Each TX FIFO is `ceil(packet_size / 4)` words (`:213`), allocated top-down; the RX FIFO grows
+   upward from 0 and the free space sits between them (`:170-186`).
+3. Double buffering would double a *bulk* IN FIFO (`:230-234`), but it is **off**: the shipped
+   default is `.bm_double_buffered = 0` (`src/device/usbd.h:48`,
+   `CFG_TUD_CONFIGURE_DWC2_DEFAULT`).
+
+**When the allocation happens** — this matters, because it means all three functions'
+endpoints are resident simultaneously and the sum below is the right model, not a worst case
+that never occurs. `dfifo_device_init` (`:253-268`) runs on reset and on
+`dcd_edpt_close_all`, seeding `grxfsiz` from `CFG_TUD_ENDPOINT0_SIZE` and allocating EP0 IN.
+Bulk/interrupt FIFOs are allocated in `dcd_edpt_open` (`:611`) when a class driver opens its
+endpoints at *set-configuration* time. Isochronous FIFOs are allocated **once, at
+set-configuration, and never resized by an alt-setting change** — the audio driver walks its
+own descriptor and calls `usbd_edpt_iso_alloc(rhport, ep_in, ep_in_size)` /
+`(…, ep_out, ep_out_size)` with the **maximum `wMaxPacketSize` across all alt settings**
+(`src/class/audio/audio_device.c:930-962`, sizes accumulated with `TU_MAX` at `:936` and
+`:944`), reaching `dcd_edpt_iso_alloc` → `dfifo_alloc` at `dcd_dwc2.c:642-645`. This path is
+live for dwc2: `TUP_DCD_EDPT_ISO_ALLOC` is defined for every USBIP that is not
+IP3511/RUSB2 (`src/common/tusb_mcu.h:768-771`).
+
+`CFG_TUD_DWC2_DMA_ENABLE` reserves a further `2 × ep_count = 12` words for EPInfo
+(`:260-262`), but only when `ghwcfg2.arch == GHWCFG2_ARCH_INTERNAL_DMA` (`:130-135`); F446
+OTG_FS is a slave-mode core, so this does not apply. It is included in the sensitivity check at
+R14.6 anyway.
+
+### R14.3 — What this design needs
+
+Packet sizes are **not assumed** — they are the values T026 fixed in
+`adapters/nucleo/tusb_config.h` (commit `d97c827`): `CFG_TUD_ENDPOINT0_SIZE 64` (`:77`),
+`CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX` / `…_EP_OUT_SZ_MAX` = 196 (`:193-197`),
+`CFG_TUD_MIDI_RX_EPSIZE` / `…_TX_EPSIZE` 64 (`:290-291`), `CFG_TUD_CDC_RX_EPSIZE` /
+`…_TX_EPSIZE` 64 (`:318-319`). Two endpoints this design does **not** carry are likewise
+config-fixed, not assumed: `CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP 0` (`:270`, FR-027 / D20,
+confirmed permitted in R13.6) and `CFG_TUD_AUDIO_ENABLE_INTERRUPT_EP 0` (`:279`).
+
+**Audio packet size, with the arithmetic shown.** 48 kHz, 16-bit, stereo at full speed is one
+isochronous packet per 1 ms frame, so the *nominal* payload is
+48 frames × 2 channels × 2 bytes = **192 bytes**. But D21 / FR-028 require accepting up to
+**49** stereo frames — `kMaxPacketFrames = 49` and `kChannels = 2` in
+`adapters/nucleo/support/sample-format.h:18,24` — so the endpoint must be declared at
+
+> 49 frames × 2 channels × 2 bytes/sample = **196 bytes**, **per direction**.
+
+196 is used below for both the IN and the OUT iso endpoint. The extra frame is 4 bytes over
+nominal on each side and costs 1 TX word and 2 RX words versus 192 — noted so nobody is tempted
+to "save" it.
+
+**Endpoint table** (addresses follow the generic branch of TinyUSB's `cdc_uac2` example, with
+MIDI slotted into the free EP2; T027 may renumber, the totals are what bind):
+
+| Address | Number | Dir | Transfer type | wMaxPacketSize | Owning function | Descriptor source |
+|---|---|---|---|---|---|---|
+| `0x00`/`0x80` | 0 | both | Control | 64 | device (EP0) | mandatory |
+| `0x01` | 1 | OUT | Isochronous, adaptive sink (FR-025) | **196** | UAC2 AS-OUT (host → device) | hand-rolled from `TUD_AUDIO20_DESC_*` (D10 / FR-021) |
+| `0x81` | 1 | IN | Isochronous, async source (FR-026) | **196** | UAC2 AS-IN (device → host) | hand-rolled from `TUD_AUDIO20_DESC_*` |
+| `0x02` | 2 | OUT | Bulk | 64 | USB MIDI | `TUD_MIDI_DESCRIPTOR` (`src/device/usbd.h:419-424`) |
+| `0x82` | 2 | IN | Bulk | 64 | USB MIDI | same |
+| `0x83` | 3 | IN | Interrupt (notification) | 8 | CDC ACM comm interface | `TUD_CDC_DESCRIPTOR` (`src/device/usbd.h:262-283`, EP at `:275`) |
+| `0x04` | 4 | OUT | Bulk | 64 | CDC ACM data | same, EP at `:281` |
+| `0x84` | 4 | IN | Bulk | 64 | CDC ACM data | same, EP at `:283` |
+
+No feedback endpoint (FR-027 / D20) and no audio interrupt endpoint — deliberate absences, both
+confirmed in R13.6 and pinned in `tusb_config.h`. MIDI contributes exactly one bulk pair:
+`TUD_MIDI_DESCRIPTOR` expands to `TUD_MIDI_DESC_EP(_epout, …)` + `TUD_MIDI_DESC_EP(_epin, …)`
+and nothing more (`src/device/usbd.h:419-424`, `:407-411`).
+
+**Totals, by direction** (the IN side is the binding one, as expected):
+
+| | IN | OUT |
+|---|---|---|
+| Non-control endpoints required | **4** (`0x81` `0x82` `0x83` `0x84`) | **3** (`0x01` `0x02` `0x04`) |
+| Non-control endpoints available (EP1–EP5) | 5 | 5 |
+| Including EP0 — required / available | 5 / 6 | 4 / 6 |
+| **Spare** | **1 IN** | **2 OUT** |
+
+Distinct endpoint *numbers* used: **4** (EP1–EP4) of 5. EP5 is entirely free in both
+directions, as is EP3 OUT. The driver's only hard guard on this axis is
+`TU_ASSERT(epnum < ep_count)` at `dcd_dwc2.c:211`, i.e. `epnum ≤ 5`; the separate
+`allocated_epin_count` ceiling at `:225-229` is inert on STM32 because `ep_in_count` is left `0`
+in the controller table (`dwc2_stm32.h:148-151`) and the check is gated on it being non-zero.
+**Endpoint-count verdict therefore rests on the descriptor being correct, not on a runtime
+guard catching a mistake** — one more reason to fix the numbers here, before T027.
+
+### R14.4 — FIFO RAM arithmetic
+
+**RX FIFO** (single, shared by all OUT endpoints). Largest OUT packet = 196 (audio iso OUT);
+`ep_count` = 6 per R14.2 detail 1:
+
+```
+GRXFSIZ = 13 + 1 + 2 × ((196 / 4) + 1) + 2 × 6
+        = 13 + 1 + 2 × (49 + 1)        + 12
+        = 13 + 1 + 100                 + 12
+        = 126 words   (504 bytes)
+```
+
+**TX FIFOs**, one per IN endpoint, `ceil(mps / 4)` words each:
+
+| IN endpoint | Function | mps (bytes) | words |
+|---|---|---:|---:|
+| `0x80` EP0 IN | control | 64 | 16 |
+| `0x81` | audio iso IN | 196 | **49** |
+| `0x82` | MIDI bulk IN | 64 | 16 |
+| `0x83` | CDC notify | 8 | 2 |
+| `0x84` | CDC bulk IN | 64 | 16 |
+| | | **TX total** | **99** (396 bytes) |
+
+**Total**:
+
+```
+RX 126 + TX 99 = 225 words = 900 bytes
+Available       = 320 words = 1280 bytes
+Free            =  95 words =  380 bytes   (29.7 % headroom)
+```
+
+### R14.5 — Correction: `CFG_TUD_CDC_NOTIFY 0` does **not** remove the notification endpoint
+
+This record was asked mid-task to redo the arithmetic on the basis that T026's
+`CFG_TUD_CDC_NOTIFY 0` (`adapters/nucleo/tusb_config.h:305`) means the CDC interrupt IN endpoint
+is not instantiated, dropping the IN count from 4 to 3. **That is not what the macro does**, and
+the mistake is worth recording because it is a natural reading of the name.
+
+Read off the pinned tree:
+
+- `CFG_TUD_CDC_NOTIFY` gates **only the optional application-notification API** — the
+  declarations `tud_cdc_n_notify_msg` / `tud_cdc_n_notify_uart_state`
+  (`src/class/cdc/cdc_device.h:158-181`), the implementation
+  (`src/class/cdc/cdc_device.c:160-181`), and the `epnotify` endpoint buffer
+  (`src/class/cdc/cdc_device.c:71-73`). Default is `0` (`cdc_device.h:39-41`).
+- **`cdcd_open` opens the notification endpoint unconditionally when the descriptor declares
+  one** — `src/class/cdc/cdc_device.c:318-325` is plain `if (TUSB_DESC_ENDPOINT ==
+  tu_desc_type(p_desc)) { … usbd_edpt_open(rhport, desc_ep) … }` with **no `#if
+  CFG_TUD_CDC_NOTIFY` around it**. Whether the endpoint exists is a property of the
+  **descriptor**, i.e. of **T027**, not of `tusb_config.h`.
+- The only shipped CDC template, `TUD_CDC_DESCRIPTOR` (`src/device/usbd.h:262-283`), **always**
+  emits the interrupt IN endpoint (`:275`) and hard-codes `bNumEndpoints = 1` on the comm
+  interface (`:266`); its `TUD_CDC_DESC_LEN` of 66 bytes (`:258`, `8+9+5+5+4+5+7+9+7+7`)
+  includes that 7-byte endpoint descriptor. There is no no-notify variant in this tree.
+
+T026's own in-file comment (`adapters/nucleo/tusb_config.h:297-304`) already says exactly this
+and is correct as written; it should not be "fixed".
+
+**So the endpoint table in R14.3 stands as the normative case: 4 IN, 3 OUT.** Omitting the
+notify endpoint would require T027 to hand-roll a CDC descriptor that departs from the shipped
+template, with a host-compatibility risk that is out of scope here (the CDC-ACM notification
+element is optional in the class spec but is present in essentially every reference
+implementation, including the one this descriptor is modelled on).
+
+**Both figures, as requested — and the answer is that the choice is nearly free:**
+
+| | With notify EP (**normative**, `TUD_CDC_DESCRIPTOR` as shipped) | Without notify EP (hypothetical hand-rolled CDC descriptor) |
+|---|---:|---:|
+| Non-control IN endpoints | 4 of 5 | 3 of 5 |
+| Non-control OUT endpoints | 3 of 5 | 3 of 5 |
+| Distinct EP numbers used | 4 of 5 | 3 of 5 |
+| RX FIFO | 126 words | 126 words |
+| TX FIFOs | 99 words | 97 words |
+| **Total** | **225 / 320 words (900 / 1280 B)** | **223 / 320 words (892 / 1280 B)** |
+| Free | 95 words (380 B) | 97 words (388 B) |
+
+**The notification endpoint costs 2 words — 8 bytes — of FIFO RAM and one IN endpoint slot out
+of five.** Stated prominently because the instruction to this task was to flag it loudly if the
+budget closed *only* because the notify endpoint was off: **it does not.** The budget closes
+with ~30 % FIFO headroom and a spare endpoint pair **either way**. There is no constraint here
+for the operator to spend, and no reason for T027 to deviate from the shipped CDC template on
+budget grounds.
+
+### R14.6 — Sensitivity: what would actually break this
+
+The pessimistic variants all still fit, which is the useful form of the answer:
+
+| Variant | Δ words | Total | Fits? |
+|---|---:|---:|:--:|
+| As designed (R14.4) | — | 225 | yes |
+| Double-buffer both bulk IN EPs (`bm_double_buffered`, off by default) | +32 | 257 | yes |
+| Internal DMA enabled (N/A — F446 FS is slave-mode) | +12 EPInfo | 237 | yes |
+| Both of the above together | +44 | 269 | yes |
+| CDC notify mps 64 instead of 8 | +14 | 239 | yes |
+
+The one knob with real teeth is the audio packet size. With both iso endpoints at `m` bytes
+(`m` a multiple of 4), total = `(28 + m/2) + (50 + m/4)` = `78 + 0.75 m` words. Setting that
+≤ 320 gives **`m` ≤ 320 bytes = 80 stereo frames**. FR-028's 196 bytes / 49 frames sits at 61 %
+of that ceiling, so raising `kMaxPacketFrames` — or adding a second, larger streaming alt
+setting, since `usbd_edpt_iso_alloc` reserves the **max across alt settings**
+(`audio_device.c:936,944`) — is the change that would need this arithmetic redone. Adding a
+fourth function would consume endpoint numbers first: only EP5 is fully free.
+
+### R14.7 — Verdict, and what T027 can rely on
+
+- **Endpoint count: CLOSES.** 4 IN / 3 OUT non-control required, 5 / 5 available; 4 of 5
+  endpoint numbers used; EP5 free in both directions. Source: `stm32f446xx.h:15912-15913`,
+  corroborated by `dwc2_stm32.h:50-52,148-151` and `tusb_mcu.h:262-267`.
+- **FIFO RAM: CLOSES.** 225 of 320 words (900 of 1280 bytes), **95 words / 380 bytes free
+  (29.7 %)**. Source: `stm32f446xx.h:15914` and `dwc2_stm32.h:52` for the size,
+  `dcd_dwc2.c:187-247` for the rules.
+- **No function needs to be dropped, no endpoint shared, no audio packet shrunk below FR-028.**
+  There is no finding to escalate to the operator on this axis.
+- **T027 may build directly against the R14.3 table.** If it renumbers endpoints, the only hard
+  constraints are `epnum ≤ 5` (`dcd_dwc2.c:211`) and — since STM32F4 permits an IN and an OUT on
+  the same number — no more than 5 endpoints in either direction.
+
+**Deliberately out of scope of this record** (budget ≠ behaviour): whether 196-byte iso packets
+with a 2-packet-deep RX FIFO survive real host traffic, and what `..._SW_BUF_SZ` should be —
+both are HIL measurements (OQ1 / **D23**), not arithmetic. The RX FIFO's `2 × (mps/4 + 1)` term
+gives room for two 196-byte OUT packets, which is TinyUSB's recommended sizing, not a measured
+one.
