@@ -1,0 +1,375 @@
+#include <doctest/doctest.h>
+
+#include <cstdint>
+#include <vector>
+
+#include "audio-ring.h"
+#include "sample-format.h"
+
+// Audio ring state-machine and lifecycle contracts (FR-030d, FR-030b, FR-051-054).
+// Tests cover:
+// AR7 — Priming vs Running: State is observable via state(). Priming is the initial state
+//       and persists while occupancy < startupFill(). When a write carries occupancy to
+//       startupFill(), the ring transitions to Running. While Priming, a short read is
+//       normal operation and no underrun is counted. Once Running, a short read is a
+//       genuine underrun and IS counted. Running is never demoted by starvation.
+// AR8 — No re-centring: ring never drops or duplicates frames to steer occupancy back
+//       toward a target; drift stays visible.
+// AR9 — reset() clears contents and returns to Priming. stop() enters Stopped.
+//       Neither touches counters.
+
+using namespace acfx::nucleo;
+
+namespace {
+
+// Helper to create a test buffer with known values.
+void fillTestBuffer(float* const* channels, int frames, float baseValue) noexcept {
+    for (int frame = 0; frame < frames; ++frame) {
+        for (int channel = 0; channel < kChannels; ++channel) {
+            channels[channel][frame] = baseValue + (channel * 0.1f);
+        }
+    }
+}
+
+// Helper to check if a buffer region contains silence.
+bool isSilence(const float* buf, int frames) noexcept {
+    for (int i = 0; i < frames; ++i) {
+        if (buf[i] != 0.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+// ============================================================================
+// AR7: Priming vs Running (state-observable, threshold-driven)
+// ============================================================================
+
+TEST_CASE("AR7: construction leaves ring in Priming state") {
+    AudioRing<48> ring(24);  // startupFillFrames = 24
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 0);
+}
+
+TEST_CASE("AR7: occupancy < startupFill stays Priming across multiple writes") {
+    AudioRing<48> ring(24);  // startupFillFrames = 24
+
+    // Write 8 frames; occupancy = 8 < 24
+    std::vector<float> src_l(8, 0.5f);
+    std::vector<float> src_r(8, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+
+    ring.write(src, 8);
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 8);
+
+    // Write 8 more; occupancy = 16 < 24
+    ring.write(src, 8);
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 16);
+}
+
+TEST_CASE("AR7: write carrying occupancy to startupFill promotes Priming -> Running") {
+    AudioRing<48> ring(24);  // startupFillFrames = 24
+
+    std::vector<float> src_l(24, 0.5f);
+    std::vector<float> src_r(24, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+
+    // Write 20 frames; state is still Priming
+    ring.write(src, 20);
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 20);
+
+    // Write 4 more, carrying occupancy to exactly 24 (the startupFill target)
+    ring.write(src, 4);
+    CHECK(ring.state() == RingState::Running);
+    CHECK(ring.occupancy() == 24);
+}
+
+TEST_CASE("AR7: once Running, ring is never demoted by starvation") {
+    AudioRing<48> ring(24);  // startupFillFrames = 24
+
+    // Fill to Running
+    std::vector<float> src_l(24, 0.5f);
+    std::vector<float> src_r(24, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 24);
+    CHECK(ring.state() == RingState::Running);
+
+    // Drain the ring completely
+    std::vector<float> dst_l(48);
+    std::vector<float> dst_r(48);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    const int substituted = ring.read(dst, 24);
+    CHECK(ring.occupancy() == 0);
+
+    // Even though occupancy is 0, state should still be Running
+    CHECK(ring.state() == RingState::Running);
+
+    // A short read in this state IS a genuine underrun and DOES count
+    const int underrun = ring.read(dst, 8);
+    CHECK(underrun == 8);  // All 8 frames were substituted (underrun)
+    CHECK(isSilence(dst_l.data(), 8));
+}
+
+TEST_CASE("AR7: read while Priming does not count underrun for empty ring") {
+    AudioRing<48> ring(24);  // startupFillFrames = 24
+
+    // Ring is in Priming with occupancy 0
+    CHECK(ring.state() == RingState::Priming);
+
+    // Read while Priming: substitutions are reported but caller MUST NOT record as underrun
+    std::vector<float> dst_l(8);
+    std::vector<float> dst_r(8);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+
+    const int substituted = ring.read(dst, 8);
+    // Contract says substitution count is returned but is meaningless for Priming reads
+    // (caller error to read while not Running, but ring still fills with silence)
+    CHECK(isSilence(dst_l.data(), 8));
+    // The count may be reported, but caller must not increment the underrun counter
+}
+
+TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 0 (immediate Running)") {
+    AudioRing<48> ring(0);  // startupFillFrames = 0: Running immediately
+
+    // Construction with 0 fill threshold: ring should be Running on first write (or immediately)
+    // Read the contract's transition table: Priming -> Running when occupancy reaches startupFill()
+    // With startupFill() = 0, this threshold is crossed on first write or even at construction
+
+    // Actually, let's verify: does an occupancy of 0 satisfy >= 0?
+    // If so, ring is Running immediately.
+    // If startupFill() = 0 and occupancy() = 0, then occupancy >= startupFill is true,
+    // so the transition should have happened at construction or first write.
+
+    std::vector<float> src_l(1, 0.5f);
+    std::vector<float> src_r(1, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+
+    ring.write(src, 1);
+    // After writing to reach occupancy 1, which is > 0 (startupFill), must be Running
+    CHECK(ring.state() == RingState::Running);
+}
+
+TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 48") {
+    AudioRing<48> ring(48);  // startupFillFrames = 48 (entire capacity)
+
+    std::vector<float> src_l(48, 0.5f);
+    std::vector<float> src_r(48, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+
+    // Write 47 frames; still Priming
+    ring.write(src, 47);
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 47);
+
+    // Write 1 more to reach 48
+    ring.write(src, 1);
+    CHECK(ring.state() == RingState::Running);
+    CHECK(ring.occupancy() == 48);
+}
+
+TEST_CASE("AR7: state machine is threshold-driven: startupFillFrames = 96 (doesn't fit capacity)") {
+    // This should throw at construction because startupFillFrames > CapacityFrames
+    CHECK_THROWS_AS(AudioRing<48> ring(96), std::exception);
+}
+
+TEST_CASE("AR7: constructor throws if startupFillFrames > CapacityFrames") {
+    // Such a ring could never reach Running and would prime forever, silently.
+    // Constructor must throw to be fail-loud.
+    CHECK_THROWS_AS(AudioRing<48> ring(49), std::exception);
+    CHECK_THROWS_AS(AudioRing<16> ring(17), std::exception);
+    CHECK_THROWS_AS(AudioRing<32> ring(100), std::exception);
+}
+
+TEST_CASE("AR7: constructor accepts startupFillFrames == CapacityFrames") {
+    // This should NOT throw; it's a valid (if extreme) configuration
+    AudioRing<48> ring(48);  // This should compile and not throw
+    CHECK(ring.startupFill() == 48);
+}
+
+// ============================================================================
+// AR8: No re-centring
+// ============================================================================
+
+TEST_CASE("AR8: occupancy drift persists, no re-centring toward target") {
+    AudioRing<48> ring(24);  // Ignore the threshold for this test
+
+    // Write 20 frames (occupancy = 20).
+    std::vector<float> src_l(20, 0.5f);
+    std::vector<float> src_r(20, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 20);
+
+    const int occ1 = ring.occupancy();
+    CHECK(occ1 == 20);
+
+    // Read 5 frames.
+    std::vector<float> dst_l(5);
+    std::vector<float> dst_r(5);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    ring.read(dst, 5);
+
+    const int occ2 = ring.occupancy();
+    CHECK(occ2 == 15);
+
+    // If re-centring occurred, occupancy would have been steered back toward 24.
+    // But AR8 says no re-centring, so drift should persist.
+    CHECK(occ2 == occ1 - 5);
+
+    // Write 10 more frames (occ should be 25, not re-centered).
+    ring.write(src, 10);
+    const int occ3 = ring.occupancy();
+    CHECK(occ3 == 25);  // 15 + 10, no re-centering adjustment.
+}
+
+TEST_CASE("AR8: asymmetric occupancy levels are maintained") {
+    AudioRing<32> ring(24);  // Ignore the threshold
+
+    // Write 30 frames.
+    std::vector<float> src_l(30, 0.5f);
+    std::vector<float> src_r(30, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 30);
+    CHECK(ring.occupancy() == 30);
+
+    // Read only 2 frames.
+    std::vector<float> dst_l(2);
+    std::vector<float> dst_r(2);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    ring.read(dst, 2);
+    CHECK(ring.occupancy() == 28);
+
+    // If re-centring existed, occupancy would drift toward 16 (capacity/2).
+    // But with no re-centring, it should stay at 28 exactly.
+    CHECK(ring.occupancy() == 28);
+}
+
+// ============================================================================
+// AR9: reset() and stop()
+// ============================================================================
+
+TEST_CASE("AR9: reset() returns ring to Priming state") {
+    AudioRing<48> ring(24);
+
+    // Fill past the threshold into Running
+    std::vector<float> src_l(30, 0.5f);
+    std::vector<float> src_r(30, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 30);
+    CHECK(ring.state() == RingState::Running);
+
+    // Reset
+    ring.reset();
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 0);
+}
+
+TEST_CASE("AR9: reset() clears contents and occupancy") {
+    AudioRing<48> ring(24);
+
+    // Write 30 frames.
+    std::vector<float> src_l(30, 0.5f);
+    std::vector<float> src_r(30, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 30);
+    CHECK(ring.occupancy() == 30);
+
+    // Reset.
+    ring.reset();
+    CHECK(ring.occupancy() == 0);
+
+    // Read should now get silence
+    std::vector<float> dst_l(10);
+    std::vector<float> dst_r(10);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    const int substituted = ring.read(dst, 10);
+
+    CHECK(substituted == 10);
+    CHECK(isSilence(dst_l.data(), 10));
+    CHECK(isSilence(dst_r.data(), 10));
+}
+
+TEST_CASE("AR9: reset() does not touch counters (caller responsibility)") {
+    AudioRing<48> ring(24);
+
+    // Write and read a few times (hypothetically updating external counters).
+    std::vector<float> src_l(20, 0.5f);
+    std::vector<float> src_r(20, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 20);
+
+    std::vector<float> dst_l(10);
+    std::vector<float> dst_r(10);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    ring.read(dst, 10);
+
+    // Reset: note that the ring's operation and state are cleared,
+    // but external counters (not stored in the ring per AR4) are not touched.
+    ring.reset();
+
+    // Verify reset worked: state and occupancy cleared
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 0);
+
+    // (The ring does not own counters, so we can't verify they weren't touched
+    // from the ring's perspective alone; this is a design invariant in AR4.)
+}
+
+TEST_CASE("AR9: stop() puts ring in Stopped state") {
+    AudioRing<48> ring(24);
+
+    // Write to enter Running
+    std::vector<float> src_l(30, 0.5f);
+    std::vector<float> src_r(30, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 30);
+    CHECK(ring.state() == RingState::Running);
+
+    // Stop
+    ring.stop();
+    CHECK(ring.state() == RingState::Stopped);
+}
+
+TEST_CASE("AR9: stop() clears contents") {
+    AudioRing<48> ring(24);
+
+    // Write 30 frames.
+    std::vector<float> src_l(30, 0.5f);
+    std::vector<float> src_r(30, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 30);
+    CHECK(ring.occupancy() == 30);
+
+    // Stop.
+    ring.stop();
+    CHECK(ring.occupancy() == 0);
+}
+
+TEST_CASE("AR9: stop() from Priming state") {
+    AudioRing<48> ring(24);
+
+    // Still in Priming with occupancy 0
+    CHECK(ring.state() == RingState::Priming);
+
+    // Stop: should transition to Stopped without issues
+    ring.stop();
+    CHECK(ring.state() == RingState::Stopped);
+    CHECK(ring.occupancy() == 0);
+}
+
+TEST_CASE("AR9: reset() from Stopped state returns to Priming") {
+    AudioRing<48> ring(24);
+
+    // Stop to enter Stopped state
+    ring.stop();
+    CHECK(ring.state() == RingState::Stopped);
+
+    // Reset: should return to Priming
+    ring.reset();
+    CHECK(ring.state() == RingState::Priming);
+    CHECK(ring.occupancy() == 0);
+}

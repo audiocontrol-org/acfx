@@ -7,18 +7,17 @@
 #include "audio-ring.h"
 #include "sample-format.h"
 
-// Audio ring contract (FR-030, FR-031, FR-032, FR-051-054). Tests cover:
+// Audio ring storage and data contracts (FR-030, FR-031, FR-032).
+// Tests cover:
 // AR1 — Bounded occupancy: occupancy() is always in [0, capacity()] on every path.
 // AR2 — Defined underflow: read() always writes exactly `frames` frames; shortfall
 //       is silence, and the count of substituted frames is returned.
 // AR3 — Defined overflow: write() drops the OLDEST frames, never the newest, and
 //       returns the count dropped (verified by proving newest data survives).
-// AR7 — Priming vs Running: Until occupancy reaches the fill target, read() reports
-//       not-yet-ready and no underrun is counted; once Running, a short read is a
-//       genuine underrun. State is observable (interface gap flagged in final report).
 // AR8 — No re-centring: ring never drops/duplicates frames to steer occupancy back
 //       toward a target; drift stays visible.
-// AR9 — reset() clears contents and returns to Priming, but does NOT touch counters.
+// State-machine contracts (AR7, AR9) and lifecycle tests (FR-051-054) are covered
+// in nucleo-audio-ring-lifecycle-test.cpp.
 
 using namespace acfx::nucleo;
 
@@ -63,14 +62,14 @@ bool buffersMatch(float* const* actual, const float* const* expected, int frames
 // ============================================================================
 
 TEST_CASE("AR1: occupancy is 0 immediately after construction") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     CHECK(ring.occupancy() == 0);
     CHECK(ring.occupancy() >= 0);
     CHECK(ring.occupancy() <= ring.capacity());
 }
 
 TEST_CASE("AR1: occupancy never exceeds capacity") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> left(kBlockFrames, 0.5f);
     std::vector<float> right(kBlockFrames, 0.3f);
 
@@ -84,7 +83,7 @@ TEST_CASE("AR1: occupancy never exceeds capacity") {
 }
 
 TEST_CASE("AR1: occupancy increases with writes, bounded by capacity") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> left(24, 0.5f);
     std::vector<float> right(24, 0.3f);
 
@@ -100,7 +99,7 @@ TEST_CASE("AR1: occupancy increases with writes, bounded by capacity") {
 }
 
 TEST_CASE("AR1: occupancy decreases with reads, stays within bounds") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> left(kBlockFrames, 0.5f);
     std::vector<float> right(kBlockFrames, 0.3f);
     const float* src[2] = {left.data(), right.data()};
@@ -125,7 +124,7 @@ TEST_CASE("AR1: occupancy decreases with reads, stays within bounds") {
 // ============================================================================
 
 TEST_CASE("AR2: read from empty ring fills with silence and reports all frames substituted") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
 
     std::vector<float> left(16, 999.0f);
     std::vector<float> right(16, 999.0f);
@@ -141,7 +140,7 @@ TEST_CASE("AR2: read from empty ring fills with silence and reports all frames s
 }
 
 TEST_CASE("AR2: read returns exactly the number of frames requested, no more, no less") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
 
     // Write 12 frames.
     std::vector<float> left(12, 0.5f);
@@ -169,7 +168,7 @@ TEST_CASE("AR2: read returns exactly the number of frames requested, no more, no
 }
 
 TEST_CASE("AR2: partial underflow fills shortfall with silence") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
 
     // Write 10 frames.
     std::vector<float> left(10, 0.7f);
@@ -195,7 +194,7 @@ TEST_CASE("AR2: partial underflow fills shortfall with silence") {
 }
 
 TEST_CASE("AR2: read with sufficient data returns 0 substituted frames") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
 
     std::vector<float> left(20, 0.8f);
     std::vector<float> right(20, 0.2f);
@@ -222,7 +221,7 @@ TEST_CASE("AR2: read with sufficient data returns 0 substituted frames") {
 // ============================================================================
 
 TEST_CASE("AR3: write beyond capacity drops oldest frames") {
-    AudioRing<16> ring;
+    AudioRing<16> ring(8);
 
     // Write 16 frames: pattern 1.0 (fill to capacity).
     std::vector<float> left1(16, 1.0f);
@@ -244,7 +243,7 @@ TEST_CASE("AR3: write beyond capacity drops oldest frames") {
 }
 
 TEST_CASE("AR3: newest frames survive overflow (oldest dropped, not newest)") {
-    AudioRing<16> ring;
+    AudioRing<16> ring(8);
 
     // Write 16 frames with value 1.0 (fill the ring).
     std::vector<float> left1(16, 1.0f);
@@ -276,7 +275,7 @@ TEST_CASE("AR3: newest frames survive overflow (oldest dropped, not newest)") {
 }
 
 TEST_CASE("AR3: overflow with multiple sequential writes drops correct old frames") {
-    AudioRing<24> ring;
+    AudioRing<24> ring(12);
 
     // Write 24 frames (value 1.0).
     std::vector<float> src1_l(24, 1.0f);
@@ -318,55 +317,11 @@ TEST_CASE("AR3: overflow with multiple sequential writes drops correct old frame
 }
 
 // ============================================================================
-// AR7: Priming vs Running
-// ============================================================================
-// NOTE: AR7 requires observable state and a fill-target parameter, neither
-// present in the declared interface. This is flagged as an interface gap.
-// Tests below exercise occupancy behavior; full AR7 coverage awaits state accessor.
-
-TEST_CASE("AR7: occupancy accumulation behavior (Priming phase inference)") {
-    AudioRing<48> ring;
-
-    // Initially occupancy is 0.
-    CHECK(ring.occupancy() == 0);
-
-    // Write progressively more frames.
-    std::vector<float> src_l(48, 0.5f);
-    std::vector<float> src_r(48, 0.5f);
-    const float* src[2] = {src_l.data(), src_r.data()};
-
-    int occ = 0;
-    for (int i = 0; i < 3; ++i) {
-        ring.write(src, 12);
-        occ += 12;
-        CHECK(ring.occupancy() == occ);
-    }
-}
-
-TEST_CASE("AR7: read behavior with partial occupancy (Priming inference)") {
-    AudioRing<48> ring;
-
-    // Write only 10 frames.
-    std::vector<float> src_l(10, 0.5f);
-    std::vector<float> src_r(10, 0.5f);
-    const float* src[2] = {src_l.data(), src_r.data()};
-    ring.write(src, 10);
-
-    // Try to read 20 frames; expect 10 substituted (underflow).
-    std::vector<float> dst_l(20, 0.0f);
-    std::vector<float> dst_r(20, 0.0f);
-    float* dst[2] = {dst_l.data(), dst_r.data()};
-
-    const int substituted = ring.read(dst, 20);
-    CHECK(substituted == 10);
-}
-
-// ============================================================================
 // AR8: No re-centring
 // ============================================================================
 
 TEST_CASE("AR8: occupancy drift persists, no re-centring toward target") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
 
     // Write 20 frames (capacity is 48, so occupancy = 20).
     std::vector<float> src_l(20, 0.5f);
@@ -398,7 +353,7 @@ TEST_CASE("AR8: occupancy drift persists, no re-centring toward target") {
 }
 
 TEST_CASE("AR8: asymmetric occupancy levels are maintained") {
-    AudioRing<32> ring;
+    AudioRing<32> ring(16);
 
     // Write 30 frames.
     std::vector<float> src_l(30, 0.5f);
@@ -420,77 +375,11 @@ TEST_CASE("AR8: asymmetric occupancy levels are maintained") {
 }
 
 // ============================================================================
-// AR9: reset()
-// ============================================================================
-
-TEST_CASE("AR9: reset clears contents (occupancy returns to 0)") {
-    AudioRing<48> ring;
-
-    // Write 30 frames.
-    std::vector<float> src_l(30, 0.5f);
-    std::vector<float> src_r(30, 0.5f);
-    const float* src[2] = {src_l.data(), src_r.data()};
-    ring.write(src, 30);
-    CHECK(ring.occupancy() == 30);
-
-    // Reset.
-    ring.reset();
-    CHECK(ring.occupancy() == 0);
-}
-
-TEST_CASE("AR9: reset returns ring to Priming state (initial occupancy zero)") {
-    AudioRing<48> ring;
-
-    // Write and read a few times.
-    std::vector<float> src_l(20, 0.5f);
-    std::vector<float> src_r(20, 0.5f);
-    const float* src[2] = {src_l.data(), src_r.data()};
-    ring.write(src, 20);
-
-    std::vector<float> dst_l(10, 0.0f);
-    std::vector<float> dst_r(10, 0.0f);
-    float* dst[2] = {dst_l.data(), dst_r.data()};
-    ring.read(dst, 10);
-
-    // Reset and verify we're back to the initial state.
-    ring.reset();
-    CHECK(ring.occupancy() == 0);
-
-    // Verify ring works normally after reset.
-    ring.write(src, 15);
-    CHECK(ring.occupancy() == 15);
-}
-
-TEST_CASE("AR9: reset clears pending data") {
-    AudioRing<48> ring;
-
-    // Write frames with a specific pattern.
-    std::vector<float> src_l(24, 1.0f);
-    std::vector<float> src_r(24, 1.0f);
-    const float* src[2] = {src_l.data(), src_r.data()};
-    ring.write(src, 24);
-
-    // Reset the ring.
-    ring.reset();
-
-    // Try to read 24 frames; should get silence (all frames are cleared).
-    std::vector<float> dst_l(24, 0.0f);
-    std::vector<float> dst_r(24, 0.0f);
-    float* dst[2] = {dst_l.data(), dst_r.data()};
-    const int substituted = ring.read(dst, 24);
-
-    // All 24 should be substituted (underflow from empty ring).
-    CHECK(substituted == 24);
-    CHECK(isSilence(dst_l.data(), 24));
-    CHECK(isSilence(dst_r.data(), 24));
-}
-
-// ============================================================================
 // Cross-contract scenarios
 // ============================================================================
 
 TEST_CASE("AR1+AR2: occupancy and underflow consistency") {
-    AudioRing<32> ring;
+    AudioRing<32> ring(16);
 
     // Write 10 frames, then try to read 30.
     std::vector<float> src_l(10, 0.7f);
@@ -510,7 +399,7 @@ TEST_CASE("AR1+AR2: occupancy and underflow consistency") {
 }
 
 TEST_CASE("AR2+AR3: overflow and underflow in sequence") {
-    AudioRing<16> ring;
+    AudioRing<16> ring(8);
 
     // Fill to capacity.
     std::vector<float> src_l(16, 0.5f);

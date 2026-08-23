@@ -17,7 +17,7 @@ using namespace acfx::nucleo;
 using acfx::test::AllocationSentinel;
 
 TEST_CASE("AR5: write allocates nothing") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> src_l(kBlockFrames, 0.5f);
     std::vector<float> src_r(kBlockFrames, 0.5f);
 
@@ -32,7 +32,7 @@ TEST_CASE("AR5: write allocates nothing") {
 }
 
 TEST_CASE("AR5: read allocates nothing") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> src_l(kBlockFrames, 0.5f);
     std::vector<float> src_r(kBlockFrames, 0.5f);
     const float* src[2] = {src_l.data(), src_r.data()};
@@ -56,7 +56,7 @@ TEST_CASE("AR5: read allocates nothing") {
 }
 
 TEST_CASE("AR5: occupancy allocates nothing") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> src_l(kBlockFrames, 0.5f);
     std::vector<float> src_r(kBlockFrames, 0.5f);
     const float* src[2] = {src_l.data(), src_r.data()};
@@ -72,7 +72,7 @@ TEST_CASE("AR5: occupancy allocates nothing") {
 }
 
 TEST_CASE("AR5: capacity allocates nothing") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
 
     AllocationSentinel::reset();
     for (int iter = 0; iter < 1000; ++iter) {
@@ -84,7 +84,7 @@ TEST_CASE("AR5: capacity allocates nothing") {
 }
 
 TEST_CASE("AR5: reset allocates nothing") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> src_l(kBlockFrames, 0.5f);
     std::vector<float> src_r(kBlockFrames, 0.5f);
     const float* src[2] = {src_l.data(), src_r.data()};
@@ -100,7 +100,7 @@ TEST_CASE("AR5: reset allocates nothing") {
 }
 
 TEST_CASE("AR5: mixed write/read sequence allocates nothing") {
-    AudioRing<48> ring;
+    AudioRing<48> ring(24);
     std::vector<float> src_l(kBlockFrames, 0.5f);
     std::vector<float> src_r(kBlockFrames, 0.5f);
     const float* src[2] = {src_l.data(), src_r.data()};
