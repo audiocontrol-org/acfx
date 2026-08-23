@@ -2,21 +2,100 @@
 
 ---
 
-## 2026-08-23: <!-- session title -->
+## 2026-08-23: nucleo-f446-adapter — Phases 5–6, from host tests to a real USB audio device
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Resume `specs/nucleo-f446-adapter` at Phase 5 through the stack-control `execute`
+front door. Phase 5 (US3, the SPSC audio ring) was the last fully host-testable phase; when the
+operator confirmed the board was physically connected mid-session, the goal widened to getting
+the NUCLEO-F446RE enumerating on the host as a composite USB audio device.
 
 **Accomplished:**
-- <!-- compose -->
+- **Phase 5 (US3) complete and ledgered** — `transport-stats.h` (64 lines) and `audio-ring.h`
+  (233 lines), with 44 ring cases / 394 assertions and 11 stats cases / 27 assertions passing.
+  T022 passed its RED tests on the first run and changed no test file.
+- **Phase 6 (US4) complete and HARDWARE-VERIFIED** — the board enumerates on macOS as
+  `acfx Nucleo F446 Effect` with all seven interfaces registered and matched by built-in class
+  drivers, no driver installation. Core Audio reports `acfx Audio`, 2 in / 2 out, 48000 Hz,
+  Transport USB. CDC presents `/dev/cu.usbmodem11206`. SC-001 met.
+- **Clock bring-up verified on real silicon**, not just linked: flashed and read back over SWD
+  `RCC_PLLCFGR=0x07402a04` (exact match to the spike), HSERDY/HSEBYP/PLLRDY all 1, `SWS=PLL`,
+  `FLASH_ACR` latency 5, prescalers /1 /4 /2 — SYSCLK 168 MHz, USB leg 48.0000 MHz exactly.
+- **Found and fixed the missing Cortex-M4F FPU enable** (TASK-31), which had the board
+  hard-faulting before USB could come up. This was the difference between a dead board and a
+  working audio device.
+- **Two contract amendments** giving `AudioRing` the observable state AR7 always required but the
+  interface could not express, plus a normative transition table, a named exception type, and a
+  decided `startupFill == 0` edge.
+- **Two research records written from pinned source**: R13 (the real TinyUSB 0.21.0 API, every
+  fact cited to file:line) and R14 (the OTG_FS endpoint + FIFO budget, which closes with ~30%
+  headroom and a spare endpoint pair).
+- **Four backlog items filed** (TASK-28 through TASK-31), one of them escalated upstream as
+  audiocontrol-org/deskwork#536.
 
 **Didn't Work:**
-- <!-- compose -->
+- **The first flash did not enumerate**, and every register a bring-up checklist examines read
+  correctly — PLL locked to the spike value, OTG clock on, device mode forced, transceiver
+  powered, soft-connect asserted, host completing bus reset and speed detection. The only
+  evidence was two *absences*: `NVIC_ISER[2]` bit 3 never set, and `GINTSTS` USBRST/ENUMDNE set
+  but never cleared. Root cause was `SCB_CPACR = 0` — the FPU was never enabled, so the first
+  VFP instruction raised a NOCP UsageFault that escalated to HardFault.
+- **`ctest --preset test` is a false green** and was believed for most of the session. It reports
+  828/828 while the binary run directly reports 3 failed cases. 28 test names contain a
+  semicolon, CMake truncates them as list separators, the resulting filter matches nothing,
+  doctest runs zero cases and exits 0, and ctest records Passed (TASK-29).
+- **T019 and T020 both needed substantial rework.** T019 took two fix rounds plus four assertions
+  added by hand; T020's 26 cases in 340 lines were largely tautological and were rewritten to 11.
+- **US8's fault test is unsatisfiable as written** on any rig (TASK-30) — deferred by the operator
+  along with T051/T052.
+- **I flashed over the spike firmware.** The captured USB baseline contained `F446 Loopback Audio`
+  and I did not read my own baseline before writing to flash.
 
 **Course Corrections:**
-- <!-- compose -->
+- **The execute gate refused the entire spec on the first command of the session.** `resolve-tiers`
+  cannot parse lettered task ids, and two already-complete ledgered tasks blocked all 72.
+  Operator chose an in-repo renumber (`T010a`/`T012a` → `T071`/`T072`) with matching ledger
+  renames over a cross-repo fix.
+- **Amended the contract twice rather than letting tests guess.** T019 produced a test asserting
+  a counted underrun during Priming — exactly what AR7 forbids — because the declared interface
+  exposed no state accessor. Amending the artifact was the right fix; the behaviour was never
+  ambiguous, only the C++ surface was missing.
+- **Folded T024 forward across a phase boundary** on operator direction, because T051 had nothing
+  to guard until the PLL was actually configured.
+- **Dropped the error-condition work** when the operator said so directly. T051/T052 marked
+  deferred rather than quietly skipped.
+- **A third-party design review improved the AR7 interface** — its framing that "not ready" is a
+  lifecycle property of the transport rather than an outcome of a read was better than the
+  original. Pushed back on three points: the missing `Stopped` state (the spec commits to three,
+  and FR-051 suspend needs somewhere to land), naming churn against the declared contract, and
+  an unvalidated `startupFill > capacity` that would prime forever in silence.
+- **Corrected mid-run by a subagent.** I told T029 that `CFG_TUD_CDC_NOTIFY=0` removes the CDC
+  notify endpoint; it does not — `cdcd_open` opens it unconditionally when the descriptor
+  declares one. T029 verified against the pinned source and computed both budgets anyway.
 
 **Insights:**
-- <!-- compose -->
+- **Excluding a vendor init file needs an item-by-item inventory of what it did.** D14's call to
+  drop `system_stm32f4xx.c` was right, but `SystemInit()` was not all scaffolding — it also
+  enabled the FPU, and nothing replaced that one line. Same shape as TASK-24's missing C-runtime
+  startup: reviews reason over the artifacts present, never over whether the set is sufficient
+  to boot.
+- **A green signal that cannot fail gets believed.** Two independent instances this session: the
+  ctest false green (28 tests silently not run, reported as passing) and the allocation sentinel
+  with no positive control (every `allocations() == 0` assertion vacuous if the override ever
+  stopped firing). Both were checks that structurally could not report failure.
+- **On bare metal, install the fault handler before anything else.** A HardFault currently
+  presents as a hang. T050's LD2 blink pattern already exists; pointing the fault vectors at it
+  would have turned an hour of CPACR/CFSR/HFSR archaeology into a glance at the board.
+- **Ask a subagent for an artifact, not a claim.** Reports were consistently more confident than
+  the work — a 535-line file called 658, AR7 called covered when the test asserted the opposite,
+  AR8 tests called "moved" when they were copied into both files. Demanding the actual
+  disassembly, the actual build error text, or the actual harness output caught every one.
+- **Test-count inflation reads as coverage and is worse than a gap.** T020's eight
+  `uint32_t max + 1 == 0` cases asserted the C++ standard, not this codebase. The honest
+  deliverable was less than half the size and said out loud which guarantees are *not* provable
+  against a passive record.
+- **A verified number belongs in a `static_assert`, not a comment.** T024 turned the spike's
+  recorded `PLLCFGR = 0x07402a04` into a build-time check, and negative-tested it. That is the
+  difference between a number that stays true and one that quietly rots.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 33
