@@ -687,7 +687,7 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
 - **FR-036a**: The DSP MUST process **fixed 48-frame blocks** drawn from the ring
   (Clarifications 2026-08-23). `maxBlockSize` therefore equals the block size; there is no
   headroom term.
-- **FR-036b**: FR-036 **supersedes D15's 49-frame prepare**. D15 sized the prepare to
+- **FR-036b**: FR-036 **supersedes D15's 49-frame prepare** (the design record records this as **D28**, with D15 struck through in place). D15 sized the prepare to
   `TUD_AUDIO_EP_SIZE`'s 49 frames back when the block followed the packet. Once the ring became
   the decoupling boundary (FR-030a), a 49-frame packet changes ring occupancy and nothing else —
   `process()` still receives 48. Preparing at 49 would let **transport framing leak across the
