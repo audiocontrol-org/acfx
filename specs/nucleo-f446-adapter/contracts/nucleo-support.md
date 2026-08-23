@@ -78,10 +78,12 @@ public:
     // inventing WHAT it is -- host tests sweep arbitrary values (0, 48, 96) to
     // prove the state machine.
     //
-    // Throws if startupFillFrames > CapacityFrames: such a ring could never
-    // reach Running and would prime forever, SILENTLY. Construction is startup
-    // work, never the audio path, so throwing here is safe and is the fail-loud
-    // behaviour this codebase requires over a silent clamp.
+    // Throws std::invalid_argument if startupFillFrames is negative or exceeds
+    // CapacityFrames: such a ring could never reach Running and would prime
+    // forever, SILENTLY. Construction is startup work, never the audio path, so
+    // throwing here is safe and is the fail-loud behaviour this codebase
+    // requires over a silent clamp. (std::invalid_argument is the established
+    // convention for argument validation across this codebase.)
     explicit AudioRing(int startupFillFrames);
 
     // Push up to `frames` frames. Overflow drops the OLDEST and reports how many.
@@ -115,11 +117,17 @@ public:
 
 | From | Trigger | To |
 |---|---|---|
-| — | construction | **Priming** |
-| Priming | `write()` carries occupancy to `startupFill()` | **Running** |
+| — | construction | **Priming** (unconditionally, even when `startupFill() == 0`) |
+| Priming | end of a `write()` where `occupancy() >= startupFill()` | **Running** |
 | Running | short read / underrun | **Running** (never demoted) |
 | any | `reset()` — stream open, resume, bus reset | **Priming** |
 | any | `stop()` — suspend | **Stopped** |
+
+**The threshold is evaluated at the end of every `write()`, and only there.** Construction
+always yields Priming, so a ring built with `startupFill() == 0` is Priming until its first
+`write()` — including a zero-frame write — promotes it. Reads never change state. Fixing the
+check to one place keeps the edge cases (`startupFill() == 0`, a write that overshoots the
+threshold, a write during Stopped) decidable by reading one rule rather than inferred.
 
 **Running is not demoted by starvation.** Once the ring has primed, an empty ring is a
 genuine fault and stays visible as one; silently dropping back to Priming would mask
