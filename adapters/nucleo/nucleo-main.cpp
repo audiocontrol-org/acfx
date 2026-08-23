@@ -75,6 +75,121 @@ void SetFaultLed(bool on)
   GPIOA->BSRR = on ? GPIO_BSRR_BS5 : GPIO_BSRR_BR5;
 }
 
+// Approximate busy-wait delay used only by the fault-signal path below, before
+// the clock is validated (FR-015c). Deliberately NOT SysTick or any hardware
+// timer: both are configured against (or read out) a clock tree that, in the
+// fault path, does not yet exist as configured — SystemCoreClock above is
+// pinned to the 168 MHz TARGET value and would make a timer-derived delay
+// wrong by roughly 10x here, where the core is still running on the
+// reset-default 16 MHz HSI RC oscillator.
+//
+// `counter` is `volatile` specifically so the compiler cannot delete or hoist
+// the loop. An ordinary (non-volatile) `for (uint32_t i = 0; i < iterations;
+// ++i) {}` has no observable side effect, so the optimizer is entitled to —
+// and at this project's RelWithDebInfo/-O2 build type, WILL — eliminate it
+// entirely, turning three intended pulses into an invisible flicker. Marking
+// `counter` volatile forces every decrement to be an observable memory
+// read-modify-write that the compiler must actually emit and execute.
+//
+// The decrement is written as a plain assignment (`counter = counter - 1`)
+// rather than `--counter`: C++20 deprecates pre/post increment-decrement on
+// a volatile-qualified operand ([depr.volatile.type]), which arm-none-eabi-g++
+// flags as -Wvolatile; a plain assignment reads and writes the same volatile
+// object without tripping that deprecation.
+void BusyWaitApprox(uint32_t iterations)
+{
+  volatile uint32_t counter = iterations;
+  while (counter != 0) {
+    counter = counter - 1;
+  }
+}
+
+// --- Fault-pattern timing arithmetic --------------------------------------
+// Approximate by design (FR-015c): the pattern's SHAPE, not its timing,
+// carries the fault signal, because this runs on the un-configured
+// reset-default 16 MHz HSI (see BusyWaitApprox above and InitFaultLed's
+// comment). Per the T050 disassembly of this function (arm-none-eabi-objdump
+// -d on the compiled object; the whole loop body, `sp`-relative because
+// `counter` is a stack-spilled volatile, not a register), each iteration is
+// 6 Thumb instructions: `ldr` (reload counter), `subs` (decrement), `str`
+// (spill it back — the volatile write), a second `ldr` (reload again for the
+// comparison, since a volatile read must not be reused from a register),
+// `cmp`, and `bne`. Treating each as roughly one cycle at zero flash wait
+// states (a simplification — the two `ldr`/`str` SRAM accesses plausibly
+// cost more than register-only ops on real hardware) gives:
+//
+//   16,000,000 cycles/sec / 6 cycles/iteration ~= 2,666,667 iterations/sec
+//                                              ~= 2,667 iterations/ms
+//
+// This is a rough order-of-magnitude estimate, not a calibrated delay: real
+// per-iteration cost depends on exact SRAM access timing, so actual
+// durations could plausibly be off by roughly 2x either way. Per FR-015c
+// that is acceptable — at these counts a pulse reads as somewhere in the
+// 100-450ms range and the long gap as 700ms-2.7s, so the short/long
+// contrast (roughly 6x) holds regardless, still unmistakably three quick
+// blinks against a much longer pause, and unmistakably blinking against a
+// dark board.
+constexpr uint32_t kIterationsPerMs = 2667u;
+
+// Short pulse (LED on) and the gap between pulses within a triplet: counted
+// for ~225ms each at the estimate above. Comfortably above the threshold
+// where individual blinks blur together and comfortably below the point
+// where a blink starts reading as a "hold" rather than a pulse.
+constexpr uint32_t kPulseIterations = 600000u;      // ~225ms (600,000 / 2,667/ms)
+
+// Long gap after the third pulse, before the pattern repeats: counted for
+// ~1.35s at the estimate above, 6x a single pulse's iteration count. Long
+// enough to read unmistakably as a pause separating repeats of "three short
+// pulses", not as a steady or heartbeat indication and not as a dark board
+// between repeats.
+constexpr uint32_t kLongGapIterations = 3600000u;   // ~1.35s (3,600,000 / 2,667/ms)
+
+// Fatal clock-fault signal (FR-015a/b/c): blinks LD2 (PA5) three short
+// pulses, a long gap, repeating indefinitely, and never returns. This IS the
+// halt — there is nothing after the pattern to fall through to, by design
+// (FR-015: a PLL-lock failure MUST NOT proceed to USB init or fall back to
+// the internal oscillator; the only correct outcome is stopping here,
+// visibly, forever).
+//
+// Callers: none yet. T051 wires the actual PLL-lock-failure check (T024's
+// clock bring-up, which per this file's header comment also lands in
+// nucleo-main.cpp) to invoke this; until then it is reachable code with no
+// caller, which is correct and expected for this task (see T050's scope
+// boundary) — not dead code that needs deleting, and not a placeholder that
+// needs a fabricated failure condition to "demo" it.
+//
+// `[[gnu::used]]`: this function (and BusyWaitApprox, only reachable through
+// it) currently has zero callers. Without this attribute the compiler's own
+// IPA dead-code-elimination pass would omit the function from the compiled
+// object entirely before T051 ever adds a call. `used` keeps it emitted in
+// the object file (verified: `nm` on nucleo-main.cpp.obj shows it present)
+// despite having no caller yet, without fabricating one.
+//
+// This project's --gc-sections linker flag (see the nucleo toolchain file's
+// -ffunction-sections/--gc-sections comment) still discards the still-unused
+// section from the final linked .elf at link time — `[[gnu::retain]]`, the
+// attribute meant to survive that, is silently ignored by this toolchain's
+// linker (tested; it emits a `-Wattributes` warning and has no effect, so it
+// is deliberately NOT used here). That is fine: T050's disassembly
+// verification below is done against the compiled .o (same optimizer, same
+// flags as the shipped build), and once T051 adds the real call the function
+// becomes referenced and --gc-sections keeps it in the final .elf like any
+// other reachable code.
+[[gnu::used]] [[noreturn]] void SignalFatalClockFaultAndHalt()
+{
+  for (;;) {
+    for (int pulse = 0; pulse < 3; ++pulse) {
+      SetFaultLed(true);
+      BusyWaitApprox(kPulseIterations);
+      SetFaultLed(false);
+      if (pulse < 2) {
+        BusyWaitApprox(kPulseIterations);  // gap between pulses within the triplet
+      }
+    }
+    BusyWaitApprox(kLongGapIterations);  // long gap before the pattern repeats
+  }
+}
+
 }  // namespace
 
 // Firmware entry point. `Reset_Handler` in the startup code calls this after
@@ -85,7 +200,7 @@ void SetFaultLed(bool on)
 //      clock validation, so a clock bring-up failure has a working indicator
 //      (FR-015c). Done below.
 //   2. Clock bring-up (HSE bypass, PLL configuration, lock-failure handling,
-//      blinking the fault LED via SetFaultLed() above on failure).
+//      calling SignalFatalClockFaultAndHalt() above on a lock failure).
 //   3. TinyUSB init (tusb_init() against the composite descriptor).
 //   4. The tud_task() service loop, run forever.
 // Only step 1 exists so far, so the loop below is an explicit, empty spin: a
