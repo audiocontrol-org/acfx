@@ -103,7 +103,11 @@ TEST_CASE("AR7: once Running, ring is never demoted by starvation") {
     std::vector<float> dst_l(48);
     std::vector<float> dst_r(48);
     float* dst[2] = {dst_l.data(), dst_r.data()};
+    // Draining exactly what the ring holds is a CLEAN read -- nothing substituted.
+    // Asserting 0 here is what makes the underrun assertion below meaningful: it
+    // separates "the ring was drained" from "the drain itself already underran".
     const int substituted = ring.read(dst, 24);
+    CHECK(substituted == 0);
     CHECK(ring.occupancy() == 0);
 
     // Even though occupancy is 0, state should still be Running

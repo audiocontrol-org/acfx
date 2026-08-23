@@ -88,13 +88,22 @@ TEST_CASE("AR1: occupancy increases with writes, bounded by capacity") {
     std::vector<float> right(24, 0.3f);
 
     const float* src[2] = {left.data(), right.data()};
-    const int frames1 = ring.write(src, 12);
+
+    // None of these writes overflows a 48-frame ring, so every one must report
+    // zero frames dropped. Asserting that is the point: an unchecked write()
+    // return would let a silent drop pass as a healthy write.
+    const int dropped1 = ring.write(src, 12);
+    CHECK(dropped1 == 0);
     CHECK(ring.occupancy() == 12);
 
-    const int frames2 = ring.write(src, 12);
+    const int dropped2 = ring.write(src, 12);
+    CHECK(dropped2 == 0);
     CHECK(ring.occupancy() == 24);
 
-    const int frames3 = ring.write(src, 24);
+    // 24 more onto 24 held reaches capacity exactly -- still no drop.
+    const int dropped3 = ring.write(src, 24);
+    CHECK(dropped3 == 0);
+    CHECK(ring.occupancy() == 48);
     CHECK(ring.occupancy() <= ring.capacity());
 }
 
