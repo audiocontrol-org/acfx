@@ -30,3 +30,5 @@
 {"id": "T026", "tierLabel": "balanced", "model": "sonnet", "commitRange": "43a7e96..d97c827", "reviewClean": true}
 {"id": "T029", "tierLabel": "powerful", "model": "opus", "commitRange": "2e22320..5fa0db8", "reviewClean": true}
 {"id": "T027", "tierLabel": "powerful", "model": "opus", "commitRange": "66346da..b0175da", "reviewClean": true}
+{"id": "T030", "tierLabel": "balanced", "model": "sonnet", "commitRange": "ccf6964..eef5370", "reviewClean": true}
+{"id": "T031", "tierLabel": "fast", "model": "haiku", "commitRange": "eef5370..HEAD", "reviewClean": true, "hardwareVerified": true}
