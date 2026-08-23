@@ -60,24 +60,71 @@ void interleaveToInt16(const float* const* src, std::int16_t* dst,
 ```cpp
 namespace acfx::nucleo {
 
+// The ring's lifecycle (FR-030d, I-AR6, spec § transport states). Three states,
+// not two: Stopped is NOT a synonym for Priming. Priming means a stream is open
+// and the producer is actively filling; Stopped means no streaming alt-setting
+// is open and nothing is arriving. Collapsing them would leave suspend (FR-051)
+// nowhere to land and would make "empty and filling" indistinguishable from
+// "empty because the host went away" -- the very ambiguity AR7 exists to remove.
+enum class RingState { Stopped, Priming, Running };
+
 template <int CapacityFrames, int Channels = kChannels>
 class AudioRing {
 public:
+    // `startupFillFrames` is the occupancy at which Priming becomes Running.
+    // Supplied as CONFIGURATION, deliberately not pinned here: D23 / FR-035
+    // derive the production value from HIL measurement in Phase 13. Declaring
+    // HOW the threshold is supplied and WHAT it means is not the same as
+    // inventing WHAT it is -- host tests sweep arbitrary values (0, 48, 96) to
+    // prove the state machine.
+    //
+    // Throws if startupFillFrames > CapacityFrames: such a ring could never
+    // reach Running and would prime forever, SILENTLY. Construction is startup
+    // work, never the audio path, so throwing here is safe and is the fail-loud
+    // behaviour this codebase requires over a silent clamp.
+    explicit AudioRing(int startupFillFrames);
+
     // Push up to `frames` frames. Overflow drops the OLDEST and reports how many.
-    // Returns frames dropped (0 on the normal path).
+    // Returns frames dropped (0 on the normal path). A write that carries
+    // occupancy to startupFill() promotes Priming -> Running (once; see AR7).
     int write(const float* const* src, int frames) noexcept;
 
     // Draw exactly `frames`. Underflow fills the shortfall with SILENCE and
     // reports how many frames were substituted.
+    //
+    // The caller MUST consult state() first and draw nothing unless Running
+    // (AR7). Lifecycle is deliberately NOT encoded in this return value: "not
+    // ready" is a property of the transport, not an outcome of a read, and
+    // pushing it into every read result would force every caller to handle a
+    // condition that should have prevented the call.
     int read(float* const* dst, int frames) noexcept;
 
-    int  occupancy() const noexcept;
-    int  capacity()  const noexcept { return CapacityFrames; }
-    void reset()     noexcept;
+    RingState state()       const noexcept;
+    int       occupancy()   const noexcept;
+    int       capacity()    const noexcept { return CapacityFrames; }
+    int       startupFill() const noexcept;
+
+    void reset() noexcept;   // -> Priming (stream open, resume, bus reset; AR9)
+    void stop()  noexcept;   // -> Stopped (suspend; FR-051)
 };
 
 } // namespace acfx::nucleo
 ```
+
+### State transitions (AR7, AR9, FR-030d, FR-051 — normative)
+
+| From | Trigger | To |
+|---|---|---|
+| — | construction | **Priming** |
+| Priming | `write()` carries occupancy to `startupFill()` | **Running** |
+| Running | short read / underrun | **Running** (never demoted) |
+| any | `reset()` — stream open, resume, bus reset | **Priming** |
+| any | `stop()` — suspend | **Stopped** |
+
+**Running is not demoted by starvation.** Once the ring has primed, an empty ring is a
+genuine fault and stays visible as one; silently dropping back to Priming would mask
+sustained drift behind a "still starting up" reading — the same masking the no-re-centring
+guarantee (AR8) exists to forbid.
 
 ### Guarantees
 
@@ -93,20 +140,37 @@ public:
   (FR-032 — this is how Principle VII is honoured where throwing is unavailable)
 - **AR5** — No allocation, no locks. Storage is a fixed member array. Single-producer /
   single-consumer, sufficient under the single-context assumption (**D26**, FR-046). (FR-030)
-- **AR6** — `noexcept` throughout; callable from the audio path.
-- **AR7** — Priming vs Running. Until occupancy first reaches the fill target the ring is
-  **Priming**: `read()` reports not-yet-ready and **no underrun is counted**. Once reached it
-  is **Running** and a short read is a genuine underrun (AR2). The state is observable, so a
-  caller never has to infer it. (FR-030b, FR-030d, I-AR6)
+- **AR6** — `noexcept` throughout on the audio path. The **constructor is the sole exception**
+  and may throw (see the `startupFillFrames` validation above): it runs at startup, never
+  inside `process()`.
+- **AR7** — Priming vs Running. Until occupancy first reaches `startupFill()` the ring is
+  **Priming**, and **no underrun is counted** — an empty ring while Priming is normal
+  operation, not a shortfall. Once reached it is **Running**, and a short read is a genuine
+  underrun (AR2). The state is observable via `state()`, so a caller never has to infer it.
+  **The mechanism is that the consumer checks `state()` and draws no block unless Running**
+  (data-model.md's "consumer waits; no block drawn"), NOT that `read()` returns a distinct
+  not-ready value — lifecycle is a property of the transport, not an outcome of a read.
+  Calling `read()` while Priming or Stopped is therefore a **caller error**; the ring will
+  still behave predictably (silence, substitution count returned) but the count is
+  meaningless and must not be recorded as an underrun. (FR-030b, FR-030d, I-AR6)
 - **AR8** — No re-centring. The ring never drops or duplicates frames to steer occupancy back
   toward a target; drift stays visible in the counters. (FR-030c, I-AR7)
-- **AR9** — `reset()` clears contents and returns the ring to **Priming**, so suspend, resume,
-  and bus reset all restart from a defined state rather than draining a stale partial ring.
-  It does **not** touch the counters. (FR-051, FR-052, FR-053, FR-054, I-AR8)
+- **AR9** — `reset()` clears contents and returns the ring to **Priming**, so stream open,
+  resume, and bus reset all restart from a defined state rather than draining a stale partial
+  ring. `stop()` clears and enters **Stopped** for suspend (FR-051). Neither **touches the
+  counters** — lifecycle events must not erase the transport history the diagnostics report.
+  (FR-051, FR-052, FR-053, FR-054, I-AR8)
 
-**`CapacityFrames` is deliberately a template parameter with no default.** Its value is derived
-from HIL measurement per research R5 and pinned in Phase H (**D23**, FR-035). A default here
+**`CapacityFrames` is deliberately a template parameter with no default**, and
+**`startupFillFrames` a constructor argument with no default.** Both values are derived from
+HIL measurement per research R5 and pinned in Phase 13 (**D23**, FR-035). A default for either
 would be an invented number wearing the costume of a decision.
+
+They differ in *kind*, which is why they are supplied differently: capacity determines the size
+of the fixed member array and so must be known at compile time (AR5); the fill threshold is a
+policy value compared against occupancy at run time, and making it a constructor argument lets
+the host tests sweep it (0, 48, 96, capacity) to prove the state machine without instantiating
+a fresh template per value.
 
 ---
 
