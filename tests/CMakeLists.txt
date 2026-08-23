@@ -215,6 +215,8 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   core/nucleo-sample-format-test.cpp
   core/nucleo-sample-format-no-allocation-test.cpp
+  core/nucleo-audio-ring-test.cpp
+  core/nucleo-audio-ring-no-allocation-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
