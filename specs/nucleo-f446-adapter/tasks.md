@@ -81,10 +81,10 @@ execution graph.
 **Independent test**: Configure with the Nucleo toolchain and build; every declared firmware target links. A C-only toolchain fails configuration with a descriptive message.
 
 - [x] T010 [P] [US1] [tier:balanced] Write the linker script `adapters/nucleo/startup/nucleo-f446.ld` for STM32F446RE (512 KB flash at 0x8000000, 128 KB SRAM)
-- [x] T010a [US1] [tier:balanced] Write the C-runtime startup in `adapters/nucleo/startup/startup.cpp`: a `Reset_Handler` that copies `.data` from its flash load address into SRAM, zeroes `.bss`, calls `__libc_init_array` so C++ static constructors run, calls `main()`, and traps if `main` returns. **Added 2026-08-23 (operator-approved), because no task or requirement owned it:** the spec, plan, research, contracts and design record contain zero mentions of `Reset_Handler`, `.bss`, or static-constructor init, yet without them the T011 vector table's reset entry has no target, globals are never initialised, and no `.elf` can honestly boot. Deliberately hand-written rather than adopting `cmsis_device_f4`'s `Source/Templates/gcc/startup_stm32f446xx.s`, whose own vector table would collide with and supersede **D13**. Must use exactly the symbol names T010's linker script exports. Lettered ID (not a renumber) because the execution ledger is keyed by task id
+- [x] T071 [US1] [tier:balanced] Write the C-runtime startup in `adapters/nucleo/startup/startup.cpp`: a `Reset_Handler` that copies `.data` from its flash load address into SRAM, zeroes `.bss`, calls `__libc_init_array` so C++ static constructors run, calls `main()`, and traps if `main` returns. **Added 2026-08-23 (operator-approved), because no task or requirement owned it:** the spec, plan, research, contracts and design record contain zero mentions of `Reset_Handler`, `.bss`, or static-constructor init, yet without them the T011 vector table's reset entry has no target, globals are never initialised, and no `.elf` can honestly boot. Deliberately hand-written rather than adopting `cmsis_device_f4`'s `Source/Templates/gcc/startup_stm32f446xx.s`, whose own vector table would collide with and supersede **D13**. Must use exactly the symbol names T010's linker script exports. **Executes here, between T010 and T011 — file order carries execution order, the id does not.** Originally authored as `T010a`: a lettered suffix inserts a task without renumbering, which matters because the execution ledger is keyed by task id. Renumbered to the unused trailing id `T071` on 2026-08-23 (operator-approved) because `stackctl resolve-tiers` cannot parse a lettered id and refused the entire spec at the execute gate (backlog TASK-28); its ledger entry was renamed to match, so resume-skip stays coherent
 - [x] T011 [US1] [tier:balanced] Generate the interrupt vector table in `adapters/nucleo/startup/vector-table.cpp` **from the CMSIS `IRQn_Type` enum**, so its length is structural rather than maintained by hand and covers `OTG_FS_IRQn` (= 67). A core-exceptions-only table sends the NVIC past the end of the array on the first USB interrupt (FR-012, **D13**)
 - [x] T012 [US1] [tier:balanced] Define `SystemCoreClock` in `adapters/nucleo/nucleo-main.cpp` with the true configured frequency; ST's `system_stm32f4xx.c` is not compiled, and TinyUSB derives PHY turnaround timing from this value — a wrong one degrades timing *silently* (FR-013, **D14**)
-- [x] T012a [US1] [tier:balanced] Add the firmware entry point `main()` to `adapters/nucleo/nucleo-main.cpp`. **Added 2026-08-23 (operator-approved), because no task owned it:** `Reset_Handler` calls `main()`, and US1's exit criterion is that every declared firmware target LINKS — impossible while `main` is an undefined symbol. T030 (Phase 6) adds TinyUSB init and the service loop to this file but never introduces the entry point. Minimal and honest: an explicit empty service-loop spin, with clock bring-up, GPIO/LED, TinyUSB init and `tud_task()` landing here as their own tasks run. Same lettered-id rationale as T010a
+- [x] T072 [US1] [tier:balanced] Add the firmware entry point `main()` to `adapters/nucleo/nucleo-main.cpp`. **Added 2026-08-23 (operator-approved), because no task owned it:** `Reset_Handler` calls `main()`, and US1's exit criterion is that every declared firmware target LINKS — impossible while `main` is an undefined symbol. T030 (Phase 6) adds TinyUSB init and the service loop to this file but never introduces the entry point. Minimal and honest: an explicit empty service-loop spin, with clock bring-up, GPIO/LED, TinyUSB init and `tud_task()` landing here as their own tasks run. **Executes here, between T012 and T013 — file order carries execution order, the id does not.** Originally authored as `T012a`; renumbered to `T072` for the same reason as T071 (backlog TASK-28), with its ledger entry renamed to match
 - [x] T013 [US1] [tier:balanced] Create `adapters/nucleo/CMakeLists.txt` declaring firmware targets via `acfx_add_effect_nucleo` for the same two effects the Daisy adapter builds (`acfx::SvfEffect`, `acfx::ModulatedDelayEffect`)
 - [ ] T014 [US1] [tier:fast] **Superseded by operator direction 2026-08-23 — do NOT add the nucleo preset to CI.** Operator: *"you can only run device-specific tests on a development host; don't try to run anything platform-specific in the ci pipeline; it will either fail on github's ci servers or be too slow to add value."* A nucleo CI job WAS authored (with a real Arm GNU Toolchain provisioning step) and has been reverted; `.github/workflows/ci.yml` is unchanged and its existing header comment — hardware presets build-checked only where ARM toolchains are provisioned — remains accurate. Cross-compile+link is therefore verified on a development host (T015) instead. **Open for the operator: FR-048 and D18 still name CI cross-compile+link as "verification layer 1", which now contradicts this direction and needs amending or reinterpreting.** No agent-side spec edit made
 - [x] T015 [US1] [tier:fast] Verify US1 end to end: `cmake --preset nucleo && cmake --build --preset nucleo` links one `.elf` per effect; a C-only toolchain on `PATH` fails configuration with the libstdc++ message (quickstart § 2, SC-008)
@@ -296,13 +296,14 @@ Phase 1 (T001-T006)  →  Phase 2 (T007-T009)
 - **US8's T049/T050 precede US4's T024** despite the lower priority (FR-015c).
 - **T062 cannot start before US9** — the measurement needs the harness that reads the counters.
 - **T028 gates all data-path work** in US4/US5: the TinyUSB API must be read off the pinned tree, never recalled.
+- **T071 and T072 execute inside US1**, not after Phase 13 — their trailing ids are an artifact of the TASK-28 renumber, not their position. T071 (C-runtime startup) runs between T010 and T011; T072 (entry point) between T012 and T013. The `US1 (T010-T015)` node above is shorthand for that whole span.
 
 ## Parallel Execution Examples
 
 **After Phase 2, three tracks run concurrently:**
 
 ```text
-Track A (build):  T010 → T011 → T012 → T013 → T014 → T015
+Track A (build):  T010 → T071 → T011 → T012 → T072 → T013 → T014 → T015
 Track B (host):   T016 → T017 → T018
 Track C (host):   T019 ∥ T020 → T021 → T022 → T023
 ```
@@ -336,7 +337,7 @@ numbers it produces can be pinned.
 |---|---|---|---|
 | 1 | Setup | T001–T006 | 6 |
 | 2 | Foundational | T007–T009 | 3 |
-| 3 | US1 (P1) 🎯 MVP | T010–T015 | 6 |
+| 3 | US1 (P1) 🎯 MVP | T010–T015, T071–T072 | 8 |
 | 4 | US2 (P1) | T016–T018 | 3 |
 | 5 | US3 (P1) | T019–T023 | 5 |
 | 6 | US4 (P1) | T024–T031 | 8 |
@@ -347,9 +348,9 @@ numbers it produces can be pinned.
 | 11 | US10 (P2) | T053–T057 | 5 |
 | 12 | US9 (P3) | T058–T061 | 4 |
 | 13 | Polish/measurement | T062–T070 | 9 |
-| **Total** | | | **70** |
+| **Total** | | | **72** |
 
-**Tier distribution**: `fast` 27, `balanced` 34, `powerful` 9. The `powerful` set is exactly the
+**Tier distribution**: `fast` 27, `balanced` 36, `powerful` 9. The `powerful` set is exactly the
 work that is cross-cutting or silently-failing: the build-graph decision (T007), the locally
 authored composite descriptor (T027), register-level clock bring-up (T024), the TinyUSB API
 verification (T028), the endpoint budget (T029), the ring itself (T022), the two data-path

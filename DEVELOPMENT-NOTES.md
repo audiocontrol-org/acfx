@@ -35,7 +35,9 @@ per-task subagents, review each, ledger, commit and push at every phase boundary
   section below, because that derivation reads commit messages and the rest were captured mid-phase.
 - **Two tasks added mid-flight with operator approval** (`T010a` C-runtime startup, `T012a` entry
   point), using **lettered ids rather than a renumber** because the execution ledger is keyed by
-  task id.
+  task id. *(Superseded 2026-08-23: `stackctl resolve-tiers` cannot parse a lettered id and refused
+  the whole spec at the next execute gate — see backlog TASK-28. Renumbered to `T071`/`T072` with
+  their ledger entries renamed to match. They still execute inside US1, not after Phase 13.)*
 
 **Didn't Work:**
 - **I verified the ARM toolchain with `--version` and was wrong.** I told the operator firmware
@@ -91,6 +93,12 @@ per-task subagents, review each, ledger, commit and push at every phase boundary
 - **Lettered task ids beat renumbering once execution starts.** Last session recorded renumbering as
   a documentation hazard; mid-execution it becomes a correctness one, because the ledger keys resume
   safety on task id. `T010a`/`T012a` cost nothing; a renumber would have invalidated 16 entries.
+  *(Falsified next session: the reasoning held, but `stackctl resolve-tiers` parses ids as `T\d+\b`
+  and rejects a lettered suffix outright — so the ids cost the entire next execute run, not nothing.
+  The real lesson: **an id convention is only free if the tooling that gates on it accepts it.**
+  Resolved by renumbering to unused trailing ids `T071`/`T072` and renaming the two ledger entries —
+  which preserved resume safety after all, because appending beyond the last id needs no cascade.
+  The tool defect is backlog TASK-28.)*
 - **Verification strength deserves recording, not just verification.** The dependency-pin header now
   distinguishes fetch-and-build from fetch-resolved-only from captured-but-unfetched — three
   honestly different confidence levels that a single "verified" label would have flattened.

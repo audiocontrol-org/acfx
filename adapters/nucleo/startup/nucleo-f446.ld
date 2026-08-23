@@ -8,7 +8,7 @@
  *            SRAM1 (112 KB @ 0x20000000) contiguous with SRAM2 (16 KB @
  *            0x2001C000), so the pair is modeled here as one 128 KB region.
  *
- * Exported symbols consumed by the C-runtime startup (startup.cpp, T010a)
+ * Exported symbols consumed by the C-runtime startup (startup.cpp, T071)
  * and the vector table (vector-table.cpp, T011):
  *   _estack          initial stack pointer = top of RAM
  *   _sidata          LMA (flash) start of the .data initializer image
