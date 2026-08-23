@@ -70,7 +70,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **svf-training-site**.
+Active Spec Kit feature: **nucleo-f446-adapter**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/svf-training-site/plan.md` (spec: `specs/svf-training-site/spec.md`).
+current plan at `specs/nucleo-f446-adapter/plan.md` (spec: `specs/nucleo-f446-adapter/spec.md`).
 <!-- SPECKIT END -->
