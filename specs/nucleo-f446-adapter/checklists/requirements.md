@@ -52,6 +52,18 @@ the following discipline actually applied:
   the **behavioural consequence** that makes it testable (no parameter's pending change is evicted)
   alongside the decision reference.
 
+### Clarification session 2026-08-23
+
+Four ambiguities the design record did not settle were resolved with the operator and folded
+into the spec as `FR-015a`, `FR-018a`, `FR-030a`, `FR-033a`, `FR-036a`, and `FR-038a`. Checklist
+status was 16/16 before and remains 16/16 after; no item changed state.
+
+One of the four **extends a normative design decision** and is flagged here rather than buried:
+adding a CDC serial function for telemetry (`FR-018a`) goes beyond **D5**, which specified a
+UAC2 + MIDI composite. This is an operator decision taken in the clarification pass, not an
+agent-side scope change, and the design record should be amended to match if it is to stay the
+normative source.
+
 ### Open questions vs. clarification markers
 
 The spec carries **11 open questions** and **zero** `[NEEDS CLARIFICATION]` markers. This is

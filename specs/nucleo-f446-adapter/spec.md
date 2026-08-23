@@ -87,6 +87,28 @@ callbacks in 0.21.0, and Homebrew's newlib-less `arm-none-eabi-gcc`. Its measure
 dropout figure was taken under a naive single buffer and is **not** a prediction for the
 tuned design.
 
+## Clarifications
+
+### Session 2026-08-23
+
+- Q: How is the DSP block assembled relative to the USB packet cadence? → A: Fixed 48-frame
+  blocks drawn from the ring buffer; the ring absorbs packet-size jitter and the 49-frame
+  prepare is headroom, not the working block size. This is what makes D23's startup fill and
+  water marks meaningful and what gives the four under/overrun counters a producer and a
+  consumer to sit between.
+- Q: Over what channel does the HIL harness read `AudioTransportStats` off the board? → A: A
+  CDC serial function on the same composite device. TinyUSB's `cdc_uac2` example — already
+  named in the design record as the descriptor template — carries CDC, so it costs one more
+  IAD-grouped function and stays driverless on macOS, Linux, and Windows 10+.
+- Q: What is the float-to-int16 conversion policy on the way back to the host? → A: Scale by
+  32768, round to nearest, and clamp to [-32768, 32767]. Clamping is load-bearing: an effect
+  that overshoots 1.0 would otherwise wrap to the opposite rail and produce loud broadband
+  noise instead of benign clipping.
+- Q: How does a fatal clock-bring-up failure make itself observable? → A: Blink the on-board
+  LD2 (PA5) in a distinct fault pattern, then halt. If the PLL does not lock, USB cannot come
+  up, so no USB channel — CDC included — can report the fault; the single LED is the only
+  signal available without a debug probe.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Cross-compile an effect to a NUCLEO-F446RE firmware image (Priority: P1)
@@ -137,18 +159,21 @@ host doctest and assert exact recovery; assert no allocation occurs.
 2. **Given** float channel buffers, **When** they are converted and interleaved back to
    int16, **Then** the original int16 values are recovered exactly for values representable
    in the format.
-3. **Given** a packet carrying any frame count from 0 to 49 inclusive, **When** conversion
+3. **Given** a float sample outside [-1.0, 1.0), **When** it is converted to int16, **Then**
+   it is clamped to the format's limits rather than wrapping to the opposite rail.
+4. **Given** a packet carrying any frame count from 0 to 49 inclusive, **When** conversion
    runs, **Then** exactly that many frames are converted and no read or write occurs past
    the payload.
-4. **Given** any conversion call, **When** it executes, **Then** no heap allocation occurs.
+5. **Given** any conversion call, **When** it executes, **Then** no heap allocation occurs.
 
 ---
 
 ### User Story 3 - Buffer audio across the USB and DSP rates with observable behaviour (Priority: P1)
 
 The support library holds a statically sized ring buffer between the USB packet cadence and
-the DSP block cadence. When the two do not line up, the buffer's response is defined,
-bounded, and counted — never silent and never unbounded. This too runs on the host.
+the DSP's own fixed 48-frame block cadence. When the two do not line up, the buffer's
+response is defined, bounded, and counted — never silent and never unbounded. This too runs
+on the host.
 
 **Why this priority**: The transport is adaptive with no feedback endpoint (D20), so rate
 mismatch is a normal operating condition rather than an exceptional one. Undefined behaviour
@@ -192,8 +217,8 @@ that both a MIDI port and an audio device are present.
 **Acceptance Scenarios**:
 
 1. **Given** a board running the firmware and both cables attached, **When** it is connected
-   to a host, **Then** it enumerates as a composite device exposing a UAC2 audio function and
-   a USB MIDI function, with no driver installation required.
+   to a host, **Then** it enumerates as a composite device exposing a UAC2 audio function, a
+   USB MIDI function, and a CDC serial function, with no driver installation required.
 2. **Given** the enumerated device, **When** a host queries its formats, **Then** exactly one
    advertised format is offered — 48 kHz, 16-bit, stereo — on each streaming direction.
 3. **Given** the device is open, **When** a host streams audio in both directions, **Then**
@@ -220,11 +245,14 @@ matches the expected transformation.
 
 1. **Given** the firmware starts, **When** the effect is prepared, **Then** it is prepared
    with a maximum block size of 49 frames, 48 kHz, 2 channels.
-2. **Given** a block of frames is assembled, **When** `process()` runs, **Then** it operates
+2. **Given** the ring holds at least a full block, **When** the DSP runs, **Then** it draws a
+   fixed 48-frame block — the packet sizes that filled the ring do not set the block size.
+3. **Given** a block of frames is assembled, **When** `process()` runs, **Then** it operates
    in place on non-interleaved float channel pointers and performs no heap allocation.
-3. **Given** a packet carrying fewer than the nominal 48 frames, or zero frames, **When** it
-   is handled, **Then** processing proceeds correctly for the frames actually present.
-4. **Given** a block completes, **When** timing is recorded, **Then** `blocksProcessed`
+4. **Given** a packet carrying fewer than the nominal 48 frames, or zero frames, **When** it
+   is handled, **Then** exactly the frames present are written into the ring and the DSP
+   cadence is unaffected.
+5. **Given** a block completes, **When** timing is recorded, **Then** `blocksProcessed`
    increments and `worstBlockMicros` reflects the longest block observed.
 
 ---
@@ -301,9 +329,11 @@ and never proceeds to USB initialization.
 **Acceptance Scenarios**:
 
 1. **Given** the external clock source is absent or the PLL fails to lock, **When** clock
-   bring-up runs, **Then** the firmware halts in an observable fatal state.
+   bring-up runs, **Then** the on-board LD2 blinks a distinct fault pattern and the firmware
+   halts.
 2. **Given** such a failure, **When** it occurs, **Then** the firmware does **not** fall back
-   to the internal oscillator and does **not** proceed to USB initialization.
+   to the internal oscillator and does **not** proceed to USB initialization — so the fault
+   is reported by the LED and cannot be reported over any USB channel.
 3. **Given** normal bring-up, **When** it completes, **Then** the system clock is 168 MHz and
    the USB clock is exactly 48 MHz.
 
@@ -324,7 +354,8 @@ full counter set and passes or fails against the configured bar.
 **Acceptance Scenarios**:
 
 1. **Given** an attached board, **When** the harness runs, **Then** it streams a known signal
-   through the device and reads back the full `AudioTransportStats` counter set.
+   through the device and reads back the full `AudioTransportStats` counter set over the
+   device's CDC serial function.
 2. **Given** counter readings, **When** the harness evaluates them, **Then** it expresses
    error counts as a rate using `blocksProcessed` as the denominator rather than as raw
    totals.
@@ -343,8 +374,15 @@ full counter set and passes or fails against the configured bar.
   is produced or consumed; the device remains enumerated and responsive.
 - **Playback-only.** The speaker interface is open and the mic interface is not; OUT audio is
   consumed and processed with no IN stream to feed.
+- **Effect output beyond full scale.** `process()` produces a float sample outside
+  [-1.0, 1.0). It is clamped at the format boundary rather than wrapping (FR-038a).
+- **Ring holds a partial block.** Frames have arrived but fewer than the fixed 48 the DSP
+  draws. The block is completed with the defined underflow substitution and counted; the DSP
+  cadence does not stretch to match the ring (FR-030a, FR-031).
 - **Effect with zero parameters.** The parameter shadow block is bounded at the parameter
   count, which is zero; the dirty-flag walk is a no-op.
+- **Nothing reading the CDC channel.** No host has the serial port open. Telemetry writes must
+  not block or stall the audio path when the channel is unread.
 - **MIDI CC with no mapping.** A CC arrives that maps to no `ParamId`. It is ignored without
   disturbing any parameter slot.
 - **Sustained rate mismatch.** The host's SOF cadence and the assembled block cadence drift
@@ -406,9 +444,13 @@ full counter set and passes or fails against the configured bar.
 - **FR-014**: Clock bring-up MUST configure HSE in **bypass** mode against the ST-Link MCU's
   8 MHz MCO on OSC_IN, with PLL M=4, N=168, P=2, Q=7, yielding 168 MHz SYSCLK and exactly
   48 MHz on PLLQ (**D6**).
-- **FR-015**: PLL-lock failure MUST be treated as **fatal** and observable. The firmware MUST
-  NOT fall back to the internal oscillator and MUST NOT proceed to USB initialization
-  (**D7**).
+- **FR-015**: PLL-lock failure MUST be treated as **fatal**. The firmware MUST NOT fall back
+  to the internal oscillator and MUST NOT proceed to USB initialization (**D7**).
+- **FR-015a**: A fatal clock failure MUST be made observable by blinking the on-board LD2
+  (PA5) in a distinct fault pattern before halting (Clarifications 2026-08-23). This is the
+  only channel available: without a locked PLL, USB cannot enumerate, so neither CDC nor MIDI
+  can carry the fault. The LED driver required for this MUST be the minimum needed to signal
+  the pattern, consistent with FR-003.
 - **FR-016**: Documentation MUST state that the ST-Link USB cable is **required at runtime**,
   not merely for debugging, because it supplies the clock — two cables, always.
 - **FR-017**: Documentation MUST state the required USB-C breakout wiring to PA11/PA12 on the
@@ -419,6 +461,11 @@ full counter set and passes or fails against the configured bar.
 
 - **FR-018**: The device MUST enumerate as a composite device grouping a UAC2 audio function
   and a USB MIDI function via Interface Association Descriptors (**D5**).
+- **FR-018a**: The composite device MUST additionally expose a **CDC serial function**, also
+  IAD-grouped, carrying transport telemetry and diagnostics (Clarifications 2026-08-23). This
+  extends **D5**'s composite arrangement by one function; TinyUSB's `cdc_uac2` example — the
+  descriptor template the design record already names — carries CDC, and the function stays
+  driverless on macOS, Linux, and Windows 10+.
 - **FR-019**: The device MUST be class-compliant, requiring no host driver installation.
 - **FR-020**: The device MUST advertise **48 kHz, 16-bit, stereo only**, with one streaming
   alt-setting per streaming interface in addition to the zero-bandwidth alt-setting (**D4**).
@@ -453,6 +500,11 @@ full counter set and passes or fails against the configured bar.
 - **FR-030**: Audio MUST be buffered through a **statically sized** ring buffer. No heap
   allocation and no locks may occur in the audio path (**D16**), consistent with the existing
   no-allocation test discipline.
+- **FR-030a**: The ring buffer MUST sit between the USB packet cadence and an **independent,
+  fixed 48-frame DSP block cadence** (Clarifications 2026-08-23). Variable packet sizes
+  (FR-028) are absorbed by the ring and MUST NOT propagate into the block size. This decoupling
+  is what gives FR-035's startup fill and water marks their meaning and what gives FR-031's
+  four counters a distinct producer and consumer on each side.
 - **FR-031**: Input underflow MUST emit silence; input overflow MUST drop the oldest frames;
   output underflow MUST emit silence; output overflow MUST drop the oldest frames (**D24**).
 - **FR-032**: Every substitution in FR-031 MUST increment its corresponding counter. No
@@ -463,6 +515,10 @@ full counter set and passes or fails against the configured bar.
 - **FR-033**: The adapter MUST expose an `AudioTransportStats` record carrying
   `inputUnderruns`, `inputOverruns`, `outputUnderruns`, `outputOverruns`, `inputStarved`,
   `blocksProcessed`, and `worstBlockMicros`.
+- **FR-033a**: The full `AudioTransportStats` set MUST be readable at runtime over the CDC
+  serial function (FR-018a), in a form a host-side harness can parse (Clarifications
+  2026-08-23). Reading the counters MUST NOT allocate, block, or otherwise perturb the audio
+  path.
 - **FR-034**: `blocksProcessed` MUST be maintained as a denominator so counters can be
   expressed as rates, and `worstBlockMicros` MUST be maintained so the CPU budget is directly
   observable rather than inferred from dropout symptoms.
@@ -475,12 +531,21 @@ full counter set and passes or fails against the configured bar.
 
 - **FR-036**: The effect MUST be prepared with a maximum block size of **49 frames**, at
   48 kHz, 2 channels (**D15**). 48 frames is the nominal rate, not a guarantee.
+- **FR-036a**: The DSP MUST process **fixed 48-frame blocks** drawn from the ring
+  (Clarifications 2026-08-23). The 49-frame prepare of FR-036 is headroom that keeps the
+  effect's allocation sized for the largest payload the transport can deliver; it is not the
+  working block size.
 - **FR-037**: Audio MUST be presented to `process()` as non-interleaved `float*` per channel
   in an `acfx::AudioBlock`, processed in place, with no heap allocation — matching the adapter
   contract `adapters/daisy/daisy-main.cpp` exemplifies.
 - **FR-038**: The support library MUST convert interleaved 16-bit USB payloads to
   non-interleaved float channel buffers on the way in, and reverse that on the way out,
   without allocating, for any payload size permitted by FR-028.
+- **FR-038a**: The conversion MUST scale by **32768**, round to nearest on the way out, and
+  **clamp** the result to [-32768, 32767] (Clarifications 2026-08-23). The clamp is
+  load-bearing rather than defensive: an effect that overshoots 1.0 would otherwise wrap to
+  the opposite rail and emit loud broadband noise, which is precisely the class of silent,
+  uncounted degradation FR-032 exists to prevent.
 
 #### Parameter control
 
@@ -523,9 +588,9 @@ full counter set and passes or fails against the configured bar.
   de-interleaving, the ring buffer's defined behaviours and counters, and the parameter shadow
   block (**D18**, layer 2).
 - **FR-050**: A hardware-in-the-loop harness MUST exist that streams audio through an attached
-  board and asserts against `AudioTransportStats` directly rather than inferring glitches from
-  signal correlation (**D18**, layer 3). It requires a physical board and therefore MUST NOT be
-  wired into the normal CI job.
+  board and asserts against `AudioTransportStats` directly — read over the CDC serial function
+  per FR-033a — rather than inferring glitches from signal correlation (**D18**, layer 3). It
+  requires a physical board and therefore MUST NOT be wired into the normal CI job.
 
 ### Key Entities
 
@@ -538,8 +603,8 @@ full counter set and passes or fails against the configured bar.
   de-interleaving, ring buffer, parameter shadow block, MIDI-CC mapping. The unit of host-side
   test coverage.
 - **Audio ring buffer**: Statically sized, lock-free, no-allocation buffer between the USB
-  packet cadence and the DSP block cadence. Semantics fixed by FR-031/FR-032; capacity, water
-  marks, and startup fill measurement-derived per FR-035.
+  packet cadence and the DSP's independent fixed 48-frame block cadence. Semantics fixed by
+  FR-031/FR-032; capacity, water marks, and startup fill measurement-derived per FR-035.
 - **`AudioTransportStats`**: The seven-field observability record (four error counters, the
   capture-only starvation counter, the block denominator, and the worst-case block time)
   against which the HIL harness asserts.
@@ -547,9 +612,11 @@ full counter set and passes or fails against the configured bar.
   USB MIDI is the first implementation, physical peripherals shape the contract.
 - **Parameter shadow block**: One slot plus dirty flag per `ParamId`, bounded at the effect's
   parameter count, walked once per audio block.
-- **USB descriptor set**: The locally authored composite descriptor — UAC2 audio function plus
-  MIDI function, IAD-grouped, advertising a single 48 kHz / 16-bit / stereo format per
-  direction.
+- **USB descriptor set**: The locally authored composite descriptor — UAC2 audio function,
+  MIDI function, and CDC serial function, IAD-grouped, advertising a single 48 kHz / 16-bit /
+  stereo format per direction.
+- **Telemetry channel**: The CDC serial function over which `AudioTransportStats` is read and
+  diagnostics are emitted; the HIL harness's connection to the device's own accounting.
 - **MIDI CC → `ParamId` mapping**: The correspondence between incoming control-change numbers
   and effect parameters; convention itself is an open question.
 
@@ -558,31 +625,33 @@ full counter set and passes or fails against the configured bar.
 ### Measurable Outcomes
 
 - **SC-001**: A user connects the board with two cables and, with **zero** driver
-  installations, sees a stereo-in / stereo-out 48 kHz audio device and a MIDI port; a
-  class-compliant audio client opens it duplex as 2-in / 2-out.
+  installations, sees a stereo-in / stereo-out 48 kHz audio device, a MIDI port, and a serial
+  port; a class-compliant audio client opens it duplex as 2-in / 2-out.
 - **SC-002**: A known signal streamed through a firmware whose effect has a deterministic
   transfer characteristic returns transformed as expected, confirming audio reaches and leaves
   `process()` intact.
 - **SC-003**: Every packet size the transport can deliver — 0 through 49 frames, including
   short and zero-length packets — is handled with correct frame counts and no out-of-bounds
   access, demonstrated by host tests over the full range.
-- **SC-004**: All seven `AudioTransportStats` fields are readable during operation, and error
-  counts can be expressed as a rate against `blocksProcessed` rather than as bare totals.
+- **SC-004**: All seven `AudioTransportStats` fields are readable from a host during operation
+  without a debug probe, and error counts can be expressed as a rate against `blocksProcessed`
+  rather than as bare totals.
 - **SC-005**: A host opening the capture stream alone receives silence with `inputStarved`
   incrementing — never a hang, never stale audio — and duplex operation resumes when the
   playback stream is later opened.
 - **SC-006**: Parameter changes are lossless in the sense that matters: after any burst of
   changes within one block period, every changed parameter reaches its **last** value at the
   next block boundary, and no parameter's pending change is evicted by another's.
-- **SC-007**: A clock that cannot be brought up to the required configuration halts the
-  firmware observably; there is **no** configuration in which it enumerates on a degraded
-  clock.
+- **SC-007**: A clock that cannot be brought up to the required configuration is distinguishable
+  from an unpowered board by eye alone, with no debug probe attached, and there is **no**
+  configuration in which the device enumerates on a degraded clock.
 - **SC-008**: CI cross-compiles and links every declared Nucleo firmware target, and a
   toolchain missing its C++ standard library fails configuration with a message naming the
   cause.
-- **SC-009**: The host doctest suite exercises the conversion path, every defined ring-buffer
-  behaviour and its counter, and the parameter shadow block — closing the untested-glue gap the
-  Daisy and Teensy adapters currently carry.
+- **SC-009**: The host doctest suite exercises the conversion path — including that
+  beyond-full-scale output clips rather than wrapping — every defined ring-buffer behaviour and
+  its counter, and the parameter shadow block, closing the untested-glue gap the Daisy and
+  Teensy adapters currently carry.
 - **SC-010**: No heap allocation and no lock occurs in the audio path, demonstrated by the
   existing no-allocation test discipline.
 - **SC-011**: `worstBlockMicros` is recorded for every shipped Nucleo firmware, making each
@@ -603,7 +672,11 @@ full counter set and passes or fails against the configured bar.
 - A USB-C breakout is wired to PA11/PA12 on the CN10 morpho header, with VBUS unwired.
 - The board is powered from the ST-Link connection.
 - Driverless UAC2 enumeration is hardware-verified on macOS. Other hosts are expected to work
-  by virtue of class compliance but are not yet verified.
+  by virtue of class compliance but are not yet verified. The same expectation applies to the
+  added CDC serial function, which is driverless on macOS, Linux, and Windows 10+.
+- Adding the CDC function keeps the device within full-speed bandwidth and interface-count
+  limits alongside the two isochronous streams and the MIDI function. If measurement shows
+  otherwise, that is a finding to surface, not to work around.
 - The SAI, I2S, ADC, and DAC peripherals exist on the MCU and are deliberately unused by this
   target. This is a choice, not a limitation of the silicon.
 - STM32Cube HAL and the CubeMX-generated clock configuration are not used; register-level setup
@@ -641,7 +714,8 @@ resolved by omission.
    particular forces variable packet sizes and is more work than it appears.
 6. **Where the HIL harness lives and how it is invoked.** It needs a physical board, so it
    cannot be a normal CI job. In-repo with a manual target? A dedicated runner? The spike's
-   `tools/loopback_test.py` is a starting point.
+   `tools/loopback_test.py` is a starting point. Its *readback channel* is no longer open —
+   CDC serial, per FR-033a — but its home and invocation are.
 7. **MIDI CC → `ParamId` mapping convention.** Fixed CC numbers per parameter index? A learn
    mode? Which channel? Should it match how the workbench already consumes MIDI CC, so one
    mapping serves both?
