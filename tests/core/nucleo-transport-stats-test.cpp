@@ -1,340 +1,205 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 
 #include "transport-stats.h"
 
 // Transport-statistics contract (FR-034a, FR-029a, FR-034, I-TS1/TS1a/TS2/TS4).
-// Tests cover:
-// TS1 — Monotonic modulo 2^32: counters wrap, not saturate. Consumers take deltas
-//       between snapshots, making wrapping correct. Not resettable at runtime.
-// TS1a — Mutually exclusive: inputStarved (capture-only silence, D22) and
-//        outputUnderruns (playback stream underrun) describe different conditions
-//        and never both fire for the same silence event.
-// TS2 — blocksProcessed increments exactly once per DSP block, making the other
-//       counters interpretable as rates rather than bare totals.
-// TS4 — Zero blocks yields a rate of 0, not a division by zero or NaN.
+//
+// WHAT THIS FILE CAN AND CANNOT PROVE.
+// AudioTransportStats is a PASSIVE RECORD: a plain aggregate of counters plus one
+// free function. Several of its guarantees are therefore obligations on the code
+// that WRITES the record -- the shim in nucleo-main.cpp -- not properties of the
+// record itself, and they are dishonest to "test" here:
+//
+//   TS1  wrap-not-saturate  -- follows from the counters being std::uint32_t, for
+//        which modular arithmetic is guaranteed by the language. Asserting
+//        `UINT32_MAX + 1 == 0` would test the C++ standard, not this codebase. What
+//        IS worth pinning, and is pinned below, is the TYPE CHOICE that makes the
+//        guarantee true: a signed counter would make overflow undefined behaviour
+//        rather than a wrap, and a saturating type would break delta-based readers.
+//   TS2  blocksProcessed increments exactly once per DSP block -- a cadence
+//        obligation of the block loop. Enforced at T033 (block assembly) and
+//        observable via T036's timing; nothing about the struct can establish it.
+//   TS1a mutual exclusivity -- likewise a discipline of the increment sites. What
+//        is pinned here is that the two conditions have SEPARATE fields, so the
+//        shim is able to keep them distinct; the choosing is tested where it happens.
+//
+// Tests below therefore cover:
+// TS1  — counter TYPES and zero-initialisation; the record carries no runtime reset.
+// TS1a — inputStarved and outputUnderruns are separate, independently settable
+//        fields covering different conditions (capture-only silence vs an open
+//        playback stream coming up short).
+// TS2  — blocksProcessed exists as the rate denominator errorRate() divides by.
+// TS4  — errorRate(): zero blocks yields 0, never a division by zero, NaN or
+//        infinity; a normal rate computes exactly; a rate above 1.0 is legal.
 
 using namespace acfx::nucleo;
 
 // ============================================================================
-// TS1: Monotonic modulo 2^32, wrap not saturate
+// TS1: counter types and initial state
 // ============================================================================
 
-TEST_CASE("TS1: struct initializes all counters to zero") {
-    AudioTransportStats stats;
-    CHECK(stats.inputUnderruns == 0);
-    CHECK(stats.inputOverruns == 0);
-    CHECK(stats.outputUnderruns == 0);
-    CHECK(stats.outputOverruns == 0);
-    CHECK(stats.inputStarved == 0);
-    CHECK(stats.malformedPayloads == 0);
-    CHECK(stats.blocksProcessed == 0);
-    CHECK(stats.worstBlockMicros == 0);
-}
+TEST_CASE("TS1: every counter is uint32_t, which is what makes wrap-not-saturate true") {
+    // The guarantee is modulo 2^32. Unsigned integer arithmetic wraps by
+    // definition; signed overflow would be undefined behaviour, and any
+    // saturating type would silently break consumers that take deltas between
+    // snapshots. Pinning the type is the honest way to assert the guarantee at
+    // this layer.
+    using U = std::uint32_t;
+    static_assert(std::is_same_v<decltype(AudioTransportStats::inputUnderruns), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::inputOverruns), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::outputUnderruns), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::outputOverruns), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::inputStarved), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::malformedPayloads), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::blocksProcessed), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::worstBlockMicros), U>);
 
-TEST_CASE("TS1: inputUnderruns is uint32_t and wraps at 2^32 boundary, never saturates") {
-    // Set counter to UINT32_MAX (all bits set).
+    // A counter genuinely holds the top of its range without clamping.
     AudioTransportStats stats;
     stats.inputUnderruns = std::numeric_limits<std::uint32_t>::max();
     CHECK(stats.inputUnderruns == std::numeric_limits<std::uint32_t>::max());
+}
 
-    // Simulate overflow: unsigned int naturally wraps in C++.
-    // In real code, implementation increments this counter; wrapping happens
-    // automatically due to uint32_t overflow semantics.
-    std::uint32_t wrapped = stats.inputUnderruns + 1;
-    // After overflow, wrapped is now 0 (2^32 mod 2^32).
-    CHECK(wrapped == 0);
-
-    // Verify the counter field itself can hold wrapped value (0).
-    stats.inputUnderruns = 0;
+TEST_CASE("TS1: every counter zero-initialises") {
+    const AudioTransportStats stats;
     CHECK(stats.inputUnderruns == 0);
-}
-
-TEST_CASE("TS1: outputUnderruns wraps at 2^32 boundary, not saturate") {
-    AudioTransportStats stats;
-    stats.outputUnderruns = std::numeric_limits<std::uint32_t>::max();
-    CHECK(stats.outputUnderruns == std::numeric_limits<std::uint32_t>::max());
-
-    // Simulate increment past max: wraps to 0.
-    std::uint32_t wrapped = stats.outputUnderruns + 1;
-    CHECK(wrapped == 0);
-
-    stats.outputUnderruns = 0;
-    CHECK(stats.outputUnderruns == 0);
-}
-
-TEST_CASE("TS1: inputOverruns wraps at 2^32 boundary") {
-    AudioTransportStats stats;
-    stats.inputOverruns = std::numeric_limits<std::uint32_t>::max();
-
-    std::uint32_t wrapped = stats.inputOverruns + 1;
-    CHECK(wrapped == 0);
-
-    stats.inputOverruns = 0;
     CHECK(stats.inputOverruns == 0);
-}
-
-TEST_CASE("TS1: outputOverruns wraps at 2^32 boundary") {
-    AudioTransportStats stats;
-    stats.outputOverruns = std::numeric_limits<std::uint32_t>::max();
-
-    std::uint32_t wrapped = stats.outputOverruns + 1;
-    CHECK(wrapped == 0);
-
-    stats.outputOverruns = 0;
+    CHECK(stats.outputUnderruns == 0);
     CHECK(stats.outputOverruns == 0);
-}
-
-TEST_CASE("TS1: inputStarved wraps at 2^32 boundary") {
-    AudioTransportStats stats;
-    stats.inputStarved = std::numeric_limits<std::uint32_t>::max();
-
-    std::uint32_t wrapped = stats.inputStarved + 1;
-    CHECK(wrapped == 0);
-
-    stats.inputStarved = 0;
     CHECK(stats.inputStarved == 0);
-}
-
-TEST_CASE("TS1: malformedPayloads wraps at 2^32 boundary") {
-    AudioTransportStats stats;
-    stats.malformedPayloads = std::numeric_limits<std::uint32_t>::max();
-
-    std::uint32_t wrapped = stats.malformedPayloads + 1;
-    CHECK(wrapped == 0);
-
-    stats.malformedPayloads = 0;
     CHECK(stats.malformedPayloads == 0);
-}
-
-TEST_CASE("TS1: blocksProcessed wraps at 2^32 boundary") {
-    AudioTransportStats stats;
-    stats.blocksProcessed = std::numeric_limits<std::uint32_t>::max();
-
-    std::uint32_t wrapped = stats.blocksProcessed + 1;
-    CHECK(wrapped == 0);
-
-    stats.blocksProcessed = 0;
     CHECK(stats.blocksProcessed == 0);
-}
-
-TEST_CASE("TS1: worstBlockMicros wraps at 2^32 boundary") {
-    AudioTransportStats stats;
-    stats.worstBlockMicros = std::numeric_limits<std::uint32_t>::max();
-
-    std::uint32_t wrapped = stats.worstBlockMicros + 1;
-    CHECK(wrapped == 0);
-
-    stats.worstBlockMicros = 0;
     CHECK(stats.worstBlockMicros == 0);
 }
 
-TEST_CASE("TS1: counters persist across usage (not resettable at runtime)") {
-    // Contract: counters are not resettable at runtime (FR-034a).
-    // Transport history must be observable across suspend/resume.
-    // This test verifies counters retain values (no implicit reset occurs).
-    AudioTransportStats stats;
-    stats.inputUnderruns = 42;
-    stats.outputUnderruns = 17;
-    stats.blocksProcessed = 100;
-
-    // Verify counters hold their values and haven't been reset.
-    CHECK(stats.inputUnderruns == 42);
-    CHECK(stats.outputUnderruns == 17);
-    CHECK(stats.blocksProcessed == 100);
+TEST_CASE("TS1: the record is a plain aggregate with no runtime reset") {
+    // "Not resettable at runtime" (TS1). A reset method would let a caller erase
+    // the transport history the diagnostics report, and would make deltas between
+    // snapshots meaningless. Aggregate-ness is the structural expression of that:
+    // the record carries data, not behaviour.
+    static_assert(std::is_aggregate_v<AudioTransportStats>);
+    static_assert(std::is_trivially_copyable_v<AudioTransportStats>);
 }
 
 // ============================================================================
-// TS1a: Mutually exclusive — inputStarved and outputUnderruns
+// TS1a: inputStarved and outputUnderruns are distinct conditions
 // ============================================================================
 
-TEST_CASE("TS1a: inputStarved and outputUnderruns are distinct counters, not the same") {
+TEST_CASE("TS1a: capture-only silence and playback underrun are separate fields") {
+    // D22 / FR-029a. inputStarved means the host opened capture with no playback
+    // stream feeding the device -- silence is the correct output and nothing has
+    // failed. outputUnderruns means an open playback stream whose ring came up
+    // short -- audio was lost. Folding them into one counter would make a healthy
+    // capture-only session indistinguishable from a glitching duplex one.
+    static_assert(offsetof(AudioTransportStats, inputStarved) !=
+                  offsetof(AudioTransportStats, outputUnderruns));
+
+    AudioTransportStats stats;
+    stats.inputStarved = 7;
+    CHECK(stats.inputStarved == 7);
+    CHECK(stats.outputUnderruns == 0);
+}
+
+TEST_CASE("TS1a: recording one condition never disturbs the other") {
     AudioTransportStats stats;
 
-    // Contract guarantees these are separate counters:
-    // inputStarved = capture-only silence (host opened capture, no playback).
-    // outputUnderruns = underrun on open playback stream.
-    // They describe DIFFERENT silence conditions.
+    // A capture-only stretch: starvation accrues, underruns do not.
+    stats.inputStarved = 12;
+    CHECK(stats.inputStarved == 12);
+    CHECK(stats.outputUnderruns == 0);
 
-    stats.inputStarved = 5;
+    // A later duplex stretch that glitches: underruns accrue, and the earlier
+    // starvation count survives untouched. Both are lifetime totals.
     stats.outputUnderruns = 3;
-
-    // Verify they hold independent values.
-    CHECK(stats.inputStarved == 5);
     CHECK(stats.outputUnderruns == 3);
-}
-
-TEST_CASE("TS1a: inputStarved captures at non-zero while outputUnderruns stays zero") {
-    // Scenario: host opened capture but no playback stream is active.
-    // Contract TS1a: ONLY inputStarved increments, never outputUnderruns.
-    AudioTransportStats stats;
-
-    stats.inputStarved = 1;
-    stats.outputUnderruns = 0;
-
-    // If implementation were to conflate these or fire both for the same event,
-    // this test would catch it.
-    CHECK(stats.inputStarved == 1);
-    CHECK_MESSAGE(stats.outputUnderruns == 0,
-                  "outputUnderruns must stay 0 in capture-only silence");
-}
-
-TEST_CASE("TS1a: outputUnderruns increments while inputStarved stays zero in playback underrun") {
-    // Scenario: playback stream is open and underruns.
-    // Contract TS1a: ONLY outputUnderruns increments, never inputStarved.
-    AudioTransportStats stats;
-
-    stats.inputStarved = 0;
-    stats.outputUnderruns = 1;
-
-    // If implementation were to conflate these, this test would catch it.
-    CHECK_MESSAGE(stats.inputStarved == 0,
-                  "inputStarved must stay 0 on playback underrun");
-    CHECK(stats.outputUnderruns == 1);
-}
-
-TEST_CASE("TS1a: both counters can be non-zero in separate events, but never same event") {
-    // Over time, both events may occur, so both counters can rise.
-    // The mutual-exclusivity guarantee is PER EVENT, not a total exclusion.
-    AudioTransportStats stats;
-
-    stats.inputStarved = 3;
-    stats.outputUnderruns = 2;
-
-    // Both non-zero is fine; they must not fire on the SAME silence.
-    CHECK(stats.inputStarved == 3);
-    CHECK(stats.outputUnderruns == 2);
+    CHECK(stats.inputStarved == 12);
 }
 
 // ============================================================================
-// TS2: blocksProcessed increments exactly once per DSP block
+// TS2: blocksProcessed is the rate denominator
 // ============================================================================
 
-TEST_CASE("TS2: blocksProcessed exists as a counter member") {
+TEST_CASE("TS2: blocksProcessed is the denominator errorRate divides by") {
+    // The once-per-block cadence itself is the block loop's obligation (T033),
+    // not the record's. What the record owes is a denominator that errorRate
+    // actually uses -- proven by holding the numerator fixed and varying only
+    // blocksProcessed.
     AudioTransportStats stats;
-    CHECK(stats.blocksProcessed == 0);
+    stats.outputUnderruns = 10;
 
     stats.blocksProcessed = 100;
-    CHECK(stats.blocksProcessed == 100);
-}
+    const double rateOverHundred = errorRate(stats.outputUnderruns, stats);
 
-TEST_CASE("TS2: blocksProcessed denominates error rates (contract requirement)") {
-    // Contract TS2: blocksProcessed increments once per block, making other
-    // counters interpretable as RATES, not bare totals.
-    // This test verifies the relationship: errors / blocksProcessed = rate.
-    AudioTransportStats stats;
+    stats.blocksProcessed = 200;
+    const double rateOverTwoHundred = errorRate(stats.outputUnderruns, stats);
 
-    // 50 blocks, 5 underruns => rate = 5/50 = 0.1
-    stats.blocksProcessed = 50;
-    stats.outputUnderruns = 5;
-
-    // Verify both fields exist and hold expected values.
-    CHECK(stats.blocksProcessed == 50);
-    CHECK(stats.outputUnderruns == 5);
+    CHECK(rateOverHundred == doctest::Approx(0.1));
+    CHECK(rateOverTwoHundred == doctest::Approx(0.05));
+    CHECK(rateOverTwoHundred < rateOverHundred);
 }
 
 // ============================================================================
-// TS4: Zero blocks yields rate of 0, not division by zero or NaN
+// TS4: errorRate over zero blocks
 // ============================================================================
 
-TEST_CASE("TS4: errorRate(count, stats) with blocksProcessed=0 and count=0 returns 0.0") {
+TEST_CASE("TS4: zero blocks yields a rate of 0, not a division by zero") {
+    // "A rate over zero blocks is undefined, not infinite." The count is ignored
+    // when nothing has been processed: before the first block there is no
+    // denominator, and reporting infinity or NaN would poison every consumer.
     AudioTransportStats stats;
     stats.blocksProcessed = 0;
+
     stats.outputUnderruns = 0;
+    CHECK(errorRate(stats.outputUnderruns, stats) == 0.0);
 
-    double rate = errorRate(stats.outputUnderruns, stats);
-
-    // Contract TS4: "a rate over zero blocks is undefined, not infinite"
-    // The function returns 0 when blocksProcessed == 0.
+    stats.outputUnderruns = 10;
+    const double rate = errorRate(stats.outputUnderruns, stats);
     CHECK(rate == 0.0);
+    CHECK(!std::isinf(rate));
+    CHECK(!std::isnan(rate));
 }
 
-TEST_CASE("TS4: errorRate(count, stats) with blocksProcessed=0 and count>0 returns 0.0") {
-    AudioTransportStats stats;
-    stats.blocksProcessed = 0;
-    stats.outputUnderruns = 10;  // Nonzero count but zero blocks processed.
-
-    double rate = errorRate(stats.outputUnderruns, stats);
-
-    // Contract: zero blocks => rate of 0, not infinity or NaN.
-    // The numerator is ignored when denominator is zero.
-    CHECK(rate == 0.0);
-}
-
-TEST_CASE("TS4: errorRate(count, stats) with blocksProcessed>0 and count=0 returns 0.0") {
+TEST_CASE("TS4: a zero count over real blocks is a genuine zero rate") {
     AudioTransportStats stats;
     stats.blocksProcessed = 100;
     stats.outputUnderruns = 0;
-
-    double rate = errorRate(stats.outputUnderruns, stats);
-    CHECK(rate == 0.0);
+    CHECK(errorRate(stats.outputUnderruns, stats) == 0.0);
 }
 
-TEST_CASE("TS4: errorRate(count, stats) computes exact rate: 10/100 = 0.1") {
+TEST_CASE("TS4: a normal rate is count divided by blocksProcessed") {
     AudioTransportStats stats;
     stats.blocksProcessed = 100;
     stats.outputUnderruns = 10;
-
-    double rate = errorRate(stats.outputUnderruns, stats);
-
-    // Verify the rate is computed correctly: count / blocksProcessed.
-    CHECK(rate == 0.1);
+    CHECK(errorRate(stats.outputUnderruns, stats) == doctest::Approx(0.1));
 }
 
-TEST_CASE("TS4: errorRate(count, stats) handles rate > 1.0 (multiple errors per block)") {
+TEST_CASE("TS4: a rate above 1.0 is legal, not clamped") {
+    // More than one error per block is possible -- a single block can both
+    // underrun and see a malformed payload -- and FR-034c reports a normalized
+    // health rate, not a proportion of failed transfers. Clamping to 1.0 would
+    // hide the worst cases exactly when they matter most.
     AudioTransportStats stats;
     stats.blocksProcessed = 100;
     stats.outputUnderruns = 150;
-
-    double rate = errorRate(stats.outputUnderruns, stats);
-
-    // Rate > 1.0 is possible and valid (multiple errors in one block is allowed).
-    CHECK(rate == 1.5);
+    CHECK(errorRate(stats.outputUnderruns, stats) == doctest::Approx(1.5));
 }
 
-TEST_CASE("TS4: errorRate works with inputUnderruns counter") {
+TEST_CASE("TS4: the count argument is independent of which counter supplied it") {
+    // errorRate takes a bare count, so any counter can be expressed against the
+    // same denominator. One case with two different counters is enough to pin
+    // that; repeating it per field would add cases without adding coverage.
     AudioTransportStats stats;
     stats.blocksProcessed = 200;
     stats.inputUnderruns = 50;
+    stats.malformedPayloads = 50;
 
-    double rate = errorRate(stats.inputUnderruns, stats);
-    CHECK(rate == 0.25);
-}
-
-TEST_CASE("TS4: errorRate works with inputOverruns counter") {
-    AudioTransportStats stats;
-    stats.blocksProcessed = 80;
-    stats.inputOverruns = 8;
-
-    double rate = errorRate(stats.inputOverruns, stats);
-    CHECK(rate == 0.1);
-}
-
-TEST_CASE("TS4: errorRate works with outputOverruns counter") {
-    AudioTransportStats stats;
-    stats.blocksProcessed = 120;
-    stats.outputOverruns = 12;
-
-    double rate = errorRate(stats.outputOverruns, stats);
-    CHECK(rate == 0.1);
-}
-
-TEST_CASE("TS4: errorRate works with inputStarved counter") {
-    AudioTransportStats stats;
-    stats.blocksProcessed = 50;
-    stats.inputStarved = 5;
-
-    double rate = errorRate(stats.inputStarved, stats);
-    CHECK(rate == 0.1);
-}
-
-TEST_CASE("TS4: errorRate works with malformedPayloads counter") {
-    AudioTransportStats stats;
-    stats.blocksProcessed = 1000;
-    stats.malformedPayloads = 3;
-
-    double rate = errorRate(stats.malformedPayloads, stats);
-    CHECK(rate == 0.003);
+    CHECK(errorRate(stats.inputUnderruns, stats) == doctest::Approx(0.25));
+    CHECK(errorRate(stats.malformedPayloads, stats) ==
+          errorRate(stats.inputUnderruns, stats));
 }
