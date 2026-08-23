@@ -1,6 +1,8 @@
 // Nucleo adapter shim: clock, GPIO/LED, TinyUSB init, the OTG_FS ISR and the
-// service loop. This file currently holds the SystemCoreClock definition and
-// the fault-LED GPIO init; the remaining shim responsibilities land as the
+// service loop. This file currently holds the SystemCoreClock definition, the
+// fault-LED GPIO init, and the call into the register-level clock bring-up
+// (which lives in the sibling clock-init.h purely so neither file outgrows the
+// repo's file-size limit); the remaining shim responsibilities land as the
 // adapter is built out.
 //
 // ST's system_stm32f4xx.c is deliberately NOT compiled into this adapter (see the
@@ -14,9 +16,16 @@
 //
 // The value below (168 MHz) is the SYSCLK pinned by FR-014 / decision D6: HSE
 // bypass against the ST-Link MCU's 8 MHz MCO, PLL M=4 N=168 P=2 Q=7, yielding
-// 168 MHz SYSCLK and exactly 48 MHz on PLLQ (the USB full-speed clock). Clock
-// bring-up itself (HSE/PLL configuration, lock-failure handling) is owned by a
-// later task, not this one.
+// 168 MHz SYSCLK and exactly 48 MHz on PLLQ (the USB full-speed clock).
+//
+// acfx::nucleo::InitSystemClock() (clock-init.h) is the code that MAKES that
+// value true. The two are not independently maintained constants that happen
+// to agree: SystemCoreClock is initialized from `kSysclkHz`, which is *derived*
+// from the same kHseHz/kPllM/kPllN/kPllP divider constants that compose the
+// PLLCFGR word actually written to the hardware. Change a divider and this
+// value follows automatically; there is no way to configure the PLL for one
+// frequency and advertise another to TinyUSB. That is deliberate, because (per
+// the paragraph above) a mismatch here fails SILENTLY.
 //
 // CMSIS declares `extern uint32_t SystemCoreClock;` inside an
 // `#ifdef __cplusplus extern "C" { ... }` block in system_stm32f4xx.h, so the
@@ -28,9 +37,12 @@
 #include <cstdint>
 
 #include "stm32f446xx.h"
+#include "clock-init.h"
 
+// See the file header: this is the TinyUSB-visible core clock, and it is
+// derived from the same constants InitSystemClock() programs into the PLL.
 extern "C" {
-uint32_t SystemCoreClock = 168000000u;
+uint32_t SystemCoreClock = acfx::nucleo::kSysclkHz;
 }
 
 namespace {
@@ -199,15 +211,30 @@ constexpr uint32_t kLongGapIterations = 3600000u;   // ~1.35s (3,600,000 / 2,667
 //   1. GPIO/LED init (the fault-signalling LED) — MUST come first, before
 //      clock validation, so a clock bring-up failure has a working indicator
 //      (FR-015c). Done below.
-//   2. Clock bring-up (HSE bypass, PLL configuration, lock-failure handling,
-//      calling SignalFatalClockFaultAndHalt() above on a lock failure).
+//   2. Clock bring-up (HSE bypass, PLL configuration). Done below.
+//   2a. Lock-failure handling: turning a non-kOk ClockInitStatus into the
+//      fatal SignalFatalClockFaultAndHalt() blink (FR-015/FR-015a). NOT done
+//      below — T051 owns that policy; see the discard comment.
 //   3. TinyUSB init (tusb_init() against the composite descriptor).
 //   4. The tud_task() service loop, run forever.
-// Only step 1 exists so far, so the loop below is an explicit, empty spin: a
+// Steps 1 and 2 exist so far, so the loop below is an explicit, empty spin: a
 // deliberate placeholder for the eventual service loop, not simulated
 // behaviour.
 int main() {
   InitFaultLed();
+
+  // THE one place T051 wires the failure policy. `clockStatus` is deliberately
+  // captured and then explicitly discarded rather than the call being made and
+  // ignored: the discard is a visible, greppable statement that the status is
+  // known and not yet acted on. T051 replaces the discard with the FR-015
+  // policy — on anything other than kOk, call SignalFatalClockFaultAndHalt()
+  // and never return (no HSI fallback, no proceeding to USB init).
+  //
+  // Nothing here may "handle" a failure by continuing quietly; until T051
+  // lands, a bring-up failure leaves the board in the same inert spin it would
+  // have been in anyway, with no USB stack yet to mislead anyone.
+  const acfx::nucleo::ClockInitStatus clockStatus = acfx::nucleo::InitSystemClock();
+  static_cast<void>(clockStatus);
 
   for (;;) {
   }
