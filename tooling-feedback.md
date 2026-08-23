@@ -56,3 +56,7 @@
 
 ## session-end 2026-07-09
 - Skill loader looped: invoking the Skill tool for /stack-control:define and /speckit-specify returned 'Launching skill: <name>' with no SKILL.md body (twice each), so the procedure had to be read directly from the plugin cache SKILL.md. Backend drive still completed by following the SKILL.md verbatim; likely a harness Skill-invocation surfacing quirk rather than a stackctl defect.
+
+## session-end 2026-08-23
+- Spec Kit's .specify/scripts/bash/check-prerequisites.sh hard-rejects a descriptive branch name (ERROR: Not on a feature branch. Current branch: nucleo-f446-adapter), which blocks /speckit-analyze outright. acfx Commandment 3 forbids the NNN- prefix the script demands, so this fires on every acfx feature. setup-plan.sh and setup-tasks.sh already bypass the guard via feature_json_matches_feature_dir; check-prerequisites.sh does not. Fix is to teach it the same bypass. Recurring (TF-09), worked around by analyzing artifacts directly with stackctl spec-check as the authoritative readiness signal.
+- No lettered task-id precedent exists in specs/*/tasks.md (unlike FRs, which use FR-010a/FR-012a), so inserting tasks mid-list after review forces a full renumber plus a rewrite of every cross-reference in the dependency graph, parallel examples and summary table. Done safely with a one-pass old->new id map, but a documented convention for post-review task insertion would remove the hazard.

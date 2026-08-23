@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-08-23: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 9
+  - docs(nucleo-f446-adapter): amend the design record; D27-D36, D15 superseded
+  - docs(nucleo-f446-adapter): act on third-party review; 73 -> 79 requirements
+  - docs(nucleo-f446-adapter): close the seven cross-artifact analysis findings
+  - docs(nucleo-f446-adapter): 66 tasks across 10 user stories, tier-tagged
+  - docs(nucleo-f446-adapter): resolve all 40 requirements-review findings
+  - docs(nucleo-f446-adapter): real-time safety and transport correctness checklist
+  - docs(nucleo-f446-adapter): plan, research, data model, contract, quickstart
+  - docs(nucleo-f446-adapter): clarify four gaps the design record left open
+  - docs(nucleo-f446-adapter): spec from the approved design record
+- Files changed: 13
+- Backlog touched: (none)
+
 ## 2026-07-09: implicit-integration — design → runnable spec (planned → analyze-clean)
 
 **Goal:** Take up `design:primitive/implicit-integration` (the last of the numerical-solver trio, after the shipped MNA and Newton siblings) and drive it through the stack-control front door — `design` → `define` — from a `planned` roadmap node to an operator-approved, third-party-reviewed design record and a complete, analyze-clean Spec Kit spec ready for `/stack-control:execute`. Implementation deliberately held as a separate, operator-initiated step.
