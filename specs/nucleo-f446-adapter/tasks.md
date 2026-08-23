@@ -204,7 +204,7 @@ execution graph.
 
 > **Implement T049/T050 before T024** — FR-015c requires the indicator to exist before clock validation runs.
 
-- [ ] T049 [US8] [tier:balanced] Initialize the LD2 (PA5) GPIO in `adapters/nucleo/nucleo-main.cpp` **before** clock validation, accepting that it runs on the reset-default HSI and its cadence is therefore approximate — the pattern's shape, not its timing, carries the signal (FR-015c)
+- [x] T049 [US8] [tier:balanced] Initialize the LD2 (PA5) GPIO in `adapters/nucleo/nucleo-main.cpp` **before** clock validation, accepting that it runs on the reset-default HSI and its cadence is therefore approximate — the pattern's shape, not its timing, carries the signal (FR-015c)
 - [ ] T050 [US8] [tier:balanced] Implement the fatal-fault path: **three short pulses, long gap, repeating indefinitely**, then halt — distinguishable both from a dark board and from any normal-operation indication (FR-015a, FR-015b)
 - [ ] T051 [US8] [tier:balanced] Make PLL-lock failure fatal: no fallback to the internal oscillator, no progression to USB initialization, under any configuration (FR-015, **D7**)
 - [ ] T052 [US8] [tier:fast] Verify US8 on hardware: with the ST-Link cable disconnected the board blinks the fault pattern and does not enumerate; a dark LED is a **failure**, not an inconclusive result (quickstart § 4, SC-007)
