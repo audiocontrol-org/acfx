@@ -390,5 +390,6 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 
 ## design:gap/nucleo-f446-adapter
 - status: planned
+- design-approved: yes
 - design: docs/superpowers/specs/2026-08-22-nucleo-f446-adapter-design.md
 - part-of: multi:feature/hardware-targets
