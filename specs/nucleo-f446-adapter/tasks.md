@@ -99,9 +99,9 @@ execution graph.
 
 **Independent test**: Host doctest round-trips known int16 buffers and asserts exact recovery, clamping, exact frame counts across 0–49, and no allocation.
 
-- [ ] T016 [P] [US2] [tier:fast] Write RED tests in `tests/core/nucleo-sample-format-test.cpp` for contract SF1 (round-trip exactness over the representable range), SF2 (**clamping, not wrapping**, for floats outside [-1.0, 1.0)), SF2a (ties away from zero), SF3 (exact frame counts for every size 0–49 incl. zero-length, SC-003), SF3a (torn payload truncates to whole frames and reports the remainder), SF4 (no allocation)
-- [ ] T017 [US2] [tier:balanced] Implement `adapters/nucleo/support/sample-format.h` — `deinterleaveToFloat` and `interleaveToInt16`, scaling by 32768 both ways, round-to-nearest ties-away-from-zero, clamping to [-32768, 32767], `noexcept`, no allocation (FR-038, FR-038a, FR-028a)
-- [ ] T018 [US2] [tier:fast] Confirm the allocation sentinel covers the conversion path and the tests from T016 pass green (SC-009, SC-010)
+- [x] T016 [P] [US2] [tier:fast] Write RED tests in `tests/core/nucleo-sample-format-test.cpp` for contract SF1 (round-trip exactness over the representable range), SF2 (**clamping, not wrapping**, for floats outside [-1.0, 1.0)), SF2a (ties away from zero), SF3 (exact frame counts for every size 0–49 incl. zero-length, SC-003), SF3a (torn payload truncates to whole frames and reports the remainder), SF4 (no allocation)
+- [x] T017 [US2] [tier:balanced] Implement `adapters/nucleo/support/sample-format.h` — `deinterleaveToFloat` and `interleaveToInt16`, scaling by 32768 both ways, round-to-nearest ties-away-from-zero, clamping to [-32768, 32767], `noexcept`, no allocation (FR-038, FR-038a, FR-028a)
+- [x] T018 [US2] [tier:fast] Confirm the allocation sentinel covers the conversion path and the tests from T016 pass green (SC-009, SC-010)
 
 **Checkpoint**: Format conversion is correct and host-verified with no board attached.
 

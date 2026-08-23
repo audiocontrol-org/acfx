@@ -207,6 +207,15 @@ add_executable(acfx_core_tests
   # DC-settle / energy rig in core/opamp-stage-test-support.h).
   core/opamp-stage-invariants-test.cpp
   # ---------------------------------------------------------------------------
+  # NUCLEO-F446RE adapter support library test suites
+  # (nucleo-f446-adapter feature). Sample-format contract (FR-038, FR-038a,
+  # FR-028, FR-028a); its SF4 no-allocation cases live in a sibling file, split
+  # out for the per-file line budget as the compressor and PDS suites are. Each
+  # nucleo test source is added to this list by the task that authors it.
+  # ---------------------------------------------------------------------------
+  core/nucleo-sample-format-test.cpp
+  core/nucleo-sample-format-no-allocation-test.cpp
+  # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
   core/mna-system-test.cpp
