@@ -1,7 +1,8 @@
 // Nucleo adapter shim: clock, GPIO/LED, TinyUSB init, the OTG_FS ISR and the
 // service loop. This file currently holds the SystemCoreClock definition, the
-// fault-LED GPIO init, and the call into the register-level clock bring-up
-// (which lives in the sibling clock-init.h purely so neither file outgrows the
+// fault-LED GPIO init, the call into the register-level clock bring-up, and
+// the call into the OTG_FS pin configuration (which live in the sibling
+// clock-init.h and otg-fs-gpio-init.h purely so no single file outgrows the
 // repo's file-size limit); the remaining shim responsibilities land as the
 // adapter is built out.
 //
@@ -38,6 +39,7 @@
 
 #include "stm32f446xx.h"
 #include "clock-init.h"
+#include "otg-fs-gpio-init.h"
 
 // See the file header: this is the TinyUSB-visible core clock, and it is
 // derived from the same constants InitSystemClock() programs into the PLL.
@@ -215,11 +217,16 @@ constexpr uint32_t kLongGapIterations = 3600000u;   // ~1.35s (3,600,000 / 2,667
 //   2a. Lock-failure handling: turning a non-kOk ClockInitStatus into the
 //      fatal SignalFatalClockFaultAndHalt() blink (FR-015/FR-015a). NOT done
 //      below — T051 owns that policy; see the discard comment.
+//   2b. PA11/PA12 alternate-function GPIO for OTG_FS (otg-fs-gpio-init.h).
+//      Done below. MUST come after step 1 (InitFaultLed enables GPIOA's
+//      peripheral clock; see InitOtgFsGpio's precondition comment) — the
+//      relative order versus clock bring-up itself does not matter, since
+//      GPIO configuration does not depend on SYSCLK.
 //   3. TinyUSB init (tusb_init() against the composite descriptor).
 //   4. The tud_task() service loop, run forever.
-// Steps 1 and 2 exist so far, so the loop below is an explicit, empty spin: a
-// deliberate placeholder for the eventual service loop, not simulated
-// behaviour.
+// Steps 1, 2, and 2b exist so far, so the loop below is an explicit, empty
+// spin: a deliberate placeholder for the eventual service loop, not
+// simulated behaviour.
 int main() {
   InitFaultLed();
 
@@ -235,6 +242,12 @@ int main() {
   // have been in anyway, with no USB stack yet to mislead anyone.
   const acfx::nucleo::ClockInitStatus clockStatus = acfx::nucleo::InitSystemClock();
   static_cast<void>(clockStatus);
+
+  // PA11/PA12 alternate-function GPIO for OTG_FS (T025). Requires GPIOA's
+  // peripheral clock already enabled — true here because InitFaultLed()
+  // above already enabled it (see otg-fs-gpio-init.h's precondition
+  // comment); this call must not be moved ahead of that one.
+  acfx::nucleo::InitOtgFsGpio();
 
   for (;;) {
   }
