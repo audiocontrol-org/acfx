@@ -29,3 +29,4 @@
 {"id": "T028", "tierLabel": "powerful", "model": "opus", "commitRange": "c8d144a..7cdf40e", "reviewClean": true}
 {"id": "T026", "tierLabel": "balanced", "model": "sonnet", "commitRange": "43a7e96..d97c827", "reviewClean": true}
 {"id": "T029", "tierLabel": "powerful", "model": "opus", "commitRange": "2e22320..5fa0db8", "reviewClean": true}
+{"id": "T027", "tierLabel": "powerful", "model": "opus", "commitRange": "66346da..b0175da", "reviewClean": true}
