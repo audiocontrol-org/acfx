@@ -11,12 +11,15 @@
 #
 # Pins captured from the upstream repos (real refs); first-fetch verification
 # happens the first time each target's preset is configured on a machine with the
-# matching toolchain (desktop / daisy / teensy):
+# matching toolchain (desktop / daisy / teensy / nucleo):
 #   - JUCE                    8.0.14    (workbench + plugin)
 #   - clap-juce-extensions    16e9d4c   (CLAP export, plugin only)
 #   - libDaisy                c02245d   (daisy adapter)
 #   - Teensy cores            a664eff   (teensy adapter)
 #   - Teensy Audio Library    3039be2   (teensy adapter)
+#   - TinyUSB                 0.21.0    (nucleo adapter — USB audio/MIDI/CDC)
+#   - cmsis_device_f4         v2.6.11   (nucleo adapter — STM32F4 device headers)
+#   - CMSIS_5                 5.9.0     (nucleo adapter — CMSIS core, e.g. core_cm4.h)
 #
 # Dependencies are fetched lazily: a dependency is only declared when a target
 # that needs it is enabled, so the `test` preset pulls only DaisySP + doctest.
@@ -90,6 +93,31 @@ if(ACFX_BUILD_TEENSY)
     NAME teensy_audio
     GITHUB_REPOSITORY PaulStoffregen/Audio
     GIT_TAG 3039be2773e86daf1f381a1e8bdc1e6a55ed11f1
+    DOWNLOAD_ONLY YES
+  )
+endif()
+
+# --- Nucleo: TinyUSB (USB audio/MIDI/CDC stack), cmsis_device_f4 (STM32F4 device headers), and
+# CMSIS_5 (ARM CMSIS core headers, e.g. core_cm4.h, that cmsis_device_f4's headers require but do
+# not vendor themselves). All three compile their sources directly into the adapter rather than
+# being consumed as submodules (FR-010/FR-011).
+if(ACFX_BUILD_NUCLEO)
+  CPMAddPackage(
+    NAME TinyUSB
+    GITHUB_REPOSITORY hathach/tinyusb
+    GIT_TAG 0.21.0
+    DOWNLOAD_ONLY YES
+  )
+  CPMAddPackage(
+    NAME cmsis_device_f4
+    GITHUB_REPOSITORY STMicroelectronics/cmsis_device_f4
+    GIT_TAG v2.6.11
+    DOWNLOAD_ONLY YES
+  )
+  CPMAddPackage(
+    NAME CMSIS_5
+    GITHUB_REPOSITORY ARM-software/CMSIS_5
+    GIT_TAG 5.9.0
     DOWNLOAD_ONLY YES
   )
 endif()

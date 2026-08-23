@@ -48,13 +48,24 @@
       "cacheVariables": {
         "ACFX_BUILD_TEENSY": "ON"
       }
+    },
+    {
+      "name": "nucleo",
+      "inherits": "base",
+      "displayName": "Nucleo firmware (arm-none-eabi-gcc)",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/nucleo-f446.cmake",
+      "cacheVariables": {
+        "ACFX_BUILD_NUCLEO": "ON",
+        "CMAKE_CXX_STANDARD": "20"
+      }
     }
   ],
   "buildPresets": [
     { "name": "test", "configurePreset": "test" },
     { "name": "desktop", "configurePreset": "desktop" },
     { "name": "daisy", "configurePreset": "daisy" },
-    { "name": "teensy", "configurePreset": "teensy" }
+    { "name": "teensy", "configurePreset": "teensy" },
+    { "name": "nucleo", "configurePreset": "nucleo" }
   ],
   "testPresets": [
     {

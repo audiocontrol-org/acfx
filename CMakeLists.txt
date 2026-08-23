@@ -14,6 +14,7 @@ option(ACFX_BUILD_TESTS   "Build the host-side doctest suite for core/"      OFF
 option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
 option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
 option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
+option(ACFX_BUILD_NUCLEO  "Build the NUCLEO-F446RE adapter"                  OFF)
 
 # Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
 if(NOT DEFINED CPM_SOURCE_CACHE)
