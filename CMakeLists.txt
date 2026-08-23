@@ -111,6 +111,11 @@ if(ACFX_BUILD_TEENSY)
   add_subdirectory(adapters/teensy)
 endif()
 
+if(ACFX_BUILD_NUCLEO)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
+  add_subdirectory(adapters/nucleo)
+endif()
+
 if(ACFX_BUILD_TESTS)
   enable_testing()
   # host/processor-node is desktop-only host code, but it is pure C++ (no JUCE),
