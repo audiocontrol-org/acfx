@@ -127,8 +127,10 @@ undelimited "audio path" that left the parameter flush and telemetry write in a 
 (CHK001/002 → FR-046a, FR-046b).
 
 One consequence worth flagging: FR-028a's discarded remainder needed a counter, so
-`AudioTransportStats` gained an eighth field, `truncatedFrames`. Like the CDC function, this
-**extends the design record's draft of the struct** — recorded here so the divergence stays
-visible rather than buried.
+`AudioTransportStats` gained an eighth field. Like the CDC function, this **extends the design
+record's draft of the struct** — recorded here so the divergence stays visible rather than
+buried. (That field was first named `truncatedFrames`; a later third-party review pointed out
+that a torn remainder is always 1-3 bytes and never a whole frame, so a frame count would read
+zero forever. Renamed to `malformedPayloads`, an event count — see FR-033b.)
 
 Spec grew from 56 to 73 requirements, 9 to 10 user stories, and 12 to 13 success criteria.

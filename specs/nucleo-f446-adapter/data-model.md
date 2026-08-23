@@ -37,7 +37,8 @@ enforce is a data contract.
 - **I-SF3**: Exactly `frames` frames are read and written; no access past the payload, including
   the `frames == 0` case.
 - **I-SF3a**: A payload that is not a whole number of frames is truncated to whole frames and
-  the remainder counted (FR-028a). Truncation preserves L/R alignment downstream; whole-packet
+  the **truncation event** counted (FR-028a, FR-033b). The remainder is always 1–3 bytes —
+  never a whole frame — so counting discarded *frames* would read zero forever. Truncation preserves L/R alignment downstream; whole-packet
   rejection would discard good frames, and silent acceptance would misalign every subsequent
   frame.
 - **I-SF4**: No heap allocation.
@@ -64,8 +65,9 @@ The statically sized buffer between the USB packet cadence and the DSP's indepen
 | Read requests a block, ring holds fewer frames | Silence fills the shortfall | `inputUnderruns` / `outputUnderruns` |
 | Write arrives, ring full | Oldest frames dropped | `inputOverruns` / `outputOverruns` |
 | Capture-only: IN polled, **no OUT stream open at all** | Silence emitted | `inputStarved` |
-| Torn payload: byte count not a whole number of frames | Truncate to whole frames | `truncatedFrames` |
-| Stream start, ring below startup fill | Consumer **waits**; no block drawn | *(none — not an error)* |
+| Torn payload: byte count not a whole number of frames | Truncate to whole frames | `malformedPayloads` |
+| **Priming** (stream start / resume / reset), ring below startup fill | Consumer **waits**; no block drawn | *(none — filling is what Priming is for)* |
+| **Running**, ring below a full block | Silence fills the shortfall | `inputUnderruns` / `outputUnderruns` |
 | Sustained one-way excursion | **No re-centring**; drift stays visible in the counters | *(the existing under/overrun counters)* |
 
 **Invariants**
@@ -80,14 +82,17 @@ The statically sized buffer between the USB packet cadence and the DSP's indepen
   I-AR2's substitution — the DSP cadence never stretches to match the ring (FR-030a).
 - **I-AR5**: Packet size does not propagate into block size. A 0-frame or 49-frame packet
   changes occupancy, never the block.
-- **I-AR6**: At stream start the consumer **waits** for the startup fill before drawing its
-  first block (FR-030b). Starting early would manufacture a burst of underruns on every open,
-  polluting the statistic the harness asserts against.
+- **I-AR6**: The ring is either **Stopped**, **Priming**, or **Running** (FR-030d). In
+  Priming the consumer **waits** for the startup fill and draws nothing; a short ring counts
+  an underrun only in **Running**. Without the state distinction the same physical situation —
+  a partly filled ring — is both "normal" and "an underrun", and two conforming
+  implementations disagree about whether every stream open produces a burst of underruns.
 - **I-AR7**: The ring **never re-centres** (FR-030c). Both directions are paced by the same SOF
   clock, so persistent drift is a fault to surface, not to mask — and masking it would mean
   audible, uncounted frame drops, which I-AR2 forbids.
-- **I-AR8**: On bus reset or re-enumeration the ring is cleared and I-AR6's wait applies again,
-  so the device never drains a stale partial ring (FR-053).
+- **I-AR8**: On **suspend**, **resume**, or **bus reset** the ring is cleared and the device
+  re-enters Priming (FR-051, FR-052, FR-053). Clearing at suspend is what makes "no replay on
+  resume" structural rather than a second mechanism bolted on at resume.
 
 **Deliberately unspecified**: capacity, water marks, and startup fill are derived from HIL
 measurement per research R5 and pinned in Phase H. Values invented before measurement would be
@@ -107,7 +112,7 @@ capture-only starvation count, one denominator, one worst-case timing.
 | `outputUnderruns` | USB polled IN, output ring was empty |
 | `outputOverruns` | DSP produced faster than USB drained |
 | `inputStarved` | Capture-only: silence emitted (**D22**) |
-| `truncatedFrames` | Remainder discarded from a torn payload (FR-028a) |
+| `malformedPayloads` | Count of payloads truncated by FR-028a (an **event** count — the discarded remainder is always 1–3 bytes, never a whole frame) |
 | `blocksProcessed` | Denominator — lets the counters become a rate |
 | `worstBlockMicros` | Longest observed block; makes the CPU budget directly observable |
 

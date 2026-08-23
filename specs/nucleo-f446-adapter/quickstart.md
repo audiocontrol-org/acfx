@@ -170,9 +170,10 @@ With the device streaming, sleep the host and wake it; separately, force a bus r
 **Proves**: SC-013 (US10) — streaming resumes with no power cycle, no audio buffered before the
 suspend is replayed, and the counters survive the event so its cost stays measurable.
 
-After a bus reset the rings are cleared and the startup-fill wait applies again (FR-053), so the
-device restarts from a defined state rather than draining a stale partial ring. Counters are
-**not** reset by any of these events — only by a power cycle (FR-034a, FR-054).
+Suspend, resume, and bus reset all clear the rings and return the transport to **Priming**
+(FR-051, FR-052, FR-053), so the device restarts from a defined state rather than draining a
+stale partial ring — which is why "no replay on resume" needs no separate mechanism. Counters
+are **not** reset by any of these events; only a power cycle clears them (FR-034a, FR-054).
 
 ---
 
@@ -198,7 +199,7 @@ line (research R7):
 cat /dev/cu.usbmodem*        # or: screen /dev/cu.usbmodem* 115200
 ```
 
-**Proves**: SC-004 — all seven `AudioTransportStats` fields readable from a host **without a
+**Proves**: SC-004 — all eight `AudioTransportStats` fields readable from a host **without a
 debug probe**.
 
 Then run the harness (US9, FR-050):

@@ -92,8 +92,10 @@ tuned design.
 ### Session 2026-08-23
 
 - Q: How is the DSP block assembled relative to the USB packet cadence? → A: Fixed 48-frame
-  blocks drawn from the ring buffer; the ring absorbs packet-size jitter and the 49-frame
-  prepare is headroom, not the working block size. This is what makes D23's startup fill and
+  blocks drawn from the ring buffer; the ring absorbs packet-size jitter. (The 49-frame
+  prepare originally kept alongside this was later removed as an inconsistency — see
+  FR-036b: once the ring decouples, a 49-frame prepare is transport framing leaking across
+  it.) This is what makes D23's startup fill and
   water marks meaningful and what gives the four under/overrun counters a producer and a
   consumer to sit between.
 - Q: Over what channel does the HIL harness read `AudioTransportStats` off the board? → A: A
@@ -266,7 +268,8 @@ matches the expected transformation.
 **Acceptance Scenarios**:
 
 1. **Given** the firmware starts, **When** the effect is prepared, **Then** it is prepared
-   with a maximum block size of 49 frames, 48 kHz, 2 channels.
+   with a maximum block size of 48 frames, 48 kHz, 2 channels — equal to the block it will
+   actually receive, because the ring stops transport framing from reaching the effect.
 2. **Given** the ring holds at least a full block, **When** the DSP runs, **Then** it draws a
    fixed 48-frame block — the packet sizes that filled the ring do not set the block size.
 3. **Given** a block of frames is assembled, **When** `process()` runs, **Then** it operates
@@ -427,13 +430,17 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
   consumed and processed with no IN stream to feed.
 - **Effect output beyond full scale.** `process()` produces a float sample outside
   [-1.0, 1.0). It is clamped at the format boundary rather than wrapping (FR-038a).
-- **Ring holds a partial block.** Frames have arrived but fewer than the fixed 48 the DSP
-  draws. The block is completed with the defined underflow substitution and counted; the DSP
-  cadence does not stretch to match the ring (FR-030a, FR-031).
+- **Ring holds a partial block while Running.** Fewer frames than the fixed 48 the DSP draws.
+  The block is completed with the defined underflow substitution and counted; the DSP cadence
+  does not stretch to match the ring (FR-030a, FR-031, FR-030d).
+- **Ring holds a partial block while Priming.** The same physical situation, different state:
+  the consumer simply waits and **nothing is counted**, because filling is what Priming is for
+  (FR-030b, FR-030d).
 - **Effect with zero parameters.** The parameter shadow block is bounded at the parameter
   count, which is zero; the dirty-flag walk is a no-op.
-- **Nothing reading the CDC channel.** No host has the serial port open. Telemetry writes must
-  not block or stall the audio path when the channel is unread.
+- **Nothing reading the CDC channel.** No host has the serial port open. The diagnostic
+  service's write is dropped rather than queued (FR-033d); the counters themselves are the
+  payload, so a dropped telemetry line needs no counter of its own.
 - **Torn packet.** A payload arrives whose byte count is not a whole number of stereo frames.
   The whole frames are consumed and the remainder is discarded and counted (FR-028a), so L/R
   alignment is preserved downstream.
@@ -596,13 +603,28 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
   guarantee a burst of underruns on every stream open, polluting the very statistic the HIL
   harness asserts against. The *policy* is fixed here; the fill *value* remains
   measurement-derived per FR-035.
+- **FR-030d**: The transport MUST implement an explicit three-state model, and the states MUST
+  be distinguishable at runtime:
+
+  | State | Entered when | Consumer behaviour | Underrun counted? |
+  |---|---|---|---|
+  | **Stopped** | No streaming alt-setting open; after suspend or bus reset | Draws no blocks | No |
+  | **Priming** | A stream opens, or on resume/reset, until occupancy ≥ startup fill | Draws no blocks; waits | **No** |
+  | **Running** | Occupancy first reaches the startup fill | Draws a fixed 48-frame block per cadence | **Yes** |
+
+  A short ring read counts an underrun **only in Running** (FR-031). Filling the ring during
+  **Priming** is normal operation, not a shortfall — without this distinction two conforming
+  implementations disagree about whether every stream open produces a burst of underruns, which
+  is exactly the statistic FR-030b exists to keep clean.
 - **FR-030c**: The ring MUST NOT re-centre itself after a sustained excursion (Clarifications
   2026-08-23). Both directions are paced by the same SOF clock, so a persistent one-way drift
   indicates a real fault and MUST remain visible in the counters. Masking it by dropping or
   duplicating frames would be an audible, uncounted substitution — precisely what FR-032
   forbids.
-- **FR-031**: Input underflow MUST emit silence; input overflow MUST drop the oldest frames;
-  output underflow MUST emit silence; output overflow MUST drop the oldest frames (**D24**).
+- **FR-031**: **In the Running state** (FR-030d), input underflow MUST emit silence; input
+  overflow MUST drop the oldest frames; output underflow MUST emit silence; output overflow MUST
+  drop the oldest frames (**D24**). Overflow applies in Priming too — the producer runs there;
+  it is only the consumer that waits.
 - **FR-032**: Every substitution in FR-031 MUST increment its corresponding counter. No
   substitution may be silent (**D24**). acfx's "raise a descriptive error rather than fall
   back" rule cannot be applied literally in a path that must emit something in bounded time
@@ -610,17 +632,39 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
   not absent.
 - **FR-033**: The adapter MUST expose an `AudioTransportStats` record carrying
   `inputUnderruns`, `inputOverruns`, `outputUnderruns`, `outputOverruns`, `inputStarved`,
-  `blocksProcessed`, `worstBlockMicros`, and `truncatedFrames` (the FR-028a remainder count).
+  `blocksProcessed`, `worstBlockMicros`, and `malformedPayloads` (the FR-028a truncation count).
   The eighth field extends the record as drafted in the design record; it is added because
   FR-028a's discarded remainder would otherwise be an uncounted substitution, which FR-032
   forbids.
+- **FR-033b**: `malformedPayloads` MUST count **payloads truncated**, not frames or bytes
+  discarded. A stereo 16-bit frame is 4 bytes, so a torn payload's remainder is always **1–3
+  bytes — never a whole frame**. A counter named for discarded *frames* would therefore read
+  zero forever: dead on arrival, and worse than absent because it would be trusted. What the
+  harness needs is how often truncation happens, which is an event count.
 - **FR-033a**: The full `AudioTransportStats` set MUST be readable at runtime over the CDC
   serial function (FR-018a), in a form a host-side harness can parse (Clarifications
-  2026-08-23). Reading the counters MUST NOT allocate, block, or otherwise perturb the audio
-  path.
+  2026-08-23).
+- **FR-033c**: Statistics **updating** and statistics **reporting** MUST be separated. The audio
+  path (FR-046a) only updates the fixed-size `AudioTransportStats` record — bounded, `noexcept`,
+  allocation-free. **Snapshotting, serializing, and writing to CDC happen in a separate
+  main-loop diagnostic service**, outside the audio path and outside `worstBlockMicros`.
+  Requiring a CDC write to be real-time-safe would be solving the wrong problem: the cleaner
+  answer is that it is not audio work at all.
+- **FR-033d**: The diagnostic service's write MUST nonetheless be **non-blocking and
+  allocation-free**. Under **D26** there is exactly one execution context — the main loop runs
+  the class servicing, the DSP, and this service — so there is no second thread to absorb a
+  stall, and a blocking write would starve audio servicing just as effectively from outside the
+  audio path as from inside it. FR-033c relocates the work; it does not relax its bounds. An
+  unread CDC port MUST cause the write to be dropped, not queued indefinitely.
 - **FR-034**: `blocksProcessed` MUST be maintained as a denominator so counters can be
   expressed as rates, and `worstBlockMicros` MUST be maintained so the CPU budget is directly
   observable rather than inferred from dropout symptoms.
+- **FR-034c**: `blocksProcessed` is a **common elapsed-work normalization denominator** for
+  quality metrics — it is **not** the number of opportunities for each individual transport
+  event. `inputOverruns` originates in USB packet writes and `outputUnderruns` in IN-endpoint
+  servicing; neither has one opportunity per DSP block, so `outputUnderruns / blocksProcessed`
+  is a health rate rather than a proportion of failed transfers. Per-event denominators
+  (packet or SOF counters) are recorded as a possible later addition, not a v1 requirement.
 - **FR-034a**: Counters are 32-bit and **wrap**; they are monotonic **modulo 2^32**
   (Clarifications 2026-08-23). Consumers MUST compute **deltas between snapshots** rather than
   treating any counter as a lifetime total — which is what US9 needs anyway, since a rate over
@@ -637,12 +681,19 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
 
 #### Effect integration
 
-- **FR-036**: The effect MUST be prepared with a maximum block size of **49 frames**, at
-  48 kHz, 2 channels (**D15**). 48 frames is the nominal rate, not a guarantee.
+- **FR-036**: The effect MUST be prepared with a maximum block size of **48 frames**, at
+  48 kHz, 2 channels — equal to the working block size, because that is genuinely the largest
+  block `process()` can ever receive.
 - **FR-036a**: The DSP MUST process **fixed 48-frame blocks** drawn from the ring
-  (Clarifications 2026-08-23). The 49-frame prepare of FR-036 is headroom that keeps the
-  effect's allocation sized for the largest payload the transport can deliver; it is not the
-  working block size.
+  (Clarifications 2026-08-23). `maxBlockSize` therefore equals the block size; there is no
+  headroom term.
+- **FR-036b**: FR-036 **supersedes D15's 49-frame prepare**. D15 sized the prepare to
+  `TUD_AUDIO_EP_SIZE`'s 49 frames back when the block followed the packet. Once the ring became
+  the decoupling boundary (FR-030a), a 49-frame packet changes ring occupancy and nothing else —
+  `process()` still receives 48. Preparing at 49 would let **transport framing leak across the
+  ring**, which is the precise leak the decoupling exists to prevent. The 49-frame figure remains
+  correct for the **transport-side** packet buffer (FR-028); it was never an effect-side
+  quantity.
 - **FR-037**: Audio MUST be presented to `process()` as non-interleaved `float*` per channel
   in an `acfx::AudioBlock`, processed in place, with no heap allocation — matching the adapter
   contract `adapters/daisy/daisy-main.cpp` exemplifies.
@@ -688,10 +739,10 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
 - **FR-046a**: **The audio path** — the region governed by FR-030's no-allocation, no-lock
   constraint — is hereby defined as everything executed between a packet's arrival and its
   reply: payload validation and truncation (FR-028a), format conversion (FR-038), ring access
-  (FR-030), the parameter dirty-flag walk (FR-042), `process()` itself, and the telemetry write
-  (FR-033a). Naming the region explicitly is what makes FR-030 enforceable; left to inference,
-  the parameter flush and the telemetry write would sit in an unexamined grey zone precisely
-  because they do not look like audio code.
+  (FR-030), the parameter dirty-flag walk (FR-042), and `process()` itself. Naming the region
+  explicitly is what makes FR-030 enforceable; left to inference, the parameter flush would sit
+  in an unexamined grey zone precisely because it does not look like audio code. **Telemetry
+  serialization is deliberately NOT in this region** — see FR-033c.
 - **FR-046b**: Every stage named in FR-046a MUST individually satisfy the no-allocation and
   no-lock constraint, and MUST be covered by the existing allocation-sentinel discipline where
   it is host-reachable.
@@ -701,14 +752,17 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
 
 #### USB lifecycle
 
-- **FR-051**: On **bus suspend**, the device MUST stop producing and consuming audio and MUST
-  NOT spin waiting for packets that will not arrive (Clarifications 2026-08-23, US10 AS1).
-- **FR-052**: On **resume**, streaming MUST restart without a power cycle, and MUST NOT replay
-  audio buffered before the suspend (US10 AS2). Stale audio after a host sleeps is the
-  hang-or-stale-audio symptom class **D22** exists to prevent, applied to a different trigger.
-- **FR-053**: On **bus reset or re-enumeration**, the rings MUST be cleared and the FR-030b
-  startup-fill wait MUST apply again, so the device restarts from a defined state rather than
-  draining a stale partial ring (US10 AS3).
+- **FR-051**: On **bus suspend**, the device MUST stop producing and consuming audio, MUST
+  **clear the rings**, and MUST enter **Stopped** (FR-030d). It MUST NOT spin waiting for
+  packets that will not arrive (Clarifications 2026-08-23, US10 AS1).
+- **FR-052**: On **resume**, the device MUST enter **Priming** and stream once the startup fill
+  is reached, without a power cycle. Because FR-051 already cleared the rings, there is no
+  pre-suspend audio left to replay (US10 AS2) — the guarantee is structural rather than a
+  second mechanism bolted on at resume. Stale audio after a host sleeps is the symptom class
+  **D22** exists to prevent, applied to a different trigger.
+- **FR-053**: On **bus reset or re-enumeration**, the rings MUST be cleared and the device MUST
+  enter **Priming**, so it restarts from a defined state rather than draining a stale partial
+  ring (US10 AS3, FR-030d).
 - **FR-054**: Statistics counters MUST survive suspend, resume, and bus reset unchanged
   (US10 AS4). They are power-cycle-scoped per FR-034a precisely so a harness can measure what
   such an event cost.
@@ -742,7 +796,7 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
   packet cadence and the DSP's independent fixed 48-frame block cadence. Semantics fixed by
   FR-031/FR-032; capacity, water marks, and startup fill measurement-derived per FR-035.
 - **`AudioTransportStats`**: The eight-field observability record (four error counters, the
-  capture-only starvation counter, the truncated-remainder counter, the block denominator, and
+  capture-only starvation counter, the malformed-payload counter, the block denominator, and
   the worst-case block time) against which the HIL harness asserts. Counters are mutually
   exclusive (FR-029a) and wrap modulo 2^32 (FR-034a).
 - **`ParameterSource`**: The abstraction through which parameter changes reach the effect;
@@ -770,7 +824,7 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
 - **SC-003**: Every packet size the transport can deliver — 0 through 49 frames, including
   short and zero-length packets — is handled with correct frame counts and no out-of-bounds
   access, demonstrated by host tests over the full range.
-- **SC-004**: All seven `AudioTransportStats` fields are readable from a host during operation
+- **SC-004**: All eight `AudioTransportStats` fields are readable from a host during operation
   without a debug probe, and error counts can be expressed as a rate against `blocksProcessed`
   rather than as bare totals.
 - **SC-005**: A host opening the capture stream alone receives silence with `inputStarved`

@@ -160,11 +160,15 @@ line, newline-terminated, written from the main loop.
 
 **Rationale**: It is trivially parseable by the spike's Python harness (`tools/loopback_test.py`
 is the named starting point), human-readable when a developer just opens the serial port, and
-requires no framing logic on either end. JSON buys structure this record does not need — seven
+requires no framing logic on either end. JSON buys structure this record does not need — eight
 scalar counters — at the cost of a serializer on an MCU.
 
-**Non-perturbation (FR-033a)**: the telemetry write must not allocate, must not block, and must
-not stall the audio path when nothing has the serial port open. TinyUSB's CDC write is
+**Non-perturbation (FR-033c/FR-033d)**: statistics *updating* happens on the audio path;
+*snapshotting, serializing, and writing* happen in a separate main-loop diagnostic service,
+outside the audio path and outside `worstBlockMicros`. That service's write must still be
+non-blocking and allocation-free — **D26** gives the firmware a single execution context, so
+moving the work out of the audio path relocates it rather than giving it somewhere else to
+stall. TinyUSB's CDC write is
 non-blocking and drops when its FIFO is full, which is the correct behaviour here: an unread
 telemetry channel is not an error condition. This is a *third* place where a bounded-substitution
 policy appears, and it is deliberately consistent with FR-031/FR-032 — except that dropping
