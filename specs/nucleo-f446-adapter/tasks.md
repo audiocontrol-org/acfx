@@ -51,7 +51,7 @@ execution graph.
 
 **Purpose**: The build surface the rest of the work hangs off. Plan Phase A.
 
-- [ ] T001 [tier:fast] Create the adapter directory skeleton `adapters/nucleo/` with `support/` and `startup/` subdirectories per plan.md § Source Code
+- [ ] T001 [tier:fast] Create the adapter directory skeleton `adapters/nucleo/` with `support/` and `startup/` subdirectories, establishing the two-part shim/support split (FR-001, FR-003)
 - [ ] T002 [tier:balanced] Add `cmake/toolchains/nucleo-f446.cmake` targeting Cortex-M4 with `-mfpu=fpv4-sp-d16 -mfloat-abi=hard -fno-exceptions -fno-rtti`, mirroring `cmake/toolchains/daisy.cmake` (FR-006)
 - [ ] T003 [tier:balanced] Port the libstdc++ probe from `cmake/toolchains/daisy.cmake` into the Nucleo toolchain so a C-only `arm-none-eabi-gcc` fails configuration with a message naming the missing component (FR-007)
 - [ ] T004 [tier:balanced] Add `ACFX_BUILD_NUCLEO` option to `CMakeLists.txt` and a `nucleo` configure/build preset to `CMakePresets.json`, mirroring the `daisy` preset
@@ -68,7 +68,7 @@ execution graph.
 
 - [ ] T007 [tier:powerful] Declare `acfx_nucleo_support` as an **unconditional** top-level `INTERFACE` target in `CMakeLists.txt`, shaped like `acfx_core`/`acfx_analysis` — **NOT** gated behind `ACFX_BUILD_NUCLEO`. Research R8: the host suite builds under the `test` preset with no toolchain, so a gated target would be invisible to it and would silently reproduce the untested-glue blind spot **D1** exists to close (FR-002, FR-004a)
 - [ ] T008 [tier:balanced] Add `acfx_add_effect_nucleo` to `cmake/acfx-effect-targets.cmake`, mirroring `acfx_add_effect_daisy`: one executable per effect, `_acfx_inject_effect` for `ACFX_EFFECT_TYPE`/`ACFX_EFFECT_HEADER`, linker script, `--gc-sections`, `.elf` suffix (FR-008, FR-009)
-- [ ] T009 [tier:fast] Wire the four `tests/core/nucleo-*-test.cpp` sources into the `acfx_core_tests` target in `tests/CMakeLists.txt` and link `acfx_nucleo_support`
+- [ ] T009 [tier:fast] Wire the five `tests/core/nucleo-*-test.cpp` sources into the `acfx_core_tests` target in `tests/CMakeLists.txt` and link `acfx_nucleo_support`, establishing the host coverage FR-049 requires
 
 **Checkpoint**: The build graph is correct — host tests can see the support library, and firmware targets can be declared.
 
@@ -85,7 +85,7 @@ execution graph.
 - [ ] T012 [US1] [tier:balanced] Define `SystemCoreClock` in `adapters/nucleo/nucleo-main.cpp` with the true configured frequency; ST's `system_stm32f4xx.c` is not compiled, and TinyUSB derives PHY turnaround timing from this value — a wrong one degrades timing *silently* (FR-013, **D14**)
 - [ ] T013 [US1] [tier:balanced] Create `adapters/nucleo/CMakeLists.txt` declaring firmware targets via `acfx_add_effect_nucleo` for the same two effects the Daisy adapter builds (`acfx::SvfEffect`, `acfx::ModulatedDelayEffect`)
 - [ ] T014 [US1] [tier:fast] Add the `nucleo` preset to the CI build matrix so cross-compile+link is enforced on every change (FR-048, verification layer 1)
-- [ ] T015 [US1] [tier:fast] Verify US1 end to end: `cmake --preset nucleo && cmake --build --preset nucleo` links one `.elf` per effect; a C-only toolchain on `PATH` fails configuration with the libstdc++ message (quickstart § 2)
+- [ ] T015 [US1] [tier:fast] Verify US1 end to end: `cmake --preset nucleo && cmake --build --preset nucleo` links one `.elf` per effect; a C-only toolchain on `PATH` fails configuration with the libstdc++ message (quickstart § 2, SC-008)
 
 **Checkpoint**: Firmware images build and link. CI gate active.
 
@@ -97,7 +97,7 @@ execution graph.
 
 **Independent test**: Host doctest round-trips known int16 buffers and asserts exact recovery, clamping, exact frame counts across 0–49, and no allocation.
 
-- [ ] T016 [P] [US2] [tier:fast] Write RED tests in `tests/core/nucleo-sample-format-test.cpp` for contract SF1 (round-trip exactness over the representable range), SF2 (**clamping, not wrapping**, for floats outside [-1.0, 1.0)), SF2a (ties away from zero), SF3 (exact frame counts for every size 0–49 incl. zero-length), SF3a (torn payload truncates to whole frames and reports the remainder), SF4 (no allocation)
+- [ ] T016 [P] [US2] [tier:fast] Write RED tests in `tests/core/nucleo-sample-format-test.cpp` for contract SF1 (round-trip exactness over the representable range), SF2 (**clamping, not wrapping**, for floats outside [-1.0, 1.0)), SF2a (ties away from zero), SF3 (exact frame counts for every size 0–49 incl. zero-length, SC-003), SF3a (torn payload truncates to whole frames and reports the remainder), SF4 (no allocation)
 - [ ] T017 [US2] [tier:balanced] Implement `adapters/nucleo/support/sample-format.h` — `deinterleaveToFloat` and `interleaveToInt16`, scaling by 32768 both ways, round-to-nearest ties-away-from-zero, clamping to [-32768, 32767], `noexcept`, no allocation (FR-038, FR-038a, FR-028a)
 - [ ] T018 [US2] [tier:fast] Confirm the allocation sentinel covers the conversion path and the tests from T016 pass green (SC-009, SC-010)
 
@@ -117,7 +117,7 @@ execution graph.
 - [ ] T022 [US3] [tier:powerful] Implement `adapters/nucleo/support/audio-ring.h` — statically sized SPSC ring, `CapacityFrames` a **template parameter with no default** (a default would be an invented number wearing the costume of a decision), defined underflow/overflow substitutions reported by return value, startup-fill wait, no re-centring, `noexcept`, no allocation, no locks (FR-030, FR-030a, FR-030b, FR-030c, FR-031, FR-032)
 - [ ] T023 [US3] [tier:fast] Confirm the allocation sentinel covers the ring and that T019/T020 pass green (SC-009, SC-010)
 
-**Checkpoint**: Buffering semantics are correct and host-verified. The numbers that make it *tuned* come later, in T060.
+**Checkpoint**: Buffering semantics are correct and host-verified. The numbers that make it *tuned* come later, in T062.
 
 ---
 
@@ -127,16 +127,16 @@ execution graph.
 
 **Independent test**: Attach the board and open it duplex at 48 kHz from a class-compliant client; confirm all three functions appear with no driver install.
 
-> **Depends on US8's T047/T048** (LED indicator) — FR-015c requires the indicator to exist before clock validation runs.
+> **Depends on US8's T049/T050** (LED indicator) — FR-015c requires the indicator to exist before clock validation runs.
 
 - [ ] T024 [US4] [tier:powerful] Implement register-level clock bring-up in `adapters/nucleo/nucleo-main.cpp`: HSE **bypass** on the ST-Link 8 MHz MCO, PLL M=4 N=168 P=2 Q=7 → 168 MHz SYSCLK and **exactly** 48 MHz on PLLQ (FR-014, **D6**). Hardware-verified in the spike — cross-check `RCC_PLLCFGR`, `HSERDY`, `PLLRDY`, and `RCC_CFGR.SWS` against the recorded values
 - [ ] T025 [US4] [tier:balanced] Configure PA11/PA12 alternate-function GPIO for OTG_FS in `adapters/nucleo/nucleo-main.cpp`
 - [ ] T026 [US4] [tier:balanced] Write `adapters/nucleo/tusb_config.h` with `CFG_TUD_VBUS_DETECT_HW 0` (VBUS deliberately unwired — the board is ST-Link powered and feeding breakout VBUS into the 5 V rail puts two supplies in contention), plus audio, MIDI, and CDC class enables (FR-015 [VBUS], FR-022, **D17**)
-- [ ] T027 [US4] [tier:powerful] Author `adapters/nucleo/usb-descriptors.h` and `usb-descriptors.cpp` locally from the `TUD_AUDIO20_DESC_*` primitives: a composite device grouping UAC2 audio (**stereo-in with stereo-out**, which no shipped template provides), USB MIDI, and CDC serial via IADs, advertising exactly one 48 kHz/16-bit/stereo format per direction (FR-018, FR-018a, FR-018b, FR-020, FR-021, **D5**, **D10**)
+- [ ] T027 [US4] [tier:powerful] Author `adapters/nucleo/usb-descriptors.h` and `usb-descriptors.cpp` locally from the `TUD_AUDIO20_DESC_*` primitives: a composite device grouping UAC2 audio (**stereo-in with stereo-out**, which no shipped template provides), USB MIDI, and CDC serial via IADs, advertising exactly one 48 kHz/16-bit/stereo format per direction. Assert in a descriptor comment that the **absence of a feedback endpoint is deliberate** (FR-027, **D20**) — with no local clock there is no rate to report, and an absence nobody names is one a later reader "fixes" (FR-018, FR-018a, FR-018b, FR-020, FR-021, FR-027, **D5**, **D10**)
 - [ ] T028 [US4] [tier:powerful] **Before writing any data-path code**, read the pinned TinyUSB 0.21.0 tree and record the actual alt-setting/close callback names and signatures, and confirm the polled `tud_audio_read()`/`tud_audio_write()` entry points. 0.21.0 **removed** `rx_done`/`tx_done`: code written against them links *silently* and leaves the audio path dead with no diagnostic (FR-023, research R1 — highest-cost trap in this feature)
 - [ ] T029 [US4] [tier:powerful] Verify the OTG_FS **endpoint budget** closes across three functions (audio IN + OUT iso, MIDI bulk pair, CDC notify + bulk pair). If it does not, **surface it as a finding for the operator** — do not silently drop a function (research R2, spec § Assumptions)
 - [ ] T030 [US4] [tier:balanced] Implement TinyUSB init, the `OTG_FS_IRQHandler`, and the `tud_task()` service loop in `adapters/nucleo/nucleo-main.cpp` (FR-046 — the ISR only enqueues)
-- [ ] T031 [US4] [tier:fast] Verify US4 on hardware: the device enumerates with audio, MIDI, and serial functions, no driver installation, and opens duplex 2-in/2-out at 48 kHz (quickstart § 5, SC-001)
+- [ ] T031 [US4] [tier:fast] Verify US4 on hardware: the device enumerates with audio, MIDI, and serial functions, **no driver installation** (FR-019), and opens duplex 2-in/2-out at 48 kHz (quickstart § 5, SC-001)
 
 **Checkpoint**: The board is a driverless class-compliant audio device.
 
@@ -148,7 +148,7 @@ execution graph.
 
 **Independent test**: Stream a known signal through a firmware whose effect has a deterministic transfer characteristic; the output matches the expected transformation.
 
-- [ ] T032 [US5] [tier:powerful] Wire the polled OUT path in `adapters/nucleo/nucleo-main.cpp`: read the packet, truncate to whole frames and count the remainder, convert and de-interleave, write to the input ring — accepting **0–49 frames** with no code path assuming 48 (FR-028, FR-028a)
+- [ ] T032 [US5] [tier:powerful] Wire the polled OUT path in `adapters/nucleo/nucleo-main.cpp`: read the packet, truncate to whole frames and count the remainder, convert and de-interleave, write to the input ring — accepting **0–49 frames** with no code path assuming 48. The OUT stream is an **adaptive sink** consuming whatever the host paces to it — the device asserts no rate of its own (FR-024, FR-025, FR-028, FR-028a)
 - [ ] T033 [US5] [tier:powerful] Assemble **fixed 48-frame** blocks from the ring, run `AppEffect::process()` in place on non-interleaved `float*`, and write results to the output ring; packet size must not propagate into block size (FR-030a, FR-036a, FR-037)
 - [ ] T034 [US5] [tier:balanced] Prepare the effect with `acfx::ProcessContext{48000.0, 49, 2}` at startup — 49 is headroom for the largest deliverable payload, not the working block size (FR-036, **D15**)
 - [ ] T035 [US5] [tier:balanced] Wire the polled IN path: read the output ring, convert and interleave with clamping, write via `tud_audio_write()` (FR-026, FR-038a)
@@ -168,12 +168,14 @@ execution graph.
 
 > **Open question 7 blocks completion.** The mapping *mechanism* is fully specified; the concrete CC convention is the operator's call and is needed before this story is done.
 
-- [ ] T039 [P] [US6] [tier:fast] Write RED tests in `tests/core/nucleo-parameter-shadow-test.cpp` for contract PS1 (bounded at `N`), PS2 (**last-write-wins** — a burst leaves the final value, never an intermediate one), PS3 (**no cross-parameter eviction**), PS4 (exactly-once per dirty parameter, then flags cleared), PS5 (`N == 0` is a valid no-op), PS6 (no allocation)
+- [ ] T039 [P] [US6] [tier:fast] Write RED tests in `tests/core/nucleo-parameter-shadow-test.cpp` for contract PS1 (bounded at `N`), PS2 (**last-write-wins** — a burst leaves the final value, never an intermediate one), PS3 (**no cross-parameter eviction**, SC-006), PS4 (exactly-once per dirty parameter, then flags cleared), PS5 (`N == 0` is a valid no-op), PS6 (no allocation)
 - [ ] T040 [P] [US6] [tier:fast] Write RED tests in `tests/core/nucleo-midi-cc-map-test.cpp` for contract MC1 (unmapped CC ignored, no slot disturbed), MC2 (index beyond `paramCount` never returned), MC3 (pure/stateless)
-- [ ] T041 [US6] [tier:balanced] Implement `adapters/nucleo/support/parameter-shadow.h` — per-`ParamId` value + dirty flag, bounded by construction at the effect's parameter count, `flush()` applying each dirty parameter exactly once then clearing (FR-041, FR-042, FR-043, **D25**)
-- [ ] T042 [US6] [tier:balanced] Implement `adapters/nucleo/support/midi-cc-map.h` — table-driven CC → parameter index, bounded by `paramCount` so an out-of-range index can never reach `setParameter`. Structure the table so settling open question 7 is a **table edit, not a rewrite** (FR-045, research R9)
-- [ ] T043 [US6] [tier:balanced] Wire USB MIDI reception into the map and shadow block, and call `shadow.flush(...)` once per audio block boundary in `adapters/nucleo/nucleo-main.cpp` (FR-039, FR-042)
-- [ ] T044 [US6] [tier:fast] **Put open question 7 to the operator**: fixed CC numbers per parameter index? a learn mode? which channel? should it match the workbench's existing MIDI CC consumption so one mapping serves both? Record the answer and apply it to T042's table (spec § Open Questions 7)
+- [ ] T041 [P] [US6] [tier:fast] Write RED tests in `tests/core/nucleo-parameter-source-test.cpp` for contract PSRC1 (a sampled-state stub and an event stub both satisfy `poll(shadow)`), PSRC2 (**dead-band** — an unchanged value does NOT dirty its slot, so `flush()` cannot degenerate into applying every parameter every block), PSRC4 (two sources writing one slot resolve last-write-wins), PSRC5 (a source never calls `setParameter` itself)
+- [ ] T042 [US6] [tier:balanced] Implement `adapters/nucleo/support/parameter-shadow.h` — per-`ParamId` value + dirty flag, bounded by construction at the effect's parameter count, `flush()` applying each dirty parameter exactly once then clearing (FR-041, FR-042, FR-043, **D25**)
+- [ ] T043 [US6] [tier:balanced] Implement `adapters/nucleo/support/midi-cc-map.h` — table-driven CC → parameter index, bounded by `paramCount` so an out-of-range index can never reach `setParameter`. Structure the table so settling open question 7 is a **table edit, not a rewrite** (FR-045, research R9)
+- [ ] T044 [US6] [tier:balanced] Implement `adapters/nucleo/support/parameter-source.h` — the duck-typed `poll(ParameterShadow<N>&) noexcept` seam plus `MidiParameterSource`, shaped so a **sampled-state** source (ADC/encoder) and an **event-driven** source (MIDI) both plug in unchanged. This is the seam **D3** asks for: without it the MIDI path wires straight into the shadow block and the second source becomes a refactor of the first (FR-039, FR-040, **D2**, **D3**)
+- [ ] T045 [US6] [tier:balanced] Decode USB MIDI packets in the shim, feed them to `MidiParameterSource::onControlChange`, poll every registered source once per audio block, then call `shadow.flush(...)` — in `adapters/nucleo/nucleo-main.cpp` (FR-039, FR-042, contract PSRC3)
+- [ ] T046 [US6] [tier:fast] **Put open question 7 to the operator**: fixed CC numbers per parameter index? a learn mode? which channel? should it match the workbench's existing MIDI CC consumption so one mapping serves both? Record the answer and apply it to T043's table (spec § Open Questions 7)
 
 **Checkpoint**: Parameters are controllable; the CC convention awaits an operator decision.
 
@@ -185,8 +187,8 @@ execution graph.
 
 **Independent test**: Open the capture stream alone; the received stream is silence with `inputStarved` incrementing, and duplex resumes when playback is later opened.
 
-- [ ] T045 [US7] [tier:balanced] Detect the capture-only alt-setting state (mic streaming, speaker zero-bandwidth) and emit silence on the IN endpoint, incrementing **`inputStarved`** — not `outputUnderruns`, which covers the different condition of an open playback stream with a momentarily empty ring (FR-029, FR-029a, **D22**)
-- [ ] T046 [US7] [tier:fast] Verify US7 on hardware: capture-only yields counted silence, and opening playback afterwards resumes duplex with no restart (quickstart § 7, SC-005)
+- [ ] T047 [US7] [tier:balanced] Detect the capture-only alt-setting state (mic streaming, speaker zero-bandwidth) and emit silence on the IN endpoint, incrementing **`inputStarved`** — not `outputUnderruns`, which covers the different condition of an open playback stream with a momentarily empty ring (FR-029, FR-029a, **D22**)
+- [ ] T048 [US7] [tier:fast] Verify US7 on hardware: capture-only yields counted silence, and opening playback afterwards resumes duplex with no restart (quickstart § 7, SC-005)
 
 **Checkpoint**: A legal host configuration whose failure mode is a mystery hang is now defined.
 
@@ -198,12 +200,12 @@ execution graph.
 
 **Independent test**: Force the lock check to fail; the firmware blinks LD2 and halts, never proceeding to USB init.
 
-> **Implement T047/T048 before T024** — FR-015c requires the indicator to exist before clock validation runs.
+> **Implement T049/T050 before T024** — FR-015c requires the indicator to exist before clock validation runs.
 
-- [ ] T047 [US8] [tier:balanced] Initialize the LD2 (PA5) GPIO in `adapters/nucleo/nucleo-main.cpp` **before** clock validation, accepting that it runs on the reset-default HSI and its cadence is therefore approximate — the pattern's shape, not its timing, carries the signal (FR-015c)
-- [ ] T048 [US8] [tier:balanced] Implement the fatal-fault path: **three short pulses, long gap, repeating indefinitely**, then halt — distinguishable both from a dark board and from any normal-operation indication (FR-015a, FR-015b)
-- [ ] T049 [US8] [tier:balanced] Make PLL-lock failure fatal: no fallback to the internal oscillator, no progression to USB initialization, under any configuration (FR-015, **D7**)
-- [ ] T050 [US8] [tier:fast] Verify US8 on hardware: with the ST-Link cable disconnected the board blinks the fault pattern and does not enumerate; a dark LED is a **failure**, not an inconclusive result (quickstart § 4, SC-007)
+- [ ] T049 [US8] [tier:balanced] Initialize the LD2 (PA5) GPIO in `adapters/nucleo/nucleo-main.cpp` **before** clock validation, accepting that it runs on the reset-default HSI and its cadence is therefore approximate — the pattern's shape, not its timing, carries the signal (FR-015c)
+- [ ] T050 [US8] [tier:balanced] Implement the fatal-fault path: **three short pulses, long gap, repeating indefinitely**, then halt — distinguishable both from a dark board and from any normal-operation indication (FR-015a, FR-015b)
+- [ ] T051 [US8] [tier:balanced] Make PLL-lock failure fatal: no fallback to the internal oscillator, no progression to USB initialization, under any configuration (FR-015, **D7**)
+- [ ] T052 [US8] [tier:fast] Verify US8 on hardware: with the ST-Link cable disconnected the board blinks the fault pattern and does not enumerate; a dark LED is a **failure**, not an inconclusive result (quickstart § 4, SC-007)
 
 **Checkpoint**: A failed board is distinguishable from an unpowered one by eye, with no debug probe.
 
@@ -215,11 +217,11 @@ execution graph.
 
 **Independent test**: Sleep and wake the host with the device streaming; separately force a bus reset. Audio resumes and the counters tell a coherent story across the event.
 
-- [ ] T051 [US10] [tier:balanced] Handle bus **suspend** in `adapters/nucleo/nucleo-main.cpp`: stop producing and consuming audio, and do not spin waiting for packets that will not arrive (FR-051)
-- [ ] T052 [US10] [tier:balanced] Handle **resume**: restart streaming with no power cycle and **without replaying** audio buffered before the suspend (FR-052)
-- [ ] T053 [US10] [tier:balanced] Handle **bus reset / re-enumeration**: clear the rings via `reset()` and re-arm the startup-fill wait so the device restarts from a defined state rather than draining a stale partial ring — while leaving the counters untouched (FR-053, FR-054, contract AR9)
-- [ ] T054 [US10] [tier:balanced] Ensure every alt-setting combination (both closed, playback only, capture only, both open) is handled and that moving between any two requires no power cycle (FR-055)
-- [ ] T055 [US10] [tier:fast] Verify US10 on hardware: a host sleep/wake cycle and a forced bus reset each leave the device streaming, with counters readable across the event (quickstart § 7a, SC-013)
+- [ ] T053 [US10] [tier:balanced] Handle bus **suspend** in `adapters/nucleo/nucleo-main.cpp`: stop producing and consuming audio, and do not spin waiting for packets that will not arrive (FR-051)
+- [ ] T054 [US10] [tier:balanced] Handle **resume**: restart streaming with no power cycle and **without replaying** audio buffered before the suspend (FR-052)
+- [ ] T055 [US10] [tier:balanced] Handle **bus reset / re-enumeration**: clear the rings via `reset()` and re-arm the startup-fill wait so the device restarts from a defined state rather than draining a stale partial ring — while leaving the counters untouched (FR-053, FR-054, contract AR9)
+- [ ] T056 [US10] [tier:balanced] Ensure every alt-setting combination (both closed, playback only, capture only, both open) is handled and that moving between any two requires no power cycle (FR-055)
+- [ ] T057 [US10] [tier:fast] Verify US10 on hardware: a host sleep/wake cycle and a forced bus reset each leave the device streaming, with counters readable across the event (quickstart § 7a, SC-013)
 
 **Checkpoint**: An entire lifecycle class that was absent from the original spec is now covered.
 
@@ -231,10 +233,10 @@ execution graph.
 
 **Independent test**: Run the harness against an attached board; it reports the full counter set and passes or fails against the configured bar.
 
-- [ ] T056 [US9] [tier:balanced] Emit `AudioTransportStats` over the CDC serial function as line-oriented `key=value` text, newline-terminated, one snapshot per line — non-blocking and non-allocating, and harmless when nothing has the port open (FR-033a, research R7)
-- [ ] T057 [US9] [tier:balanced] Build the HIL harness under `tools/nucleo-hil/`, starting from the spike's `tools/loopback_test.py`: stream a known signal, read the counter set over CDC, and express error counts as a **rate against `blocksProcessed`** using deltas between snapshots rather than lifetime totals (FR-050, FR-034a, US9 AS2)
-- [ ] T058 [US9] [tier:fast] Ensure the harness is **not** wired into the normal CI job — it requires a physical board (FR-050, US9 AS3)
-- [ ] T059 [US9] [tier:fast] **Put open questions 2 and 6 to the operator**: what counter rate constitutes a failing build, which layer enforces it, where the harness lives, and how it is invoked (spec § Open Questions 2, 6)
+- [ ] T058 [US9] [tier:balanced] Emit `AudioTransportStats` over the CDC serial function as line-oriented `key=value` text, newline-terminated, one snapshot per line — non-blocking and non-allocating, and harmless when nothing has the port open, so all eight fields are host-readable without a debug probe (FR-033a, SC-004, research R7)
+- [ ] T059 [US9] [tier:balanced] Build the HIL harness under `tools/nucleo-hil/`, starting from the spike's `tools/loopback_test.py`: stream a known signal, read the counter set over CDC, and express error counts as a **rate against `blocksProcessed`** using deltas between snapshots rather than lifetime totals (FR-050, FR-034a, US9 AS2)
+- [ ] T060 [US9] [tier:fast] Ensure the harness is **not** wired into the normal CI job — it requires a physical board (FR-050, US9 AS3)
+- [ ] T061 [US9] [tier:fast] **Put open questions 2 and 6 to the operator**: what counter rate constitutes a failing build, which layer enforces it, where the harness lives, and how it is invoked (spec § Open Questions 2, 6)
 
 **Checkpoint**: Transport quality is measurable rather than anecdotal.
 
@@ -244,13 +246,15 @@ execution graph.
 
 **Purpose**: Plan Phase H — the numbers that could not honestly exist before hardware — plus cross-cutting cleanup.
 
-- [ ] T060 [tier:powerful] **Measure, do not pick**: derive ring capacity, water marks, and startup fill using research R5's procedure — instrument with a generous capacity, stream a sustained run, record occupancy min/max/distribution over `blocksProcessed` plus every counter, derive fill from the lower excursion and capacity from the upper, each with headroom justified by the measured spread, then re-run to confirm. The spike's ~0.2% figure came from a naive single buffer and **predicts nothing** about the tuned design (FR-035, **D23**)
-- [ ] T061 [tier:balanced] Pin the measured values as `AudioRing` template arguments in `adapters/nucleo/nucleo-main.cpp` and record the measurement evidence that justifies each in `specs/nucleo-f446-adapter/research.md`
-- [ ] T062 [tier:fast] Record `worstBlockMicros` for every shipped Nucleo firmware alongside its harness results (SC-011)
-- [ ] T063 [tier:fast] Confirm every shipped source file is within the ~300–500 line budget and that `nucleo-main.cpp` holds no logic that could have lived in the host-testable support library (FR-005, FR-003, SC-012)
-- [ ] T064 [tier:fast] Write `adapters/nucleo/README.md` documenting the two-cable requirement, the PA11/PA12 breakout wiring, and the trap that the Arduino-labelled `D11`/`D12` pins are **PA7/PA6** (FR-016, FR-017)
-- [ ] T065 [tier:fast] File a backlog item for the repo-wide `cpm-package-lock.cmake` gap — it holds only its header comment while the real pinning mechanism is `GIT_TAG` in `dependencies.cmake`; pre-existing and not this feature's to fix (research R12)
-- [ ] T066 [tier:fast] Confirm all 11 open questions remain recorded and none was silently resolved during implementation (spec § Open Questions)
+- [ ] T062 [tier:powerful] **Measure, do not pick**: derive ring capacity, water marks, and startup fill using research R5's procedure — instrument with a generous capacity, stream a sustained run, record occupancy min/max/distribution over `blocksProcessed` plus every counter, derive fill from the lower excursion and capacity from the upper, each with headroom justified by the measured spread, then re-run to confirm. The spike's ~0.2% figure came from a naive single buffer and **predicts nothing** about the tuned design (FR-035, **D23**)
+- [ ] T063 [tier:balanced] Pin the measured values as `AudioRing` template arguments in `adapters/nucleo/nucleo-main.cpp` and record the measurement evidence that justifies each in `specs/nucleo-f446-adapter/research.md`, closing FR-035
+- [ ] T064 [tier:fast] Record `worstBlockMicros` for every shipped Nucleo firmware alongside its harness results (SC-011)
+- [ ] T065 [tier:fast] Confirm every shipped source file is within the ~300–500 line budget and that `nucleo-main.cpp` holds no logic that could have lived in the host-testable support library (FR-005, FR-003, SC-012)
+- [ ] T066 [tier:balanced] Assert the no-allocation / no-lock constraint over **every** stage FR-046a names — payload truncation, conversion, ring access, the parameter dirty-flag walk, `process()`, and the telemetry write. The parameter flush and the telemetry write are the two that get overlooked precisely because they do not look like audio code, which is why FR-046a names them explicitly (FR-046a, FR-046b, SC-010)
+- [ ] T067 [tier:fast] Add a check that `acfx_core` has acquired no USB, TinyUSB, or board dependency — dependencies point strictly inward, and nothing else in the build enforces this direction (FR-004)
+- [ ] T068 [tier:fast] Write `adapters/nucleo/README.md` documenting the two-cable requirement, the PA11/PA12 breakout wiring, and the trap that the Arduino-labelled `D11`/`D12` pins are **PA7/PA6**. Also document the two limitations the spec requires be written down: the parameter seam is correct for state-valued parameters and **wrong for event-valued controls** (FR-044), and the single-execution-context assumption is **load-bearing** for the lock-free shadow block, with sampling peripherals from a timer ISR as the explicit trigger to revisit it (FR-047) (FR-016, FR-017, FR-044, FR-047)
+- [ ] T069 [tier:fast] File a backlog item for the repo-wide `cpm-package-lock.cmake` gap — it holds only its header comment while the real pinning mechanism is `GIT_TAG` in `dependencies.cmake`; pre-existing and not this feature's to fix (research R12)
+- [ ] T070 [tier:fast] Confirm all 11 open questions remain recorded and none was silently resolved during implementation (spec § Open Questions)
 
 ---
 
@@ -269,26 +273,26 @@ Phase 1 (T001-T006)  →  Phase 2 (T007-T009)
    build surface        host-only              host-only
         │                     └──────────┬───────────┘
         │                                │
-   US8 (T047-T049) ◄── LED before clock validation (FR-015c)
+   US8 (T049-T052) ◄── LED before clock validation (FR-015c)
         │
    US4 (T024-T031)  ── enumeration
         │
    US5 (T032-T038)  ── audio path (needs US2 + US3 + US4)
         │
-        ├── US6 (T039-T044)   parameters
-        ├── US7 (T045-T046)   capture-only
-        └── US10 (T051-T055)  lifecycle
+        ├── US6 (T039-T046)   parameters
+        ├── US7 (T047-T048)   capture-only
+        └── US10 (T053-T057)  lifecycle
                 │
-           US9 (T056-T059)    telemetry + harness
+           US9 (T058-T061)    telemetry + harness
                 │
-           Phase 13 (T060-T066)  measurement — requires the harness
+           Phase 13 (T062-T070)  measurement — requires the harness
 ```
 
 **Key dependency facts**
 
 - **US2 and US3 need no hardware** and can proceed fully in parallel with US1. They hold most of the feature's testable substance.
-- **US8's T047/T048 precede US4's T024** despite the lower priority (FR-015c).
-- **T060 cannot start before US9** — the measurement needs the harness that reads the counters.
+- **US8's T049/T050 precede US4's T024** despite the lower priority (FR-015c).
+- **T062 cannot start before US9** — the measurement needs the harness that reads the counters.
 - **T028 gates all data-path work** in US4/US5: the TinyUSB API must be read off the pinned tree, never recalled.
 
 ## Parallel Execution Examples
@@ -301,10 +305,10 @@ Track B (host):   T016 → T017 → T018
 Track C (host):   T019 ∥ T020 → T021 → T022 → T023
 ```
 
-**Within US6, the two RED-test tasks are independent:**
+**Within US6, the three RED-test tasks are independent:**
 
 ```text
-T039 ∥ T040   (different test files, no shared state)
+T039 ∥ T040 ∥ T041   (different test files, no shared state)
 ```
 
 ## Implementation Strategy
@@ -335,16 +339,16 @@ numbers it produces can be pinned.
 | 5 | US3 (P1) | T019–T023 | 5 |
 | 6 | US4 (P1) | T024–T031 | 8 |
 | 7 | US5 (P1) | T032–T038 | 7 |
-| 8 | US6 (P2) | T039–T044 | 6 |
-| 9 | US7 (P2) | T045–T046 | 2 |
-| 10 | US8 (P2) | T047–T050 | 4 |
-| 11 | US10 (P2) | T051–T055 | 5 |
-| 12 | US9 (P3) | T056–T059 | 4 |
-| 13 | Polish/measurement | T060–T066 | 7 |
-| **Total** | | | **66** |
+| 8 | US6 (P2) | T039–T046 | 8 |
+| 9 | US7 (P2) | T047–T048 | 2 |
+| 10 | US8 (P2) | T049–T052 | 4 |
+| 11 | US10 (P2) | T053–T057 | 5 |
+| 12 | US9 (P3) | T058–T061 | 4 |
+| 13 | Polish/measurement | T062–T070 | 9 |
+| **Total** | | | **70** |
 
-**Tier distribution**: `fast` 25, `balanced` 32, `powerful` 9. The `powerful` set is exactly the
+**Tier distribution**: `fast` 27, `balanced` 34, `powerful` 9. The `powerful` set is exactly the
 work that is cross-cutting or silently-failing: the build-graph decision (T007), the locally
 authored composite descriptor (T027), register-level clock bring-up (T024), the TinyUSB API
 verification (T028), the endpoint budget (T029), the ring itself (T022), the two data-path
-wiring tasks (T032, T033), and the measurement pass (T060).
+wiring tasks (T032, T033), and the measurement pass (T062).

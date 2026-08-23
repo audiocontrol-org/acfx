@@ -93,7 +93,7 @@ Resolution).
 | **VI. Platform-independent core, thin adapters** | ✅ Pass | Core gains nothing. **D1** applies the same principle recursively — see the Complexity Tracking note below, which is where this earns scrutiny rather than a rubber stamp. |
 | **VII. No fallbacks, no mock data outside tests** | ⚠️ Justified | See below. |
 | **VIII. Real-time safety in the audio path** | ✅ Pass | No heap, no locks (FR-030). Single execution context (**D26**, FR-046) means no lock-free discipline is needed *today*; FR-047 records the explicit trigger to revisit. |
-| **IX. Strict typing & small modules** | ✅ Pass | ~300–500 lines per file (FR-005). Structure below splits the support library into five files precisely to hold that. |
+| **IX. Strict typing & small modules** | ✅ Pass | ~300–500 lines per file (FR-005). Structure below splits the support library into six files precisely to hold that. |
 | **X. Test the core host-side** | ✅ Pass | This is the principle **D1** exists to satisfy: the support library is host-compilable so doctest can reach it (FR-002, FR-049). |
 
 ### Principle VII — the one that needs justifying, not waving through
@@ -147,6 +147,7 @@ adapters/nucleo/
     ├── audio-ring.h         # Statically sized SPSC ring + defined substitutions (FR-030..032)
     ├── transport-stats.h    # AudioTransportStats + rate helpers (FR-033, FR-034)
     ├── parameter-shadow.h   # Per-ParamId shadow block + dirty flags (FR-041..FR-044)
+    ├── parameter-source.h   # ParameterSource seam + MidiParameterSource (FR-039, FR-040)
     └── midi-cc-map.h        # CC -> ParamId table-driven mapping (FR-045)
 
 cmake/
@@ -158,6 +159,7 @@ tests/core/
 ├── nucleo-sample-format-test.cpp
 ├── nucleo-audio-ring-test.cpp
 ├── nucleo-parameter-shadow-test.cpp
+├── nucleo-parameter-source-test.cpp
 └── nucleo-midi-cc-map-test.cpp
 
 tools/nucleo-hil/               # HIL harness (FR-050) — NOT wired into normal CI

@@ -197,6 +197,59 @@ broken; such a control would need its own mechanism regardless.
 
 ---
 
+## Parameter source seam — `parameter-source.h`
+
+The abstraction FR-039 requires and FR-040 shapes (**D2**, **D3**). Following acfx's existing
+style — `acfx::Effect` and MNA's `CompanionSupply` are both **duck-typed seams**, not base
+classes — a `ParameterSource` is any type exposing:
+
+```cpp
+namespace acfx::nucleo {
+
+// A ParameterSource is any type T for which this is valid:
+//
+//     void T::poll(ParameterShadow<N>& shadow) noexcept;
+//
+// Called once per audio block, BEFORE shadow.flush(). Implementations write
+// slots; they never call setParameter themselves.
+
+// The first implementation (D2): drains pending USB MIDI control changes,
+// resolves each through MidiCcMap, and writes the mapped slot.
+template <int N>
+class MidiParameterSource {
+public:
+    void poll(ParameterShadow<N>& shadow) noexcept;
+    // Called by the shim when a CC arrives; buffering is bounded and lock-free.
+    void onControlChange(std::uint8_t cc, std::uint8_t value) noexcept;
+};
+
+} // namespace acfx::nucleo
+```
+
+### Guarantees
+
+- **PSRC1** — One seam, two source kinds. A **sampled-state** source (ADC, encoder) and an
+  **event-driven** source (USB MIDI) both satisfy `poll(shadow)`. They converge on **data** —
+  the shadow block — not on a shared execution model, which is what makes D3's physical
+  peripherals a later addition rather than a later redesign. (FR-039, FR-040)
+- **PSRC2** — **Dead-banded writes.** A source MUST NOT dirty a slot when the value has not
+  meaningfully changed. Without this, a sampled source marks every slot dirty every block and
+  `flush()` degenerates into calling `setParameter` for every parameter at audio rate — the
+  failure mode the dirty flags exist to prevent. `daisy-main.cpp`'s `kKnobDeadband` is the
+  existing precedent.
+- **PSRC3** — `poll()` is `noexcept` and allocation-free; it runs inside the audio path as
+  delimited by FR-046a.
+- **PSRC4** — Sources are **composable**: the shim may poll more than one in a block, and two
+  sources writing the same slot resolve by last-write-wins (PS2), not by conflict.
+- **PSRC5** — A source never calls `setParameter` directly. Only `flush()` does (PS4), which is
+  what keeps parameter application to exactly once per dirty parameter per block.
+
+**Platform boundary**: `MidiParameterSource` holds only the decoded `(cc, value)` pair — USB
+MIDI packet decoding is the shim's job, since it needs the stack. This is what keeps the source
+host-testable.
+
+---
+
 ## MIDI CC mapping — `midi-cc-map.h`
 
 ```cpp

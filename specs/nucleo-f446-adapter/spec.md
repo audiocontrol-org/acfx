@@ -795,12 +795,12 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
   for every shipped Nucleo firmware and recorded alongside that firmware's harness results,
   making each effect's CPU headroom against the frame period directly observable rather than
   inferred.
-- **SC-013**: A host suspend/resume cycle and a bus reset each leave the device streaming
-  normally afterwards with no power cycle, and the counters remain readable across the event so
-  its cost is measurable rather than invisible.
 - **SC-012**: Every shipped source file remains within the ~300–500 line budget, and
   `nucleo-main.cpp` contains no logic that could have lived in the host-testable support
   library.
+- **SC-013**: A host suspend/resume cycle and a bus reset each leave the device streaming
+  normally afterwards with no power cycle, and the counters remain readable across the event so
+  its cost is measurable rather than invisible.
 
 ## Assumptions
 

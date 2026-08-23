@@ -175,6 +175,35 @@ mechanism regardless.
 
 ---
 
+## `ParameterSource`
+
+The seam every parameter input plugs into (FR-039, FR-040, **D2**, **D3**). A duck-typed
+contract — `void poll(ParameterShadow<N>&) noexcept` — not a base class, matching how
+`acfx::Effect` and MNA's `CompanionSupply` are already expressed in this repo.
+
+| Implementation | Kind | How `poll()` behaves |
+|---|---|---|
+| `MidiParameterSource` (**D2**, first) | Event-driven | Drains pending CCs, resolves each via `MidiCcMap`, writes the mapped slot |
+| ADC / encoder source (**D3**, later) | Sampled state | Reads the current value, writes only past a dead-band |
+
+**Invariants**
+
+- **I-PSRC1**: Both source kinds converge on the **shadow block** — on data, not on a shared
+  execution model. This is precisely what makes physical peripherals a later *addition* rather
+  than a later *redesign*, which is what **D3** asked for.
+- **I-PSRC2**: A source never dirties a slot for an unchanged value (dead-band). Without this a
+  sampled source dirties everything every block, and `flush()` degenerates into applying every
+  parameter at audio rate — the exact waste the dirty flags exist to avoid.
+- **I-PSRC3**: A source never calls `setParameter`; only `flush()` does (I-PS4).
+- **I-PSRC4**: Sources compose — several may be polled per block; same-slot writes resolve by
+  last-write-wins (I-PS2).
+
+**Why this is an entity and not just a shape**: without it, D3's "shaped now for physical
+peripherals" has nothing to point at, and the MIDI path would wire straight into the shadow
+block — making the second source a refactor of the first.
+
+---
+
 ## `MidiCcMap`
 
 Table-driven mapping from MIDI CC number to parameter index (FR-045, research R9).
