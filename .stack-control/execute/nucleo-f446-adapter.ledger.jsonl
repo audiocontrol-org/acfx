@@ -19,3 +19,4 @@
 {"id": "T018", "tierLabel": "fast", "model": "haiku", "commitRange": "9a7f86d..6dd8544", "reviewClean": true}
 {"id": "T019", "tierLabel": "fast", "model": "haiku", "commitRange": "1673745..657f48a", "reviewClean": true}
 {"id": "T020", "tierLabel": "fast", "model": "haiku", "commitRange": "657f48a..aa672fc", "reviewClean": true}
+{"id": "T021", "tierLabel": "balanced", "model": "sonnet", "commitRange": "ae4b1e9..e568851", "reviewClean": true}
