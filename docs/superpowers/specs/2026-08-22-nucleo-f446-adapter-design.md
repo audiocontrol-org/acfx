@@ -29,7 +29,7 @@ establishes a target class distinct from "dev board with a codec on it".
 |---|---|
 | HSE crystal footprint (X3) unpopulated | The accurate clock is the ST-Link MCU's 8 MHz MCO into OSC_IN, in HSE **bypass** mode |
 | ⇒ | **The ST-Link USB cable is mandatory at runtime**, not just for debugging. Two cables, always. |
-| No audio codec | USB Audio Class is the only I/O path |
+| No audio codec | USB Audio Class is the **chosen** audio path. The MCU has SAI/I2S/ADC/DAC; this target deliberately does not use them |
 | No pots, encoders, or display; one button (B1, PC13) | No local control surface to bind parameters to |
 | USB OTG_FS only, PA11/PA12, 12 Mb/s | Full speed: one isochronous packet per 1 ms frame, ≤1023 bytes |
 | 512 KB flash / 128 KB SRAM, Cortex-M4F single-precision | Ample for the current effects; a real budget question for the convolution and physical-modeling phases |
@@ -144,46 +144,121 @@ more code to carry, not less.
 | D12 | Reuse the daisy toolchain's **libstdc++ probe** | It already fails loud on Homebrew's C-only `arm-none-eabi-gcc`; the spike hit exactly that trap |
 | D13 | Generate the interrupt vector table from the CMSIS `IRQn_Type` enum | `OTG_FS_IRQn` is 67; a core-exceptions-only table sends the NVIC past the end of the array on the first USB interrupt |
 | D14 | The adapter **owns `SystemCoreClock`** | ST's `system_stm32f4xx.c` is not compiled. TinyUSB derives the USB PHY turnaround time from it, so a wrong value degrades timing silently rather than failing |
-| D15 | Audio block size **48 frames** (1 ms at 48 kHz); effect prepared with that as `maxBlockSize` | Matches the USB frame exactly; also matches Daisy's `SetAudioBlockSize(48)` |
+| D15 | Effect prepared with `maxBlockSize` = **49 frames**; the nominal block is 48 | 48 is the nominal rate, NOT a guarantee — see D20. `TUD_AUDIO_EP_SIZE` sizes the endpoint at 49 frames by design |
 | D16 | Statically sized ring buffer; **no heap and no locks** in the audio path | acfx real-time-safety principle; enforced by the existing no-allocation test discipline |
 | D17 | VBUS is **not wired**; `CFG_TUD_VBUS_DETECT_HW 0` forces session-valid | The board is ST-Link powered; feeding breakout VBUS into the 5 V rail puts two supplies in contention |
 | D18 | Three verification layers: CI cross-compile+link, host doctest over `acfx_nucleo_support`, and a hardware-in-the-loop harness | Operator chose all three. The HIL harness cannot run in normal CI |
 | D19 | One firmware binary per effect, via the factory | Matches `acfx_add_effect_daisy`, which builds `acfx_daisy` and `acfx_daisy_delay` separately |
+| D20 | **USB SOF is the only clock.** OUT is an adaptive sink, IN is an asynchronous source, and there is **no feedback endpoint — explicitly absent by design** | The device has no independent audio clock. A feedback endpoint reports the rate a device consumes at; a device that consumes exactly what the host sends has nothing to report |
+| D21 | Packet payload size is **not fixed**. Nominal 48 frames; the endpoint is sized for 49; the implementation accepts 0–49 frames per packet, including short and zero-length packets | `TUD_AUDIO_EP_SIZE` computes `((48000+999)/1000 + 1) * 2 * 2` = 196 bytes = 49 frames. A 48-frame assumption is contradicted by the stack's own descriptor arithmetic |
+| D22 | The host may open the **capture stream alone** (mic `alt=1`, speaker `alt=0`). In that state the IN endpoint emits **silence**, counted via `inputStarved` | Legal host behaviour that a topology deriving IN from OUT cannot otherwise answer. Undefined behaviour here would surface as a mysterious hang or stale audio |
+| D23 | Ring-buffer **semantics** are fixed here; **capacity, water marks and startup fill are not** — those are derived from HIL measurement and pinned in the spec | Pre-measurement numbers would be invented. The spike's ~0.2% figure was measured under a naive single buffer and does not predict the tuned design |
+| D24 | Underflow emits **silence**, overflow **drops the oldest**, and both increment a counter. Never silent | acfx's "no fallbacks, raise descriptive errors" cannot be applied literally in an audio path, which must emit something in bounded time and cannot throw. The correct reading: the substitution is defined and observable, not absent |
+| D25 | The parameter seam is a **per-`ParamId` shadow block with dirty flags**, not a FIFO of change events | `setParameter(id, normalized)` is idempotent state, not an event. Bounded by construction at `parameters().size()`, structurally cannot overflow, and immune to the cross-parameter starvation a shared FIFO allows |
+| D26 | Single execution context: TinyUSB class servicing and DSP both run in the main loop; the ISR only enqueues | Verified in TinyUSB 0.21.0 — `driver->xfer_cb` is dispatched from `tud_task_ext` via `osal_queue_receive`, while `dcd_event_handler` only queues. No lock-free discipline is needed today |
+
+### Transport contract
+
+Restating D20–D22 as the runtime contract the support library is written and
+tested against:
+
+- The host's SOF is the sample clock. The device never asserts a rate.
+- **OUT (host → device)** is an adaptive sink. Whatever arrives is consumed.
+- **IN (device → host)** is an asynchronous source, produced one host-paced frame
+  per SOF.
+- **No feedback endpoint.** Not an omission — with no local clock there is no
+  rate to feed back.
+- Packet payloads carry 0–49 stereo frames. Code that assumes 48 is wrong.
+- Capture-only operation is legal and yields counted silence (D22).
+
+### Buffer and error accounting
+
+```cpp
+struct AudioTransportStats {
+    uint32_t inputUnderruns;    // DSP wanted a block, ring was short
+    uint32_t inputOverruns;     // USB filled faster than DSP drained
+    uint32_t outputUnderruns;   // USB polled IN, ring was empty
+    uint32_t outputOverruns;    // DSP produced faster than USB drained
+    uint32_t inputStarved;      // capture-only: silence emitted (D22)
+    uint32_t blocksProcessed;   // denominator -- lets counters become a rate
+    uint32_t worstBlockMicros;  // makes the CPU budget directly observable
+};
+```
+
+`blocksProcessed` and `worstBlockMicros` are additions beyond a plain error
+count: without a denominator the counters cannot be turned into a quality bar,
+and without a worst-case block time the CPU budget can only be inferred from
+dropout symptoms after the fact. The HIL harness asserts against these directly
+rather than inferring glitches from signal correlation.
+
+### Parameter seam
+
+Both sources converge on data, not on an execution model:
+
+```
+ADC / encoder (sampled state)  ─┐
+                                ├→ per-ParamId shadow block + dirty flags
+USB MIDI (asynchronous events) ─┘        → effect.setParameter(...) once per block
+```
+
+A physical control polls its ADC and writes its slot when the value moves past a
+dead-band; USB MIDI writes its slot when a CC arrives. Once per audio block the
+adapter walks the dirty flags and calls `setParameter` for each. Last-value-wins
+is not a lossy compromise — it is the semantically correct operation for a
+state-valued parameter.
+
+This is deliberately **not** a bounded FIFO of change events. Any drop policy on
+a shared queue is lossy in a way that matters: drop-newest can strand a parameter
+at an intermediate value after a knob sweep, and drop-oldest lets one fast-moving
+control evict another control's single pending update. Per-`ParamId` slots make
+both failure modes structurally impossible.
+
+The limitation, stated plainly: this is wrong for event-valued controls (a
+momentary trigger, tap tempo). acfx's parameter model has none — normalized
+continuous values only — and such a control would need its own mechanism
+regardless.
 
 ## Open questions
 
-1. **Reusable transport seam.** When a second STM32 board appears, does the
+Third-party review resolved two of the original eleven into decisions: the
+isochronous synchronization model became D20–D22, and the `ParameterSource`
+contract became D25. What remains:
+
+1. **Ring-buffer capacity, water marks and startup fill.** Deliberately not
+   pinned here (D23) — these come from HIL measurement and land in the spec with
+   measured justification. Inventing them pre-harness would be false precision.
+2. **The acceptable glitch bar.** Now directly measurable via
+   `AudioTransportStats` rather than inferred from signal correlation, so the
+   question narrows to: what counter rate constitutes a failing build, and which
+   verification layer enforces it? Note the spike's ~0.2% was a naive
+   single-buffer figure and is not a prediction.
+3. **When physical peripherals arrive, does D26 still hold?** The single-context
+   assumption is what lets the shadow block skip lock-free discipline. Sampling
+   ADCs from a timer ISR would break it and require revisiting D25's memory
+   ordering. That is the explicit trigger to reopen this — not a reason to
+   pre-pay for it now.
+4. **Reusable transport seam.** When a second STM32 board appears, does the
    UAC2/TinyUSB transport extract cleanly out of `adapters/nucleo/`? Revisit at
-   board two rather than guessing now (the deferred third alternative above).
-2. **Additional audio formats.** 24-bit, 44.1 kHz, and 96 kHz are all inside
-   full-speed bandwidth for stereo. The operator scoped the *advertised* matrix to
-   48/16 for now; 44.1 in particular forces variable packet sizes and is more
-   work than it appears.
-3. **Isochronous sync model.** The spike used an adaptive OUT endpoint and an
-   asynchronous IN endpoint, which is trivially correct for loopback because both
-   directions are paced by the host's SOF. With a real effect in the path and no
-   local sample clock, does anything need an explicit feedback endpoint?
-4. **Acceptable glitch rate, and how it is measured.** The spike's naive
-   single-buffer loopback dropped roughly 0.2% of samples in bursts. What is the
-   bar, and which of the three verification layers enforces it?
-5. **Where the HIL harness lives and how it is invoked.** It needs a physical
+   board two rather than guessing now.
+5. **Additional audio formats.** 24-bit, 44.1 kHz and 96 kHz all fit inside
+   full-speed bandwidth for stereo. The operator scoped the advertised matrix to
+   48/16; 44.1 in particular forces variable packet sizes and is more work than it
+   appears.
+6. **Where the HIL harness lives and how it is invoked.** It needs a physical
    board, so it cannot be a normal CI job. In-repo with a manual target? A
-   separate runner? The spike's `tools/loopback_test.py` is a starting point.
-6. **MIDI CC → `ParamId` mapping convention.** Fixed CC numbers per index? A
+   dedicated runner? The spike's `tools/loopback_test.py` is a starting point.
+7. **MIDI CC → `ParamId` mapping convention.** Fixed CC numbers per index? A
    learn mode? Which channel? Does this want to match how the workbench already
    consumes MIDI CC, so one mapping serves both?
-7. **`ParameterSource` contract shape.** Whatever it is must fit both a pull
-   model (poll an ADC each block, as Daisy does) and a push model (a MIDI CC
-   arrives asynchronously). Getting this wrong now is the main way D3 becomes
-   expensive later.
 8. **Which effects get Nucleo firmwares**, and what the CPU budget at 168 MHz
-   allows — a live question for the convolution and physical-modeling phases.
+   allows — `worstBlockMicros` now makes this measurable rather than speculative,
+   and it is a live question for the convolution and physical-modeling phases.
 9. **Two cables is awkward.** The ST-Link cable is mandatory only because it
    supplies the clock. Is a single-cable arrangement (populate X3, or an external
    oscillator) wanted later?
 10. **Should `daisy` and `teensy` get roadmap nodes retrofitted?** They are
-    currently ungoverned, having arrived under Milestone 1. The operator
-    considered and deferred this when the parent node was created.
+    currently ungoverned, having arrived under Milestone 1. Considered and
+    deferred by the operator when the parent node was created.
 11. **Denormal handling.** Not addressed by any existing adapter;
     `TASK-1 svf-no-denormal-flush` is already open in the backlog and applies to
     an MCU target with an FPU just as much as to the desktop ones.
