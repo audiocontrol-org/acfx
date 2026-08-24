@@ -255,6 +255,7 @@ add_executable(acfx_core_tests
   # OPENING interface feeds/drains, and every path leaves
   # AudioTransportStats byte-for-byte unchanged (FR-054).
   core/nucleo-lifecycle-policy-test.cpp
+  core/nucleo-lifecycle-integration-test.cpp
   # US6 (parameters over USB MIDI): the live-parameter seam. T039 the parameter
   # shadow (PS1-PS6: bounded, last-write-wins, no eviction, exactly-once flush),
   # T040 the CC->index map (MC1-MC3: workbench convention CC74->0, CC71->1),
