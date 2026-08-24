@@ -249,6 +249,12 @@ add_executable(acfx_core_tests
   # rather than growing nucleo-usb-in-path-test.cpp, as the OUT/sample-format
   # suites already do for the same per-file line budget reason.
   core/nucleo-usb-in-path-capture-only-test.cpp
+  # T053-T056 (US10): USB bus lifecycle policy — suspend (FR-051) stops and
+  # clears both rings, resume/bus-reset (FR-052/FR-053) re-prime both, the
+  # alt-setting stream-open edge (FR-055, contract AR9) resets the ring the
+  # OPENING interface feeds/drains, and every path leaves
+  # AudioTransportStats byte-for-byte unchanged (FR-054).
+  core/nucleo-lifecycle-policy-test.cpp
   # US6 (parameters over USB MIDI): the live-parameter seam. T039 the parameter
   # shadow (PS1-PS6: bounded, last-write-wins, no eviction, exactly-once flush),
   # T040 the CC->index map (MC1-MC3: workbench convention CC74->0, CC71->1),

@@ -88,6 +88,12 @@ add_library(acfx::nucleo_platform ALIAS acfx_nucleo_platform)
 add_library(acfx_nucleo_usb OBJECT
   usb-descriptors.cpp
   usb-audio-controls.cpp
+  # T053-T055 (US10): bus suspend/resume/mount lifecycle callbacks
+  # (tud_suspend_cb/tud_resume_cb/tud_mount_cb). Same weak-callback linkage
+  # concern as usb-audio-controls.cpp above, and the same reason it lives in
+  # its own translation unit rather than nucleo-main.cpp — see this file's
+  # own header comment.
+  usb-lifecycle-callbacks.cpp
 )
 target_compile_features(acfx_nucleo_usb PRIVATE cxx_std_20)
 target_compile_definitions(acfx_nucleo_usb PRIVATE STM32F446xx)

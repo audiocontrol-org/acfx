@@ -461,7 +461,8 @@ int main() {
   // Each lands as an additional statement here — not as a replacement for
   // tud_task(), and not as anything that blocks or spends unbounded time
   // before tud_task() runs again, since USB servicing cadence depends on this
-  // loop iterating promptly. All four calls below satisfy that:
+  // loop iterating promptly. All five calls below satisfy that:
+  //   ServiceUsbLifecycle() (T056/FR-055): two bool compares + at most two reset()s, edge-only.
   //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a
   //   convert-and-write of at most 49 frames, with no wait of any kind.
   //   ServiceParameters() (T045; FR-039/FR-042) drains USB-MIDI's finite RX
@@ -484,12 +485,12 @@ int main() {
   // CC that just arrived lands on the effect before the block that will use
   // it — one pass later than this if the order were reversed. The IN service
   // runs last so a block the DSP just published this pass reaches the output
-  // ring before the IN path decides how much to pull. Nothing below depends
-  // on this ordering beyond the parameters-before-DSP relationship just
-  // described — the rings decouple the other cadences (FR-030a) — and every
-  // stage is a no-op whenever it has nothing to do.
+  // ring before the IN path decides how much to pull. Nothing below depends on
+  // this ordering beyond parameters-before-DSP — the rings decouple the other
+  // cadences (FR-030a) — and every stage is a no-op when it has nothing to do.
   for (;;) {
-    tud_task();
+    tud_task();  // T053-T055 suspend/resume/mount callbacks fire from in here
+    acfx::nucleo::ServiceUsbLifecycle();
     acfx::nucleo::ServiceUsbAudioOut();
     acfx::nucleo::ServiceParameters();
     acfx::nucleo::ServiceDspBlock();

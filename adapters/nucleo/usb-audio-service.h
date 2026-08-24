@@ -38,6 +38,7 @@
 #include "tusb.h"
 
 #include "audio-ring.h"
+#include "lifecycle-policy.h"
 #include "sample-format.h"
 #include "transport-stats.h"
 #include "usb-descriptors.h"
@@ -153,6 +154,44 @@ extern bool g_inStreaming;
 // for why that distinction is what keeps this counted under `inputStarved`
 // rather than `outputUnderruns` (FR-029a / I-TS1a).
 inline bool CaptureOnlyActive() noexcept { return g_inStreaming && !g_outStreaming; }
+
+// T056 (US10, FR-055, contract AR9's "stream open -> reset()"): per-interface
+// stream-OPEN edges, reconciled once per service pass rather than acted on
+// inside the alt-setting callbacks themselves. tud_audio_set_itf_cb /
+// tud_audio_set_itf_close_ep_cb (usb-audio-controls.cpp) own ONLY the
+// streaming-bool tracking T047 already established and stay free of any
+// ring/TinyUSB-audio coupling that resetting a ring directly from them would
+// add; the ring-owning decision instead lives HERE, beside g_inputRing /
+// g_outputRing, via support/lifecycle-policy.h's pure, host-tested
+// reconcileStreamOpenEdges().
+//
+// `g_prevOutStreaming` / `g_prevInStreaming` are this reconciler's own memory
+// of "was this direction streaming LAST pass" — distinct from
+// g_outStreaming/g_inStreaming's "streaming RIGHT NOW" above. Comparing the
+// two, once per pass, is what turns a level into an edge; both default false,
+// matching g_outStreaming/g_inStreaming's own power-up default.
+//
+// RING <-> INTERFACE MAPPING (lifecycle-policy.h's file header has the full
+// rationale): OUT (host -> device) feeds g_inputRing; IN (device -> host)
+// drains g_outputRing. Opening OUT resets ONLY g_inputRing; opening IN resets
+// ONLY g_outputRing — every combination of {both closed, playback only,
+// capture only, both open} and every transition between them (FR-055) falls
+// out of reconcileStreamOpenEdges() checking each direction independently,
+// with no special-casing here.
+inline bool g_prevOutStreaming = false;
+inline bool g_prevInStreaming = false;
+
+// Called once per service-loop pass, before the OUT/IN data-path services
+// below: a stream that just opened this pass must find its ring already
+// reset by the time ServiceUsbAudioOut()/ServiceUsbAudioIn() next touch it.
+// The result is discarded — nothing here needs to know WHICH ring was reset,
+// only that the reconciler ran; support/nucleo-lifecycle-policy-test.cpp is
+// what asserts the mapping is not inverted.
+inline void ServiceUsbLifecycle() noexcept {
+    static_cast<void>(reconcileStreamOpenEdges(g_outStreaming, g_inStreaming,
+                                               g_prevOutStreaming, g_prevInStreaming,
+                                               g_inputRing, g_outputRing));
+}
 
 // Holds only its de-interleave scratch; no heap, no locks.
 inline UsbOutPath g_outPath;
