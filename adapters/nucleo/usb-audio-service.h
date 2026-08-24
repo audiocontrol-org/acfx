@@ -79,6 +79,40 @@ using InputRing = AudioRing<kInputRingCapacityFrames, kChannels>;
 // runs from __libc_init_array() in Reset_Handler, before main().
 inline InputRing g_inputRing(kInputRingStartupFillFrames);
 
+// The output (DSP -> host) ring (T033). PROVISIONAL for exactly the same
+// reason as the input ring's constants above, and pinned by the same tasks
+// (T062/T063, FR-035 / D23): 1024 frames is not a measurement, and the startup
+// fill of two worst-case packets is the same instrumentation value on the
+// other side of the DSP. Its consumer is the USB IN endpoint (T035), which
+// drains up to one 49-frame packet per SOF — which is why the fill is
+// expressed in packets here and not in blocks. Cost: 1024 * 2 * 4 = 8 KiB of
+// .bss, the same as the input ring.
+//
+// It lives HERE, beside g_inputRing rather than beside the block path that
+// fills it, because it has two consumers on this side of the seam: the block
+// path writes it (dsp-block-service.h) and the IN endpoint drains it (T035,
+// which lands in this file). Keeping both rings in one place is what stops
+// those two from acquiring a circular include.
+inline constexpr int kOutputRingCapacityFrames = 1024;
+inline constexpr int kOutputRingStartupFillFrames = 2 * kMaxPacketFrames;
+
+// The same two call-site guards g_inputRing carries, restated for THIS ring
+// rather than assumed to carry over. Backlog TASK-32 names this exact
+// situation — a second ring instantiated elsewhere that copies the ring but
+// not its guards — as the way AudioRing's -fno-exceptions __builtin_trap()
+// stops being provably unreachable. Under -fno-exceptions a bad constant here
+// would otherwise HardFault inside __libc_init_array(), before the fault LED
+// or USB exists to report anything.
+static_assert(kOutputRingStartupFillFrames >= 0,
+              "AudioRing startup fill must not be negative");
+static_assert(kOutputRingStartupFillFrames <= kOutputRingCapacityFrames,
+              "AudioRing startup fill exceeds capacity; such a ring could never "
+              "reach Running and would prime forever");
+
+using OutputRing = AudioRing<kOutputRingCapacityFrames, kChannels>;
+
+inline OutputRing g_outputRing(kOutputRingStartupFillFrames);
+
 // Lifetime transport-health counters (FR-033). One record for the whole
 // adapter; the OUT path below only ever increments. T058 reads it for CDC
 // telemetry; T035/T036 add the IN-path and timing fields.

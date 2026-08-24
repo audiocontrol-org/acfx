@@ -227,6 +227,11 @@ add_executable(acfx_core_tests
   # T034: the effect prepare-parameter contract (FR-036/FR-036a/FR-036b, D28)
   # — kBlockFrames (48), never kMaxPacketFrames (49).
   core/nucleo-effect-prepare-test.cpp
+  # T033: the fixed 48-frame block path (FR-030a, FR-036a, FR-037, FR-032) —
+  # the CONSUMER side of the ring, driven with a fake effect so the
+  # non-interleaved/in-place presentation and the packet-size decoupling are
+  # both checkable on the host.
+  core/nucleo-dsp-block-path-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------

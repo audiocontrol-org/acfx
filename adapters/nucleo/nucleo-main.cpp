@@ -53,6 +53,12 @@
 // file-size reason as the includes above. Included exactly once, here.
 #include "effect-instance.h"
 
+// The DSP block path's shim half (T033; FR-030a/FR-036a/FR-037): binds the two
+// rings, the effect instance and the stats record to support/dsp-block-path.h,
+// and exposes ServiceDspBlock(). Split into a sibling header for the same
+// file-size reason as the includes above. Included exactly once, here.
+#include "dsp-block-service.h"
+
 // TinyUSB's own public API (tusb_init/tusb_int_handler/tud_task). Pulled in as
 // a SYSTEM include by acfx_nucleo_tinyusb's PUBLIC target_include_directories
 // (adapters/nucleo/CMakeLists.txt), which is also where tusb_config.h's
@@ -428,21 +434,30 @@ int main() {
   // to hand events to instead).
   //
   // The OUT half of the audio data path (polled tud_audio_read()) is wired
-  // below as of T032. Still to land in this same loop, after tud_task(): block
-  // assembly and AppEffect::process() (T033), the IN path's tud_audio_write()
+  // below as of T032, and the fixed 48-frame DSP block as of T033. Still to
+  // land in this same loop, after tud_task(): the IN path's tud_audio_write()
   // (T035), the DWT block timer (T036) and CDC telemetry snapshots (T058).
   // Each lands as an additional statement here — not as a replacement for
   // tud_task(), and not as anything that blocks or spends unbounded time
   // before tud_task() runs again, since USB servicing cadence depends on this
-  // loop iterating promptly. ServiceUsbAudioOut() satisfies that: it is one
-  // read of at most one maximum packet plus a convert-and-write of at most 49
-  // frames, with no wait of any kind (see its comment on the adaptive-sink
-  // contract and on why a backlog is drained by coming back here rather than
-  // by looping inside).
+  // loop iterating promptly. Both calls below satisfy that:
+  //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a
+  //   convert-and-write of at most 49 frames, with no wait of any kind.
+  //   ServiceDspBlock() is at most ONE 48-frame process() call, and none at
+  //   all unless the input ring is Running with a whole block in it.
+  // Neither loops internally: a backlog on either side is drained by coming
+  // back here, which happens far faster than the host's 1 ms cadence.
+  //
+  // ORDER MATTERS, mildly and deliberately: the OUT service runs first so a
+  // packet that just arrived is in the ring before the block path looks at
+  // occupancy, which shortens the path from a packet arriving to the block it
+  // completes being processed by one loop iteration. Nothing depends on this
+  // for correctness — the ring is what decouples the two cadences (FR-030a),
+  // and the block path is a no-op whenever a block is not yet available.
   for (;;) {
     tud_task();
     acfx::nucleo::ServiceUsbAudioOut();
-    // T033/T035/T036 (block assembly, IN path, block timer) and T058 (CDC
-    // telemetry) land here.
+    acfx::nucleo::ServiceDspBlock();
+    // T035/T036 (IN path, block timer) and T058 (CDC telemetry) land here.
   }
 }
