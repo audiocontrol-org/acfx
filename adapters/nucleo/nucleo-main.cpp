@@ -48,6 +48,11 @@
 // host doctest binary exercises. Included exactly once, here.
 #include "usb-audio-service.h"
 
+// The compiled-in effect instance and its startup prepare() call (T034;
+// FR-036/FR-036a/FR-036b, D28). Split into a sibling header for the same
+// file-size reason as the includes above. Included exactly once, here.
+#include "effect-instance.h"
+
 // TinyUSB's own public API (tusb_init/tusb_int_handler/tud_task). Pulled in as
 // a SYSTEM include by acfx_nucleo_tinyusb's PUBLIC target_include_directories
 // (adapters/nucleo/CMakeLists.txt), which is also where tusb_config.h's
@@ -350,9 +355,15 @@ extern "C" void OTG_FS_IRQHandler()
 //      which per InitTinyUsbStack's/OTG_FS_IRQHandler's comments also
 //      enables the OTG_FS NVIC interrupt as its own last internal step, so
 //      nothing below needs to enable it again. Done below (T030).
+//   4a. Prepare the compiled-in effect (effect-instance.h's PrepareEffect(),
+//      T034; FR-036/FR-036a/FR-036b, D28) at 48 kHz / 48 frames / 2 channels
+//      — MUST come before step 5, since T033's process() calls (landing in
+//      the loop below) require prepare() to have already run. The audio
+//      stream is not yet running at this point, satisfying the effect's
+//      "prepare while stopped" precondition. Done below (T034).
 //   5. The tud_task() service loop, run forever (T030; the audio/MIDI data
 //      path itself is T032-T035, telemetry is T058 — see the loop's comment).
-// All five steps exist now.
+// All steps through 4a exist now.
 int main() {
   InitFaultLed();
 
@@ -403,6 +414,12 @@ int main() {
     for (;;) {
     }
   }
+
+  // Prepare the compiled-in effect (T034; FR-036/FR-036a/FR-036b, D28). See
+  // effect-instance.h for the concrete type, the instance, and why the block
+  // size here is 48 (kBlockFrames), never 49 (kMaxPacketFrames). Runs once,
+  // before the service loop below ever calls into T033's process() path.
+  acfx::nucleo::PrepareEffect();
 
   // The service loop (T030). tud_task() drains the event queue
   // OTG_FS_IRQHandler's tusb_int_handler() call enqueues into, running every

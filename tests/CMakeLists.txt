@@ -224,6 +224,9 @@ add_executable(acfx_core_tests
   # bound and consumePacket()'s chunk loop — split into a sibling file for the
   # per-file line budget, as the sample-format suite is.
   core/nucleo-usb-out-service-test.cpp
+  # T034: the effect prepare-parameter contract (FR-036/FR-036a/FR-036b, D28)
+  # — kBlockFrames (48), never kMaxPacketFrames (49).
+  core/nucleo-effect-prepare-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
