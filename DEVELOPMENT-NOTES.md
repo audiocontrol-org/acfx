@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-08-24: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 13
+  - docs(nucleo): T057 done (operator-accepted) — Phase 11 (US10) complete; TASK-38 tracks the T058 counter-across-event follow-up
+  - docs(nucleo): T057 live-verified in part (FR-055 alt tour + bus reset on hardware); suspend/wake + counter-continuity pending
+  - docs(nucleo): Phase 11 (US10) statuses — T053-T056 done+host-verified, T057 [~] pending clean host
+  - test(nucleo): T056 first-stream integration test (root-cause of an observed hardware silence)
+  - feat(nucleo): T053-T056 (US10) USB lifecycle -> ring state
+  - chore(backlog): capture TASK-37 (tinyusb weak-callback linkage guard)
+  - docs(nucleo): close Phase 9 (US7) — T047/T048 hardware-verified (SC-005)
+  - feat(nucleo): T047 (US7) capture-only silence + inputStarved
+  - docs(nucleo): T038 + US6 hardware-verified on the connected board (SC-002)
+  - docs(nucleo): close Phase 8 (US6) — OQ7 resolution, tasks ledger, execute ledger
+  - feat(nucleo): T045 (US6) wire the live-parameter path into the shim
+  - feat(nucleo): T042-T044 (US6) parameter shadow, CC map, MIDI source
+  - test(nucleo): T039-T041 (US6) RED tests for the live-parameter seam
+- Files changed: 23
+- Backlog touched: TASK-10, TASK-29, TASK-37, TASK-38
+
 ## 2026-08-24: nucleo-f446-adapter — Phase 7 (US5), the audio path, and the DaisySP FPv5 fault a clean link hid
 
 **Goal:** Resume `specs/nucleo-f446-adapter` at Phase 7 (US5) through the stack-control

@@ -74,3 +74,8 @@
 
 ## session-end 2026-08-24
 - T038 hardware verify was tier:fast (haiku), but it turned into deep multi-hour SWD fault-debugging when the firmware wouldn't enumerate. A 'verify on hardware' task can hide arbitrary bring-up debugging; tier reflects the happy path only, not the diagnostic tail when hardware disagrees.
+
+## session-end 2026-08-24
+- HIL/SWD: st-util (open-source stlink gdb server) resets target RAM on GDB attach, so RAM-resident AudioTransportStats counters read 0 and before/after reads ACROSS a USB lifecycle event are impossible; confounded T048/T057 counter verification. --no-reset only helps if the core was still running (a prior halted session leaves it stuck at startup). The real fix is CDC counter telemetry (T058) rather than SWD. Filed as backlog TASK-38.
+- HIL/macOS: repeated rapid st-flash reflashing (~13 cycles) degrades CoreAudio until ffmpeg avfoundation capture hangs on EVERY firmware (pre-change image included). Recovers after idle/replug. This masqueraded as a firmware regression (a false 'first-duplex silent' scare, later disproved by host tests). Space out reflashes during HIL; reset coreaudiod or replug between test batches; prefer host integration tests over hammering hardware for logic questions.
+- HIL/audio: sox coreaudio does not support two simultaneous clients (play+rec) on one device for full-duplex; use ffmpeg avfoundation for capture + sox for playback in separate processes instead.
