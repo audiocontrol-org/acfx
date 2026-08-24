@@ -427,6 +427,12 @@ int main() {
   // before the service loop below ever calls into T033's process() path.
   acfx::nucleo::PrepareEffect();
 
+  // Enable the DWT cycle counter (T036; FR-034, research R6) so
+  // ServiceDspBlock()'s first call has a running g_blockClock to read. Must
+  // run before the service loop below, for the same reason PrepareEffect()
+  // does: the block path starts consuming it on the very first pass.
+  acfx::nucleo::EnableBlockTimer();
+
   // The service loop (T030). tud_task() drains the event queue
   // OTG_FS_IRQHandler's tusb_int_handler() call enqueues into, running every
   // mounted class driver's (audio/MIDI/CDC) protocol state machine from task
@@ -435,13 +441,15 @@ int main() {
   //
   // The OUT half of the audio data path (polled tud_audio_read()) is wired
   // below as of T032, the fixed 48-frame DSP block as of T033, and the IN
-  // half (polled tud_audio_write()) as of T035. Still to land in this same
-  // loop, after tud_task(): the DWT block timer (T036) and CDC telemetry
-  // snapshots (T058). Each lands as an additional statement here — not as a
-  // replacement for tud_task(), and not as anything that blocks or spends
-  // unbounded time before tud_task() runs again, since USB servicing cadence
-  // depends on this loop iterating promptly. All three calls below satisfy
-  // that:
+  // half (polled tud_audio_write()) as of T035. ServiceDspBlock() as of T036
+  // also times each block it runs (DWT CYCCNT -> worstBlockMicros) — that
+  // happens INSIDE dsp-block-path.h's runOneBlock(), bracketing only the
+  // effect.process() call, so it is not a separate statement here. Still to
+  // land in this same loop, after tud_task(): CDC telemetry snapshots (T058).
+  // Each lands as an additional statement here — not as a replacement for
+  // tud_task(), and not as anything that blocks or spends unbounded time
+  // before tud_task() runs again, since USB servicing cadence depends on this
+  // loop iterating promptly. All three calls below satisfy that:
   //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a
   //   convert-and-write of at most 49 frames, with no wait of any kind.
   //   ServiceDspBlock() is at most ONE 48-frame process() call, and none at
@@ -465,6 +473,6 @@ int main() {
     acfx::nucleo::ServiceUsbAudioOut();
     acfx::nucleo::ServiceDspBlock();
     acfx::nucleo::ServiceUsbAudioIn();
-    // T036 (block timer) and T058 (CDC telemetry) land here.
+    // T058 (CDC telemetry) lands here.
   }
 }

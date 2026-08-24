@@ -114,6 +114,20 @@ void drain(Ring& ring, int frames, std::vector<float>& left, std::vector<float>&
 // exercised deliberately in DB6 with a deliberately small output ring.
 using BigRing = AudioRing<512, kChannels>;
 
+// A trivial clock source for these tests. DB1-DB8 exercise the block path's
+// ring/effect/counter behaviour, not T036's timer — that coverage lives in
+// nucleo-block-timer-test.cpp — so this only needs to satisfy runOneBlock()'s
+// ClockSource duck type (`std::uint32_t now() noexcept`) with something that
+// advances, the way a live counter would, rather than being a T036 fixture
+// itself.
+struct StepClock {
+    std::uint32_t value = 0;
+    std::uint32_t now() noexcept {
+        value += 100;
+        return value;
+    }
+};
+
 // A stand-in for an input ring that ADVERTISES more than it delivers: it
 // reports Running and an occupancy of one full block, but read() supplies only
 // `supply_` real frames and zero-fills the rest, exactly as AudioRing::read()
@@ -157,6 +171,7 @@ TEST_CASE("DB1: no block is drawn while the input ring is Priming or Stopped") {
     AudioTransportStats stats;
     DspBlockPath path;
     BigRing output(0);
+    StepClock clock;
 
     SUBCASE("Priming, with more than a block already buffered") {
         // Startup fill deliberately far above the 100 frames written, so the
@@ -167,7 +182,7 @@ TEST_CASE("DB1: no block is drawn while the input ring is Priming or Stopped") {
         REQUIRE(input.state() == RingState::Priming);
         REQUIRE(input.occupancy() == 100);
 
-        const BlockPassResult pass = path.runOneBlock(input, output, effect, stats);
+        const BlockPassResult pass = path.runOneBlock(input, output, effect, stats, clock);
 
         CHECK(pass.blockProcessed == false);
         CHECK(effect.calls == 0);
@@ -188,7 +203,7 @@ TEST_CASE("DB1: no block is drawn while the input ring is Priming or Stopped") {
         REQUIRE(input.state() == RingState::Stopped);
         REQUIRE(input.occupancy() == 96);
 
-        const BlockPassResult pass = path.runOneBlock(input, output, effect, stats);
+        const BlockPassResult pass = path.runOneBlock(input, output, effect, stats, clock);
 
         CHECK(pass.blockProcessed == false);
         CHECK(effect.calls == 0);
@@ -208,13 +223,14 @@ TEST_CASE("DB2: Running with fewer than 48 frames draws nothing and counts nothi
     DspBlockPath path;
     BigRing input(1);  // promoted to Running by the first write
     BigRing output(0);
+    StepClock clock;
 
     int nextFrame = 0;
     pushFrames(input, 47, nextFrame);
     REQUIRE(input.state() == RingState::Running);
     REQUIRE(input.occupancy() == 47);
 
-    const BlockPassResult pass = path.runOneBlock(input, output, effect, stats);
+    const BlockPassResult pass = path.runOneBlock(input, output, effect, stats, clock);
 
     CHECK(pass.blockProcessed == false);
     CHECK(effect.calls == 0);
@@ -227,7 +243,7 @@ TEST_CASE("DB2: Running with fewer than 48 frames draws nothing and counts nothi
 
     // One more frame is all it takes.
     pushFrames(input, 1, nextFrame);
-    const BlockPassResult second = path.runOneBlock(input, output, effect, stats);
+    const BlockPassResult second = path.runOneBlock(input, output, effect, stats, clock);
     CHECK(second.blockProcessed == true);
     CHECK(effect.calls == 1);
     CHECK(stats.blocksProcessed == 1u);
@@ -244,12 +260,13 @@ TEST_CASE("DB3: exactly 48 frames yields one in-place 48-frame non-interleaved b
     DspBlockPath path;
     BigRing input(1);
     BigRing output(0);
+    StepClock clock;
 
     int nextFrame = 0;
     pushFrames(input, kBlockFrames, nextFrame);
     REQUIRE(input.state() == RingState::Running);
 
-    const BlockPassResult pass = path.runOneBlock(input, output, effect, stats);
+    const BlockPassResult pass = path.runOneBlock(input, output, effect, stats, clock);
 
     CHECK(pass.blockProcessed == true);
     CHECK(pass.framesSubstituted == 0);
@@ -290,20 +307,21 @@ TEST_CASE("DB4: one block per pass; the surplus stays in the ring for later pass
     DspBlockPath path;
     BigRing input(1);
     BigRing output(0);
+    StepClock clock;
 
     int nextFrame = 0;
     pushFrames(input, 130, nextFrame);  // two whole blocks plus 34 frames
 
-    CHECK(path.runOneBlock(input, output, effect, stats).blockProcessed == true);
+    CHECK(path.runOneBlock(input, output, effect, stats, clock).blockProcessed == true);
     CHECK(input.occupancy() == 130 - kBlockFrames);
     CHECK(effect.calls == 1);
 
-    CHECK(path.runOneBlock(input, output, effect, stats).blockProcessed == true);
+    CHECK(path.runOneBlock(input, output, effect, stats, clock).blockProcessed == true);
     CHECK(input.occupancy() == 130 - 2 * kBlockFrames);
     CHECK(effect.calls == 2);
 
     // 34 frames left: not a block, so the third pass draws nothing at all.
-    const BlockPassResult third = path.runOneBlock(input, output, effect, stats);
+    const BlockPassResult third = path.runOneBlock(input, output, effect, stats, clock);
     CHECK(third.blockProcessed == false);
     CHECK(effect.calls == 2);
     CHECK(input.occupancy() == 34);
@@ -333,6 +351,7 @@ TEST_CASE("DB5: odd packet sizes are absorbed by the ring; the effect only ever 
     DspBlockPath path;
     BigRing input(1);
     BigRing output(0);
+    StepClock clock;
 
     // Every legal packet size from FR-028's 0..49 range, deliberately including
     // the extremes and nothing resembling 48-frame framing.
@@ -345,7 +364,7 @@ TEST_CASE("DB5: odd packet sizes are absorbed by the ring; the effect only ever 
         framesWritten += packetFrames;
         // The service loop runs a pass after every packet, exactly as
         // nucleo-main.cpp's loop does.
-        path.runOneBlock(input, output, effect, stats);
+        path.runOneBlock(input, output, effect, stats, clock);
     }
 
     // THE FR-030a ASSERTION: nothing in `packets` reached process().
@@ -382,6 +401,7 @@ TEST_CASE("DB6: an output-ring overrun drops the oldest frames and counts output
     AudioTransportStats stats;
     DspBlockPath path;
     BigRing input(1);
+    StepClock clock;
 
     // 64 frames: the first block fits, the second overruns by exactly 32.
     AudioRing<64, kChannels> output(0);
@@ -389,12 +409,12 @@ TEST_CASE("DB6: an output-ring overrun drops the oldest frames and counts output
     int nextFrame = 0;
     pushFrames(input, 2 * kBlockFrames, nextFrame);
 
-    const BlockPassResult first = path.runOneBlock(input, output, effect, stats);
+    const BlockPassResult first = path.runOneBlock(input, output, effect, stats, clock);
     CHECK(first.blockProcessed == true);
     CHECK(first.framesDropped == 0);
     CHECK(stats.outputOverruns == 0u);
 
-    const BlockPassResult second = path.runOneBlock(input, output, effect, stats);
+    const BlockPassResult second = path.runOneBlock(input, output, effect, stats, clock);
     CHECK(second.blockProcessed == true);
     CHECK(second.framesDropped == 2 * kBlockFrames - 64);  // 32
     // An EVENT count: one increment for the one block that overran, matching
@@ -425,8 +445,9 @@ TEST_CASE("DB7: a ring supplying fewer frames than it advertised counts inputUnd
     DspBlockPath path;
     BigRing output(0);
     UnderSupplyingRing input(20);  // claims a block, delivers 20 frames
+    StepClock clock;
 
-    const BlockPassResult pass = path.runOneBlock(input, output, effect, stats);
+    const BlockPassResult pass = path.runOneBlock(input, output, effect, stats, clock);
 
     // The read has already consumed the ring's frames by the time the shortfall
     // is known, so the block runs — discarding it would be a second, uncounted
@@ -463,13 +484,14 @@ TEST_CASE("DB8: a block pass performs no heap allocation") {
     DspBlockPath path;
     BigRing input(1);
     BigRing output(0);
+    StepClock clock;
 
     int nextFrame = 0;
     pushFrames(input, 4 * kBlockFrames, nextFrame);
 
     acfx::test::AllocationSentinel::reset();
     for (int pass = 0; pass < 4; ++pass) {
-        path.runOneBlock(input, output, effect, stats);
+        path.runOneBlock(input, output, effect, stats, clock);
     }
     const std::size_t allocations = acfx::test::AllocationSentinel::allocations();
 

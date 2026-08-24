@@ -31,15 +31,22 @@
 // Real-time safety: no heap, no locks, no exceptions, and no unbounded work.
 // The block scratch is a fixed member array of exactly kBlockFrames frames.
 //
-// WHAT IS NOT HERE. The block TIMER (DWT CYCCNT -> worstBlockMicros, FR-034 /
-// T036) is not implemented here and must not be inferred from the absence of
-// a hook: its seam is the single effect.process() call in runOneBlock(), which
-// T036 wraps. blocksProcessed IS maintained here, because "a block ran" is a
-// fact only this file knows.
+// THE BLOCK TIMER (T036; DWT CYCCNT -> worstBlockMicros, FR-034). Its
+// conversion/max-tracking LOGIC lives in support/block-timer.h, driven
+// through a duck-typed ClockSource — `std::uint32_t now() noexcept` — so the
+// real DWT register never has to be named here. runOneBlock() below reads
+// the clock immediately before and immediately after the ONE
+// effect.process(block) call and nothing else; see block-timer.h's file
+// header for why that span, not the whole pass, is what gets timed.
+// blocksProcessed IS maintained here, because "a block ran" is a fact only
+// this file knows.
+
+#include <cstdint>
 
 #include "dsp/audio-block.h"
 
 #include "audio-ring.h"
+#include "block-timer.h"
 #include "sample-format.h"
 #include "transport-stats.h"
 
@@ -146,11 +153,13 @@ public:
     //               int read(float* const*, int);
     //   OutputRing: int write(const float* const*, int);
     //   Effect:     void process(acfx::AudioBlock&);
-    template <typename InputRing, typename OutputRing, typename Effect>
+    //   ClockSource: std::uint32_t now() noexcept;
+    template <typename InputRing, typename OutputRing, typename Effect, typename ClockSource>
     BlockPassResult runOneBlock(InputRing& input,
                                 OutputRing& output,
                                 Effect& effect,
-                                AudioTransportStats& stats) noexcept {
+                                AudioTransportStats& stats,
+                                ClockSource& clock) noexcept {
         BlockPassResult result;
 
         // (1) The lifecycle + availability gate. Draws nothing, consumes
@@ -179,9 +188,13 @@ public:
         // the effect's output overwrites its input and is what gets published
         // below. No copy, no heap, no interleaving on this side of the ring.
         //
-        // T036's DWT block timer brackets THIS call and nothing else.
+        // T036's DWT block timer brackets THIS call and nothing else — see
+        // block-timer.h's file header for why process() is the timed span.
         acfx::AudioBlock block(channels, kChannels, kBlockFrames);
+        const std::uint32_t startCycles = clock.now();
         effect.process(block);
+        const std::uint32_t endCycles = clock.now();
+        RecordBlockTiming(startCycles, endCycles, stats);
 
         result.blockProcessed = true;
 

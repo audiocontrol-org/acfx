@@ -24,11 +24,56 @@
 // a consumer there (T035's IN path). Splitting the pair across the two files
 // would make each need the other.
 
+// CMSIS, for DWT->CYCCNT (T036; FR-034, research R6). support/block-timer.h
+// stays platform-independent by only ever naming a duck-typed ClockSource;
+// this is the one place the real hardware register is named, matching the
+// pattern clock-init.h and usb-audio-service.h already use for their own
+// CMSIS/TinyUSB dependencies.
+#include "stm32f446xx.h"
+
+#include "block-timer.h"
+#include "clock-init.h"
 #include "dsp-block-path.h"
 #include "effect-instance.h"
 #include "usb-audio-service.h"
 
 namespace acfx::nucleo {
+
+// Ties block-timer.h's cycles-per-microsecond constant to the clock this
+// board actually runs at (clock-init.h's kSysclkHz, FR-014/D6). The two are
+// declared in different files for the D1/FR-003 reason explained in each —
+// block-timer.h must stay CMSIS-free — so this is the one place both are
+// visible together, and where a future edit to either that leaves them
+// disagreeing fails the BUILD instead of silently mistiming every block.
+static_assert(kCoreClockHz == kSysclkHz,
+              "block-timer.h's kCoreClockHz and clock-init.h's kSysclkHz "
+              "have drifted apart");
+
+// Reads DWT->CYCCNT (T036). This is the ONLY thing that makes it a
+// ClockSource rather than a bare register: the duck-typed `now()` method
+// support/dsp-block-path.h's runOneBlock() calls. Holds no state of its own.
+struct DwtCycleClock {
+    std::uint32_t now() noexcept {
+        return DWT->CYCCNT;
+    }
+};
+
+inline DwtCycleClock g_blockClock;
+
+// Enables the DWT cycle counter (T036; research R6): TRCENA in
+// CoreDebug->DEMCR unlocks the whole trace subsystem, then CYCCNTENA in
+// DWT->CTRL starts CYCCNT free-running from 0. Called once from main(),
+// before the service loop's first ServiceDspBlock() ever reads g_blockClock.
+//
+// T037 adds the "did this actually take" verification on top of this call;
+// this function only performs the enable RM0390/the ARMv7-M DWT spec
+// describe, exactly as research.md R6 states it — enable TRCENA, THEN
+// CYCCNTENA (writing CYCCNTENA first would be a write to a register block
+// that DEMCR.TRCENA has not yet unlocked).
+inline void EnableBlockTimer() {
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
 
 // Holds only its 48-frame block scratch (384 bytes); no heap, no locks.
 inline DspBlockPath g_dspBlockPath;
@@ -49,8 +94,8 @@ inline DspBlockPath g_dspBlockPath;
 // there is no error path being dropped here. T058's CDC telemetry reads the
 // counters; nothing on this path acts on them.
 inline void ServiceDspBlock() {
-    static_cast<void>(
-        g_dspBlockPath.runOneBlock(g_inputRing, g_outputRing, g_effect, g_transportStats));
+    static_cast<void>(g_dspBlockPath.runOneBlock(
+        g_inputRing, g_outputRing, g_effect, g_transportStats, g_blockClock));
 }
 
 }  // namespace acfx::nucleo
