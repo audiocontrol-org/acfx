@@ -39,6 +39,13 @@ CPMAddPackage(
   NAME DaisySP
   GITHUB_REPOSITORY electro-smith/DaisySP
   GIT_TAG 599511b740f8f3a9b8db72a0642aa45b8a23c3a3
+  # DaisySP's fmax()/fmin() emit FPv5-only VMAXNM/VMINNM inline asm gated on bare
+  # `#ifdef __arm__`, which HardFaults the Cortex-M4F (FPv4) Nucleo the first time
+  # an effect's prepare() runs float min/max. Re-gate that asm on an explicit FPv5
+  # opt-in macro (DSY_FPV5_MAXMIN, set only by the M7 daisy/teensy toolchains);
+  # every other target uses DaisySP's own portable path. Idempotent -> warm-cache /
+  # offline-reconfigure safe. See cmake/patches/daisysp-fpv5-maxmin.cmake.
+  PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/patches/daisysp-fpv5-maxmin.cmake
 )
 
 if(TARGET DaisySP)

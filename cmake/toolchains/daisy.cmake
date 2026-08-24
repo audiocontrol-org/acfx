@@ -75,6 +75,11 @@ add_compile_definitions(
   STM32H750IB
   ARM_MATH_CM7
   HSE_VALUE=16000000
+  # This is a Cortex-M7 (FPv5) target: opt DaisySP's fmax()/fmin() into their
+  # VMAXNM/VMINNM inline-asm fast path. The patched dsp.h gates that asm on this
+  # macro so the FPv4 Nucleo (which lacks the instruction) uses the portable path
+  # instead. See cmake/patches/daisysp-fpv5-maxmin.cmake.
+  DSY_FPV5_MAXMIN
 )
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

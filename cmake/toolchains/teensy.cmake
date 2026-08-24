@@ -58,7 +58,11 @@ if(NOT DEFINED ACFX_TEENSY_CXX_STANDARD)
 endif()
 set(CMAKE_CXX_STANDARD ${ACFX_TEENSY_CXX_STANDARD})
 
-set(_teensy_cpu_flags "-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard -DF_CPU=600000000 -D__IMXRT1062__")
+# -DDSY_FPV5_MAXMIN: this is a Cortex-M7 (FPv5) target, so opt DaisySP's fmax()/
+# fmin() into their VMAXNM/VMINNM inline-asm fast path. The patched dsp.h gates
+# that asm on this macro so the FPv4 Nucleo uses the portable path instead. See
+# cmake/patches/daisysp-fpv5-maxmin.cmake.
+set(_teensy_cpu_flags "-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard -DF_CPU=600000000 -D__IMXRT1062__ -DDSY_FPV5_MAXMIN")
 set(CMAKE_C_FLAGS_INIT   "${_teensy_cpu_flags}")
 set(CMAKE_CXX_FLAGS_INIT "${_teensy_cpu_flags} -fno-exceptions -fno-rtti")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${_teensy_cpu_flags} --specs=nano.specs --specs=nosys.specs")
