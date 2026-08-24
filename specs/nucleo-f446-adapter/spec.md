@@ -949,6 +949,15 @@ resolved by omission.
 7. **MIDI CC → `ParamId` mapping convention.** Fixed CC numbers per parameter index? A learn
    mode? Which channel? Should it match how the workbench already consumes MIDI CC, so one
    mapping serves both?
+   **RESOLVED (2026-08-23, operator — T046): adhere to the established project convention.** The
+   firmware matches the desktop workbench's existing default MIDI CC mapping
+   (`adapters/workbench/workbench-app.cpp`, `adapters/workbench/midi-binding.h`): fixed CC numbers
+   bound generically to parameter *index* — **CC 74 → param index 0, CC 71 → param index 1** —
+   **omni channel** (no channel filter, as the workbench does none), value normalized `value / 127`.
+   No learn mode. So one mapping serves both surfaces. The two established bindings are encoded in
+   `adapters/nucleo/support/midi-cc-map.h`'s `constexpr` table (T043); extending the convention to
+   further parameter indices is a one-line **table edit**, not a rewrite (the mechanism was fixed
+   independently of the convention for exactly this reason).
 8. **Which effects get Nucleo firmwares, and what the CPU budget at 168 MHz allows.**
    `worstBlockMicros` (FR-034) makes this measurable rather than speculative, and it is a live
    question for the convolution and physical-modeling phases against 512 KB flash / 128 KB SRAM.
