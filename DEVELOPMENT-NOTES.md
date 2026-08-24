@@ -2,6 +2,45 @@
 
 ---
 
+## 2026-08-24: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 18
+  - chore(nucleo): T038 -> operator-acceptance (boot+enumerate hardware-verified, live signal pending); ledger
+  - fix(nucleo): gate DaisySP FPv5 vmaxnm asm on M7-only opt-in, unbreak M4 boot
+  - chore(nucleo): ledger T036 + T037 (DWT block timer + fail-loud positive control)
+  - feat(nucleo): T037 (US5) - fail loud on a stuck DWT counter, with positive control
+  - feat(nucleo): T036 (US5) - DWT CYCCNT block timer, worstBlockMicros live
+  - chore(nucleo): ledger T035 (polled IN path, controller-verified)
+  - feat(nucleo): T035 (US5) — polled IN path, clamped float->int16 to the host
+  - feat(nucleo): T033 (US5) review — CMake core/ include, spec AS1 amendment, ledger
+  - docs(spec): record the T033 block-gate amendment to US3 acceptance scenario 1
+  - feat(nucleo): T033 (US5) — fixed 48-frame block assembly through the effect
+  - chore(nucleo): ledger T034 and capture TASK-34 (delay firmware heap overshoot)
+  - feat(nucleo): T034 (US5) — prepare the effect at 48 frames per D28
+  - chore(nucleo): ledger T032 (polled OUT path, 3 review rounds, clear-on-tear reverted)
+  - chore(backlog): capture TASK-33 - sustained-backlog tear is undetectable in the OUT path
+  - Revert "fix(nucleo): T032 - clear the OUT FIFO on a torn read to bound channel misalignment"
+  - fix(nucleo): T032 — clear the OUT FIFO on a torn read to bound channel misalignment
+  - fix(nucleo): T032 review — bounded per-call OUT read, cover the multi-packet path
+  - feat(nucleo): T032 (US5) — polled OUT path, adaptive sink with FR-028a truncation counting
+- Files changed: 33
+- Backlog touched: TASK-29, TASK-32, TASK-33, TASK-34, TASK-35
+
 ## 2026-08-23: nucleo-f446-adapter — Phases 5–6, from host tests to a real USB audio device
 
 **Goal:** Resume `specs/nucleo-f446-adapter` at Phase 5 through the stack-control `execute`
