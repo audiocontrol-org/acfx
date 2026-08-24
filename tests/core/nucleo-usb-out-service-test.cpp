@@ -1,13 +1,14 @@
 #include <doctest/doctest.h>
 
 #include <cstdint>
-#include <cstring>
 #include <vector>
 
 #include "audio-ring.h"
 #include "sample-format.h"
 #include "transport-stats.h"
 #include "usb-out-path.h"
+
+#include "nucleo-usb-out-test-support.h"
 
 // Polled OUT path, part 2: everything that spans MORE THAN ONE PACKET.
 //
@@ -40,91 +41,21 @@
 // OP10 — the chunk loop: frame-by-frame L/R correctness ACROSS chunk
 //        boundaries, and inputOverruns counted once per call, not per chunk.
 // OP11 — a negative byte count is a caller error, not a transport condition.
+//
+// Clear-on-tear — what serviceOutFifo() does with the fifo AFTER a torn read —
+// is the sibling suite nucleo-usb-out-flush-test.cpp (OP12-OP16); the shared
+// simulated fifo and payload builders both suites use live in
+// nucleo-usb-out-test-support.h.
 
 using namespace acfx::nucleo;
+using namespace nucleo_out_test;
 
 namespace {
-
-constexpr int kBytesPerFrame = kChannels * static_cast<int>(sizeof(std::int16_t));
-
-// Ring big enough that three maximum packets fit without overflowing, so the
-// alignment assertions below are never confounded by AR3 drops.
-using BigRing = AudioRing<256, kChannels>;
 
 // Deliberately smaller than three maximum packets, so a single multi-chunk
 // call overflows on more than one chunk.
 constexpr int kSmallCapacity = 64;
 using SmallRing = AudioRing<kSmallCapacity, kChannels>;
-
-// Interleaved stereo payload: left counts up from `base`, right is the left
-// sample negated, so a de-interleave that crosses channels or slips by a sample
-// shows up as a sign flip rather than only as a magnitude difference.
-std::vector<std::int16_t> makePayload(int frames, std::int16_t base = 0) {
-    std::vector<std::int16_t> payload(static_cast<std::size_t>(kChannels * frames));
-    for (int frame = 0; frame < frames; ++frame) {
-        const auto left = static_cast<std::int16_t>(base + frame + 1);
-        payload[static_cast<std::size_t>(kChannels * frame)] = left;
-        payload[static_cast<std::size_t>(kChannels * frame + 1)] =
-            static_cast<std::int16_t>(-left);
-    }
-    return payload;
-}
-
-float expected(std::int16_t sample) noexcept {
-    return static_cast<float>(sample) / kInt16Scale;
-}
-
-int bytesFor(int frames) noexcept { return frames * kBytesPerFrame; }
-
-// A simulated TinyUSB OUT endpoint fifo: an UNFRAMED run of bytes. push()
-// appends a payload exactly as the ISR appends one, leaving no record of where
-// it began; read() hands back whatever the caller asks for, capped at what is
-// queued, exactly as tu_fifo_read_n() does.
-class FakeOutFifo {
-public:
-    void push(const std::vector<std::int16_t>& samples, int byteCount) {
-        const auto* raw = reinterpret_cast<const std::uint8_t*>(samples.data());
-        bytes_.insert(bytes_.end(), raw, raw + byteCount);
-    }
-
-    int available() noexcept {
-        return static_cast<int>(bytes_.size() - readIndex_);
-    }
-
-    int read(std::int16_t* dst, int maxBytes) noexcept {
-        const int queued = available();
-        const int count = (queued < maxBytes) ? queued : maxBytes;
-        if (count > 0) {
-            std::memcpy(dst, bytes_.data() + readIndex_, static_cast<std::size_t>(count));
-            readIndex_ += static_cast<std::size_t>(count);
-        }
-        return count;
-    }
-
-private:
-    std::vector<std::uint8_t> bytes_;
-    std::size_t readIndex_ = 0;
-};
-
-// Staging buffer with exactly the geometry the shim gives serviceOutFifo():
-// one maximum packet, no more.
-using StagingBuffer =
-    std::int16_t[UsbOutPath::maxPayloadBytes() / static_cast<int>(sizeof(std::int16_t))];
-
-// Drain everything the fifo currently holds, one service-loop pass per call,
-// and return what each pass reported.
-template <typename Ring>
-std::vector<OutServicePass> drainFifo(FakeOutFifo& fifo,
-                                      UsbOutPath& path,
-                                      StagingBuffer& buffer,
-                                      Ring& ring,
-                                      AudioTransportStats& stats) {
-    std::vector<OutServicePass> passes;
-    while (fifo.available() > 0) {
-        passes.push_back(serviceOutFifo(fifo, path, buffer, ring, stats));
-    }
-    return passes;
-}
 
 } // namespace
 
@@ -247,8 +178,10 @@ TEST_CASE("OP9: a tear already merged into the backlog is reported, not hidden")
     // state (nothing is silently dropped, the tear is still counted, and the
     // backlog is visible so the condition is diagnosable) and deliberately does
     // NOT assert L/R alignment across the merged boundary, because the headers
-    // do not claim it. If a future change makes realignment possible, this case
-    // is where the stronger assertion belongs.
+    // do not claim it. What the path DOES do about the merge — flush the fifo
+    // so the misalignment cannot outlive it — is OP14/OP15 in the sibling flush
+    // suite; here the fifo is already empty when the tear is detected, so the
+    // flush discards nothing and none of the counts below move.
     FakeOutFifo fifo;
     fifo.push(makePayload(kMaxPacketFrames, 0), bytesFor(48) + 2);
     fifo.push(makePayload(kMaxPacketFrames, 100), bytesFor(kMaxPacketFrames));

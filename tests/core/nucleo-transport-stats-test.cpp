@@ -57,6 +57,8 @@ TEST_CASE("TS1: every counter is uint32_t, which is what makes wrap-not-saturate
     static_assert(std::is_same_v<decltype(AudioTransportStats::outputOverruns), U>);
     static_assert(std::is_same_v<decltype(AudioTransportStats::inputStarved), U>);
     static_assert(std::is_same_v<decltype(AudioTransportStats::malformedPayloads), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::inputFifoFlushes), U>);
+    static_assert(std::is_same_v<decltype(AudioTransportStats::inputFifoFlushedFrames), U>);
     static_assert(std::is_same_v<decltype(AudioTransportStats::blocksProcessed), U>);
     static_assert(std::is_same_v<decltype(AudioTransportStats::worstBlockMicros), U>);
 
@@ -74,6 +76,10 @@ TEST_CASE("TS1: every counter zero-initialises") {
     CHECK(stats.outputOverruns == 0);
     CHECK(stats.inputStarved == 0);
     CHECK(stats.malformedPayloads == 0);
+    // Clear-on-tear (FR-028a / FR-032): an EVENT count and a FRAME count, two
+    // fields with two units, both zero-initialised like every other counter.
+    CHECK(stats.inputFifoFlushes == 0);
+    CHECK(stats.inputFifoFlushedFrames == 0);
     CHECK(stats.blocksProcessed == 0);
     CHECK(stats.worstBlockMicros == 0);
 }
