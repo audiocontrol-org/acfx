@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <optional>
 
-#include "support/midi-cc-map.h"
+#include "midi-cc-map.h"
 
 // MIDI CC mapping contract (I-MC1, I-MC2, I-MC3).
 //

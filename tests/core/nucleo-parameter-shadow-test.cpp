@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "dsp/param-id.h"
-#include "support/parameter-shadow.h"
+#include "parameter-shadow.h"
 
 // Parameter shadow contract (FR-041, FR-042, FR-043, FR-044, D25).
 //
