@@ -40,6 +40,7 @@
 #include "audio-ring.h"
 #include "sample-format.h"
 #include "transport-stats.h"
+#include "usb-descriptors.h"
 #include "usb-in-path.h"
 #include "usb-out-path.h"
 
@@ -123,6 +124,35 @@ inline OutputRing g_outputRing(kOutputRingStartupFillFrames);
 // sink back-pressure story), so nothing here needed a ninth field. T036 adds
 // `worstBlockMicros`'s timing source.
 inline AudioTransportStats g_transportStats;
+
+// T047 (US7, FR-029, FR-029a, D22): per-streaming-interface alt-setting
+// state, maintained ONLY by tud_audio_set_itf_cb / tud_audio_set_itf_close_ep_cb,
+// so those callbacks are the single place the host's SET_INTERFACE requests
+// are turned into "is this direction actually streaming".
+//
+// DECLARED extern HERE, DEFINED (and written) in usb-audio-controls.cpp — NOT
+// `inline` in this header. The two TinyUSB callbacks are TU_ATTR_WEAK; a weak
+// default with the same signature always exists. An `inline` C++ definition of
+// the callback emits only a COMDAT (weak) symbol, which the linker is free to
+// resolve to TinyUSB's weak default instead — the callback then silently does
+// nothing and the board never detects capture-only, despite a clean link and
+// green host tests (which drive the pure logic directly). The callbacks MUST be
+// STRONG definitions to override the weak default, so they live in a .cpp
+// (usb-audio-controls.cpp — the adapter's established home for exactly this
+// weak-audio-callback linkage concern), and the state they own is defined
+// there beside them. These control requests are dispatched from tud_task() in
+// the same single execution context as the service loop that reads them
+// (D26), so a plain bool needs no atomicity. Default false/false matches the
+// USB power-up state (every alt-bearing interface starts at alt 0).
+extern bool g_outStreaming;
+extern bool g_inStreaming;
+
+// Capture-only (D22): the IN streaming interface is open and OUT sits at its
+// zero-bandwidth alt — no playback stream exists at all, not merely one that
+// is momentarily idle. See support/usb-in-path.h's `captureOnly` doc comment
+// for why that distinction is what keeps this counted under `inputStarved`
+// rather than `outputUnderruns` (FR-029a / I-TS1a).
+inline bool CaptureOnlyActive() noexcept { return g_inStreaming && !g_outStreaming; }
 
 // Holds only its de-interleave scratch; no heap, no locks.
 inline UsbOutPath g_outPath;
@@ -316,12 +346,20 @@ static_assert(CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ >= UsbInPath::maxPayloadBytes
 // much is pulled per pass, and how a partial tud_audio_write() accept is
 // retried rather than silently dropped.
 //
-// The pass result is discarded: `outputUnderruns` is already recorded inside
-// service() itself, and every other field is per-pass detail with no counter
-// behind it (see InServicePass's own doc comment). T058's CDC telemetry reads
+// The pass result is discarded: `outputUnderruns` and, since T047,
+// `inputStarved` are already recorded inside service() itself, and every
+// other field is per-pass detail with no counter behind it (see
+// InServicePass's own doc comment). T058's CDC telemetry reads
 // g_transportStats; nothing on this path acts on the discarded result.
+//
+// `CaptureOnlyActive()` is read fresh every pass rather than cached: the host
+// can close the OUT stream (or the IN stream) between passes, and this must
+// track that transition exactly as promptly as the ring/sink state it
+// otherwise gates on.
 inline void ServiceUsbAudioIn() {
-    static_cast<void>(g_inPath.service(g_outputRing, g_inFifo, g_transportStats));
+    static_cast<void>(
+        g_inPath.service(g_outputRing, g_inFifo, g_transportStats, CaptureOnlyActive()));
 }
 
 }  // namespace acfx::nucleo
+

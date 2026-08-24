@@ -101,3 +101,65 @@ extern "C" bool tud_audio_get_req_entity_cb(std::uint8_t rhport,
 
     return false;
 }
+
+// ===========================================================================
+// T047 (US7, FR-029, FR-029a, D22): audio streaming alt-setting tracking.
+//
+// These live HERE, in a .cpp, and are NOT `inline` — see usb-audio-service.h's
+// `extern bool g_outStreaming` comment for the full reasoning. TinyUSB's
+// tud_audio_set_itf_cb / tud_audio_set_itf_close_ep_cb are TU_ATTR_WEAK with a
+// permissive default (audio_device.c:325-336); ONLY a STRONG definition
+// overrides the weak default. An `inline` definition (as this first shipped)
+// emits a COMDAT/weak symbol that the linker is free to resolve to TinyUSB's
+// weak default instead — verified by disassembly, where the callback compiled
+// down to `movs r0,#1; bx lr` (the default `return true`, never touching the
+// state below) — so the board would link cleanly, pass every host test (which
+// drives the pure logic directly), and still never detect capture-only on
+// silicon. The same weak-symbol/`extern "C"` linkage trap this file's header
+// comment documents for the Clock Source controls.
+//
+// Both requests carry the target interface in wIndex's low byte and the new
+// alt setting in wValue's low byte (USB 2.0 9.4.10 SET_INTERFACE). Only the
+// two audio streaming interfaces carry alt settings; MIDI/CDC do not, and any
+// other itf value is ignored. Both return true: this adapter advertises no
+// alt setting it would refuse, and stalling SET_INTERFACE would hang the exact
+// enumeration step D22 exists to make behave well. These fire from tud_task()
+// in the same single execution context as the service loop that reads the
+// state (D26), so a plain bool needs no atomicity.
+// ===========================================================================
+
+namespace acfx::nucleo {
+bool g_outStreaming = false;
+bool g_inStreaming = false;
+}  // namespace acfx::nucleo
+
+// Fires on a SET_INTERFACE that OPENS an endpoint (alt != 0).
+extern "C" bool tud_audio_set_itf_cb(uint8_t rhport,
+                                     tusb_control_request_t const* p_request) {
+    (void) rhport;
+    const uint8_t itf = tu_u16_low(p_request->wIndex);
+    const uint8_t alt = tu_u16_low(p_request->wValue);
+    if (itf == acfx::nucleo::kItfNumAudioStreamingOut) {
+        acfx::nucleo::g_outStreaming = (alt == acfx::nucleo::kAltStreaming);
+    } else if (itf == acfx::nucleo::kItfNumAudioStreamingIn) {
+        acfx::nucleo::g_inStreaming = (alt == acfx::nucleo::kAltStreaming);
+    }
+    return true;
+}
+
+// Fires on a SET_INTERFACE that CLOSES an endpoint (alt == 0).
+extern "C" bool tud_audio_set_itf_close_ep_cb(uint8_t rhport,
+                                              tusb_control_request_t const* p_request) {
+    (void) rhport;
+    const uint8_t itf = tu_u16_low(p_request->wIndex);
+    const uint8_t alt = tu_u16_low(p_request->wValue);
+    if (alt != acfx::nucleo::kAltZeroBandwidth) {
+        return true;
+    }
+    if (itf == acfx::nucleo::kItfNumAudioStreamingOut) {
+        acfx::nucleo::g_outStreaming = false;
+    } else if (itf == acfx::nucleo::kItfNumAudioStreamingIn) {
+        acfx::nucleo::g_inStreaming = false;
+    }
+    return true;
+}

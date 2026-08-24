@@ -243,6 +243,12 @@ add_executable(acfx_core_tests
   # output ring: room-bounded pull size, FR-038a conversion end to end,
   # silence-on-underrun, and sink back-pressure retried without a silent drop.
   core/nucleo-usb-in-path-test.cpp
+  # T047 (US7): the capture-only alt-setting state (FR-029, FR-029a, D22) —
+  # `captureOnly` silence emission and `inputStarved`, kept mutually
+  # exclusive from `outputUnderruns` (I-TS1a). Split into a sibling file
+  # rather than growing nucleo-usb-in-path-test.cpp, as the OUT/sample-format
+  # suites already do for the same per-file line budget reason.
+  core/nucleo-usb-in-path-capture-only-test.cpp
   # US6 (parameters over USB MIDI): the live-parameter seam. T039 the parameter
   # shadow (PS1-PS6: bounded, last-write-wins, no eviction, exactly-once flush),
   # T040 the CC->index map (MC1-MC3: workbench convention CC74->0, CC71->1),

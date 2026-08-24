@@ -7,6 +7,14 @@
 // constraint belongs in the shim (adapters/nucleo/usb-audio-service.h)
 // instead.
 //
+// T047 (US7, FR-029, FR-029a, D22) adds the `captureOnly` parameter to
+// service(): the capture-only alt-setting state (host has opened the IN
+// streaming interface while OUT sits at its zero-bandwidth alt, i.e. no
+// playback stream open at all) is a shim-side condition and cannot be
+// derived from anything the ring or sink expose, so the shim decides it
+// (usb-audio-service.h's tud_audio_set_itf_cb / tud_audio_set_itf_close_ep_cb)
+// and passes it in. See service()'s doc comment below for the branch itself.
+//
 // THE IN STREAM IS AN ASYNCHRONOUS SOURCE (FR-026, D20). There is no feedback
 // endpoint (FR-027) and no local clock (FR-024): this path does not decide
 // WHEN the host wants audio — TinyUSB's own IN software FIFO
@@ -195,10 +203,65 @@ public:
     //    unwritten remainder becomes the next pass's carryover (step 1) —
     //    see the file header for why extending it with fresh data instead
     //    would be wrong.
+    //
     // ------------------------------------------------------------------
+    // `captureOnly` (T047; FR-029, FR-029a, D22): the shim's alt-setting
+    // tracking (usb-audio-service.h's tud_audio_set_itf_cb /
+    // tud_audio_set_itf_close_ep_cb) reports true exactly when the host has
+    // opened the IN streaming interface while the OUT streaming interface
+    // sits at its zero-bandwidth alt — i.e. capture-only: no playback stream
+    // is open AT ALL, not merely idle. That is a materially different
+    // condition from "the output ring is Running but momentarily empty"
+    // (step 5 above, which counts `outputUnderruns`): here there is no
+    // producer on the other end of the ring ever, so the ring's own state is
+    // not consulted at all, and the two conditions are mutually exclusive by
+    // construction (I-TS1a / FR-029a) — this branch returns before step 2's
+    // ring-state gate is ever reached.
+    //
+    // D22's requirement is that a host opening capture alone gets
+    // well-defined SILENCE, never a hang or stale audio, so this ACTIVELY
+    // writes a room-bounded block of zeroed samples rather than leaving
+    // whatever was last in the IN software FIFO. Any carryover retained from
+    // a PRIOR (duplex) session is discarded unconditionally on entry to this
+    // branch — those bytes belong to a session that is no longer running,
+    // and letting them leak into capture-only silence would violate D22 as
+    // surely as sending nothing at all.
     template <typename Ring, typename Sink>
-    InServicePass service(Ring& ring, Sink& sink, AudioTransportStats& stats) noexcept {
+    InServicePass service(Ring& ring, Sink& sink, AudioTransportStats& stats,
+                          bool captureOnly = false) noexcept {
         InServicePass pass;
+
+        if (captureOnly) {
+            // Discard, never retry: a carryover left by a duplex session that
+            // has since closed must not leak into capture-only silence.
+            pendingBytes_ = 0;
+
+            const int roomBytes = sink.writeAvailable();
+            const int roomFrames = (roomBytes > 0) ? (roomBytes / kBytesPerFrame) : 0;
+            const int framesToPull =
+                (roomFrames < kMaxPacketFrames) ? roomFrames : kMaxPacketFrames;
+            if (framesToPull <= 0) {
+                // No room to emit silence into this pass; nothing was
+                // actually starved-for-silence yet, so no counter fires
+                // (mirrors step 3's "zero room is the ordinary idle result,
+                // not a fault").
+                return pass;
+            }
+
+            pass.bytesOffered = framesToPull * kBytesPerFrame;
+            const int sampleCount = framesToPull * kChannels;
+            for (int i = 0; i < sampleCount; ++i) {
+                buffer_[i] = 0;
+            }
+
+            pass.bytesWritten = boundedWrite(sink, pass.bytesOffered);
+            // One event per pass in which silence was actually offered,
+            // exactly the `outputUnderruns` convention in step 5 — and NEVER
+            // `outputUnderruns` itself (FR-029a / I-TS1a: one event bumps
+            // exactly one counter).
+            ++stats.inputStarved;
+            return pass;
+        }
 
         if (pendingBytes_ > 0) {
             pass.flushedCarryover = true;
