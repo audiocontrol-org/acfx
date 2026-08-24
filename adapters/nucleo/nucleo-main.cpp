@@ -434,30 +434,37 @@ int main() {
   // to hand events to instead).
   //
   // The OUT half of the audio data path (polled tud_audio_read()) is wired
-  // below as of T032, and the fixed 48-frame DSP block as of T033. Still to
-  // land in this same loop, after tud_task(): the IN path's tud_audio_write()
-  // (T035), the DWT block timer (T036) and CDC telemetry snapshots (T058).
-  // Each lands as an additional statement here — not as a replacement for
-  // tud_task(), and not as anything that blocks or spends unbounded time
-  // before tud_task() runs again, since USB servicing cadence depends on this
-  // loop iterating promptly. Both calls below satisfy that:
+  // below as of T032, the fixed 48-frame DSP block as of T033, and the IN
+  // half (polled tud_audio_write()) as of T035. Still to land in this same
+  // loop, after tud_task(): the DWT block timer (T036) and CDC telemetry
+  // snapshots (T058). Each lands as an additional statement here — not as a
+  // replacement for tud_task(), and not as anything that blocks or spends
+  // unbounded time before tud_task() runs again, since USB servicing cadence
+  // depends on this loop iterating promptly. All three calls below satisfy
+  // that:
   //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a
   //   convert-and-write of at most 49 frames, with no wait of any kind.
   //   ServiceDspBlock() is at most ONE 48-frame process() call, and none at
   //   all unless the input ring is Running with a whole block in it.
-  // Neither loops internally: a backlog on either side is drained by coming
-  // back here, which happens far faster than the host's 1 ms cadence.
+  //   ServiceUsbAudioIn() is at most one room-bounded pull-and-write (or one
+  //   carryover retry), and none at all unless the output ring is Running
+  //   and TinyUSB's own IN software fifo currently reports room.
+  // None loops internally: a backlog on any side is drained by coming back
+  // here, which happens far faster than the host's 1 ms cadence.
   //
   // ORDER MATTERS, mildly and deliberately: the OUT service runs first so a
   // packet that just arrived is in the ring before the block path looks at
   // occupancy, which shortens the path from a packet arriving to the block it
-  // completes being processed by one loop iteration. Nothing depends on this
-  // for correctness — the ring is what decouples the two cadences (FR-030a),
-  // and the block path is a no-op whenever a block is not yet available.
+  // completes being processed by one loop iteration. The IN service runs last
+  // so a block the DSP just published this same pass reaches the output ring
+  // before the IN path decides how much to pull. Nothing depends on this
+  // ordering for correctness — the rings are what decouple all three cadences
+  // (FR-030a) — and every stage is a no-op whenever it has nothing to do.
   for (;;) {
     tud_task();
     acfx::nucleo::ServiceUsbAudioOut();
     acfx::nucleo::ServiceDspBlock();
-    // T035/T036 (IN path, block timer) and T058 (CDC telemetry) land here.
+    acfx::nucleo::ServiceUsbAudioIn();
+    // T036 (block timer) and T058 (CDC telemetry) land here.
   }
 }

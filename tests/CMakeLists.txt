@@ -232,6 +232,10 @@ add_executable(acfx_core_tests
   # non-interleaved/in-place presentation and the packet-size decoupling are
   # both checkable on the host.
   core/nucleo-dsp-block-path-test.cpp
+  # T035: the polled IN path (device -> host) — the producer side of the
+  # output ring: room-bounded pull size, FR-038a conversion end to end,
+  # silence-on-underrun, and sink back-pressure retried without a silent drop.
+  core/nucleo-usb-in-path-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------

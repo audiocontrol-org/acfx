@@ -40,6 +40,7 @@
 #include "audio-ring.h"
 #include "sample-format.h"
 #include "transport-stats.h"
+#include "usb-in-path.h"
 #include "usb-out-path.h"
 
 namespace acfx::nucleo {
@@ -115,7 +116,12 @@ inline OutputRing g_outputRing(kOutputRingStartupFillFrames);
 
 // Lifetime transport-health counters (FR-033). One record for the whole
 // adapter; the OUT path below only ever increments. T058 reads it for CDC
-// telemetry; T035/T036 add the IN-path and timing fields.
+// telemetry. T035's IN path (below) increments `outputUnderruns` — the same
+// FR-031 counter the OUT path's shortfall convention already established, not
+// a new field: no bytes this path pulls from the ring are ever lost
+// uncounted at this layer (see support/usb-in-path.h's file header for the
+// sink back-pressure story), so nothing here needed a ninth field. T036 adds
+// `worstBlockMicros`'s timing source.
 inline AudioTransportStats g_transportStats;
 
 // Holds only its de-interleave scratch; no heap, no locks.
@@ -233,6 +239,89 @@ inline void ServiceUsbAudioOut() {
         static_cast<std::uint32_t>(pass.backlogBytes) > g_outFifoWorstBacklogBytes) {
         g_outFifoWorstBacklogBytes = static_cast<std::uint32_t>(pass.backlogBytes);
     }
+}
+
+// ----------------------------------------------------------------------------
+// The IN path's shim half (T035; FR-026, FR-032, FR-038a): the two TinyUSB
+// calls support/usb-in-path.h's UsbInPath::service() needs, behind the same
+// kind of tiny duck-typed adapter TinyUsbOutFifo provides above. Both are
+// verified against the PINNED 0.21.0 tree, not recalled:
+//
+//   tud_audio_write(const void*, uint16_t) -> uint16_t BYTES accepted
+//     src/class/audio/audio_device.h:213, defined :419-421 as
+//     tud_audio_n_write(0, ...); implementation audio_device.c:500-503, which
+//     is tu_fifo_write_n() (NON-overwritable mode) on the endpoint's software
+//     fifo — it accepts up to what remains free and returns that count,
+//     which is exactly the back-pressure support/usb-in-path.h's file header
+//     describes and UsbInPath::service() retries rather than drops.
+//   tud_audio_get_ep_in_ff(void) -> tu_fifo_t* (src/class/audio/
+//     audio_device.h:214, :427-429, tud_audio_n_get_ep_in_ff, audio_device.c:
+//     511-516) paired with tu_fifo_remaining() (src/common/tusb_fifo.h:306-
+//     310), which is the ONLY way to learn the IN software fifo's free space
+//     — there is no tud_audio_write_available()-named entry point in this
+//     tree. Both are visible here because tusb.h itself #includes
+//     "common/tusb_fifo.h" (src/tusb.h:39), so no extra include is needed
+//     beyond the tusb.h already pulled in above.
+//
+// Both are compiled in only because CFG_TUD_AUDIO_ENABLE_EP_IN is 1
+// (tusb_config.h); getting that macro wrong is a compile error here, not one
+// of the silent-link failures R13.0 warns about.
+//
+// tud_audio_get_ep_in_ff() can return nullptr before the audio function is
+// mounted (audio_device.c's own null check on `p_desc`), and tud_audio_write()
+// itself returns 0 in the same circumstance (its TU_VERIFY guard). Both are
+// treated as the ordinary "no room yet" idle result, never a fault — the same
+// "a zero from either call is the normal idle result" convention TinyUsbOutFifo
+// documents above.
+struct TinyUsbInFifo {
+    int write(const std::int16_t* data, int len) noexcept {
+        return static_cast<int>(tud_audio_write(data, static_cast<std::uint16_t>(len)));
+    }
+
+    int writeAvailable() noexcept {
+        tu_fifo_t* fifo = tud_audio_get_ep_in_ff();
+        return (fifo != nullptr) ? static_cast<int>(tu_fifo_remaining(fifo)) : 0;
+    }
+};
+
+inline TinyUsbInFifo g_inFifo;
+
+// Holds only its ring-read scratch and its packet/carryover buffer; no heap,
+// no locks. See support/usb-in-path.h for the full design: room-bounded pull
+// size, FR-038a conversion via interleaveToInt16() (reused, not
+// reimplemented), and back-pressure retried rather than dropped.
+inline UsbInPath g_inPath;
+
+// tusb_config.h's IN packet size and support/sample-format.h's
+// kMaxPacketFrames/kChannels must agree, the same cross-check the OUT side's
+// static_asserts above already perform.
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX == UsbInPath::maxPayloadBytes(),
+              "tusb_config.h's IN packet size and support/usb-in-path.h's "
+              "kMaxPacketFrames/kChannels have drifted apart");
+static_assert(UsbInPath::maxPayloadBytes() % sizeof(std::int16_t) == 0,
+              "IN packet size must be a whole number of 16-bit samples");
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ >= UsbInPath::maxPayloadBytes(),
+              "IN software FIFO cannot hold one maximum packet");
+
+// Service the IN endpoint once. Called every pass of the service loop, after
+// ServiceUsbAudioOut() and ServiceDspBlock() have had their chance to move
+// audio through the rings.
+//
+// ASYNCHRONOUS SOURCE (FR-026, D20): this path asserts no rate of its own —
+// it is paced entirely by however much room TinyUSB's own IN software fifo
+// reports free, which only grows as the host's SOF-triggered ISR drains a
+// previous write. See support/usb-in-path.h's file header and
+// UsbInPath::service()'s doc comment for the full account of why that is what
+// keeps a fast tud_task() poll loop from over-draining the output ring, how
+// much is pulled per pass, and how a partial tud_audio_write() accept is
+// retried rather than silently dropped.
+//
+// The pass result is discarded: `outputUnderruns` is already recorded inside
+// service() itself, and every other field is per-pass detail with no counter
+// behind it (see InServicePass's own doc comment). T058's CDC telemetry reads
+// g_transportStats; nothing on this path acts on the discarded result.
+inline void ServiceUsbAudioIn() {
+    static_cast<void>(g_inPath.service(g_outputRing, g_inFifo, g_transportStats));
 }
 
 }  // namespace acfx::nucleo
