@@ -99,16 +99,6 @@ inline UsbOutPath g_outPath;
 //     src/class/audio/audio_device.h:206, defined :399-401 as
 //     tud_audio_n_available(0); implementation audio_device.c:443-446, which
 //     is tu_fifo_count() on the same fifo.
-//   tud_audio_clear_ep_out_ff(void) -> bool
-//     src/class/audio/audio_device.h:207, defined :407-409 as
-//     tud_audio_n_clear_ep_out_ff(0); implementation audio_device.c:453-457,
-//     which is tu_fifo_clear() on the same fifo. It returns false ONLY when
-//     the TU_VERIFY on its func_id / p_desc fails — i.e. when the audio
-//     function is not configured — and in exactly that state
-//     tud_audio_available()'s identical TU_VERIFY also fails and reports 0,
-//     so a false return can never coincide with bytes having been discarded.
-//     serviceOutFifo() relies on that: it counts the flush only when this
-//     returns true.
 //
 // Both are compiled in only because CFG_TUD_AUDIO_ENABLE_EP_OUT is 1
 // (audio_device.h:397-415); getting that macro wrong is a compile error here,
@@ -124,13 +114,6 @@ struct TinyUsbOutFifo {
     }
 
     int available() noexcept { return static_cast<int>(tud_audio_available()); }
-
-    // Discard everything the OUT fifo holds. Called by serviceOutFifo() only
-    // after a torn read (support/usb-out-path.h, "CLEAR-ON-TEAR"), never
-    // speculatively and never on a mere backlog. The bool is forwarded rather
-    // than swallowed so the caller can decline to count a flush that TinyUSB
-    // refused to perform.
-    bool clear() noexcept { return tud_audio_clear_ep_out_ff(); }
 };
 
 inline TinyUsbOutFifo g_outFifo;
@@ -205,13 +188,10 @@ inline std::uint32_t g_outFifoWorstBacklogBytes = 0;
 // cadence depends on iterating promptly, and it is also the framing decision
 // described above.
 inline void ServiceUsbAudioOut() {
-    // The pass result carries framesConsumed / framesDropped / wasTruncated
-    // (recorded in g_transportStats by consumePacket()) and flushed /
-    // flushedBytes / flushedFrames (recorded there by serviceOutFifo() as
-    // inputFifoFlushes / inputFifoFlushedFrames). Ignoring those fields here is
-    // therefore not a dropped error path — every one of them is already
-    // counted. Only backlogBytes has no counter behind it, so that is the one
-    // field this reads.
+    // The pass result carries framesConsumed / framesDropped / wasTruncated,
+    // all of which consumePacket() has ALREADY recorded in g_transportStats —
+    // the discard below is not a dropped error path. Only backlogBytes has no
+    // counter behind it, so that is the one field this reads.
     const OutServicePass pass =
         serviceOutFifo(g_outFifo, g_outPath, g_outPacketBuffer, g_inputRing, g_transportStats);
 

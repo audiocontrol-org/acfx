@@ -224,10 +224,6 @@ add_executable(acfx_core_tests
   # bound and consumePacket()'s chunk loop — split into a sibling file for the
   # per-file line budget, as the sample-format suite is.
   core/nucleo-usb-out-service-test.cpp
-  # Clear-on-tear: what serviceOutFifo() does to the fifo after a torn read.
-  # A third sibling for the same per-file line budget; both multi-packet suites
-  # share core/nucleo-usb-out-test-support.h.
-  core/nucleo-usb-out-flush-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------

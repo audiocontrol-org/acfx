@@ -38,38 +38,6 @@ struct AudioTransportStats {
                                             // frames here would always read
                                             // zero and the fault would be
                                             // invisible.
-
-    // ---- clear-on-tear (FR-028a / FR-032) --------------------------------
-    // The USB OUT endpoint fifo is flushed after a torn read so the next read
-    // restarts on a real packet boundary. "input" is the direction convention
-    // this record already uses — host -> device, the same direction as
-    // inputOverruns — NOT the USB endpoint's name, which is OUT. The two
-    // fields below are deliberately separate counters with DIFFERENT units;
-    // one alone cannot answer "how often" and "how much", and FR-032 forbids
-    // discarding host audio without counting it.
-    std::uint32_t inputFifoFlushes = 0;    // An EVENT count: how many times
-                                            // the OUT fifo was flushed after
-                                            // a torn read. Increments once
-                                            // per flush that actually
-                                            // happened, including a flush
-                                            // that found the fifo empty and
-                                            // so discarded nothing.
-    std::uint32_t inputFifoFlushedFrames = 0;
-                                            // A FRAME count, not an event
-                                            // count and not bytes: the whole
-                                            // stereo frames those flushes
-                                            // discarded, summed over the
-                                            // lifetime. Derived from what
-                                            // the fifo reported queued
-                                            // immediately BEFORE each flush.
-                                            // A flushed run may also end in a
-                                            // 1-3 byte partial frame; that
-                                            // remainder is not representable
-                                            // here and is not counted, so
-                                            // this is a lower bound on the
-                                            // bytes discarded, never an
-                                            // over-count.
-
     std::uint32_t blocksProcessed   = 0;   // rate denominator (TS2)
     std::uint32_t worstBlockMicros  = 0;   // a maximum, never an average,
                                             // and never implicitly reset
