@@ -1,9 +1,10 @@
 #pragma once
 
 // The polled USB audio data path's shim half (T032; FR-024, FR-025, FR-028,
-// FR-028a). Holds the adapter's ring/stats/scratch instances and the one call
-// that genuinely needs the stack: tud_audio_read() into a statically sized
-// packet buffer.
+// FR-028a). Holds the adapter's ring/stats/scratch instances and the two calls
+// that genuinely need the stack: tud_audio_read() into a statically sized
+// packet buffer, and tud_audio_available() to observe what the fifo still
+// holds behind it.
 //
 // Split out of nucleo-main.cpp for the same reason as clock-init.h and
 // otg-fs-gpio-init.h: this IS logically part of the Nucleo shim with no other
@@ -14,15 +15,21 @@
 // the repo's per-file line budget as T033/T035/T036/T058 add to this path.
 //
 // WHAT IS NOT HERE, DELIBERATELY. The truncate-count-convert-de-interleave-
-// write sequence itself is acfx::nucleo::UsbOutPath in support/usb-out-path.h,
-// which knows nothing of USB and is exercised directly by the host doctest
-// binary (tests/core/nucleo-usb-out-path-test.cpp, FR-049). This file is the
-// thin wiring between that logic and the stack — the seam D1 draws.
+// write sequence, and the decision of how many bytes one read may ask for, are
+// both in support/usb-out-path.h (UsbOutPath / serviceOutFifo), which knows
+// nothing of USB and is exercised directly by the host doctest binary
+// (tests/core/nucleo-usb-out-path-test.cpp and its
+// nucleo-usb-out-service-test.cpp sibling, FR-049). This file is the thin
+// wiring between that logic and the stack — the seam D1 draws.
 //
-// SINGLE-INCLUDE HEADER. The definitions below have external linkage and this
-// header is included exactly once per firmware image, from nucleo-main.cpp.
-// It is not a general-purpose header and must not be included twice.
+// ONE INSTANCE PER IMAGE, SAFELY. Every definition below is `inline`, which is
+// the C++ mechanism that makes multiple inclusion well defined: each name has
+// external linkage and the linker folds all definitions into exactly ONE
+// object. Including this header from more than one translation unit is
+// therefore correct, not a hazard; what it must not do is get copied, because
+// two copies would be two rings.
 
+#include <cstddef>
 #include <cstdint>
 
 // TinyUSB's public API. Resolved the same way nucleo-main.cpp resolves it —
@@ -80,13 +87,47 @@ inline AudioTransportStats g_transportStats;
 // Holds only its de-interleave scratch; no heap, no locks.
 inline UsbOutPath g_outPath;
 
-// The OUT packet staging buffer. Sized to TinyUSB's whole OUT software FIFO
-// (CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ, 784 bytes = 196 stereo frames), not
-// to one maximum packet, so a single poll drains everything the FIFO holds
-// even when the service loop missed a millisecond — that FIFO is a BYTE fifo
-// with no packet framing (research R13.3), so "one packet" is not a boundary
-// it can offer us anyway. UsbOutPath::consumePacket() consumes an arbitrary
-// byte count in bounded chunks, so nothing here has to be a packet multiple.
+// The two TinyUSB entry points the OUT path needs, behind the tiny duck-typed
+// interface serviceOutFifo() expects. Both are verified against the PINNED
+// 0.21.0 tree recorded in research R13.3, not recalled:
+//
+//   tud_audio_read(void* buffer, uint16_t bufsize) -> uint16_t BYTES read
+//     src/class/audio/audio_device.h:208, defined :403-405 as
+//     tud_audio_n_read(0, ...); implementation audio_device.c:448-451, which
+//     is tu_fifo_read_n() on the endpoint's software fifo.
+//   tud_audio_available(void) -> uint16_t BYTES currently queued
+//     src/class/audio/audio_device.h:206, defined :399-401 as
+//     tud_audio_n_available(0); implementation audio_device.c:443-446, which
+//     is tu_fifo_count() on the same fifo.
+//
+// Both are compiled in only because CFG_TUD_AUDIO_ENABLE_EP_OUT is 1
+// (audio_device.h:397-415); getting that macro wrong is a compile error here,
+// not one of the silent-link failures R13.0 warns about.
+//
+// A zero from either call is the normal idle result and NEVER a fault: R13.3
+// records that tud_audio_read() also returns 0 before the audio function is
+// open, so a 0 is genuinely indistinguishable from "idle".
+struct TinyUsbOutFifo {
+    int read(std::int16_t* dst, int maxBytes) noexcept {
+        return static_cast<int>(
+            tud_audio_read(dst, static_cast<std::uint16_t>(maxBytes)));
+    }
+
+    int available() noexcept { return static_cast<int>(tud_audio_available()); }
+};
+
+inline TinyUsbOutFifo g_outFifo;
+
+// The OUT packet staging buffer: ONE maximum packet, 196 bytes, and no larger.
+// This is the bound, not merely a buffer size. TinyUSB's OUT software fifo
+// holds up to CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ (784) bytes and has no
+// packet framing at all — tu_fifo_t carries a byte depth and two indices and
+// no item-size field (src/common/tusb_fifo.h:119-132) — so a read wider than
+// one packet merges consecutive payloads into one undifferentiated byte run.
+// Reading exactly one packet's worth per pass keeps FR-028a truncation landing
+// on a torn payload rather than on a whole backlog. See the framing section at
+// the top of support/usb-out-path.h for what that does and does not guarantee.
+//
 // Typed as int16 rather than uint8 so it is correctly aligned for the
 // interleaved 16-bit PCM it holds; tud_audio_read() takes void*.
 //
@@ -94,16 +135,36 @@ inline UsbOutPath g_outPath;
 // from ITS OWN copies of the packet-frame/channel/sample-size constants and
 // already says those "MUST match" the support library's. This is the one place
 // both are visible, so this is where that must-match becomes enforceable.
-static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX ==
-                  kMaxPacketFrames * kChannels *
-                      static_cast<int>(sizeof(std::int16_t)),
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX == UsbOutPath::maxPayloadBytes(),
               "tusb_config.h's OUT packet size and support/sample-format.h's "
               "kMaxPacketFrames/kChannels have drifted apart");
-static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ % sizeof(std::int16_t) == 0,
-              "OUT software FIFO size must be a whole number of 16-bit samples");
+static_assert(UsbOutPath::maxPayloadBytes() % sizeof(std::int16_t) == 0,
+              "OUT packet size must be a whole number of 16-bit samples");
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ >= UsbOutPath::maxPayloadBytes(),
+              "OUT software FIFO cannot hold one maximum packet");
 
-inline std::int16_t g_outPacketBuffer[CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ /
-                                      sizeof(std::int16_t)];
+inline std::int16_t g_outPacketBuffer[UsbOutPath::maxPayloadBytes() /
+                                      static_cast<int>(sizeof(std::int16_t))];
+
+// This is what welds the read bound to the staging buffer across the platform
+// seam: serviceOutFifo() asks for UsbOutPath::maxPayloadBytes() bytes, and the
+// buffer it writes into is exactly that size. Widening either one without the
+// other fails the BUILD.
+static_assert(sizeof(g_outPacketBuffer) ==
+                  static_cast<std::size_t>(UsbOutPath::maxPayloadBytes()),
+              "OUT staging buffer and the per-call read bound have drifted apart");
+
+// High-water mark of what tud_audio_available() reported still queued AFTER a
+// service pass, in bytes. Pure observability, and the reason the OUT path's
+// framing limitation is diagnosable rather than silent: under a service loop
+// keeping up with the host's 1 ms cadence this stays at or near zero, and any
+// value above one maximum packet means payloads queued up behind us — the one
+// state in which a torn payload can be merged with its successor and L/R
+// alignment across that boundary cannot be recovered (support/usb-out-path.h).
+// A high-water mark rather than the latest sample: the latest value is racy
+// against the ISR, the maximum is durable evidence. T058's CDC telemetry reads
+// it; nothing acts on it, and nothing here treats a backlog as an error.
+inline std::uint32_t g_outFifoWorstBacklogBytes = 0;
 
 // Service the OUT endpoint once. Called every pass of the service loop.
 //
@@ -111,40 +172,33 @@ inline std::int16_t g_outPacketBuffer[CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ /
 // for a packet, does not expect a particular size, and does not skip a pass
 // because "no data is due yet" — the host's SOF is the only sample clock and
 // this consumes exactly what the host has paced to us, whatever that is. A
-// zero-byte read is the normal idle result and is NOT a fault: research R13.3
-// records that tud_audio_read() also returns 0 before the audio function is
-// open, so a 0 is genuinely indistinguishable from "idle" and must never be
-// counted as an error. It is still passed to consumePacket(), which forwards a
-// zero-frame write to the ring so the ring's promotion rule stays evaluated in
-// exactly one place (AudioRing AR7).
+// zero-byte read is the normal idle result and is NOT a fault; it is still
+// passed to consumePacket(), which forwards a zero-frame write to the ring so
+// the ring's promotion rule stays evaluated in exactly one place (AR7).
 //
 // Every packet size in [0, 49] frames takes this identical path (FR-028), and
 // nothing here — or in consumePacket() — mentions 48. The DSP's 48-frame block
 // cadence (FR-030a) is T033's business on the far side of the ring; that
 // separation is the whole point of the ring being here.
 //
-// Bounded work, no blocking: one FIFO drain plus one convert-and-write over at
-// most the buffer above. That is what makes it safe to call from the tud_task()
-// service loop, whose USB servicing cadence depends on iterating promptly.
+// ONE READ PER PASS. A backlog is drained by the service loop coming back, not
+// by this function looping. That keeps the work per pass bounded to one packet
+// — at most 49 frames of convert-and-write, no wait of any kind — which is
+// what makes it safe to call from a tud_task() loop whose USB servicing
+// cadence depends on iterating promptly, and it is also the framing decision
+// described above.
 inline void ServiceUsbAudioOut() {
-    // tud_audio_read(void* buffer, uint16_t bufsize) -> uint16_t BYTES read
-    // (TinyUSB 0.21.0, src/class/audio/audio_device.h:208, defined :403-405 as
-    // tud_audio_n_read(0, ...); implementation src/class/audio/audio_device.c:
-    // 448-451). Verified against the pinned tree recorded in research R13.3 —
-    // not recalled. Compiled in only because CFG_TUD_AUDIO_ENABLE_EP_OUT is 1
-    // (audio_device.h:397-415); getting that macro wrong is a compile error
-    // here, not one of the silent-link failures R13.0 warns about.
-    const std::uint16_t bytesRead = tud_audio_read(
-        g_outPacketBuffer, static_cast<std::uint16_t>(sizeof(g_outPacketBuffer)));
+    // The pass result carries framesConsumed / framesDropped / wasTruncated,
+    // all of which consumePacket() has ALREADY recorded in g_transportStats —
+    // the discard below is not a dropped error path. Only backlogBytes has no
+    // counter behind it, so that is the one field this reads.
+    const OutServicePass pass =
+        serviceOutFifo(g_outFifo, g_outPath, g_outPacketBuffer, g_inputRing, g_transportStats);
 
-    // The result carries framesConsumed / framesDropped / wasTruncated. It is
-    // discarded here because every fact it reports has ALREADY been recorded in
-    // g_transportStats by consumePacket() — the discard is not a dropped error
-    // path. T058's telemetry reads the counters, not this return value.
-    static_cast<void>(g_outPath.consumePacket(g_outPacketBuffer,
-                                              static_cast<int>(bytesRead),
-                                              g_inputRing,
-                                              g_transportStats));
+    if (pass.backlogBytes > 0 &&
+        static_cast<std::uint32_t>(pass.backlogBytes) > g_outFifoWorstBacklogBytes) {
+        g_outFifoWorstBacklogBytes = static_cast<std::uint32_t>(pass.backlogBytes);
+    }
 }
 
 }  // namespace acfx::nucleo

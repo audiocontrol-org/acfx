@@ -18,10 +18,15 @@
 // frames inclusive (FR-028) — plus the torn byte counts a byte FIFO with no
 // frame framing can hand back (R13.3).
 //
-// The TinyUSB call itself (tud_audio_read() into a packet buffer) stays in
-// nucleo-main.cpp; UsbOutPath::consumePacket() is the whole truncate-count-
-// convert-write sequence, expressed over a plain byte count so it is testable
-// on the host (adapters/nucleo/support is host-compilable by construction).
+// The TinyUSB calls themselves (tud_audio_read() / tud_audio_available()) stay
+// in the shim, adapters/nucleo/usb-audio-service.h; UsbOutPath::consumePacket()
+// is the whole truncate-count-convert-write sequence, expressed over a plain
+// byte count so it is testable on the host (adapters/nucleo/support is
+// host-compilable by construction).
+//
+// THIS FILE COVERS ONE PACKET AT A TIME. Everything that spans more than one
+// packet — serviceOutFifo()'s per-call read bound and consumePacket()'s chunk
+// loop — lives in the sibling file nucleo-usb-out-service-test.cpp (OP9-OP11).
 //
 // Cases cover:
 // OP1 — a zero-length payload is a legal packet: consumed, not counted malformed,
@@ -33,7 +38,7 @@
 // OP5 — ring overflow is reported, not absorbed: inputOverruns increments and the
 //       NEWEST frames survive (AudioRing AR3).
 // OP6 — no code path assumes 48: every frame count in [0, 49] round-trips exactly,
-//       and 48 is in no way distinguished from its neighbours.
+//       48 included, so no branch can be special-casing the block size.
 // OP7 — L/R alignment survives truncation, which is the whole reason FR-028a
 //       truncates instead of rejecting the packet.
 // OP8 — the path allocates nothing (Constitution real-time safety).
@@ -307,25 +312,10 @@ TEST_CASE("OP6: every frame count in [0, 49] round-trips exactly, 48 included") 
     }
 }
 
-TEST_CASE("OP6: 48 is not distinguished from 47 or 49") {
-    // The sizes either side of kBlockFrames behave identically in kind: same
-    // consumed-equals-offered rule, same untouched counters. If any branch ever
-    // special-cased the block size, one of these three would diverge.
-    for (const int frames : {kBlockFrames - 1, kBlockFrames, kBlockFrames + 1}) {
-        TestRing ring(0);
-        AudioTransportStats stats;
-        UsbOutPath path;
-
-        const std::vector<std::int16_t> payload = makePayload(frames);
-        const OutPacketResult result =
-            path.consumePacket(payload.data(), bytesFor(frames), ring, stats);
-
-        CHECK(result.framesConsumed == frames);
-        CHECK(ring.occupancy() == frames);
-        CHECK(stats.inputOverruns == 0u);
-        CHECK(stats.malformedPayloads == 0u);
-    }
-}
+// (A separate 47/48/49 case used to sit here. It was a strict subset of the
+// sweep above — same rule, a subset of the assertions, over three of the fifty
+// sizes the sweep already covers — so it could not fail unless the sweep failed
+// too. Removed rather than kept as case-count padding.)
 
 // ============================================================================
 // OP7: truncation preserves L/R alignment — the reason FR-028a truncates

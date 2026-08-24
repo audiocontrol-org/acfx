@@ -71,8 +71,11 @@ public:
     // instruction, i.e. an immediate HardFault a debugger stops on. That
     // branch is not a fallback and is not meant to be reached at run time —
     // firmware callers pass compile-time constants and are expected to
-    // static_assert the same two conditions at the call site (see
-    // adapters/nucleo/nucleo-main.cpp), which makes it provably dead there.
+    // static_assert the same two conditions at the call site — the Nucleo
+    // adapter's are in adapters/nucleo/usb-audio-service.h, immediately above
+    // the g_inputRing definition, which is what makes this branch provably
+    // dead there. That is a call-site CONVENTION, not something this class can
+    // enforce: a caller that omits the static_asserts still compiles.
     explicit AudioRing(int startupFillFrames) : startupFill_(startupFillFrames) {
         if (startupFillFrames < 0 || startupFillFrames > CapacityFrames) {
 #if defined(__cpp_exceptions)

@@ -418,8 +418,10 @@ int main() {
   // tud_task(), and not as anything that blocks or spends unbounded time
   // before tud_task() runs again, since USB servicing cadence depends on this
   // loop iterating promptly. ServiceUsbAudioOut() satisfies that: it is one
-  // bounded FIFO drain plus a bounded convert-and-write, with no wait of any
-  // kind (see its comment on the adaptive-sink contract).
+  // read of at most one maximum packet plus a convert-and-write of at most 49
+  // frames, with no wait of any kind (see its comment on the adaptive-sink
+  // contract and on why a backlog is drained by coming back here rather than
+  // by looping inside).
   for (;;) {
     tud_task();
     acfx::nucleo::ServiceUsbAudioOut();

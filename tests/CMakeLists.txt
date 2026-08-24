@@ -220,6 +220,10 @@ add_executable(acfx_core_tests
   core/nucleo-audio-ring-no-allocation-test.cpp
   core/nucleo-transport-stats-test.cpp
   core/nucleo-usb-out-path-test.cpp
+  # The OUT path's multi-packet structures — serviceOutFifo()'s per-call read
+  # bound and consumePacket()'s chunk loop — split into a sibling file for the
+  # per-file line budget, as the sample-format suite is.
+  core/nucleo-usb-out-service-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------

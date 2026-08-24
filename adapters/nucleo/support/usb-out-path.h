@@ -4,15 +4,16 @@
 // Nucleo USB audio adapter (FR-024, FR-025, FR-028, FR-028a). No TinyUSB, no
 // CMSIS, no board headers, no <cstdio> — this header compiles under the `test`
 // preset with no toolchain file. Anything that cannot satisfy that constraint
-// belongs in nucleo-main.cpp instead.
+// belongs in the shim (adapters/nucleo/usb-audio-service.h) instead.
 //
 // WHAT LIVES HERE AND WHAT DOES NOT.
-// The TinyUSB call is one line and it stays in the shim: nucleo-main.cpp owns
-// `tud_audio_read(buffer, sizeof(buffer))`, which per research R13.3 returns a
-// BYTE count out of an unframed byte FIFO. Everything downstream of that byte
-// count — truncate, count, convert, de-interleave, write — is ordinary logic
-// with no platform dependency, so it lives here where the host test binary can
-// reach it (adapters/nucleo/support is linked into acfx_core_tests as
+// The TinyUSB calls are two lines and they stay in the shim: usb-audio-
+// service.h owns a tiny adapter type whose `read()` is `tud_audio_read()` and
+// whose `available()` is `tud_audio_available()`. Everything else — how many
+// bytes to ask for, truncate, count, convert, de-interleave, write, and what
+// to report about the leftover backlog — is ordinary logic with no platform
+// dependency, so it lives here where the host test binary can reach it
+// (adapters/nucleo/support is linked into acfx_core_tests as
 // acfx_nucleo_support, FR-049).
 //
 // THE OUT STREAM IS AN ADAPTIVE SINK (FR-024, FR-025, D20).
@@ -23,6 +24,38 @@
 // D21) and every one of them takes the same path. `kBlockFrames` is deliberately
 // not referenced here at all — block size is the DSP's cadence (FR-030a) and the
 // ring is what stops transport framing from reaching it.
+//
+// ============================================================================
+// PACKET FRAMING: WHAT THIS PATH CAN AND CANNOT GUARANTEE. READ THIS.
+// ============================================================================
+// TinyUSB's OUT endpoint software FIFO is a plain BYTE fifo. In the pinned
+// 0.21.0 tree `tu_fifo_t` (src/common/tusb_fifo.h:119-132) carries a buffer
+// pointer, a depth in bytes and read/write indices — and NO item-size or
+// packet-boundary field of any kind. `tud_audio_read()` is
+// `tu_fifo_read_n()` on that fifo (src/class/audio/audio_device.c:448-451) and
+// returns a BYTE count. There is therefore no API, anywhere in that tree, that
+// can tell us where one USB payload ended and the next began.
+//
+// WHAT WE DO ABOUT IT: serviceOutFifo() reads AT MOST one wMaxPacketSize worth
+// of bytes per call (UsbOutPath::maxPayloadBytes(), 196 = 49 frames x 2 ch x
+// 2 B) and lets the service loop come back for the rest on its next pass. Under
+// normal operation — the loop iterating far faster than the host's 1 ms SOF
+// cadence — the fifo holds at most one payload, so a torn payload is read
+// alone, FR-028a truncation lands on the torn payload itself, and the payload
+// that follows it starts at byte 0 of the next read, still L/R aligned.
+//
+// WHAT WE CANNOT DO ABOUT IT, STATED PLAINLY: if the ISR has already appended a
+// second payload behind a torn first one before we read, the boundary between
+// them is genuinely unrecoverable — it does not exist in the data structure.
+// A bounded read then cuts somewhere inside the merged bytes and everything
+// after the tear is shifted by the 1-3 byte remainder, which for stereo means
+// L and R swap for the remainder of that backlog. This path does NOT guarantee
+// alignment in that case and no code here claims to. What it does instead is
+// make the condition observable rather than silent: OutServicePass::backlogBytes
+// reports what `tud_audio_available()` still holds after each pass (a value
+// above one packet means the loop fell behind and alignment is at risk), and
+// OutPacketResult::chunks is greater than 1 whenever a single call was handed
+// more than one packet's worth of bytes.
 //
 // Real-time safety: no heap, no locks, no exceptions. The de-interleave scratch
 // is a fixed member array sized for the 49-frame worst case.
@@ -48,18 +81,32 @@ struct OutPacketResult {
     // `inputOverruns` is an EVENT count — see consumePacket().
     int framesDropped = 0;
 
+    // De-interleave passes this call took. 1 on every normal packet, including
+    // an empty one. A value above 1 means the caller handed over more than one
+    // maximum packet's worth of bytes in a single call, which is exactly the
+    // condition under which the file-header's framing limitation applies: the
+    // bytes were all consumed, but the payload boundaries inside them were not
+    // recoverable and L/R alignment across them is not guaranteed.
+    int chunks = 0;
+
     // FR-028a: the payload's byte count was not a whole number of stereo
     // frames and a 1-3 byte remainder was discarded.
     bool wasTruncated = false;
 };
 
 // The polled OUT path. Holds only its de-interleave scratch; it owns no ring,
-// no stats and no lifecycle, both of which are passed in per call so the shim
+// no stats and no lifecycle, all of which are passed in per call so the shim
 // keeps a single instance of each and this stays a pure transformation step.
 class UsbOutPath {
 public:
-    // Largest payload one call can hand to the ring in a single de-interleave
-    // pass. A byte count above this is not rejected — see consumePacket().
+    // THE PER-CALL READ BOUND, and the largest payload one de-interleave pass
+    // handles. One wMaxPacketSize: 49 frames x 2 channels x 2 bytes = 196.
+    //
+    // serviceOutFifo() asks the fifo for no more than this per call — see the
+    // framing discussion in the file header for why the bound is the whole
+    // point and not an arbitrary buffer size. The shim sizes its staging buffer
+    // from this same function and static_asserts the two agree, which is what
+    // welds the bound to the buffer across the platform seam.
     static constexpr int maxPayloadBytes() noexcept {
         return kMaxPacketFrames * kChannels * static_cast<int>(sizeof(std::int16_t));
     }
@@ -68,7 +115,7 @@ public:
     // remainder, convert to float, de-interleave, and write to `ring`.
     //
     // `payload` points at `byteCount` bytes of interleaved 16-bit stereo PCM
-    // as delivered by the host. `byteCount` is what tud_audio_read() returned;
+    // as delivered by the host. `byteCount` is what the fifo read returned;
     // 0 is a legal, common value and is NOT an error (R13.3 records that a read
     // issued before the function is open also returns 0, which is why a zero
     // return must never be treated as a fault here).
@@ -78,8 +125,11 @@ public:
     // whole frames are consumed and the 1-3 byte remainder is discarded and
     // COUNTED in `stats.malformedPayloads`. Rejecting the whole packet would
     // drop good frames, and — worse — consuming the torn remainder would swap
-    // L and R for every subsequent frame in the stream, which is a permanent
-    // channel-alignment fault from a transient one.
+    // L and R for every subsequent frame in the stream. Note the scope of that
+    // claim: truncation keeps the frames INSIDE this call aligned, and (given
+    // serviceOutFifo()'s one-packet read bound) keeps the NEXT call's payload
+    // aligned because that call starts at a fresh read. It cannot realign bytes
+    // that were already merged into this call — see the file header.
     //
     // COUNTER SEMANTICS. `malformedPayloads` and `inputOverruns` are both
     // incremented at most ONCE per call, i.e. per packet, matching spec US2
@@ -122,12 +172,14 @@ public:
             channels[channel] = scratch_[channel];
         }
 
-        // Chunked so a payload larger than one maximum packet — which the FIFO
-        // can return when the service loop misses a poll, since it is a byte
-        // FIFO with no packet boundaries (R13.3) — is consumed in full rather
-        // than clamped to the scratch size. Clamping would silently discard
-        // audio the host did send; a loop discards nothing and still needs no
-        // buffer beyond the 49-frame worst case.
+        // Chunked so that a caller handing over more than one maximum packet
+        // consumes all of it rather than overrunning the scratch or silently
+        // clamping. serviceOutFifo() never does that — its read is bounded to
+        // maxPayloadBytes() precisely so this loop runs exactly once per packet
+        // — but consumePacket() is a public entry point over an arbitrary byte
+        // count and must stay total for any of them. When the loop does run
+        // more than once, `result.chunks` says so; see the file header for what
+        // that costs in alignment terms.
         //
         // do/while, not while: a zero-frame payload must still reach
         // ring.write() exactly once (see the promotion note above).
@@ -148,6 +200,7 @@ public:
             }
 
             result.framesConsumed += chunk;
+            ++result.chunks;
             offset += chunk;
             remaining -= chunk;
         } while (remaining > 0);
@@ -165,5 +218,62 @@ private:
     // Sized for the 49-frame worst case (FR-028): fixed storage, no heap.
     float scratch_[kChannels][kMaxPacketFrames] = {};
 };
+
+// What one pass of the service loop did to the OUT fifo. `backlogBytes` is the
+// observability the file header promises: it is what the fifo still held AFTER
+// this pass, so a value above UsbOutPath::maxPayloadBytes() means payloads are
+// queueing behind us and a tear in that backlog cannot be realigned.
+struct OutServicePass {
+    int bytesRead = 0;
+    int framesConsumed = 0;
+    int framesDropped = 0;
+    int chunks = 0;
+    int backlogBytes = 0;
+    bool wasTruncated = false;
+};
+
+// One service-loop pass over the OUT fifo: ONE bounded read, then consume it.
+//
+// `fifo` is anything providing
+//     int read(std::int16_t* dst, int maxBytes) noexcept;   // bytes read
+//     int available() noexcept;                             // bytes queued
+// which on the board is a two-line adapter over tud_audio_read() /
+// tud_audio_available() (usb-audio-service.h) and in the host tests is a
+// simulated unframed byte fifo. Templated rather than virtual: no allocation,
+// no indirect call, and the shim's adapter inlines away entirely.
+//
+// EXACTLY ONE READ PER PASS, deliberately. Draining the whole fifo inside one
+// call is what merges consecutive payloads into a single byte run and destroys
+// the framing (file header). Looping ACROSS service-loop passes instead keeps
+// each read to at most one payload, and the loop iterates far faster than the
+// host's 1 ms cadence, so a transient backlog still clears promptly.
+//
+// Bounded work, no blocking: one bounded read plus one convert-and-write over
+// at most 49 frames. That is what makes it safe to call from a tud_task()
+// service loop whose USB servicing cadence depends on iterating promptly.
+template <typename Fifo, typename Ring, std::size_t BufferSamples>
+OutServicePass serviceOutFifo(Fifo& fifo,
+                              UsbOutPath& path,
+                              std::int16_t (&buffer)[BufferSamples],
+                              Ring& ring,
+                              AudioTransportStats& stats) noexcept {
+    static_assert(BufferSamples * sizeof(std::int16_t) >=
+                      static_cast<std::size_t>(UsbOutPath::maxPayloadBytes()),
+                  "OUT staging buffer is smaller than one maximum packet");
+
+    OutServicePass pass;
+    pass.bytesRead = fifo.read(buffer, UsbOutPath::maxPayloadBytes());
+
+    const OutPacketResult result = path.consumePacket(buffer, pass.bytesRead, ring, stats);
+    pass.framesConsumed = result.framesConsumed;
+    pass.framesDropped = result.framesDropped;
+    pass.chunks = result.chunks;
+    pass.wasTruncated = result.wasTruncated;
+
+    // Read AFTER the drain, so it reports what is left for the next pass rather
+    // than what was there before this one.
+    pass.backlogBytes = fifo.available();
+    return pass;
+}
 
 } // namespace acfx::nucleo
