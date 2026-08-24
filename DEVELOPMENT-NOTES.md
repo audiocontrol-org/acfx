@@ -2,21 +2,93 @@
 
 ---
 
-## 2026-08-24: <!-- session title -->
+## 2026-08-24: nucleo-f446-adapter — Phase 7 (US5), the audio path, and the DaisySP FPv5 fault a clean link hid
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Resume `specs/nucleo-f446-adapter` at Phase 7 (US5) through the stack-control
+`execute` front door — the audio data path that turns the enumerating-but-silent board from
+Phase 6 into an actual acfx target: the polled OUT path, fixed-48-frame block processing through
+the effect, the polled IN path, block timing, and a hardware verification. Board attached
+throughout.
 
 **Accomplished:**
-- <!-- compose -->
+- **Phase 7 (US5) code complete — T032–T037 implemented, reviewed, and ledgered.** The polled
+  OUT path (`usb-out-path.h`, adaptive sink with FR-028a truncation counting), the effect prepare
+  at 48 frames per D28 (`effect-instance.h`, guarded by `static_assert`), the fixed-48-frame
+  block engine (`dsp-block-path.h`), the clamped IN path (`usb-in-path.h`), and the DWT `CYCCNT`
+  block timer with a fail-loud stuck-counter guard (`block-timer.h`). Host suite grew to 846
+  cases; every task was test-first and mutation-verified.
+- **The board is a working audio device again, on the Phase-7 firmware.** After the fix below,
+  `acfx_nucleo` (SVF) flashes and enumerates as the acfx composite device — Core Audio `acfx
+  Audio` 2-in/2-out at 48000 Hz, CDC on `/dev/cu.usbmodem11206`.
+- **Root-caused and fixed a HardFault that a clean link completely hid (TASK-36).** DaisySP's
+  `dsp.h` emits FPv5-only `vmaxnm.f32`/`vminnm.f32` inline asm gated on bare `#ifdef __arm__`;
+  valid on the M7 Daisy, a NOCP UsageFault on the M4 Nucleo. Diagnosed on hardware over SWD
+  (halted core, `CFSR=NOCP` with the FPU *enabled*, stacked PC at `Svf::SetFreq`←`PrepareEffect`).
+  Fixed with an idempotent CPM `PATCH_COMMAND` re-gating the asm on `DSY_FPV5_MAXMIN` (M7
+  toolchains only); M4 + host use DaisySP's portable path. Rebuilt (0 NM in the image), reflashed,
+  enumerated.
+- **Three artifact amendments rather than letting tests or code drift.** US3 AS1 amended across
+  spec.md, data-model.md (I-AR4 + the transition row), and FR-030d to record that T033's
+  occupancy gate makes an input-side short read unreachable by construction — with the honest
+  I-TS1a mis-attribution note (input starvation surfaces only as later `outputUnderruns`).
+- **Five backlog items filed** (TASK-32 through TASK-36) plus one memory record on the DaisySP
+  FPv5 trap for the coming hardware targets.
 
 **Didn't Work:**
-- <!-- compose -->
+- **T032's clear-on-tear fix — implemented on operator direction, then reverted after it was
+  proven a no-op.** The bounded read means a torn payload is only ever visible on an
+  already-drained FIFO, so the flush discards nothing in the case it targets and only destroys
+  good audio in an ISR race. The genuinely dangerous case (a tear embedded in a sustained
+  backlog) is undetectable by any byte-stream remedy — filed as TASK-33. Three rounds on one task.
+- **My own worked example of the tear bug was wrong, stated confidently to the operator.** I said
+  the L/R swap persists until stream restart; it self-corrects when the backlog drains, because
+  `tu_fifo_read_n` clamps to the queued count. The fix agent caught it; I re-derived it against
+  the pinned source and corrected.
+- **T034 wiring `prepare()` exposed a dead firmware image (TASK-34).** `acfx_nucleo_delay`
+  requests 768 KB of heap on a 128 KB part in `ModulatedDelayEffect::prepare()` and aborts before
+  the service loop. Links clean, never boots — the same shape as the DaisySP fault and TASK-25.
+- **The DaisySP fault presented as a silent hang.** No fault LED, no diagnostic — it took SWD
+  archaeology to find, for the second session running. The parked fault-vectors→LED work would
+  have turned it into a glance.
+- **Two of my root-cause hypotheses were wrong before the right one** (double-precision f64;
+  mismatched compile flags) — each refuted by evidence (no `.f64` in the image; flags were
+  correct) before I acted on it.
 
 **Course Corrections:**
-- <!-- compose -->
+- **Operator asked whether I was hunting vanishingly-rare corner cases — a fair hit.** I had been
+  running a fixed full review+verify pass on every task regardless of blast radius. Recalibrated
+  to risk-weighted: independent review only on shipped-artifact/audio-path/contract changes,
+  controller build-and-run verification on mechanical wiring, and stop building defenses for
+  rare byte-tears. The real bugs came from building and running, not corner-case hunting.
+- **Reverted clear-on-tear rather than iterating on it**, once the analysis showed the whole
+  approach missed. Kept the parts that stood on their own (bounded read, backlog observability,
+  honest docs, multi-chunk coverage).
+- **Kept scrutiny exactly where it paid: T037's fail-loud guard.** Required a positive-control
+  test, not just the guard's existence. The agent then found its own runtime guard *unprovable*
+  by mutation and replaced it with a load-bearing `static_assert` — refusing to ship a check that
+  could not fail.
+- **Batched T036+T037 into one agent** (same subsystem — a timer and its self-check) rather than
+  rebuild context twice.
 
 **Insights:**
-- <!-- compose -->
+- **A clean link is not a boot check — three times over this feature now.** The DaisySP FPv5
+  fault, the delay-image heap overshoot, and (last session) the missing FPU enable all linked
+  perfectly and were dead on silicon. The flash-and-enumerate step is what catches this class,
+  and it is cheap next to the live acceptance it protects.
+- **"Verify on hardware" is not a fast task.** T038 was tiered `fast`; it turned into hours of
+  SWD fault-debugging because the firmware disagreed with the build. A tier reflects the happy
+  path, not the diagnostic tail when hardware says no.
+- **Executable evidence broke ties that reasoning could not.** The tear bug had two of us
+  (reviewer and me) reasoning about byte layout and both wrong; only the demand that a regression
+  test *fail against the old code* forced the actual byte sequence and the real answer. Same shape
+  as last session's ctest false green — a check that structurally cannot fail gets believed.
+- **The best agent output this session refused to ship a green that could not fail.** T037's
+  unprovable-guard-→-static_assert swap, and T032's honest "the fix I was told to build does not
+  achieve its goal," were both worth more than a passing test would have been.
+- **A vendored dependency's platform assumption is a portability landmine.** DaisySP assumed
+  `__arm__` ⇒ FPv5; correct for its home platform, fatal one FPU generation down. Every new
+  hardware target inherits that assumption until the guard is fixed — and GCC gives you no macro
+  to catch it automatically.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 18
