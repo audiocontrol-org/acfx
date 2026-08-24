@@ -212,6 +212,23 @@ emitted samples and the counter deltas.
 1. **Given** the DSP requests a block and the ring holds fewer frames than requested,
    **When** the read executes, **Then** silence fills the shortfall and `inputUnderruns`
    increments.
+
+   > **Amendment (2026-08-23, T033, operator-approved) — this scenario is UNREACHABLE by
+   > construction on the Nucleo adapter, and that is deliberate.** The polled service loop has
+   > no independent consumer clock: unlike a callback-driven adapter it is never *obliged* to
+   > emit a block at a given instant, so it draws a block only when the ring is `Running` **and**
+   > holds at least `kBlockFrames` (48). The DSP therefore never requests a short block and the
+   > shortfall this scenario describes does not arise. Running short instead would spin the
+   > effect at loop speed over a starved ring and inflate `blocksProcessed` — the FR-034 rate
+   > denominator — with manufactured silence, which would in turn distort every counter
+   > normalized against it (FR-034c). **Input starvation remains observable**, via
+   > `outputUnderruns` at the IN endpoint (the audible symptom) and via `inputOverruns` if the
+   > loop ever falls below one block per SOF (a throughput failure). `inputUnderruns` is
+   > retained as a **guard**, not a live signal: it fires only if a ring ever under-delivers
+   > relative to its own `occupancy()`, and is covered on the host by a deliberately
+   > under-supplying fake ring. This scenario still governs any future adapter whose consumer
+   > *is* externally clocked; it is the Nucleo transport that opts out, not the requirement
+   > that is withdrawn.
 2. **Given** USB delivers frames faster than the DSP drains them and the ring is full,
    **When** the write executes, **Then** the oldest frames are dropped and `inputOverruns`
    increments.
