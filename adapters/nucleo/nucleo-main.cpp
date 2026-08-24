@@ -2,9 +2,9 @@
 // service loop. This file currently holds the SystemCoreClock definition, the
 // fault-LED GPIO init, the call into the register-level clock bring-up, and
 // the call into the OTG_FS pin configuration (which live in the sibling
-// clock-init.h and otg-fs-gpio-init.h purely so no single file outgrows the
-// repo's file-size limit); the remaining shim responsibilities land as the
-// adapter is built out.
+// clock-init.h, otg-fs-gpio-init.h and usb-audio-service.h purely so no single
+// file outgrows the repo's file-size limit); the remaining shim
+// responsibilities land as the adapter is built out.
 //
 // ST's system_stm32f4xx.c is deliberately NOT compiled into this adapter (see the
 // design record's D14 and spec FR-013), so nothing else in the link provides the
@@ -40,6 +40,13 @@
 #include "stm32f446xx.h"
 #include "clock-init.h"
 #include "otg-fs-gpio-init.h"
+
+// The audio data path's shim half (T032): the adapter's ring/stats instances
+// and ServiceUsbAudioOut(), which is the one tud_audio_read() call. Split into
+// a sibling header for the same file-size reason as clock-init.h; the
+// platform-independent logic it wires up lives under support/ and is what the
+// host doctest binary exercises. Included exactly once, here.
+#include "usb-audio-service.h"
 
 // TinyUSB's own public API (tusb_init/tusb_int_handler/tud_task). Pulled in as
 // a SYSTEM include by acfx_nucleo_tinyusb's PUBLIC target_include_directories
@@ -403,15 +410,20 @@ int main() {
   // context — polled, per tusb_config.h's CFG_TUSB_OS = OPT_OS_NONE (no RTOS
   // to hand events to instead).
   //
-  // Nothing else belongs in this loop YET. The audio sample-format
-  // conversion/ring/DSP data path (polled tud_audio_read()/tud_audio_write())
-  // is T032-T035; CDC telemetry snapshots are T058. Both land as additional
-  // statements in this same loop, after tud_task() — not as replacements for
-  // it, and not as anything that blocks or spends unbounded time before
-  // tud_task() runs again, since USB servicing cadence depends on this loop
-  // iterating promptly.
+  // The OUT half of the audio data path (polled tud_audio_read()) is wired
+  // below as of T032. Still to land in this same loop, after tud_task(): block
+  // assembly and AppEffect::process() (T033), the IN path's tud_audio_write()
+  // (T035), the DWT block timer (T036) and CDC telemetry snapshots (T058).
+  // Each lands as an additional statement here — not as a replacement for
+  // tud_task(), and not as anything that blocks or spends unbounded time
+  // before tud_task() runs again, since USB servicing cadence depends on this
+  // loop iterating promptly. ServiceUsbAudioOut() satisfies that: it is one
+  // bounded FIFO drain plus a bounded convert-and-write, with no wait of any
+  // kind (see its comment on the adaptive-sink contract).
   for (;;) {
     tud_task();
-    // T032-T035 (audio data path) and T058 (CDC telemetry) land here.
+    acfx::nucleo::ServiceUsbAudioOut();
+    // T033/T035/T036 (block assembly, IN path, block timer) and T058 (CDC
+    // telemetry) land here.
   }
 }

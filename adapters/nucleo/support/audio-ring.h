@@ -59,15 +59,30 @@ public:
     // so throwing here is safe and is the fail-loud behaviour this codebase
     // requires over a silent clamp (AR6). This is the sole member permitted
     // to throw.
+    //
+    // EXCEPTION-FREE BUILDS (found while wiring T032). All three embedded
+    // toolchains compile with -fno-exceptions (cmake/toolchains/nucleo-f446
+    // .cmake:63 and its daisy/teensy siblings), so an unguarded `throw` here
+    // is a hard COMPILE error the moment any firmware actually instantiates a
+    // ring — which nothing did until the OUT path landed. The throw is
+    // therefore guarded on __cpp_exceptions, and the exception-free branch
+    // traps rather than clamping: a silent clamp is exactly the failure AR6
+    // exists to prevent, and on Cortex-M __builtin_trap() is an undefined
+    // instruction, i.e. an immediate HardFault a debugger stops on. That
+    // branch is not a fallback and is not meant to be reached at run time —
+    // firmware callers pass compile-time constants and are expected to
+    // static_assert the same two conditions at the call site (see
+    // adapters/nucleo/nucleo-main.cpp), which makes it provably dead there.
     explicit AudioRing(int startupFillFrames) : startupFill_(startupFillFrames) {
-        if (startupFillFrames < 0) {
+        if (startupFillFrames < 0 || startupFillFrames > CapacityFrames) {
+#if defined(__cpp_exceptions)
             throw std::invalid_argument(
-                "AudioRing: startupFillFrames must not be negative");
-        }
-        if (startupFillFrames > CapacityFrames) {
-            throw std::invalid_argument(
-                "AudioRing: startupFillFrames exceeds CapacityFrames; such a ring "
-                "could never reach Running and would prime forever");
+                "AudioRing: startupFillFrames must be within [0, CapacityFrames]; "
+                "outside that range the ring could never reach Running and would "
+                "prime forever");
+#else
+            __builtin_trap();
+#endif
         }
         clearStorage();
     }

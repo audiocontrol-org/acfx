@@ -219,6 +219,7 @@ add_executable(acfx_core_tests
   core/nucleo-audio-ring-lifecycle-test.cpp
   core/nucleo-audio-ring-no-allocation-test.cpp
   core/nucleo-transport-stats-test.cpp
+  core/nucleo-usb-out-path-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
