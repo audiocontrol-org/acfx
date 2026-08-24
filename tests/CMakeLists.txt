@@ -243,6 +243,14 @@ add_executable(acfx_core_tests
   # output ring: room-bounded pull size, FR-038a conversion end to end,
   # silence-on-underrun, and sink back-pressure retried without a silent drop.
   core/nucleo-usb-in-path-test.cpp
+  # US6 (parameters over USB MIDI): the live-parameter seam. T039 the parameter
+  # shadow (PS1-PS6: bounded, last-write-wins, no eviction, exactly-once flush),
+  # T040 the CC->index map (MC1-MC3: workbench convention CC74->0, CC71->1),
+  # T041 the duck-typed parameter-source seam (PSRC1/2/4/5: two source kinds,
+  # dead-band, composable last-write-wins, application only via flush).
+  core/nucleo-parameter-shadow-test.cpp
+  core/nucleo-midi-cc-map-test.cpp
+  core/nucleo-parameter-source-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
