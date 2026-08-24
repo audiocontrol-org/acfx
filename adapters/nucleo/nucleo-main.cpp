@@ -59,6 +59,14 @@
 // file-size reason as the includes above. Included exactly once, here.
 #include "dsp-block-service.h"
 
+// The live-parameter path's shim half (T045; FR-039/FR-042, contract PSRC3):
+// decodes USB-MIDI Control Change packets, feeds
+// support/parameter-source.h's MidiParameterSource, and flushes
+// support/parameter-shadow.h's ParameterShadow to the effect via
+// ServiceParameters(). Split for the same file-size reason as the includes
+// above. Included exactly once, here.
+#include "parameter-service.h"
+
 // TinyUSB's own public API (tusb_init/tusb_int_handler/tud_task). Pulled in as
 // a SYSTEM include by acfx_nucleo_tinyusb's PUBLIC target_include_directories
 // (adapters/nucleo/CMakeLists.txt), which is also where tusb_config.h's
@@ -453,28 +461,37 @@ int main() {
   // Each lands as an additional statement here — not as a replacement for
   // tud_task(), and not as anything that blocks or spends unbounded time
   // before tud_task() runs again, since USB servicing cadence depends on this
-  // loop iterating promptly. All three calls below satisfy that:
+  // loop iterating promptly. All four calls below satisfy that:
   //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a
   //   convert-and-write of at most 49 frames, with no wait of any kind.
+  //   ServiceParameters() (T045; FR-039/FR-042) drains USB-MIDI's finite RX
+  //   fifo (tud_midi_packet_read() returns false once empty, never blocks),
+  //   forwards Control Change packets to the one registered source, polls it
+  //   into the shadow once, and flushes the shadow to the effect once —
+  //   dead-banded so a steady controller costs at most one fifo-empty check.
   //   ServiceDspBlock() is at most ONE 48-frame process() call, and none at
   //   all unless the input ring is Running with a whole block in it.
   //   ServiceUsbAudioIn() is at most one room-bounded pull-and-write (or one
   //   carryover retry), and none at all unless the output ring is Running
   //   and TinyUSB's own IN software fifo currently reports room.
-  // None loops internally: a backlog on any side is drained by coming back
-  // here, which happens far faster than the host's 1 ms cadence.
+  // None loops internally without a bound: a backlog on any side is drained
+  // by coming back here, which happens far faster than the host's 1 ms
+  // cadence.
   //
   // ORDER MATTERS, mildly and deliberately: the OUT service runs first so a
   // packet that just arrived is in the ring before the block path looks at
-  // occupancy, which shortens the path from a packet arriving to the block it
-  // completes being processed by one loop iteration. The IN service runs last
-  // so a block the DSP just published this same pass reaches the output ring
-  // before the IN path decides how much to pull. Nothing depends on this
-  // ordering for correctness — the rings are what decouple all three cadences
-  // (FR-030a) — and every stage is a no-op whenever it has nothing to do.
+  // occupancy. ServiceParameters() runs next, before ServiceDspBlock(), so a
+  // CC that just arrived lands on the effect before the block that will use
+  // it — one pass later than this if the order were reversed. The IN service
+  // runs last so a block the DSP just published this pass reaches the output
+  // ring before the IN path decides how much to pull. Nothing below depends
+  // on this ordering beyond the parameters-before-DSP relationship just
+  // described — the rings decouple the other cadences (FR-030a) — and every
+  // stage is a no-op whenever it has nothing to do.
   for (;;) {
     tud_task();
     acfx::nucleo::ServiceUsbAudioOut();
+    acfx::nucleo::ServiceParameters();
     acfx::nucleo::ServiceDspBlock();
     acfx::nucleo::ServiceUsbAudioIn();
     // T058 (CDC telemetry) lands here.
