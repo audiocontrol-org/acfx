@@ -67,7 +67,9 @@ The statically sized buffer between the USB packet cadence and the DSP's indepen
 | Capture-only: IN polled, **no OUT stream open at all** | Silence emitted | `inputStarved` |
 | Torn payload: byte count not a whole number of frames | Truncate to whole frames | `malformedPayloads` |
 | **Priming** (stream start / resume / reset), ring below startup fill | Consumer **waits**; no block drawn | *(none — filling is what Priming is for)* |
-| **Running**, ring below a full block | Silence fills the shortfall | `inputUnderruns` / `outputUnderruns` |
+| **Running**, ring below a full block | Silence fills the shortfall | `inputUnderruns` / `outputUnderruns` |[^t033gate]
+
+[^t033gate]: **Amended 2026-08-23 (T033).** On the Nucleo adapter this row is unreachable on the *input* side by construction: the polled consumer draws a block only when the ring is `Running` **and** holds ≥ 48 frames, so it never requests a short *input* block and `inputUnderruns` is a guard rather than a live counter. See the AS1 amendment in `spec.md` (US3) for the full rationale and the I-TS1a mis-attribution note. The *output* side (`outputUnderruns`, IN endpoint empty on a SOF poll) is unaffected and remains live.
 | Sustained one-way excursion | **No re-centring**; drift stays visible in the counters | *(the existing under/overrun counters)* |
 
 **Invariants**
@@ -80,6 +82,11 @@ The statically sized buffer between the USB packet cadence and the DSP's indepen
   what makes plain cursors sufficient today; FR-047 records the trigger to revisit.
 - **I-AR4**: The DSP always draws a **fixed 48-frame** block. A partial ring is completed by
   I-AR2's substitution — the DSP cadence never stretches to match the ring (FR-030a).
+  *(T033 refinement, 2026-08-23: "always draws" holds in the sense that **when** it draws it
+  draws exactly 48 — never a stretched partial. On the polled Nucleo consumer, which has no
+  externally obligated instant, it additionally **waits** rather than draws while the ring holds
+  fewer than 48, so the I-AR2 input-side substitution is not exercised in firmware. The invariant
+  that the block is never stretched to the ring is preserved; see the AS1 amendment in spec.md.)*
 - **I-AR5**: Packet size does not propagate into block size. A 0-frame or 49-frame packet
   changes occupancy, never the block.
 - **I-AR6**: The ring is either **Stopped**, **Priming**, or **Running** (FR-030d). In

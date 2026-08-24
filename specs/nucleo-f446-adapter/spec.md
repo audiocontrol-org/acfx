@@ -221,14 +221,23 @@ emitted samples and the counter deltas.
    > shortfall this scenario describes does not arise. Running short instead would spin the
    > effect at loop speed over a starved ring and inflate `blocksProcessed` — the FR-034 rate
    > denominator — with manufactured silence, which would in turn distort every counter
-   > normalized against it (FR-034c). **Input starvation remains observable**, via
-   > `outputUnderruns` at the IN endpoint (the audible symptom) and via `inputOverruns` if the
-   > loop ever falls below one block per SOF (a throughput failure). `inputUnderruns` is
-   > retained as a **guard**, not a live signal: it fires only if a ring ever under-delivers
-   > relative to its own `occupancy()`, and is covered on the host by a deliberately
-   > under-supplying fake ring. This scenario still governs any future adapter whose consumer
-   > *is* externally clocked; it is the Nucleo transport that opts out, not the requirement
-   > that is withdrawn.
+   > normalized against it (FR-034c). **Input starvation is NOT cleanly attributable to an
+   > input-side counter under this gate — an honest limitation, not clean observability.** A
+   > sustained slow host clock (e.g. 47.9 frames/ms, the FR-030c one-way excursion) keeps the
+   > input ring `Running` with occupancy oscillating below 48; `inputUnderruns` stays 0, and the
+   > starvation surfaces only downstream and *later*, as `outputUnderruns` at the IN endpoint
+   > once the output cushion bleeds dry. Per **I-TS1a** ("different causes, different counters")
+   > that reading is a mis-attribution: an operator seeing `outputUnderruns` rise would place
+   > the fault downstream of the DSP when it is upstream. Disambiguation therefore requires the
+   > T058 telemetry **deltas** — `blocksProcessed` growing below its nominal ~1000/s rate while
+   > no input counter moves is the upstream-starvation signature — not any single on-device
+   > counter. `inputUnderruns` is retained as a **guard**, not a live signal: it fires only if a
+   > ring ever under-delivers relative to its own `occupancy()`, and is covered on the host by a
+   > deliberately under-supplying fake ring. **An input-side starvation counter was offered and
+   > declined (operator, 2026-08-23)**; this note records the accepted limitation so a later
+   > reader does not mistake the silence of `inputUnderruns` for a healthy input. This scenario
+   > still governs any future adapter whose consumer *is* externally clocked; it is the Nucleo
+   > transport that opts out, not the requirement that is withdrawn.
 2. **Given** USB delivers frames faster than the DSP drains them and the ring is full,
    **When** the write executes, **Then** the oldest frames are dropped and `inputOverruns`
    increments.
@@ -633,6 +642,14 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
   **Priming** is normal operation, not a shortfall — without this distinction two conforming
   implementations disagree about whether every stream open produces a burst of underruns, which
   is exactly the statistic FR-030b exists to keep clean.
+
+  > **T033 amendment (2026-08-23):** the "Underrun counted? **Yes**" for Running applies to a
+  > consumer that draws a block whenever its cadence fires. The polled Nucleo consumer has no
+  > such obligated instant and instead **waits** for ≥ 48 input frames before drawing, so on the
+  > *input* side a short Running read does not arise and `inputUnderruns` does not fire in
+  > firmware. This is a transport-specific opt-out, recorded in full at US3 Acceptance Scenario 1
+  > (including the I-TS1a note that input starvation is not cleanly attributable and shows up
+  > only as later `outputUnderruns`). The **output** side of this row is unaffected.
 - **FR-030c**: The ring MUST NOT re-centre itself after a sustained excursion (Clarifications
   2026-08-23). Both directions are paced by the same SOF clock, so a persistent one-way drift
   indicates a real fault and MUST remain visible in the counters. Masking it by dropping or

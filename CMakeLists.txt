@@ -82,7 +82,15 @@ target_compile_features(acfx_analysis INTERFACE cxx_std_17)
 # ---------------------------------------------------------------------------
 add_library(acfx_nucleo_support INTERFACE)
 add_library(acfx::nucleo_support ALIAS acfx_nucleo_support)
-target_include_directories(acfx_nucleo_support INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/adapters/nucleo/support")
+target_include_directories(acfx_nucleo_support INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/adapters/nucleo/support"
+  # A support header (dsp-block-path.h, T033) includes the platform-independent
+  # core spine (dsp/audio-block.h) per FR-037. That is an inward-pointing
+  # dependency, so the INTERFACE must carry core/'s include path — a header
+  # search path only, NOT a link dependency (no acfx_core, no DaisySP). Without
+  # this, a support-only consumer compiles until it first includes the block
+  # path, then fails with a "file not found" three files from the cause.
+  "${CMAKE_CURRENT_SOURCE_DIR}/core")
 target_compile_features(acfx_nucleo_support INTERFACE cxx_std_17)
 
 # ---------------------------------------------------------------------------
