@@ -44,11 +44,46 @@
 // literally took 0 time" — but a pathologically trivial test effect (or a
 // no-op fake in a host test) can genuinely finish inside 168 cycles, and 0 is
 // the CORRECT, non-fabricated answer for that case: it is not the
-// "instantaneous" 0 this same field must never be confused with when the
-// clock is dead (that confusion, and its fix, is T037's job, layered on top
-// of this file).
+// "instantaneous" 0 a DEAD clock reports instead (see T037 below), which is
+// what must never be confused with a real measurement.
+//
+// T037 — FAIL LOUD ON A DEAD CLOCK (FR-034b, I-TS4, research R6). On some
+// parts DWT is unavailable until a debugger has attached at least once, and
+// CYCCNT then reads back permanently stuck at 0. Left unguarded, that stuck
+// 0 would flow straight through CyclesToMicros/RecordBlockTiming and report
+// worstBlockMicros == 0 forever — indistinguishable from "every block ran in
+// under a microsecond", which is the exact observability failure FR-034
+// exists to prevent.
+//
+// The fix has two parts:
+//   1. VerifyClockSourceLive() below is called ONCE at startup (never on the
+//      audio path) and proves the clock actually advances by comparing two
+//      readings taken around a small bounded spin.
+//   2. AudioTransportStats::timingSourceLive (transport-stats.h) records the
+//      verdict, and worstBlockMicros is set to kBlockTimerDeadSentinel — a
+//      value NO real measurement can ever produce — rather than being left at
+//      a confusable 0.
+//
+// WHY RecordBlockTiming() NEEDS NO SEPARATE "is it dead" BRANCH: it is
+// tempting to add `if (!stats.timingSourceLive) return;` here as a second
+// line of defense, but that guard is UNPROVABLE and was removed after mutation
+// testing showed exactly that — deleting it broke no test, because it can
+// never fire. kMaxPossibleBlockMicros (below) is CyclesToMicros() of
+// the largest possible 32-bit delta, and kBlockTimerDeadSentinel is chosen
+// strictly larger than that (the static_assert pins the relationship). Since
+// RecordBlockTiming only ever takes the field UP via `>` comparison and NEVER
+// down, no legitimate cycle delta — dead clock or not — can ever push
+// worstBlockMicros past a sentinel already above the ceiling of what any
+// delta can produce. The protection is a MATH invariant, not a conditional
+// that can silently rot; keeping code around whose necessity no test can
+// demonstrate is the same vacuous-check hazard T037 exists to avoid.
+//
+// A telemetry reader's contract: check timingSourceLive FIRST. If false,
+// worstBlockMicros is the sentinel and carries no timing information at all
+// — do not report it as a duration.
 
 #include <cstdint>
+#include <limits>
 
 #include "transport-stats.h"
 
@@ -75,6 +110,73 @@ static_assert(kCyclesPerMicrosecond == 168u,
     return cycles / kCyclesPerMicrosecond;
 }
 
+// Sentinel worstBlockMicros value meaning "the timing source is dead; this is
+// not a measurement" (T037, FR-034b, I-TS4). 0xFFFFFFFF rather than 0: a
+// single block's cycle delta is at most 2^32-1 (32-bit CYCCNT), and at 168
+// cycles/us that upper bound converts to roughly 25.6 SECONDS of "block
+// time" — many orders of magnitude past any real block, which never runs
+// anywhere near a full CYCCNT period (a block is ~1ms of audio at most). A
+// telemetry reader that ignores timingSourceLive and treats this as a real
+// duration will see an obviously-absurd multi-second "block" rather than a
+// plausible-looking number, which is a second, independent tell that
+// something is wrong — on top of the flag itself.
+inline constexpr std::uint32_t kBlockTimerDeadSentinel = 0xFFFFFFFFu;
+
+// The largest microsecond value CyclesToMicros() can EVER produce, from the
+// largest representable 32-bit cycle delta. This is the ceiling
+// RecordBlockTiming()'s doc comment above relies on: the sentinel sits
+// strictly above it, so no legitimate conversion output — however the delta
+// arose — can ever equal or exceed the sentinel via the `>` max-tracking
+// comparison.
+inline constexpr std::uint32_t kMaxPossibleBlockMicros =
+    std::numeric_limits<std::uint32_t>::max() / kCyclesPerMicrosecond;
+static_assert(kBlockTimerDeadSentinel > kMaxPossibleBlockMicros,
+              "the dead-timer sentinel must sit above every value "
+              "CyclesToMicros() can legitimately produce, or a real "
+              "measurement could be confused with the dead-timer signal");
+
+// How many times VerifyClockSourceLive() re-reads the clock while spinning,
+// after its first ("before") reading. Bounded and allocation-free, per this
+// project's real-time rules — though this specific call only ever runs ONCE
+// at startup, never on the audio path, so its cost is not an RT concern.
+// Generous margin: even a stalled/broken clock takes O(1) calls to prove
+// unmoving, and a genuinely live 168 MHz counter has advanced by many cycles
+// after even a handful of function-call-and-compare iterations.
+inline constexpr std::uint32_t kVerifySpinIterations = 64u;
+
+// Proves a ClockSource actually advances, rather than assuming it does
+// because the enable sequence (CoreDebug->DEMCR TRCENA, DWT->CTRL CYCCNTENA
+// — dsp-block-service.h's EnableBlockTimer()) returned without error: on a
+// part where DWT is unavailable, that sequence completes with no indication
+// anything is wrong, and CYCCNT simply never counts (research R6). Compares
+// a reading taken before a small bounded spin against one taken after; a
+// clock stuck at any constant value (0 or otherwise) reads identical both
+// times, and a genuinely free-running counter does not.
+//
+// Called ONCE at startup (dsp-block-service.h), never per-block.
+template <typename ClockSource>
+[[nodiscard]] inline bool VerifyClockSourceLive(ClockSource& clock) noexcept {
+    const std::uint32_t before = clock.now();
+    for (std::uint32_t i = 0; i < kVerifySpinIterations; ++i) {
+        static_cast<void>(clock.now());
+    }
+    const std::uint32_t after = clock.now();
+    return after != before;
+}
+
+// Records VerifyClockSourceLive()'s verdict into `stats` (T037). On a live
+// clock this only sets the flag; RecordBlockTiming() below still does the
+// actual per-block work. On a dead clock this ALSO pins worstBlockMicros to
+// kBlockTimerDeadSentinel immediately — before a single block has run — so
+// telemetry never has a window where the field reads a confusable 0.
+template <typename ClockSource>
+inline void InitializeBlockTimer(ClockSource& clock, AudioTransportStats& stats) noexcept {
+    stats.timingSourceLive = VerifyClockSourceLive(clock);
+    if (!stats.timingSourceLive) {
+        stats.worstBlockMicros = kBlockTimerDeadSentinel;
+    }
+}
+
 // Folds ONE timed block span into `stats`. `startCycles`/`endCycles` are two
 // raw readings of a free-running cycle counter, taken immediately around the
 // timed span by the caller (dsp-block-path.h's runOneBlock()). Unsigned
@@ -84,6 +186,14 @@ static_assert(kCyclesPerMicrosecond == 168u,
 //
 // `worstBlockMicros` is tracked as a MAXIMUM (FR-034): only a longer block
 // ever moves it, never a shorter one and never an average.
+//
+// T037: called unconditionally, whether or not the timing source is live —
+// see the file header's "WHY RecordBlockTiming() NEEDS NO SEPARATE is-it-dead
+// BRANCH" note. Once InitializeBlockTimer() has pinned worstBlockMicros to
+// kBlockTimerDeadSentinel, no cycle delta this function can compute is ever
+// large enough to move it again (kMaxPossibleBlockMicros's static_assert
+// above is what guarantees that), so a dead clock's readings are harmless
+// here by construction, not by a conditional that has to remember to check.
 inline void RecordBlockTiming(std::uint32_t startCycles,
                                std::uint32_t endCycles,
                                AudioTransportStats& stats) noexcept {

@@ -60,19 +60,27 @@ struct DwtCycleClock {
 
 inline DwtCycleClock g_blockClock;
 
-// Enables the DWT cycle counter (T036; research R6): TRCENA in
-// CoreDebug->DEMCR unlocks the whole trace subsystem, then CYCCNTENA in
-// DWT->CTRL starts CYCCNT free-running from 0. Called once from main(),
-// before the service loop's first ServiceDspBlock() ever reads g_blockClock.
+// Enables the DWT cycle counter and PROVES it actually took (T036 + T037;
+// FR-034, FR-034b, research R6). TRCENA in CoreDebug->DEMCR unlocks the whole
+// trace subsystem, then CYCCNTENA in DWT->CTRL starts CYCCNT free-running
+// from 0 — but on parts where DWT is unavailable (no debugger has ever
+// attached), that sequence completes with no error and CYCCNT simply never
+// counts. block-timer.h's InitializeBlockTimer() is what tells the two cases
+// apart, by comparing two readings of g_blockClock around a bounded spin, and
+// records the verdict in g_transportStats.timingSourceLive — a dead clock
+// also gets worstBlockMicros pinned to kBlockTimerDeadSentinel here, before
+// the service loop's first ServiceDspBlock() ever runs, so telemetry never
+// has a window where the field reads a confusable 0.
 //
-// T037 adds the "did this actually take" verification on top of this call;
-// this function only performs the enable RM0390/the ARMv7-M DWT spec
-// describe, exactly as research.md R6 states it — enable TRCENA, THEN
-// CYCCNTENA (writing CYCCNTENA first would be a write to a register block
-// that DEMCR.TRCENA has not yet unlocked).
+// Called once from main(), before the service loop starts. Enable TRCENA,
+// THEN CYCCNTENA — writing CYCCNTENA first would be a write to a register
+// block DEMCR.TRCENA has not yet unlocked — THEN verify; verifying before
+// enabling would just prove the pre-enable state (always stuck at 0) and
+// tell nothing about whether enabling worked.
 inline void EnableBlockTimer() {
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    InitializeBlockTimer(g_blockClock, g_transportStats);
 }
 
 // Holds only its 48-frame block scratch (384 bytes); no heap, no locks.

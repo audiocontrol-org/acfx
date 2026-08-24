@@ -78,6 +78,20 @@ TEST_CASE("TS1: every counter zero-initialises") {
     CHECK(stats.worstBlockMicros == 0);
 }
 
+// ============================================================================
+// T037 (FR-034b, I-TS4): timingSourceLive's OWN default is fail-loud
+// ============================================================================
+
+TEST_CASE("T037: timingSourceLive defaults to false, not true") {
+    // A record nobody has initialised yet must not read as "the block timer
+    // is healthy" -- FR-034b's fail-loud posture applies to this field's OWN
+    // default, not only to the worstBlockMicros sentinel it gates. See
+    // support/block-timer.h's InitializeBlockTimer(), which is the only code
+    // path that ever sets this true.
+    const AudioTransportStats stats;
+    CHECK(stats.timingSourceLive == false);
+}
+
 TEST_CASE("TS1: the record is a plain aggregate with no runtime reset") {
     // "Not resettable at runtime" (TS1). A reset method would let a caller erase
     // the transport history the diagnostics report, and would make deltas between

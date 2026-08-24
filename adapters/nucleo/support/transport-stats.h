@@ -41,7 +41,29 @@ struct AudioTransportStats {
     std::uint32_t blocksProcessed   = 0;   // rate denominator (TS2)
     std::uint32_t worstBlockMicros  = 0;   // a maximum, never an average,
                                             // and never implicitly reset
-                                            // (TS3)
+                                            // (TS3). Reads as
+                                            // kBlockTimerDeadSentinel
+                                            // (0xFFFFFFFF) — never 0 — when
+                                            // timingSourceLive is false; see
+                                            // that field.
+
+    // T037 (FR-034b, I-TS4): whether the block-timing source (DWT CYCCNT) was
+    // proven to actually advance when it was enabled. FR-034's
+    // worstBlockMicros exists to make the DSP's CPU budget observable; on
+    // some parts DWT is unavailable until a debugger has attached at least
+    // once, and CYCCNT then reads back permanently stuck at 0. A 0 reading
+    // that means "not measured" is indistinguishable from a 0 that means
+    // "instantaneous" — exactly the observability failure FR-034 exists to
+    // prevent — so a stuck timer cannot be allowed to silently masquerade as
+    // an all-zero, all-healthy worstBlockMicros. This field is the flag a
+    // telemetry reader checks FIRST: false means the timing source is dead
+    // and worstBlockMicros carries kBlockTimerDeadSentinel instead of a
+    // real measurement, never a bare 0. Defaults to false (NOT proven live)
+    // rather than true, so a future bug that skips the startup verification
+    // call reads as "dead" rather than falsely "healthy" — the fail-loud
+    // posture applies to this field's own default, not only to the value it
+    // gates.
+    bool timingSourceLive = false;
 };
 
 // Error count as a rate against blocksProcessed. Returns 0.0 when no block

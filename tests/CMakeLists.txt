@@ -236,6 +236,9 @@ add_executable(acfx_core_tests
   # conversion, worstBlockMicros as a MAXIMUM, the 2^32 wrap, and the timer
   # wired into the real block path via a duck-typed ClockSource.
   core/nucleo-block-timer-test.cpp
+  # T037: fail-loud guard on a DEAD DWT timing source (FR-034b, I-TS4) — FL1
+  # is the POSITIVE CONTROL proving the stuck-at-zero detector actually fires.
+  core/nucleo-block-timer-fail-loud-test.cpp
   # T035: the polled IN path (device -> host) — the producer side of the
   # output ring: room-bounded pull size, FR-038a conversion end to end,
   # silence-on-underrun, and sink back-pressure retried without a silent drop.

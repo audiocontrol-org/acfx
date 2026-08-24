@@ -90,6 +90,11 @@ TEST_CASE("BT1: cycles convert to microseconds at 168 cycles per microsecond") {
 
 TEST_CASE("BT2: worstBlockMicros tracks the maximum across several blocks") {
     AudioTransportStats stats;
+    // Liveness is a separate startup fact (T037's InitializeBlockTimer()) from
+    // per-block recording; this file is about the RECORDING logic given a
+    // clock already proven live, so that fact is asserted directly rather
+    // than re-derived from a fake clock.
+    stats.timingSourceLive = true;
 
     // Three blocks: 10us, 50us, 20us in that order. The maximum (50) must
     // survive being followed by a SMALLER block -- a "last value wins"
@@ -115,6 +120,7 @@ TEST_CASE("BT2: worstBlockMicros tracks the maximum across several blocks") {
 
 TEST_CASE("BT3: a wrap across 2^32 still yields the correct positive microsecond delta") {
     AudioTransportStats stats;
+    stats.timingSourceLive = true;  // see BT2's note
 
     // start is 100 cycles before the counter wraps; end is 50 cycles after it
     // wraps back through 0. The true elapsed span is 100 + 50 = 150 cycles,
@@ -131,6 +137,7 @@ TEST_CASE("BT3: a wrap across 2^32 still yields the correct positive microsecond
 
 TEST_CASE("BT3b: a wrap large enough to read a nonzero microsecond count") {
     AudioTransportStats stats;
+    stats.timingSourceLive = true;  // see BT2's note
 
     // 168 * 1000 = 168000 cycles total span, split across the wrap boundary:
     // 100000 cycles before wrapping, 68000 after.
@@ -149,6 +156,7 @@ TEST_CASE("BT3b: a wrap large enough to read a nonzero microsecond count") {
 TEST_CASE("BT4: runOneBlock times only the process() call and updates both counters") {
     NoopEffect effect;
     AudioTransportStats stats;
+    stats.timingSourceLive = true;  // see BT2's note; T037 owns proving this
     DspBlockPath path;
     AudioRing<64, kChannels> input(1);
     AudioRing<64, kChannels> output(0);

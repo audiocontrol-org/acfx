@@ -427,10 +427,14 @@ int main() {
   // before the service loop below ever calls into T033's process() path.
   acfx::nucleo::PrepareEffect();
 
-  // Enable the DWT cycle counter (T036; FR-034, research R6) so
-  // ServiceDspBlock()'s first call has a running g_blockClock to read. Must
-  // run before the service loop below, for the same reason PrepareEffect()
-  // does: the block path starts consuming it on the very first pass.
+  // Enable the DWT cycle counter and verify it actually took (T036 + T037;
+  // FR-034, FR-034b, research R6) so ServiceDspBlock()'s first call has a
+  // running g_blockClock to read, or — if this part's DWT is unavailable —
+  // g_transportStats.timingSourceLive already reads false and
+  // worstBlockMicros already carries the dead-timer sentinel before that
+  // first call. Must run before the service loop below, for the same reason
+  // PrepareEffect() does: the block path starts consuming it on the very
+  // first pass.
   acfx::nucleo::EnableBlockTimer();
 
   // The service loop (T030). tud_task() drains the event queue
