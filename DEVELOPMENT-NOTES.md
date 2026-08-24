@@ -2,21 +2,82 @@
 
 ---
 
-## 2026-08-24: <!-- session title -->
+## 2026-08-24: nucleo-f446-adapter — the P2 stories (US6/US7/US10), hardware-verified on the board
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Resume `specs/nucleo-f446-adapter` through the stack-control `execute` front door and
+work the P2 user stories in order — US6 (live parameters over USB MIDI), US7 (capture-only
+operation), US10 (USB lifecycle events) — verifying each on the physically-connected
+NUCLEO-F446RE, and closing out T038's pending live-signal acceptance from last session.
 
 **Accomplished:**
-- <!-- compose -->
+- **Phase 8 (US6) complete and HARDWARE-VERIFIED.** The host-testable parameter seam — shadow
+  (`parameter-shadow.h`), CC→index map (`midi-cc-map.h`), duck-typed source seam +
+  `MidiParameterSource` (`parameter-source.h`) — plus the shim wiring (`parameter-service.h` +
+  loop call). Open question 7 was put to the operator and settled to the established workbench
+  convention (CC 74→param0, CC 71→param1, omni, value/127), baked into T043's table. Live on the
+  board: raising CC 74 swung HF(>3k) RMS ~100× (cutoff moves), CC 71 grew the cutoff-band peak
+  3.8× (resonance moves), and an unmapped CC 20 changed nothing (MC1).
+- **T038's parked SC-002 live-signal acceptance closed** the same session: default SVF (LP@1kHz)
+  attenuated input HF(>3k) 0.268→0.011 (~27 dB) with LF preserved — the known signal returns
+  transformed as the compiled-in effect predicts.
+- **Phase 9 (US7) complete and HARDWARE-VERIFIED.** Capture-only detection emits well-defined
+  silence counting `inputStarved` (not `outputUnderruns`), mutually exclusive per FR-029a. Live:
+  capture-only record was silent, `inputStarved` non-zero over SWD (mutually exclusive from
+  `outputUnderruns`), duplex resumed with no restart.
+- **Phase 11 (US10) complete and HARDWARE-VERIFIED.** Suspend→both rings `stop()`,
+  resume/bus-reset→both `reset()` (counters untouched, AR9), stream-open edges reset the ring
+  each direction feeds/drains (`reconcileStreamOpenEdges`). Live: the FR-055 alt-transition tour
+  (duplex↔capture-only, no power cycle) and a forced bus reset — the operator replugged the
+  device USB cable while ST-Link held the clock, and the running firmware re-enumerated and
+  resumed streaming (`tud_umount`/`tud_mount` re-prime, not a reboot).
+- **Reusable HIL rig + durable records.** A no-install macOS loopback rig (ffmpeg avfoundation
+  capture + sox playback + a ~40-line Swift CoreMIDI CC sender + SWD/gdb counter reads); two
+  reference memories (the HIL rig; the TinyUSB weak-callback trap); backlog TASK-37 (weak-callback
+  build guard) and TASK-38 (counters-across-event, a T058 follow-up).
 
 **Didn't Work:**
-- <!-- compose -->
+- **I called a "confirmed first-duplex regression" — and it wasn't one.** After ~13 rapid
+  reflashes the host's CoreAudio degraded until `ffmpeg` capture hung on EVERY firmware (the
+  pre-change image included); the "first duplex silent" I saw was that onset, not the firmware. I
+  stated it too confidently before A/B-ing. Disproved by the LI1–LI4 host integration tests and
+  then a clean hardware re-run.
+- **The T047 alt-setting callbacks first shipped as `extern "C" inline` in a header** and linked
+  to TinyUSB's `TU_ATTR_WEAK` no-op default — `objdump` showed `tud_audio_set_itf_cb` as
+  `movs r0,#1; bx lr`. Clean link, green host tests (they drive the pure logic), dead on silicon.
+  Caught in review; moved to strong `.cpp` definitions.
+- **SWD counter reads are confounded for "across the event":** `st-util` resets RAM on attach, so
+  before/after reads are impossible; a prior halted session leaves the core stuck at startup
+  reading zeros. The counter-continuity half of SC-013 is deferred to CDC telemetry (T058).
+- **Tooling friction:** repeated reflashing degrades CoreAudio; `sox` won't run two coreaudio
+  clients (play+rec) on one device for full-duplex.
 
 **Course Corrections:**
-- <!-- compose -->
+- **Operator asked "why do you want to execute the spec out of order?" — a fair hit.** I'd floated
+  jumping to Phase 12 and cherry-picking. Corrected to strict in-order: Phase 10 (US8) is already
+  done/deferred (T049/T050 done, T051/T052 operator-deferred with the `[~]` marker), so Phase 11
+  (US10) was the correct next phase — no reordering.
+- **Applied the T047 weak-callback lesson PROACTIVELY in T053–T056** — strong `.cpp` callbacks,
+  objdump-verified upfront — rather than re-learning it, and the T047 subagent itself objdump-checked.
+- **When hardware evidence went noisy, switched to a deterministic host integration test**
+  (LI1–LI4, driving the real reconcile→fill→DSP→drain pipeline) to settle the firmware-logic
+  question instead of hammering degraded hardware — the right instrument, and it exonerated the code.
+- **Trimmed `nucleo-main.cpp` back to the 500-line budget** after the T056 wiring pushed it to 504.
 
 **Insights:**
-- <!-- compose -->
+- **A clean link plus green host tests is still not a boot check** — the inline weak callback was
+  invisible to both; only objdump and hardware could see it. Third instance of this class across
+  the feature (missing FPU enable, DaisySP FPv5, now the weak callback).
+- **Verify, don't assume — including my own alarms.** The false regression came from trusting
+  noisy hardware; a deterministic host test was the cheaper, correct answer and should have been
+  the first move, not the fallback.
+- **Repeated reflashing has a host-side cost** (CoreAudio degradation) that can perfectly mimic a
+  firmware fault. Space HIL out, reset/replug between batches, and reach for host tests for logic
+  questions.
+- **SWD is the wrong instrument for counter-across-event verification** (it resets RAM); CDC
+  telemetry (T058) is the right one — which is exactly why Phase 12 is well-placed as the next
+  in-order phase and why TASK-38 waits for it.
+- **A `fast`-tiered "verify on hardware" task is not fast** when the host disagrees — echoing last
+  session's T038.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 13
