@@ -260,6 +260,10 @@ add_executable(acfx_core_tests
   # rather than growing nucleo-usb-in-path-test.cpp, as the OUT/sample-format
   # suites already do for the same per-file line budget reason.
   core/nucleo-usb-in-path-capture-only-test.cpp
+  # T005 (US1, FR-007): RED test for the cold-drain startup defect — the IN path
+  # must not starve on the first SOF-paced pull. This is intentionally a failing
+  # test against the current code; T006 implements the fix to make it pass.
+  core/nucleo-inpath-startup-test.cpp
   # T053-T056 (US10): USB bus lifecycle policy — suspend (FR-051) stops and
   # clears both rings, resume/bus-reset (FR-052/FR-053) re-prime both, the
   # alt-setting stream-open edge (FR-055, contract AR9) resets the ring the
