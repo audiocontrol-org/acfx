@@ -256,6 +256,11 @@ add_executable(acfx_core_tests
   # AudioTransportStats byte-for-byte unchanged (FR-054).
   core/nucleo-lifecycle-policy-test.cpp
   core/nucleo-lifecycle-integration-test.cpp
+  # T058 (US9): the main-loop CDC diagnostic serializer (FR-033a, FR-033c,
+  # FR-033d, SC-004, research R7) — the pure key=value line formatter the
+  # firmware-side diagnostic-service.h writes to CDC. Host-testable: no
+  # TinyUSB, no CMSIS.
+  core/nucleo-diagnostic-serializer-test.cpp
   # US6 (parameters over USB MIDI): the live-parameter seam. T039 the parameter
   # shadow (PS1-PS6: bounded, last-write-wins, no eviction, exactly-once flush),
   # T040 the CC->index map (MC1-MC3: workbench convention CC74->0, CC71->1),

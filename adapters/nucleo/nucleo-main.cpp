@@ -67,6 +67,10 @@
 // above. Included exactly once, here.
 #include "parameter-service.h"
 
+// The main-loop CDC diagnostic-telemetry service's shim half (T058;
+// FR-033a/c/d, R7) — see that header for the full contract. Included once, here.
+#include "diagnostic-service.h"
+
 // TinyUSB's own public API (tusb_init/tusb_int_handler/tud_task). Pulled in as
 // a SYSTEM include by acfx_nucleo_tinyusb's PUBLIC target_include_directories
 // (adapters/nucleo/CMakeLists.txt), which is also where tusb_config.h's
@@ -451,20 +455,16 @@ int main() {
   // context — polled, per tusb_config.h's CFG_TUSB_OS = OPT_OS_NONE (no RTOS
   // to hand events to instead).
   //
-  // The OUT half of the audio data path (polled tud_audio_read()) is wired
-  // below as of T032, the fixed 48-frame DSP block as of T033, and the IN
-  // half (polled tud_audio_write()) as of T035. ServiceDspBlock() as of T036
-  // also times each block it runs (DWT CYCCNT -> worstBlockMicros) — that
-  // happens INSIDE dsp-block-path.h's runOneBlock(), bracketing only the
-  // effect.process() call, so it is not a separate statement here. Still to
-  // land in this same loop, after tud_task(): CDC telemetry snapshots (T058).
-  // Each lands as an additional statement here — not as a replacement for
-  // tud_task(), and not as anything that blocks or spends unbounded time
-  // before tud_task() runs again, since USB servicing cadence depends on this
-  // loop iterating promptly. All five calls below satisfy that:
+  // The OUT half of the audio data path (tud_audio_read()) is wired below
+  // as of T032, the 48-frame DSP block as of T033 (ServiceDspBlock() also
+  // times it via DWT CYCCNT -> worstBlockMicros, bracketing only
+  // effect.process() inside runOneBlock()), the IN half (tud_audio_write())
+  // as of T035, and CDC telemetry as of T058. Each lands here as an
+  // additional bounded statement, after tud_task() — never a replacement
+  // for it, never blocking or open-ended, since USB servicing cadence
+  // depends on this loop iterating promptly. All six calls below satisfy that:
   //   ServiceUsbLifecycle() (T056/FR-055): two bool compares + at most two reset()s, edge-only.
-  //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a
-  //   convert-and-write of at most 49 frames, with no wait of any kind.
+  //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a convert-and-write of at most 49 frames, with no wait of any kind.
   //   ServiceParameters() (T045; FR-039/FR-042) drains USB-MIDI's finite RX
   //   fifo (tud_midi_packet_read() returns false once empty, never blocks),
   //   forwards Control Change packets to the one registered source, polls it
@@ -475,9 +475,9 @@ int main() {
   //   ServiceUsbAudioIn() is at most one room-bounded pull-and-write (or one
   //   carryover retry), and none at all unless the output ring is Running
   //   and TinyUSB's own IN software fifo currently reports room.
-  // None loops internally without a bound: a backlog on any side is drained
-  // by coming back here, which happens far faster than the host's 1 ms
-  // cadence.
+  //   ServiceDiagnostics() (T058/FR-033d): one snapshot, one bounded serialize, one non-blocking CDC write; drops (never queues) when closed or full.
+  // None loops internally without a bound: a backlog on any side drains by
+  // coming back here, far faster than the host's 1 ms cadence.
   //
   // ORDER MATTERS, mildly and deliberately: the OUT service runs first so a
   // packet that just arrived is in the ring before the block path looks at
@@ -495,6 +495,6 @@ int main() {
     acfx::nucleo::ServiceParameters();
     acfx::nucleo::ServiceDspBlock();
     acfx::nucleo::ServiceUsbAudioIn();
-    // T058 (CDC telemetry) lands here.
+    acfx::nucleo::ServiceDiagnostics();
   }
 }
