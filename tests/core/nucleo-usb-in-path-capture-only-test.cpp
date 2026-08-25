@@ -74,6 +74,7 @@ public:
         ++writeAvailableCalls_;
         return roomBytes_;
     }
+    int capacity() noexcept { return roomBytes_; }  // held==0: IN guard inert
 
     void setRoomBytes(int bytes) { roomBytes_ = bytes; }
     void setAcceptLimit(int bytes) { acceptLimit_ = bytes; }

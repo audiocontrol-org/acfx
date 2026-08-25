@@ -436,6 +436,13 @@ struct TinyUsbInFifo {
         tu_fifo_t* fifo = tud_audio_get_ep_in_ff();
         return (fifo != nullptr) ? static_cast<int>(tu_fifo_remaining(fifo)) : 0;
     }
+
+    // Total byte capacity of the IN software FIFO, so UsbInPath::service() can
+    // derive how much the sink already HOLDS (capacity - writeAvailable) and
+    // cap the pull only while the wire is still buffered (see that guard).
+    int capacity() noexcept {
+        return static_cast<int>(CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ);
+    }
 };
 
 inline TinyUsbInFifo g_inFifo;

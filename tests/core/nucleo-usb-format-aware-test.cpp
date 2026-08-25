@@ -121,6 +121,7 @@ public:
     }
 
     int writeAvailable() noexcept { return roomBytes_; }
+    int capacity() noexcept { return roomBytes_; }  // held==0: IN guard inert
 
     std::vector<std::uint8_t> received_;
     int writeCalls_ = 0;

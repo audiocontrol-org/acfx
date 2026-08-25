@@ -90,9 +90,14 @@ public:
         ++writeAvailableCalls_;
         return roomBytes_;
     }
+    // Defaults to roomBytes_ (held == 0), so every case that never sets it
+    // leaves the granularity guard inert. Set it above room to model a sink
+    // that already holds buffered audio for the wire.
+    int capacity() noexcept { return capacityBytes_; }
 
     void setRoomBytes(int bytes) { roomBytes_ = bytes; }
     void setAcceptLimit(int bytes) { acceptLimit_ = bytes; }
+    void setCapacityBytes(int bytes) { capacityBytes_ = bytes; }
 
     std::vector<std::uint8_t> received_;
     int writeCalls_ = 0;
@@ -100,6 +105,7 @@ public:
 
 private:
     int roomBytes_;
+    int capacityBytes_ = roomBytes_;
     int acceptLimit_ = -1;  // -1: accept everything offered
 };
 
@@ -236,6 +242,41 @@ TEST_CASE("IN3: a short ring is silence-filled and counts outputUnderruns once")
     const std::vector<std::uint8_t> expected =
         toBytes({1, -1, 2, -2, 0, 0, 0, 0, 0, 0});
     CHECK(sink.received_ == expected);
+}
+
+// ============================================================================
+// IN-GRANULARITY — the phantom-49th-frame guard (SWD-trace-confirmed root cause
+// of the residual hardware dropout). The output ring holds exactly one DSP
+// block (kBlockFrames == 48), but the pull bound is kMaxPacketFrames (49). When
+// the sink reports room for 49 AND still buffers a full packet for the wire, a
+// naive pull would ask the 48-frame ring for a 49th frame and fabricate one
+// silence sample. The pull must be capped to what the ring holds — no phantom
+// frame, no substitution — while a genuinely-low sink (held == 0, e.g. IN3
+// above) still silence-fills and counts a real underrun.
+// ============================================================================
+
+TEST_CASE("IN-GRAN: a 48-frame ring is not asked for a phantom 49th frame while the sink is buffered") {
+    TestRing ring(0);  // startupFill 0: cold-start guard retires on first observation
+    pushFrames(
+        ring, kBlockFrames, [](int frame) { return static_cast<float>(frame + 1) / kInt16Scale; },
+        [](int frame) { return -static_cast<float>(frame + 1) / kInt16Scale; });
+    REQUIRE(ring.occupancy() == kBlockFrames);  // 48
+
+    // Sink has room for a full max packet (49 frames) AND already holds a full
+    // packet buffered for the wire (capacity = room + 100 frames -> held 100).
+    FakeInSink sink(kMaxPacketFrames * kBytesPerFrame);              // room = 49 frames
+    sink.setCapacityBytes((kMaxPacketFrames + 100) * kBytesPerFrame); // held = 100
+    AudioTransportStats stats;
+    UsbInPath path;
+
+    const InServicePass pass = path.service(ring, sink, stats);
+
+    // Capped to the 48 the ring holds: no phantom 49th frame, no silence.
+    CHECK(pass.framesRead == kBlockFrames);   // 48, not 49
+    CHECK(pass.framesSubstituted == 0);
+    CHECK(stats.outputUnderruns == 0u);
+    CHECK(ring.occupancy() == 0);
+    CHECK(pass.bytesWritten == kBlockFrames * kBytesPerFrame);
 }
 
 // ============================================================================

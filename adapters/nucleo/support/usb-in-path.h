@@ -155,6 +155,7 @@ public:
     // int read(float* const*, int);`. `Sink` is anything providing
     //     int write(const std::int16_t* data, int len) noexcept;  // bytes accepted
     //     int writeAvailable() noexcept;                          // bytes of room
+    //     int capacity() noexcept;                                // total FIFO bytes
     // which on the board is a two-line adapter over tud_audio_write() /
     // tud_audio_get_ep_in_ff()+tu_fifo_remaining() (usb-audio-service.h) and
     // in the host tests is a simulated byte sink. Templated rather than
@@ -366,6 +367,30 @@ public:
                 // `outputUnderruns`.
                 framesToPull = ring.occupancy();
             }
+        }
+
+        // Do not fabricate silence for a phantom frame the output ring never
+        // produced. TRACE-CONFIRMED root cause of the residual dropout (SWD
+        // occupancy trace, steady state): the ring holds exactly one DSP block
+        // (kBlockFrames == 48), but this pull's bound is kMaxPacketFrames (49)
+        // — a BUFFER-SIZE constant, not the per-SOF rate. When the sink reports
+        // room for 49, the room/packet-bounded pull asks the 48-frame ring for
+        // a 49th frame and ring.read() fabricates one silence sample: the whole
+        // ~0.2% steady-state glitch, one frame at a time (the DSP is never
+        // behind — the input ring reads empty every pass because it keeps up,
+        // so this is a pull/production GRANULARITY mismatch, not a shortfall).
+        //
+        // Cap the pull at what the ring holds — BUT only while the sink still
+        // buffers a full packet for the wire, so a momentarily-empty ring is a
+        // granularity artifact, not a wire underrun. When the sink is ALSO low,
+        // a genuine underrun is imminent: leave the pull as-is so ring.read()
+        // silence-fills AND counts it (FR-030d/FR-031/FR-032 observability),
+        // and the `held == 0` unit-test sinks (capacity() == room) fall through
+        // unchanged. Trace-verified: in steady state the sink holds ~100-149
+        // frames, so this caps, and every steady-state substitution disappears.
+        const int sinkHeldFrames = (sink.capacity() - roomBytes) / bpf;
+        if (sinkHeldFrames >= kMaxPacketFrames && framesToPull > ring.occupancy()) {
+            framesToPull = ring.occupancy();
         }
 
         float* channels[kChannels];
