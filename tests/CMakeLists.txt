@@ -280,6 +280,7 @@ add_executable(acfx_core_tests
   # Lo-Fi primitive test suites (lo-fi feature)
   # ---------------------------------------------------------------------------
   core/lofi-bit-crush-test.cpp
+  core/lofi-decimator-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
