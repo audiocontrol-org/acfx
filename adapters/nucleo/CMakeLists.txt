@@ -231,22 +231,19 @@ acfx_add_effect_nucleo(
                  acfx::nucleo_tinyusb
 )
 
-# Modulated delay — firmware for the second effect.
-acfx_add_effect_nucleo(
-  NAME acfx_nucleo_delay
-  EFFECT_TYPE acfx::ModulatedDelayEffect<>
-  EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
-  SOURCE ${_nucleo_main}
-  LINKER_SCRIPT ${_nucleo_lds}
-  LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
-                 acfx::nucleo_tinyusb
-)
-
+# Modulated delay: the old acfx_nucleo_delay target (acfx::ModulatedDelayEffect<>,
+# the untemplated-default 96000-sample/float/8-channel instantiation, ~3 MB)
+# NEVER booted on hardware — it cannot link into the F446RE's 128 KB SRAM
+# (backlog TASK-34 lists dropping this target as one option) — and broke
+# `cmake --build --preset nucleo` outright once this file's static_assert-free
+# link was actually exercised. Removed entirely; acfx_nucleo_lofi_delay below
+# (SRAM-bounded: 14400 samples/ch, int16, stereo) is its working replacement.
+#
 # Bounded lo-fi delay — firmware for the SRAM-bounded (14400 samples/ch,
 # int16, stereo) ModulatedDelayEffect instantiation (nucleo-modulated-delay.h,
 # T4-T5's templated core). EFFECT_HEADER is a bare filename, not a
-# core/-relative path like acfx_nucleo_delay's above: nucleo-modulated-delay.h
-# lives in THIS directory, and effect-instance.h's
+# core/-relative path like acfx_nucleo's EFFECT_HEADER above:
+# nucleo-modulated-delay.h lives in THIS directory, and effect-instance.h's
 # `#include ACFX_EFFECT_HEADER` is a quoted include, resolved relative to
 # effect-instance.h's own directory (also this one) before any -I search
 # path — no extra include dir needed, same as effect-instance.h itself.

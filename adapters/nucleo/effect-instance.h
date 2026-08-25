@@ -40,8 +40,9 @@ namespace acfx::nucleo {
 // The concrete effect type/header are injected at BUILD time by the
 // acfx_add_effect_nucleo CMake factory (ACFX_EFFECT_TYPE / ACFX_EFFECT_HEADER
 // compile definitions — adapters/nucleo/CMakeLists.txt), one concrete type
-// per firmware image (acfx_nucleo -> SvfEffect, acfx_nucleo_delay ->
-// ModulatedDelayEffect). Nothing here names a concrete effect.
+// per firmware image (acfx_nucleo -> SvfEffect, acfx_nucleo_lofi_delay ->
+// NucleoModulatedDelay, the SRAM-bounded ModulatedDelayEffect instantiation).
+// Nothing here names a concrete effect.
 using AppEffect = ACFX_EFFECT_TYPE;
 
 // Statically allocated compiled-in effect instance. Namespace scope, not a
