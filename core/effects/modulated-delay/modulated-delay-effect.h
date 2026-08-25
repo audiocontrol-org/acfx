@@ -13,8 +13,11 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
+#include "effects/modulated-delay/modulated-delay-params.h"
 #include "effects/modulated-delay/wow-flutter.h"
 #include "primitives/delays/bounded-delay-line.h"
+#include "primitives/lofi/bit-crush.h"
+#include "primitives/lofi/decimator.h"
 #include "primitives/modulation/lfo.h"
 #include "primitives/filters/svf-primitive.h"
 
@@ -60,92 +63,44 @@ template <std::size_t MaxDelaySamples = 96000,
           std::size_t MaxChannels      = 8>
 class ModulatedDelayEffect {
 public:
-    // Stable parameter ids — dense index into kParams.  US1 ids 0..5 are frozen.
-    enum Param : std::uint8_t {
-        kDelayTime      = 0,
-        kFeedback       = 1,
-        kMix            = 2,
-        kCutoff         = 3,
-        kResonance      = 4,
-        kMode           = 5,
-        // US2: three independent modulation LFOs (appended; indices 6..14 stable).
-        kDelayModRate   = 6,
-        kDelayModDepth  = 7,
-        kDelayModShape  = 8,
-        kCutoffModRate  = 9,
-        kCutoffModDepth = 10,
-        kCutoffModShape = 11,
-        kResModRate     = 12,
-        kResModDepth    = 13,
-        kResModShape    = 14,
-        // US3: wow & flutter on the input path (appended; indices 15..18 stable).
-        kWowRate        = 15,
-        kWowDepth       = 16,
-        kFlutterRate    = 17,
-        kFlutterDepth   = 18,
-    };
+    // Param identities + descriptor table live in modulated-delay-params.h
+    // (ModDelayParam is a SCOPED enum there, so no bare enumerator leaks into
+    // acfx::). Re-expose the dense-index names here as integer-typed constexpr
+    // constants — not C++20 `using enum` (core must also build as C++17/Teensy),
+    // integer-typed so kParams[kX] / ParamId{p} / std::array<Param,N> keep
+    // compiling without a per-site cast. Fx::Param / Fx::kX stay source-compatible.
+    using Param = std::uint8_t;
+    static constexpr Param kDelayTime      = modDelayId(ModDelayParam::kDelayTime);
+    static constexpr Param kFeedback       = modDelayId(ModDelayParam::kFeedback);
+    static constexpr Param kMix            = modDelayId(ModDelayParam::kMix);
+    static constexpr Param kCutoff         = modDelayId(ModDelayParam::kCutoff);
+    static constexpr Param kResonance      = modDelayId(ModDelayParam::kResonance);
+    static constexpr Param kMode           = modDelayId(ModDelayParam::kMode);
+    static constexpr Param kDelayModRate   = modDelayId(ModDelayParam::kDelayModRate);
+    static constexpr Param kDelayModDepth  = modDelayId(ModDelayParam::kDelayModDepth);
+    static constexpr Param kDelayModShape  = modDelayId(ModDelayParam::kDelayModShape);
+    static constexpr Param kCutoffModRate  = modDelayId(ModDelayParam::kCutoffModRate);
+    static constexpr Param kCutoffModDepth = modDelayId(ModDelayParam::kCutoffModDepth);
+    static constexpr Param kCutoffModShape = modDelayId(ModDelayParam::kCutoffModShape);
+    static constexpr Param kResModRate     = modDelayId(ModDelayParam::kResModRate);
+    static constexpr Param kResModDepth    = modDelayId(ModDelayParam::kResModDepth);
+    static constexpr Param kResModShape    = modDelayId(ModDelayParam::kResModShape);
+    static constexpr Param kWowRate        = modDelayId(ModDelayParam::kWowRate);
+    static constexpr Param kWowDepth       = modDelayId(ModDelayParam::kWowDepth);
+    static constexpr Param kFlutterRate    = modDelayId(ModDelayParam::kFlutterRate);
+    static constexpr Param kFlutterDepth   = modDelayId(ModDelayParam::kFlutterDepth);
+    static constexpr Param kLofiRate       = modDelayId(ModDelayParam::kLofiRate);
+    static constexpr Param kLofiBits       = modDelayId(ModDelayParam::kLofiBits);
 
     // Option labels for discrete parameters (single source of truth for adapters).
-    static constexpr std::array<std::string_view, 3> kModeLabels = {{"lowpass", "highpass", "bandpass"}};
-    static constexpr std::array<std::string_view, 4> kShapeLabels = {{"sine", "triangle", "saw", "random"}};
+    static constexpr auto& kModeLabels  = acfx::kModDelayModeLabels;
+    static constexpr auto& kShapeLabels = acfx::kModDelayShapeLabels;
+    static constexpr auto& kRateLabels  = acfx::kModDelayRateLabels;
+    static constexpr auto& kBitsLabels  = acfx::kModDelayBitsLabels;
 
-    // Single source of parameter truth (SC-006, FR-022).  All values in plain units.
-    static constexpr std::array<ParameterDescriptor, 19> kParams = {{
-        // US1 parameters (indices 0..5 — frozen)
-        {ParamId{kDelayTime}, "delay_time", ParamUnit::seconds,
-         0.001f, 2.0f, 0.3f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kFeedback}, "feedback", ParamUnit::none,
-         0.0f, 0.98f, 0.4f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kMix}, "mix", ParamUnit::none,
-         0.0f, 1.0f, 0.35f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kCutoff}, "fb_cutoff", ParamUnit::hz,
-         20.0f, 20000.0f, 2000.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kResonance}, "fb_resonance", ParamUnit::none,
-         0.0f, 1.0f, 0.2f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kMode}, "fb_mode", ParamUnit::none,
-         0.0f, 2.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 3, kModeLabels},
-        // US2 delay-time modulation (indices 6..8)
-        {ParamId{kDelayModRate}, "delay_mod_rate", ParamUnit::hz,
-         0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kDelayModDepth}, "delay_mod_depth", ParamUnit::none,
-         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kDelayModShape}, "delay_mod_shape", ParamUnit::none,
-         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4, kShapeLabels},
-        // US2 cutoff modulation (indices 9..11)
-        {ParamId{kCutoffModRate}, "cutoff_mod_rate", ParamUnit::hz,
-         0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kCutoffModDepth}, "cutoff_mod_depth", ParamUnit::none,
-         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kCutoffModShape}, "cutoff_mod_shape", ParamUnit::none,
-         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4, kShapeLabels},
-        // US2 resonance modulation (indices 12..14)
-        {ParamId{kResModRate}, "res_mod_rate", ParamUnit::hz,
-         0.01f, 20.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kResModDepth}, "res_mod_depth", ParamUnit::none,
-         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kResModShape}, "res_mod_shape", ParamUnit::none,
-         0.0f, 3.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 4, kShapeLabels},
-        // US3 wow & flutter on the input path (indices 15..18)
-        {ParamId{kWowRate}, "wow_rate", ParamUnit::hz,
-         0.1f, 2.0f, 0.5f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kWowDepth}, "wow_depth", ParamUnit::none,
-         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kFlutterRate}, "flutter_rate", ParamUnit::hz,
-         5.0f, 12.0f, 8.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kFlutterDepth}, "flutter_depth", ParamUnit::none,
-         0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
-    }};
-
-    // Build-time guard: every descriptor in the table is valid.
-    static_assert(
-        [] {
-            for (const ParameterDescriptor& d : kParams)
-                if (!isValidDescriptor(d))
-                    return false;
-            return true;
-        }(),
-        "ModulatedDelayEffect parameter table violates a descriptor invariant "
-        "(max>min; logarithmic => min>0; discrete => count>=2 and choices.size()==count)");
+    // Single source of parameter truth (SC-006, FR-022). All values in plain
+    // units. The descriptor-validity static_assert lives beside the table.
+    static constexpr auto& kParams = kModulatedDelayParams;
 
     ModulatedDelayEffect() noexcept {
         for (std::size_t i = 0; i < kNumParams; ++i) {
@@ -155,6 +110,14 @@ public:
     }
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+
+    // Longest realizable delay in physical seconds at the current rate D: the
+    // buffer holds decimated-rate samples, so its span in seconds scales with D
+    // (design Approach A / OQ1). The effective delay time is clamped to this.
+    float maxDelaySeconds() const noexcept {
+        return static_cast<float>(delays_[0].capacity())
+             * static_cast<float>(decimator_.divisor()) / sampleRate_;
+    }
 
     // Audio stream must be stopped.  Prepares the in-object (heap-free) delay
     // lines: capacity is the 2.0 s @ sampleRate request, clamped to MaxDelaySamples.
@@ -192,6 +155,8 @@ public:
         wowFlutter_.setWowDepth(kParams[kWowDepth].defaultValue);       // 0.0 = bypass
         wowFlutter_.setFlutterDepth(kParams[kFlutterDepth].defaultValue); // 0.0 = bypass
 
+        heldWet_.fill(0.0f);  // no held wet sample yet (sample-and-hold state)
+
         applyAll();
     }
 
@@ -207,6 +172,7 @@ public:
         cutoffLfo_.reset();
         resLfo_.reset();
         wowFlutter_.reset();
+        heldWet_.fill(0.0f);
         applyAll();
     }
 
@@ -233,11 +199,23 @@ public:
             // Assumptions).  Returns zero when both depths are 0 (FR-019).
             const float wfDisplacement = wowFlutter_.tickModulation();
 
-            // Effective delay time — DelayLine clamps to valid range (FR-014).
-            // depth=0: + 0.0f*range = no change from smoothed base (FR-013).
-            const float effectiveDelaySecs =
+            // Effective delay time in physical seconds (FR-013: depth=0 => no
+            // change from the smoothed base). Clamped to the current rate's
+            // realizable maximum (OQ1: physical meaning; range coupled to D). At
+            // the clean settings the effective time is far below the clamp, so
+            // this is a no-op there.
+            float effectiveDelaySecs =
                 smoothedDelaySecs_ + delayLfoOut * delayModDepth_ * kDelayModRangeSecs;
-            const float dsamp = effectiveDelaySecs * sampleRate_;
+            const float maxSecs = maxDelaySeconds();
+            if (effectiveDelaySecs > maxSecs) effectiveDelaySecs = maxSecs;
+
+            // Convert physical seconds to INTERNAL samples: the delay line stores
+            // decimated-rate samples at 48 kHz / D. At D=1, sampleRate_/1.0f ==
+            // sampleRate_ exactly, so dsampInternal == effectiveDelaySecs *
+            // sampleRate_ bit-for-bit — the pre-lo-fi arithmetic is preserved.
+            // DelayLine still clamps to [0, capacity-1] (FR-014).
+            const float divisorF      = static_cast<float>(decimator_.divisor());
+            const float dsampInternal = effectiveDelaySecs * (sampleRate_ / divisorF);
 
             // Guard: skip the per-sample transcendental cost (std::pow, setFreq
             // sinf+powf, setRes powf) when depth==0.  applyPending() (and the
@@ -262,25 +240,41 @@ public:
                 if (effRes > 1.0f) effRes = 1.0f;
             }
 
+            // The decimation phase is GLOBAL (shared across channels): decide the
+            // internal tick ONCE per output sample. At D=1 isTick() is true every
+            // sample, so the wet loop runs every sample and the per-channel hold
+            // is a no-op — the pre-lo-fi behaviour exactly.
+            const bool tick = decimator_.isTick();
+
             for (int ch = 0; ch < channels; ++ch) {
                 const std::size_t idx = static_cast<std::size_t>(ch);
                 float* const      x   = io.channel(ch);
-                auto&             dl  = delays_[idx];
-                SvfPrimitive&     sv  = filters_[idx];
-
-                if (modCutoff) sv.setFreq(effCutoff);
-                if (modRes)    sv.setRes(effRes);
 
                 // US3: apply wow & flutter to the input before the main delay
-                // (FR-020).  With both depths=0 this is an exact passthrough
-                // (guarded bypass in WowFlutterStage, FR-019).
+                // (FR-020). Both depths=0 => exact passthrough (FR-019). This is
+                // the full-rate (48 kHz) dry path and the decimation IN sample.
                 const float xPrime =
                     wowFlutter_.processSample(x[n], ch, wfDisplacement);
 
-                const float d = dl.readFractional(dsamp);
-                const float f = sv.process(d);
-                dl.write(xPrime + feedback_ * f);
-                x[n] = (1.0f - mix_) * xPrime + mix_ * f;
+                if (tick) {
+                    auto&         dl = delays_[idx];
+                    SvfPrimitive& sv = filters_[idx];
+
+                    if (modCutoff) sv.setFreq(effCutoff);
+                    if (modRes)    sv.setRes(effRes);
+
+                    const float d = dl.readFractional(dsampInternal);
+                    const float f = sv.process(d);
+                    // Bit-crush INSIDE the feedback loop (design "Bit-crush +
+                    // storage"): recursive/grittier the longer a repeat rings. At
+                    // B=16 crushToGrid is identity, so the float path stays
+                    // bit-exact and the int16 policy shows only its storage floor.
+                    dl.write(crushToGrid(xPrime + feedback_ * f, crushBits_));
+                    heldWet_[idx] = f;   // sample-and-hold reconstruction OUT
+                }
+
+                // Sample-and-hold wet reconstruction + dry/wet MIX at 48 kHz.
+                x[n] = (1.0f - mix_) * xPrime + mix_ * heldWet_[idx];
             }
         }
     }
@@ -295,7 +289,7 @@ public:
     }
 
 private:
-    static constexpr std::size_t kNumParams   = 19;
+    static constexpr std::size_t kNumParams   = kModDelayNumParams;  // 21
 
     // Wow/flutter scratch buffer size (compile-time): nominal(10 ms) +
     // 2*range(2*5 ms) + guard, sized for the highest prepared sample rate so the
@@ -435,6 +429,22 @@ private:
             wowFlutter_.setFlutterDepth(
                 denormalize(kParams[kFlutterDepth], pendingValue(kFlutterDepth)));
         }
+        // Lo-fi: rate divisor. index 0..3 -> D = 1<<index. setDivisor() also
+        // RESETS the decimator phase — this IS the tape-speed reinterpret trigger
+        // (design "Live rate-change semantics"): the buffer is retained and the
+        // new D takes effect on an internal tick.
+        if (pendingDirty_[kLofiRate].exchange(0u, std::memory_order_acquire)) {
+            const int index = static_cast<int>(
+                denormalize(kParams[kLofiRate], pendingValue(kLofiRate)));
+            decimator_.setDivisor(1 << index);
+        }
+        // Lo-fi: effective bit depth. index 0..4 -> B in {16,12,8,6,4}; B=16 is
+        // the crushToGrid bypass, so the clean end stays full-resolution.
+        if (pendingDirty_[kLofiBits].exchange(0u, std::memory_order_acquire)) {
+            const int index = static_cast<int>(
+                denormalize(kParams[kLofiBits], pendingValue(kLofiBits)));
+            crushBits_ = kModDelayBitsTable[static_cast<std::size_t>(index)];
+        }
     }
 
     float clampedCutoff() const noexcept {
@@ -466,6 +476,13 @@ private:
 
     std::array<BoundedDelayLine<Sample, MaxDelaySamples>, MaxChannels> delays_{};
     std::array<SvfPrimitive,                              MaxChannels> filters_{};
+
+    // Lo-fi layer: SHARED decimator (decimation phase is global) + per-channel
+    // held wet (sample-and-hold between ticks). Defaults D=1/B=16 are the clean
+    // settings — tick every sample, crush bypassed, wet path full-resolution.
+    SampleHoldDecimator          decimator_{};
+    int                          crushBits_ = 16;
+    std::array<float, MaxChannels> heldWet_{};
 
     float sampleRate_  = 48000.0f;
     int   numChannels_ = 0;

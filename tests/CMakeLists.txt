@@ -22,6 +22,12 @@ add_executable(acfx_core_tests
   # float clean-path numerical identity vs a committed golden, the no-alloc
   # invariant, and compile+prepare of the int16 / default policies.
   core/modulated-delay-bounded-test.cpp
+  # Task 5 (bounded lo-fi delay): the lo-fi layer — internal-rate (decimated)
+  # whole-wet-loop processing (kLofiRate) + in-feedback-loop bit-crush
+  # (kLofiBits) as two live params. D-scales the realizable max delay, keeps the
+  # clean D=1/B=16 wet path full-resolution (RMS vs the float policy), tape-speed
+  # reinterprets on a live D change, and level-preserving crush at low B.
+  core/modulated-delay-lofi-test.cpp
   core/no-allocation-test.cpp
   core/workbench-settings-test.cpp
   # The SourceConfig serde seam is JUCE-free (std::string only), so its TU links
