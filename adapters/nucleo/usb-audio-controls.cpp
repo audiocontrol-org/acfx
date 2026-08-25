@@ -181,6 +181,17 @@ extern "C" bool tud_audio_set_req_entity_cb(std::uint8_t rhport,
         return false;
     }
     g_currentSampleRateHz = requested;
+
+    // Arm the rate-change latch (T011): this is the ONLY thing this EP0
+    // callback does toward reacting to the new rate. g_rateChangeLatch is
+    // usb-audio-service.h's shared RateChangeLatch instance;
+    // requestRateChange() only stores the rate and raises a flag — no heap,
+    // no locks, no blocking, and per that header's own comment nothing here
+    // re-prepares the effect or touches a ring. The poll-loop's
+    // ServiceRateChange() (rate-change-service.h, included only from
+    // nucleo-main.cpp) is what consumes this and does the actual
+    // reconfiguration, off EP0 context.
+    g_rateChangeLatch.requestRateChange(requested);
     return true;
 }
 

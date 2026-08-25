@@ -33,6 +33,7 @@
 
 #include "dsp/process-context.h"
 #include "sample-format.h"
+#include "sample-rate.h"
 #include ACFX_EFFECT_HEADER
 
 namespace acfx::nucleo {
@@ -66,14 +67,33 @@ static_assert(kBlockFrames != kMaxPacketFrames,
               "guard is vacuous and the collapse needs re-examination against "
               "D28/FR-036b, not deletion of this assert.");
 
-// Prepares g_effect for the one run condition this adapter ever operates
-// under: 48 kHz, 48-frame blocks, stereo (FR-036). Called once from main(),
-// before the service loop starts; the audio stream is not yet running at
-// that point (T033's process() calls have not begun), satisfying every
-// effect's "prepare while stopped" precondition.
-inline void PrepareEffect() {
-    const acfx::ProcessContext ctx{48000.0, kBlockFrames, kChannels};
+// Prepares g_effect at `sampleRateHz`, always with the same 48-frame block /
+// stereo shape FR-036 pins (only the sample rate varies — US2, FR-004/FR-006).
+// Called once from main() at kDefaultSampleRateHz before the service loop
+// starts, and again — RE-INVOKED, not merely invoked — from the poll-loop
+// rate-change service step (T011) whenever the host selects a different rate.
+//
+// ALLOCATION-FREE ON RE-PREPARE (FR-006, real-time safety): g_effect is the
+// same static/namespace-scope instance every call (declared above); prepare()
+// only reconfigures its already-allocated internal state for the new
+// ProcessContext, exactly as it did the first time this ran. There is no
+// second instance, no heap, and — per the same "prepare while stopped"
+// precondition the original call site's comment describes — this must only
+// be called while the DSP block path is not mid-process(), which the T011
+// service step satisfies by calling this from the main loop, never from
+// ServiceDspBlock() or any interrupt/EP0 context.
+inline void PrepareEffect(double sampleRateHz) noexcept {
+    const acfx::ProcessContext ctx{sampleRateHz, kBlockFrames, kChannels};
     g_effect.prepare(ctx);
+}
+
+// Convenience overload for the one-shot startup call in main() (T034): always
+// the US2 default rate (support/sample-rate.h's kDefaultSampleRateHz,
+// FR-004), so that call site does not need to spell it out, and so the
+// startup rate can never drift apart from the one the poll-loop rate-change
+// step (T011) treats as "already selected" by default.
+inline void PrepareEffect() noexcept {
+    PrepareEffect(static_cast<double>(kDefaultSampleRateHz));
 }
 
 } // namespace acfx::nucleo

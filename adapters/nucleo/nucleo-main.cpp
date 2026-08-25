@@ -59,6 +59,14 @@
 // file-size reason as the includes above. Included exactly once, here.
 #include "dsp-block-service.h"
 
+// The rate-change poll-loop reaction's shim half (T011; FR-006, research
+// §R9): binds the shared rate-change latch (usb-audio-service.h) to
+// effect-instance.h's PrepareEffect() and exposes ServiceRateChange(). Must
+// be included from nucleo-main.cpp specifically, never from anything
+// acfx_nucleo_usb compiles — see that file's own header comment for why.
+// Included exactly once, here.
+#include "rate-change-service.h"
+
 // The live-parameter path's shim half (T045; FR-039/FR-042, contract PSRC3):
 // decodes USB-MIDI Control Change packets, feeds
 // support/parameter-source.h's MidiParameterSource, and flushes
@@ -464,6 +472,10 @@ int main() {
   // for it, never blocking or open-ended, since USB servicing cadence
   // depends on this loop iterating promptly. All six calls below satisfy that:
   //   ServiceUsbLifecycle() (T056/FR-055): two bool compares + at most two reset()s, edge-only.
+  //   ServiceRateChange() (T011; FR-006, research §R9) consumes the rate-change
+  //   latch — two field reads and a branch when nothing is pending — and only
+  //   on a pending change re-prepares the effect (allocation-free) and resets
+  //   both rings, all off EP0 context.
   //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a convert-and-write of at most 49 frames, with no wait of any kind.
   //   ServiceParameters() (T045; FR-039/FR-042) drains USB-MIDI's finite RX
   //   fifo (tud_midi_packet_read() returns false once empty, never blocks),
@@ -491,6 +503,7 @@ int main() {
   for (;;) {
     tud_task();  // T053-T055 suspend/resume/mount callbacks fire from in here
     acfx::nucleo::ServiceUsbLifecycle();
+    acfx::nucleo::ServiceRateChange();
     acfx::nucleo::ServiceUsbAudioOut();
     acfx::nucleo::ServiceParameters();
     acfx::nucleo::ServiceDspBlock();

@@ -39,6 +39,7 @@
 
 #include "audio-ring.h"
 #include "lifecycle-policy.h"
+#include "rate-change.h"
 #include "sample-format.h"
 #include "transport-stats.h"
 #include "usb-descriptors.h"
@@ -205,6 +206,42 @@ inline void ServiceUsbLifecycle() noexcept {
                                                g_prevOutStreaming, g_prevInStreaming,
                                                g_inputRing, g_outputRing));
 }
+
+// ----------------------------------------------------------------------------
+// T011 (US2, FR-006, research §R9): the rate-change latch shared between the
+// USB SET callback (producer) and the poll-loop's rate-change reaction
+// (consumer). ONLY the latch lives here — the reaction itself (re-preparing
+// the effect at the new rate, resetting the rings) is ServiceRateChange() in
+// the sibling rate-change-service.h, NOT in this file. That split mirrors
+// exactly why dsp-block-service.h exists as its own file rather than folding
+// ServiceDspBlock() in here too (see this file's own "WHY THIS INCLUDES
+// usb-audio-service.h" comment on dsp-block-service.h, and effect-instance.h's
+// header comment): this header is included by usb-audio-controls.cpp and
+// usb-lifecycle-callbacks.cpp, both compiled into acfx_nucleo_usb — an OBJECT
+// library built ONCE and shared by every firmware image (see
+// CMakeLists.txt's acfx_nucleo_usb target) — so it must compile with NO
+// concrete effect selected. ACFX_EFFECT_TYPE/ACFX_EFFECT_HEADER are compile
+// definitions the acfx_add_effect_nucleo factory sets ONLY on each firmware
+// executable target (nucleo-main.cpp's own translation unit), never on
+// acfx_nucleo_usb. Including effect-instance.h from here (tried first, and
+// reverted) breaks that shared library's build with "ACFX_EFFECT_TYPE does
+// not name a type" for exactly that reason. rate-change.h itself has no such
+// dependency, so the latch stays here, reachable from both sides; only the
+// PrepareEffect()-calling reaction moves to the file nucleo-main.cpp alone
+// includes.
+//
+// THE SHARED LATCH. `g_rateChangeLatch` is the ONE instance of
+// support/rate-change.h's RateChangeLatch for this image, following the same
+// multiple-inclusion-safe `inline` pattern as g_inputRing/g_outputRing above:
+// every definition below is `inline`, so the linker folds all inclusions into
+// exactly one object. usb-audio-controls.cpp's strong tud_audio_set_req_entity_cb
+// (the producer) reaches it by including THIS header — the mirror image of how
+// it already reaches g_currentSampleRateHz (declared extern here, DEFINED in
+// that .cpp): here the definition lives in this header and that .cpp is the
+// consumer of the header, not the other way around, because the latch has
+// exactly one producer call site and one consumer call site and both are
+// reachable from this file's include graph without a new extern.
+inline RateChangeLatch g_rateChangeLatch;
 
 // Holds only its de-interleave scratch; no heap, no locks.
 inline UsbOutPath g_outPath;
