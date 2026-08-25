@@ -1042,3 +1042,26 @@ verdict (FAIL under the strict zero-error-delta bar, driven by the benign `outpu
 ST-Link serial (two programmers present) and refuses when multiple `/dev/cu.usbmodem*` nodes
 exist; the flash + full-duplex steps were driven manually. Harness-usability gap captured
 separately.
+
+## R16 — Bounded lo-fi delay: hardware acceptance (2026-08-24)
+
+The bounded lo-fi `ModulatedDelayEffect` (`acfx_nucleo_lofi_delay`,
+`ModulatedDelayEffect<14400, std::int16_t, 2>`) verified live on the NUCLEO-F446RE,
+resolving backlog TASK-34 (the old float delay never booted — 750 KB heap on a 128 KB part).
+
+- **Boots and enumerates** (the TASK-34 fix on silicon): flashed clean; `acfx Audio`
+  2-in/2-out appears and the acfx CDC telemetry is live (`tl=true`). SRAM: data+bss
+  = 96,820 B of 131,072 (≈74 % + stack headroom); `sizeof(NucleoModulatedDelay)` = 73,672 B.
+- **Delay works:** 0.15 s pink bursts every 1 s; the input's silent gap (RMS 0.000015)
+  fills with a decaying echo in the device output (RMS 0.0158, ~1000×) at the 0.3 s default.
+- **Lo-fi decimation (bandwidth-for-time) works:** with delay-time maxed (CC74=127→2.0 s),
+  CC76 (`lofi_rate`) sweeps the echo length — D=1 (CC76=0) clamps the echo to 0.3 s
+  (tight 0.3 s-spaced feedback train); D=8 (CC76=127) realizes a ~2.0 s echo from the same
+  fixed buffer. `lofi_bits` (CC77) adds bit-crush grit (audition). Live over the established
+  MIDI-CC path (`acfx Nucleo F446 Effect`).
+- **Transport health:** `blocksProcessed`=15858 over 15 s; **`worstBlockMicros`=686 µs** of
+  the 1000 µs/block budget (~69 %, at D=1 — the worst case, since the wet loop runs every
+  sample; the full modulated delay with wow/flutter + SVF-in-feedback is far heavier than the
+  SVF's 65 µs, but fits real-time with margin). Zero input/output over/underruns and zero
+  malformed payloads; the only non-zero error class is `outputUnderruns`≈`blocksProcessed`
+  (the benign IN-path/block-boundary misalignment, backlog TASK-39).
