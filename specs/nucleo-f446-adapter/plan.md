@@ -53,8 +53,10 @@ Teensy adapters consume their vendor trees. No STM32Cube HAL — deliberately (*
 **Storage**: N/A — no persistence. All state is in SRAM and lives for one power cycle.
 
 **Testing**: Host-side **doctest** via the existing `acfx_core_tests` binary (`test` preset,
-`ctest --preset test`), extended with the support library's suites. Plus CI cross-compile+link,
-plus a hardware-in-the-loop harness that cannot run in normal CI (**D18** — all three layers).
+`ctest --preset test`), extended with the support library's suites. Plus development-host
+cross-compile+link (an Arm GNU Toolchain build gate, **not** a GitHub CI job — amended per
+T014/operator 2026-08-24; see FR-048), plus a hardware-in-the-loop harness that cannot run in
+normal CI (**D18** — all three layers).
 
 **Target Platform**: STM32F446RE, Cortex-M4F (single-precision FPU, `fpv4-sp-d16`), 512 KB
 flash / 128 KB SRAM, bare metal. Host side: macOS verified; Linux/Windows expected by class

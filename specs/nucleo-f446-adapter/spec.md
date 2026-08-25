@@ -806,8 +806,16 @@ reset. Confirm audio resumes and the counters tell a coherent story across the e
 
 #### Verification
 
-- **FR-048**: CI MUST cross-compile and link every declared Nucleo firmware target (**D18**,
-  layer 1).
+- **FR-048**: Cross-compile-and-link of every declared Nucleo firmware target MUST be verified
+  on a **development host** with an Arm GNU Toolchain provisioned (via T015), **not** in the
+  GitHub CI job (**D18**, layer 1). **Amended 2026-08-24 (operator — T014).** The original
+  wording named "CI MUST cross-compile and link"; the operator directed 2026-08-23 that no
+  device/platform-specific builds run in GitHub CI ("it will either fail on github's ci servers
+  or be too slow to add value"), so a nucleo CI job that had been authored was reverted and this
+  verification layer is a development-host build gate instead. `.github/workflows/ci.yml` builds
+  only the host `test` preset, the portability gates, and the desktop workbench/plugins — its
+  header comment already records that hardware presets are build-checked only where ARM
+  toolchains are provisioned.
 - **FR-049**: The host doctest suite MUST cover `acfx_nucleo_support` — the conversion and
   de-interleaving, the ring buffer's defined behaviours and counters, and the parameter shadow
   block (**D18**, layer 2).
