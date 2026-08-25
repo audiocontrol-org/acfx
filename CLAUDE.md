@@ -70,7 +70,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **nucleo-f446-adapter**.
+Active Spec Kit feature: **synchronous-usb-audio-transport**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/nucleo-f446-adapter/plan.md` (spec: `specs/nucleo-f446-adapter/spec.md`).
+current plan at `specs/synchronous-usb-audio-transport/plan.md` (spec: `specs/synchronous-usb-audio-transport/spec.md`).
 <!-- SPECKIT END -->
