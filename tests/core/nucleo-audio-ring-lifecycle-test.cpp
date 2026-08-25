@@ -379,3 +379,45 @@ TEST_CASE("AR9: reset() from Stopped state returns to Priming") {
     CHECK(ring.state() == RingState::Priming);
     CHECK(ring.occupancy() == 0);
 }
+
+// ============================================================================
+// AR15 (T021, FR-008, R15): reset()/stop() re-baseline the occupancy
+// watermarks, so each streaming session (which always begins with a
+// reset()) measures its own fresh water range rather than carrying one
+// forward from before the ring was last emptied out from under it.
+// ============================================================================
+
+TEST_CASE("AR15: reset() clears both watermarks back to 0") {
+    AudioRing<48> ring(24);
+
+    std::vector<float> src_l(30, 0.5f);
+    std::vector<float> src_r(30, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 30);
+    CHECK(ring.occupancyMax() == 30);
+
+    ring.reset();
+    CHECK(ring.occupancyMin() == 0);
+    CHECK(ring.occupancyMax() == 0);
+
+    // A fresh session after reset() measures its OWN range, not the one
+    // that preceded it: a write of only 10 should not still read back a max
+    // of 30 left over from before the reset.
+    ring.write(src, 10);
+    CHECK(ring.occupancyMax() == 10);
+}
+
+TEST_CASE("AR15: stop() clears both watermarks back to 0") {
+    AudioRing<48> ring(24);
+
+    std::vector<float> src_l(18, 0.5f);
+    std::vector<float> src_r(18, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 18);
+    CHECK(ring.occupancyMax() == 18);
+
+    ring.stop();
+    CHECK(ring.occupancyMin() == 0);
+    CHECK(ring.occupancyMax() == 0);
+    CHECK(ring.state() == RingState::Stopped);
+}

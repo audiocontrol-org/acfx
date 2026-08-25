@@ -2,10 +2,16 @@
 
 // Platform-independent single-producer / single-consumer audio ring for the
 // Nucleo USB audio adapter (FR-030, FR-030a, FR-030b, FR-030c, FR-030d,
-// FR-031, FR-032, FR-046, FR-051). No TinyUSB, no CMSIS, no board headers,
-// no <cstdio> — this header compiles under the `test` preset with no
+// FR-031, FR-032, FR-046, FR-051, FR-008). No TinyUSB, no CMSIS, no board
+// headers, no <cstdio> — this header compiles under the `test` preset with no
 // toolchain file. Anything that cannot satisfy that constraint belongs in
 // nucleo-main.cpp instead.
+//
+// OCCUPANCY WATERMARKS (T021, R15). occupancyMin()/occupancyMax() are pure
+// instrumentation, not a new contract: they never change what write()/read()
+// do to the ring's contents or state, only record the low/high bounds
+// occupancy() has taken since construction or the last reset()/stop(). See
+// those accessors' own doc comments below for the full rationale.
 //
 // The ring is a passive buffer that REPORTS facts and never hides them
 // (AR4): every dropped or substituted frame comes back as a return value so
@@ -141,6 +147,8 @@ public:
             state_ = RingState::Running;
         }
 
+        observeOccupancy();
+
         return dropped;
     }
 
@@ -181,6 +189,8 @@ public:
         // stays visible as one. Silently dropping back to Priming would mask
         // sustained drift behind a "still starting up" reading — the same
         // masking the no-re-centring guarantee (AR8) forbids.
+        observeOccupancy();
+
         return substituted;
     }
 
@@ -195,22 +205,64 @@ public:
 
     int startupFill() const noexcept { return startupFill_; }
 
+    // R15 measurement gap (FR-008, T021): the running low/high-water marks of
+    // occupancy() observed across write()/read() calls since construction or
+    // the last reset()/stop() (see observeOccupancy() below). Today there is
+    // no way to learn how full the rings actually get in service — T022's
+    // HIL harness reads these to derive the ring capacity / startup-fill /
+    // water-range from measurement, replacing the 1024/98 placeholders
+    // usb-audio-service.h currently carries.
+    //
+    // BEFORE THE FIRST write()/read(), both read 0 — matching occupancy()'s
+    // own value at that point, since nothing has happened yet. THE FIRST
+    // write()/read() CALL SEEDS BOTH MARKS TO ITS RESULT, not folds it
+    // against the pre-call 0: occupancy() is bounded below by 0 (AR1) and
+    // every ring is constructed empty, so folding that construction-time 0
+    // into the running minimum would pin occupancyMin() at 0 for the entire
+    // life of every ring, unconditionally — a low-water mark that can never
+    // move is not a measurement, and is exactly the "no way to measure how
+    // full the rings get" gap this task exists to close. Once seeded, every
+    // later write()/read() folds normally (two comparisons), so a genuine
+    // in-service underrun that drains the ring back to 0 is still captured
+    // correctly — only the trivial pre-streaming emptiness is excluded.
+    //
+    // Always within [0, capacity()], the same bound occupancy() itself keeps
+    // (AR1): the watermarks can never record a value occupancy() itself was
+    // never actually set to. Read-only, allocation-free, noexcept — safe to
+    // call from a diagnostic path that must not perturb the ring it reports
+    // on, the same contract errorRate() in transport-stats.h documents for
+    // its own counters.
+    int occupancyMin() const noexcept { return occupancyMin_; }
+    int occupancyMax() const noexcept { return occupancyMax_; }
+
     // Stream open, resume, bus reset (AR9, FR-052, FR-053, FR-054): clear the
     // contents and return to Priming, so each of those restarts from a
-    // defined state rather than draining a stale partial ring.
+    // defined state rather than draining a stale partial ring. The watermarks
+    // reset alongside count_ for the same reason: a fresh streaming session
+    // (FR-008) must measure its OWN water range, not carry forward a mark
+    // from before the ring was last emptied out from under it.
     void reset() noexcept {
         clearStorage();
         tail_ = 0;
         count_ = 0;
         state_ = RingState::Priming;
+        occupancyMin_ = 0;
+        occupancyMax_ = 0;
+        watermarksObserved_ = false;
     }
 
-    // Suspend (AR9, FR-051): clear the contents and enter Stopped.
+    // Suspend (AR9, FR-051): clear the contents and enter Stopped. Resets the
+    // watermarks for the same reason reset() does above: count_ is forced
+    // back to 0 here too, and a watermark surviving that forced-empty would
+    // misrepresent the occupancy range of whatever session follows.
     void stop() noexcept {
         clearStorage();
         tail_ = 0;
         count_ = 0;
         state_ = RingState::Stopped;
+        occupancyMin_ = 0;
+        occupancyMax_ = 0;
+        watermarksObserved_ = false;
     }
 
     // Neither reset() nor stop() touches any counter — lifecycle events must
@@ -235,12 +287,53 @@ private:
         }
     }
 
+    // Folds the CURRENT occupancy (count_) into the running watermarks.
+    // Called exactly once at the end of write() and once at the end of
+    // read() — the same "fixed to one place" discipline write()'s Priming ->
+    // Running promotion check documents above — so every occupancy the ring
+    // ever actually reported through occupancy() is captured without
+    // re-deriving it at multiple call sites.
+    //
+    // The FIRST call after construction/reset()/stop() seeds BOTH marks to
+    // count_ rather than folding it against the 0/0 defaults: see
+    // occupancyMin()'s doc comment for why treating construction-time 0 as a
+    // real observation would pin the low-water mark at 0 forever. Every
+    // subsequent call is the plain two-comparison fold. watermarksObserved_
+    // is a single bool, not a per-call cost of note beyond the pre-existing
+    // comparisons (FR-008/R15).
+    void observeOccupancy() noexcept {
+        if (!watermarksObserved_) {
+            occupancyMin_ = count_;
+            occupancyMax_ = count_;
+            watermarksObserved_ = true;
+            return;
+        }
+        if (count_ < occupancyMin_) {
+            occupancyMin_ = count_;
+        }
+        if (count_ > occupancyMax_) {
+            occupancyMax_ = count_;
+        }
+    }
+
     // Non-interleaved: one contiguous run per channel, matching the
     // `float* const*` channel-pointer signatures the DSP core uses.
     float storage_[Channels][CapacityFrames] = {};
 
     int tail_ = 0;   // index of the oldest held frame
     int count_ = 0;  // frames currently held; occupancy()
+
+    // Low/high-water marks of count_ (occupancyMin()/occupancyMax()). Both
+    // default to 0, matching count_'s own construction-time value — a
+    // correct reading right up until the first write()/read(), which is
+    // where watermarksObserved_ takes over (see observeOccupancy() above).
+    int occupancyMin_ = 0;
+    int occupancyMax_ = 0;
+
+    // Whether observeOccupancy() has seeded the marks from a real write()/
+    // read() yet. False after construction and after every reset()/stop();
+    // flips true on the first fold and never resets on its own thereafter.
+    bool watermarksObserved_ = false;
 
     const int startupFill_;
     RingState state_ = RingState::Priming;  // construction ALWAYS yields

@@ -71,6 +71,23 @@ TEST_CASE("AR5: occupancy allocates nothing") {
     CHECK_MESSAGE(allocations == 0, "occupancy allocated ", allocations);
 }
 
+TEST_CASE("AR5: occupancyMin/occupancyMax allocate nothing (T021, FR-008)") {
+    AudioRing<48> ring(24);
+    std::vector<float> src_l(kBlockFrames, 0.5f);
+    std::vector<float> src_r(kBlockFrames, 0.5f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+    ring.write(src, 10);
+
+    AllocationSentinel::reset();
+    for (int iter = 0; iter < 1000; ++iter) {
+        (void)ring.occupancyMin();
+        (void)ring.occupancyMax();
+    }
+
+    const std::size_t allocations = AllocationSentinel::allocations();
+    CHECK_MESSAGE(allocations == 0, "occupancyMin/occupancyMax allocated ", allocations);
+}
+
 TEST_CASE("AR5: capacity allocates nothing") {
     AudioRing<48> ring(24);
 

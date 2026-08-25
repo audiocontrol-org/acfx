@@ -373,3 +373,106 @@ TEST_CASE("AR2+AR3: overflow and underflow in sequence") {
     CHECK(substituted == 14);
     CHECK(ring.occupancy() == 0);
 }
+
+// ============================================================================
+// AR15 (T021, FR-008, R15): occupancy watermarks — the missing measurement
+// gap. occupancyMin()/occupancyMax() are the running low/high-water marks of
+// occupancy() since construction or the last reset()/stop(); T022's HIL
+// harness reads these to derive the ring capacity/startup-fill/water-range
+// from measurement, replacing the 1024/98 placeholders in
+// usb-audio-service.h. reset()/stop() re-baselining the watermarks is
+// covered separately in nucleo-audio-ring-lifecycle-test.cpp alongside AR9.
+// ============================================================================
+
+TEST_CASE("AR15: watermarks start at 0 immediately after construction") {
+    AudioRing<48> ring(24);
+    CHECK(ring.occupancyMin() == 0);
+    CHECK(ring.occupancyMax() == 0);
+}
+
+TEST_CASE("AR15: max tracks the highest occupancy a write ever reaches") {
+    AudioRing<48> ring(24);
+    std::vector<float> left(20, 0.5f);
+    std::vector<float> right(20, 0.3f);
+    const float* src[2] = {left.data(), right.data()};
+
+    ring.write(src, 12);
+    CHECK(ring.occupancyMax() == 12);  // first write seeds both marks to 12
+
+    ring.write(src, 20);  // occupancy 12 + 20 = 32, a new high
+    CHECK(ring.occupancyMax() == 32);
+
+    // Draw it back down, then write a SMALLER amount than the prior peak: a
+    // small write must not lower a max already reached.
+    std::vector<float> dst_l(24);
+    std::vector<float> dst_r(24);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    ring.read(dst, 24);  // occupancy 32 - 24 = 8
+
+    std::vector<float> tiny_l(1, 0.1f);
+    std::vector<float> tiny_r(1, 0.1f);
+    const float* tinySrc[2] = {tiny_l.data(), tiny_r.data()};
+    ring.write(tinySrc, 1);  // occupancy 8 + 1 = 9, well under the 32 peak
+    CHECK(ring.occupancyMax() == 32);
+}
+
+TEST_CASE("AR15: min tracks a transient low that a later write/read does not erase") {
+    AudioRing<48> ring(0);  // startupFill 0 -- read() behaves predictably from the start
+
+    std::vector<float> left(20, 0.5f);
+    std::vector<float> right(20, 0.3f);
+    const float* src[2] = {left.data(), right.data()};
+    ring.write(src, 20);  // the FIRST write/read seeds both marks to its result
+    CHECK(ring.occupancyMax() == 20);
+    CHECK(ring.occupancyMin() == 20);
+
+    std::vector<float> dst_l(15);
+    std::vector<float> dst_r(15);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    ring.read(dst, 15);  // occupancy 20 - 15 = 5, a new low
+    CHECK(ring.occupancyMin() == 5);
+    CHECK(ring.occupancyMax() == 20);
+
+    ring.write(src, 20);  // occupancy 5 + 20 = 25, a new high; min unaffected
+    CHECK(ring.occupancyMin() == 5);
+    CHECK(ring.occupancyMax() == 25);
+
+    ring.read(dst, 15);  // occupancy 25 - 15 = 10 -- higher than the 5 low, min stays 5
+    CHECK(ring.occupancyMin() == 5);
+    CHECK(ring.occupancyMax() == 25);
+}
+
+TEST_CASE("AR15: the pre-streaming construction-time 0 does not pin the min forever") {
+    // The regression this test guards against: seeding occupancyMin_ at 0
+    // and folding construction's trivial "empty before anything happened"
+    // state into the running minimum would make occupancyMin() read 0 for
+    // the entire life of every ring, since occupancy() can never go below 0
+    // (AR1) -- a low-water mark that can never move is not a measurement.
+    AudioRing<48> ring(0);
+    std::vector<float> left(30, 0.5f);
+    std::vector<float> right(30, 0.3f);
+    const float* src[2] = {left.data(), right.data()};
+
+    ring.write(src, 30);  // first write seeds min to 30, NOT to construction's 0
+    CHECK(ring.occupancyMin() == 30);
+
+    std::vector<float> dst_l(5);
+    std::vector<float> dst_r(5);
+    float* dst[2] = {dst_l.data(), dst_r.data()};
+    ring.read(dst, 5);  // occupancy 30 - 5 = 25 -- still nowhere near 0
+    CHECK(ring.occupancyMin() == 25);
+}
+
+TEST_CASE("AR15: watermarks stay within [0, capacity()] even under overflow") {
+    AudioRing<16> ring(8);
+    std::vector<float> src_l(24, 1.0f);
+    std::vector<float> src_r(24, 1.0f);
+    const float* src[2] = {src_l.data(), src_r.data()};
+
+    // A single write larger than capacity: occupancy caps at capacity(), not
+    // at the raw frame count written.
+    ring.write(src, 24);
+    CHECK(ring.occupancyMax() == 16);
+    CHECK(ring.occupancyMax() <= ring.capacity());
+    CHECK(ring.occupancyMin() >= 0);
+}

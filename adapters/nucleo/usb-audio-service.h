@@ -119,6 +119,37 @@ using OutputRing = AudioRing<kOutputRingCapacityFrames, kChannels>;
 
 inline OutputRing g_outputRing(kOutputRingStartupFillFrames);
 
+// R15 measurement gap (FR-008, T021): named accessors for both rings'
+// occupancy low/high-water marks (AudioRing::occupancyMin()/occupancyMax(),
+// support/audio-ring.h), so a consumer reaches these by name instead of
+// having to know g_inputRing/g_outputRing are the concrete ring objects.
+// T022's HIL harness is the intended reader, deriving the ring capacity /
+// startup-fill / water-range from measurement to replace the 1024/98
+// placeholders above (kInputRingCapacityFrames et al.).
+//
+// DELIBERATELY NOT (yet) threaded onto the CDC wire. T058's diagnostic
+// serializer (support/diagnostic-serializer.h) pins an exact `key=value`
+// text contract that scripts/nucleo-hil/read-serial-snapshot.sh and
+// evaluate-transport-quality.sh parse field-by-field against a fixed key
+// list, sized against a 64-byte CDC TX FIFO (tusb_config.h's
+// CFG_TUD_CDC_TX_BUFSIZE) that a REAL snapshot already uses ~49 of 64 bytes
+// of (scripts/nucleo-hil/fixtures/clean-after.snap). Adding four more
+// uint32 fields there would routinely push a real snapshot over that FIFO's
+// capacity — dropping every snapshot, not just the pathological ones the
+// current budget already tolerates — and would require resizing
+// CFG_TUD_CDC_TX_BUFSIZE, re-deriving kMaxSerializedDiagnosticsBytes' worst-
+// case arithmetic, and re-verifying the OTG-FS device-FIFO RAM budget
+// (usb-descriptors.h's kOtgFsFifoWordsUsed/kOtgFsDfifoWords, which
+// research.md's R14 already documents as a tight 6.25% margin). That is a
+// broader change to the stats/diagnostic wire-format plumbing than this
+// instrumentation task, and belongs with whichever task actually needs to
+// read these values off a running board over CDC (T022, or a dedicated
+// follow-up) — flagged here rather than made silently.
+inline int InputRingOccupancyMin() noexcept { return g_inputRing.occupancyMin(); }
+inline int InputRingOccupancyMax() noexcept { return g_inputRing.occupancyMax(); }
+inline int OutputRingOccupancyMin() noexcept { return g_outputRing.occupancyMin(); }
+inline int OutputRingOccupancyMax() noexcept { return g_outputRing.occupancyMax(); }
+
 // Lifetime transport-health counters (FR-033). One record for the whole
 // adapter; the OUT path below only ever increments. T058 reads it for CDC
 // telemetry. T035's IN path (below) increments `outputUnderruns` — the same
