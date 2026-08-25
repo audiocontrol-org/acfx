@@ -8,11 +8,16 @@
 
 #include <cstdint>
 
+#include "audio-format.h"
+
 namespace acfx::nucleo {
 
-// AudioFormat enum (host-compilable, defined here to avoid tusb.h inclusion).
-// Mirrors usb-audio-service.h's version but is decoupled from firmware headers.
-enum class AudioFormat : std::uint8_t { Pcm16, Pcm24 };
+// AudioFormat itself is defined in support/audio-format.h (T018), the single
+// host-compilable home shared with usb-audio-service.h — see that header's
+// comment. It used to be defined a second time, locally, right here; that
+// second copy is what created the ODR trap the moment both headers met in
+// one translation unit (backlog TASK-12's exact class of bug), fixed by this
+// consolidation.
 
 // A latch that synchronizes a format-change request from the USB SET callback
 // (producer, dispatched from tud_task()'s EP0 control-transfer completion) to
@@ -37,18 +42,12 @@ public:
     // service step. Returns true and yields the format on the first call after
     // a request; returns false on subsequent calls until a fresh request.
     // outFormat is populated iff the return is true.
-    //
-    // STUB (RED for T017): deliberately does NOT clear the pending flag,
-    // so every call returns true. T018 implements exactly-once + transport reset.
     bool consumePendingFormatChange(AudioFormat& outFormat) noexcept {
         if (!m_hasPending) {
             return false;
         }
         outFormat = m_pendingFormat;
-        // STUB: intentionally NOT clearing m_hasPending — this is the bug that
-        // makes the test fail. A correct implementation would:
-        //   m_hasPending = false;
-        // T018 supplies the real fix.
+        m_hasPending = false;
         return true;
     }
 

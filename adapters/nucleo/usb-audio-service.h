@@ -37,7 +37,9 @@
 // this directory (and so tusb_config.h) on the path.
 #include "tusb.h"
 
+#include "audio-format.h"
 #include "audio-ring.h"
+#include "format-change.h"
 #include "lifecycle-policy.h"
 #include "rate-change.h"
 #include "sample-format.h"
@@ -161,7 +163,13 @@ extern bool g_inStreaming;
 // TinyUSB's weak default. Dispatched from tud_task() (D26), so a plain enum
 // needs no atomicity. Default Pcm16 matches alt 1 being the first/16-bit format
 // and the power-up state where no stream is open yet.
-enum class AudioFormat : std::uint8_t { Pcm16, Pcm24 };
+//
+// AudioFormat ITSELF is defined in support/audio-format.h (T018), not here —
+// see that header's comment for why: this header pulls in "tusb.h", so it
+// cannot be format-change.h's home (which must stay host-compilable), and a
+// SECOND local definition here previously collided with format-change.h's
+// copy the moment both headers met in one translation unit (the ODR trap
+// backlog TASK-12 names). "audio-format.h" is included above.
 extern AudioFormat g_currentAudioFormat;
 
 // The currently-selected sample rate (Hz), owned by the Clock Source's
@@ -257,6 +265,19 @@ inline void ServiceUsbLifecycle() noexcept {
 // exactly one producer call site and one consumer call site and both are
 // reachable from this file's include graph without a new extern.
 inline RateChangeLatch g_rateChangeLatch;
+
+// ----------------------------------------------------------------------------
+// T018 (US3, FR-006, research §R9): the format-change latch, the exact mirror
+// of g_rateChangeLatch above — same multiple-inclusion-safe `inline` instance
+// pattern, same producer (usb-audio-controls.cpp's strong tud_audio_set_itf_cb,
+// which already records g_currentAudioFormat and now also arms this latch)
+// and same consumer (ServiceFormatChange(), the sibling of ServiceRateChange()
+// in format-change-service.h, included only from nucleo-main.cpp for the same
+// ACFX_EFFECT_TYPE reason rate-change-service.h documents). support/format-
+// change.h itself has no firmware dependency, so — like rate-change.h — the
+// latch lives here, reachable from both usb-audio-controls.cpp and
+// nucleo-main.cpp's include graph without a new extern.
+inline FormatChangeLatch g_formatChangeLatch;
 
 // Holds only its de-interleave scratch; no heap, no locks.
 inline UsbOutPath g_outPath;

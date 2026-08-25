@@ -259,10 +259,26 @@ extern "C" bool tud_audio_set_itf_cb(uint8_t rhport,
     // Record which format the selected alt declares. Both directions share one
     // format selection here; the format-transition lifecycle (T018) owns any
     // cross-direction consistency question.
-    if (alt == kAltStreaming) {
+    //
+    // Arm the format-change latch (T018) ONLY when the alt actually selects a
+    // format DIFFERENT from the one already recorded — mirrors the SET
+    // callback's write-then-arm order for rate changes
+    // (tud_audio_set_req_entity_cb above), and additionally guards against
+    // arming on a no-op re-select of the SAME alt (e.g. the host re-issuing
+    // SET_INTERFACE for the direction that did NOT change while opening the
+    // other one): g_formatChangeLatch is usb-audio-service.h's shared
+    // FormatChangeLatch instance; requestFormatChange() only stores the new
+    // format and raises a flag — no heap, no locks, no blocking, and per that
+    // header's own comment nothing here resets a ring or touches the DSP. The
+    // poll-loop's ServiceFormatChange() (format-change-service.h, included
+    // only from nucleo-main.cpp) is what consumes this and performs the
+    // transport reset/re-prime, off EP0 context.
+    if (alt == kAltStreaming && g_currentAudioFormat != AudioFormat::Pcm16) {
         g_currentAudioFormat = AudioFormat::Pcm16;
-    } else if (alt == kAltStreaming24) {
+        g_formatChangeLatch.requestFormatChange(AudioFormat::Pcm16);
+    } else if (alt == kAltStreaming24 && g_currentAudioFormat != AudioFormat::Pcm24) {
         g_currentAudioFormat = AudioFormat::Pcm24;
+        g_formatChangeLatch.requestFormatChange(AudioFormat::Pcm24);
     }
     return true;
 }

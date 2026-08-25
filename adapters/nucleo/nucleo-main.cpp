@@ -67,6 +67,14 @@
 // Included exactly once, here.
 #include "rate-change-service.h"
 
+// The format-transition poll-loop reaction's shim half (T018; FR-006,
+// research §R9): binds the shared format-change latch (usb-audio-service.h)
+// to a transport-only ring reset and exposes ServiceFormatChange(). The
+// structural mirror of rate-change-service.h above, EXCEPT it deliberately
+// does NOT call PrepareEffect() — see that header's own comment for why a
+// bit-depth change is not a DSP-affecting event. Included exactly once, here.
+#include "format-change-service.h"
+
 // The live-parameter path's shim half (T045; FR-039/FR-042, contract PSRC3):
 // decodes USB-MIDI Control Change packets, feeds
 // support/parameter-source.h's MidiParameterSource, and flushes
@@ -476,6 +484,11 @@ int main() {
   //   latch — two field reads and a branch when nothing is pending — and only
   //   on a pending change re-prepares the effect (allocation-free) and resets
   //   both rings, all off EP0 context.
+  //   ServiceFormatChange() (T018; FR-006, research §R9) is the same shape as
+  //   ServiceRateChange() above but for a bit-depth change: it consumes the
+  //   format-change latch and, only on a pending change, resets both rings —
+  //   NEVER re-prepares the effect, since a format change carries no
+  //   DSP-relevant information (see format-change-service.h's comment).
   //   ServiceUsbAudioOut() is one read of at most one maximum packet plus a convert-and-write of at most 49 frames, with no wait of any kind.
   //   ServiceParameters() (T045; FR-039/FR-042) drains USB-MIDI's finite RX
   //   fifo (tud_midi_packet_read() returns false once empty, never blocks),
@@ -504,6 +517,7 @@ int main() {
     tud_task();  // T053-T055 suspend/resume/mount callbacks fire from in here
     acfx::nucleo::ServiceUsbLifecycle();
     acfx::nucleo::ServiceRateChange();
+    acfx::nucleo::ServiceFormatChange();
     acfx::nucleo::ServiceUsbAudioOut();
     acfx::nucleo::ServiceParameters();
     acfx::nucleo::ServiceDspBlock();
