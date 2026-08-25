@@ -313,48 +313,69 @@ struct TinyUsbOutFifo {
 
 inline TinyUsbOutFifo g_outFifo;
 
-// The OUT packet staging buffer: ONE maximum packet, 196 bytes, and no larger.
-// This is the bound, not merely a buffer size. TinyUSB's OUT software fifo
-// holds up to CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ (784) bytes and has no
-// packet framing at all — tu_fifo_t carries a byte depth and two indices and
-// no item-size field (src/common/tusb_fifo.h:119-132) — so a read wider than
-// one packet merges consecutive payloads into one undifferentiated byte run.
-// Reading exactly one packet's worth per pass keeps FR-028a truncation landing
-// on a torn payload rather than on a whole backlog. See the framing section at
-// the top of support/usb-out-path.h for what that does and does not guarantee.
+// The OUT packet staging buffer: sized for the 24-bit WORST-CASE packet, 294
+// bytes, and no larger. This is the bound, not merely a buffer size. TinyUSB's
+// OUT software fifo holds up to CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ (1176)
+// bytes and has no packet framing at all — tu_fifo_t carries a byte depth and
+// two indices and no item-size field (src/common/tusb_fifo.h:119-132) — so a
+// read wider than one packet merges consecutive payloads into one
+// undifferentiated byte run. Reading at most one packet's worth per pass keeps
+// FR-028a truncation landing on a torn payload rather than on a whole backlog.
+// See the framing section at the top of support/usb-out-path.h for what that
+// does and does not guarantee.
+//
+// WHY THE WORST CASE, NOT THE ACTIVE FORMAT'S SIZE. ServiceUsbAudioOut() below
+// now passes g_currentAudioFormat into serviceOutFifo() (T019 live-wired),
+// which reads at most UsbOutPath::maxPayloadBytes(format) bytes per pass —
+// 196 B for Pcm16, 294 B for Pcm24 — capped defensively at this buffer's own
+// capacity. Sizing the buffer itself from the WORST case across formats
+// (Pcm24, 294 B), rather than from whichever format happens to be active, is
+// what makes that per-call cap a no-op instead of a live truncation hazard: a
+// host that has just selected 24-bit must never find the buffer only large
+// enough for 16-bit, and the buffer must not need reallocating on a live
+// 16<->24 format change either (FR-010). A Pcm16 packet simply uses the
+// leading 196 B of this same buffer — nothing here shrinks for the 16-bit
+// case.
 //
 // Typed as int16 rather than uint8 so it is correctly aligned for the
-// interleaved 16-bit PCM it holds; tud_audio_read() takes void*.
+// interleaved PCM it holds (16-bit samples, or 24-bit packed bytes
+// reinterpreted — see UsbOutPath::consumePacket()'s Pcm24 branch);
+// tud_audio_read() takes void*.
 //
 // static_asserts rather than comments: tusb_config.h derives its audio sizing
 // from ITS OWN copies of the packet-frame/channel/sample-size constants and
 // already says those "MUST match" the support library's. This is the one place
 // both are visible, so this is where that must-match becomes enforceable.
-// >= not ==, since T015 (US3): CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX is now the
-// 24-bit WORST-CASE envelope (294 B) that the driver's single OUT FIFO is sized
-// for, while UsbOutPath::maxPayloadBytes() is still the 16-bit packet (196 B) —
-// the OUT path itself becomes format-aware in T019, at which point this can
-// tighten back to ==. What must hold NOW is that the endpoint FIFO can hold at
-// least one 16-bit packet, which >= guarantees; a driver buffer SMALLER than a
-// packet is the dangerous drift this still catches.
-static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX >= UsbOutPath::maxPayloadBytes(),
-              "tusb_config.h's OUT packet envelope must cover support/sample-format.h's "
-              "16-bit kMaxPacketFrames/kChannels packet");
-static_assert(UsbOutPath::maxPayloadBytes() % sizeof(std::int16_t) == 0,
-              "OUT packet size must be a whole number of 16-bit samples");
-static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ >= UsbOutPath::maxPayloadBytes(),
-              "OUT software FIFO cannot hold one maximum packet");
+// == now, not >=: T015 left this >= because the OUT path was not yet
+// format-aware (UsbOutPath::maxPayloadBytes() with no argument was still the
+// only 16-bit figure in play). Now that ServiceUsbAudioOut() live-wires T019's
+// format-aware overload, CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX — the 24-bit
+// worst-case envelope the driver's single OUT FIFO is sized for — and
+// UsbOutPath::maxPayloadBytes(AudioFormat::Pcm24) must agree exactly; either
+// drifting from the other is now a real bug, not a pre-wiring formality.
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX ==
+                  UsbOutPath::maxPayloadBytes(AudioFormat::Pcm24),
+              "tusb_config.h's OUT packet envelope must equal support/usb-out-path.h's "
+              "24-bit worst-case packet size");
+static_assert(UsbOutPath::maxPayloadBytes(AudioFormat::Pcm24) % sizeof(std::int16_t) == 0,
+              "OUT worst-case packet size must be a whole number of 16-bit samples");
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ >=
+                  UsbOutPath::maxPayloadBytes(AudioFormat::Pcm24),
+              "OUT software FIFO cannot hold one maximum (24-bit worst-case) packet");
 
-inline std::int16_t g_outPacketBuffer[UsbOutPath::maxPayloadBytes() /
+inline std::int16_t g_outPacketBuffer[UsbOutPath::maxPayloadBytes(AudioFormat::Pcm24) /
                                       static_cast<int>(sizeof(std::int16_t))];
 
-// This is what welds the read bound to the staging buffer across the platform
-// seam: serviceOutFifo() asks for UsbOutPath::maxPayloadBytes() bytes, and the
-// buffer it writes into is exactly that size. Widening either one without the
-// other fails the BUILD.
+// This is what welds the worst-case read bound to the staging buffer across
+// the platform seam: serviceOutFifo()'s own internal cap never lets a read
+// exceed this buffer's capacity for ANY format, and sizing the buffer from
+// the SAME 24-bit worst case that cap is measured against is what keeps that
+// cap unreachable in practice — a genuine per-call read bound, not a silent
+// truncation waiting to happen. Widening the worst case without widening this
+// buffer, or vice versa, fails the BUILD.
 static_assert(sizeof(g_outPacketBuffer) ==
-                  static_cast<std::size_t>(UsbOutPath::maxPayloadBytes()),
-              "OUT staging buffer and the per-call read bound have drifted apart");
+                  static_cast<std::size_t>(UsbOutPath::maxPayloadBytes(AudioFormat::Pcm24)),
+              "OUT staging buffer and the 24-bit worst-case read bound have drifted apart");
 
 // High-water mark of what tud_audio_available() reported still queued AFTER a
 // service pass, in bytes. Pure observability, and the reason the OUT path's
@@ -390,12 +411,20 @@ inline std::uint32_t g_outFifoWorstBacklogBytes = 0;
 // cadence depends on iterating promptly, and it is also the framing decision
 // described above.
 inline void ServiceUsbAudioOut() {
+    // T019/FR-005/FR-010 live-wired: read the active format ONCE per pass —
+    // a plain load of the value the SET_INTERFACE callback already wrote and
+    // the lifecycle reconciler (ServiceUsbLifecycle(), T018) has already
+    // reset the ring against by the time a new format's packets can arrive —
+    // and thread it through so a 24-bit stream gets 24-bit conversion instead
+    // of the silent Pcm16 default.
+    const AudioFormat format = g_currentAudioFormat;
+
     // The pass result carries framesConsumed / framesDropped / wasTruncated,
     // all of which consumePacket() has ALREADY recorded in g_transportStats —
     // the discard below is not a dropped error path. Only backlogBytes has no
     // counter behind it, so that is the one field this reads.
-    const OutServicePass pass =
-        serviceOutFifo(g_outFifo, g_outPath, g_outPacketBuffer, g_inputRing, g_transportStats);
+    const OutServicePass pass = serviceOutFifo(g_outFifo, g_outPath, g_outPacketBuffer,
+                                               g_inputRing, g_transportStats, format);
 
     if (pass.backlogBytes > 0 &&
         static_cast<std::uint32_t>(pass.backlogBytes) > g_outFifoWorstBacklogBytes) {
@@ -515,8 +544,15 @@ static_assert(kOtgFsFifoWordsUsed <= kOtgFsDfifoWords,
 // track that transition exactly as promptly as the ring/sink state it
 // otherwise gates on.
 inline void ServiceUsbAudioIn() {
-    static_cast<void>(
-        g_inPath.service(g_outputRing, g_inFifo, g_transportStats, CaptureOnlyActive()));
+    // T019/FR-005/FR-010 live-wired, mirroring ServiceUsbAudioOut() above:
+    // read the active format ONCE per pass — a plain load already
+    // synchronized with the format-transition reset (T018) by the time this
+    // runs — and thread it through as UsbInPath::service()'s trailing
+    // parameter so a 24-bit stream gets 24-bit conversion instead of the
+    // silent Pcm16 default.
+    const AudioFormat format = g_currentAudioFormat;
+    static_cast<void>(g_inPath.service(g_outputRing, g_inFifo, g_transportStats,
+                                       CaptureOnlyActive(), format));
 }
 
 }  // namespace acfx::nucleo
