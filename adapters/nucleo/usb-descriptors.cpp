@@ -237,15 +237,17 @@ extern const std::uint8_t kConfigurationDescriptor[kConfigTotalLen] = {
     TUD_AUDIO20_DESC_TYPE_I_FORMAT(/*_subslotsize*/ kBytesPerSample,
                                    /*_bitresolution*/ kBitsPerSample),
 
-    /* ADAPTIVE sink (FR-025): the device consumes whatever the host paces to
-       it and asserts no rate of its own. This is also, per USB 2.0 5.12.4.1,
-       precisely the synchronisation type that takes NO feedback endpoint --
-       explicit feedback accompanies ASYNCHRONOUS OUT endpoints. See the
-       feedback note in usb-descriptors.h before adding one. */
+    /* SYNCHRONOUS sink (FR-001, research §R2): the device's audio timebase IS
+       the USB SOF, so both iso endpoints declare SYNCHRONOUS. This replaces the
+       prior ADAPTIVE (0x09) declaration -- ADAPTIVE told the host the device had
+       no rate of its own, which made CoreAudio's resampler pitch-shift and add
+       noise. SYNCHRONOUS bmAttributes = ISOCHRONOUS(0x01) | SYNCHRONOUS(0x0C) |
+       DATA(0x00) = 0x0D. A SYNCHRONOUS OUT endpoint takes NO feedback endpoint
+       (per USB 2.0 5.12.4.1, feedback accompanies ASYNCHRONOUS OUT only). */
     TUD_AUDIO20_DESC_STD_AS_ISO_EP(
         /*_ep*/ kEpAudioOut,
         /*_attr*/ (static_cast<std::uint8_t>(TUSB_XFER_ISOCHRONOUS) |
-                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_ADAPTIVE) |
+                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_SYNCHRONOUS) |
                    static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_DATA)),
         /*_maxEPsize*/ kAudioEpSize, /*_interval*/ 0x01),
 
@@ -281,13 +283,16 @@ extern const std::uint8_t kConfigurationDescriptor[kConfigTotalLen] = {
     TUD_AUDIO20_DESC_TYPE_I_FORMAT(/*_subslotsize*/ kBytesPerSample,
                                    /*_bitresolution*/ kBitsPerSample),
 
-    /* ASYNCHRONOUS source (FR-026). An IN endpoint never carries an explicit
-       feedback endpoint -- feedback for an asynchronous IN stream is implicit
-       in the packet sizes the device actually sends. */
+    /* SYNCHRONOUS source (FR-001, research §R2): the IN stream shares the same
+       SOF-locked timebase as the OUT sink, so it declares SYNCHRONOUS too. This
+       replaces the prior ASYNCHRONOUS (0x05) declaration, which presented the
+       device as free-running with no feedback. SYNCHRONOUS bmAttributes =
+       ISOCHRONOUS(0x01) | SYNCHRONOUS(0x0C) | DATA(0x00) = 0x0D. An IN endpoint
+       never carries an explicit feedback endpoint regardless of sync type. */
     TUD_AUDIO20_DESC_STD_AS_ISO_EP(
         /*_ep*/ kEpAudioIn,
         /*_attr*/ (static_cast<std::uint8_t>(TUSB_XFER_ISOCHRONOUS) |
-                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_ASYNCHRONOUS) |
+                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_SYNCHRONOUS) |
                    static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_DATA)),
         /*_maxEPsize*/ kAudioEpSize, /*_interval*/ 0x01),
 
