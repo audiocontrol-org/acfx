@@ -263,6 +263,43 @@ extern const std::uint8_t kConfigurationDescriptor[kConfigTotalLen] = {
         /*_lockdelayunit*/ AUDIO20_CS_AS_ISO_DATA_EP_LOCK_DELAY_UNIT_MILLISEC,
         /*_lockdelay*/ 0x0001),
 
+    /* Alt 2: packed-24-bit PCM (T015/US3, FR-005/FR-010). Identical to alt 1
+       except the Type-I FORMAT declares bSubslotSize=3 / bBitResolution=24, and
+       it references the SAME clock, terminal, and physical endpoint (kEpAudioOut)
+       -- the only per-alt difference the host sees is the sample format. The iso
+       endpoint declares the worst-case wMaxPacketSize (kAudioEpSize) that the
+       driver's single FIFO is sized for; that it equals alt 1's here is because
+       kAudioEpSize is already the 24-bit worst case (usb-descriptors.h). */
+    TUD_AUDIO20_DESC_STD_AS_INT(/*_itfnum*/ kItfNumAudioStreamingOut,
+                                /*_altset*/ kAltStreaming24, /*_nEPs*/ 0x01,
+                                /*_stridx*/ kStrAudioStreamOut),
+
+    TUD_AUDIO20_DESC_CS_AS_INT(
+        /*_termid*/ kEntityOutStreamInputTerminal, /*_ctrl*/ AUDIO20_CTRL_NONE,
+        /*_formattype*/ AUDIO20_FORMAT_TYPE_I,
+        /*_formats*/ AUDIO20_DATA_FORMAT_TYPE_I_PCM,
+        /*_nchannelsphysical*/ kAudioChannels,
+        /*_channelcfg*/
+        (AUDIO20_CHANNEL_CONFIG_FRONT_LEFT | AUDIO20_CHANNEL_CONFIG_FRONT_RIGHT),
+        /*_stridx*/ 0x00),
+
+    /* 3 bytes per subslot, 24 bits used. UAC2 carries no sample rate here. */
+    TUD_AUDIO20_DESC_TYPE_I_FORMAT(/*_subslotsize*/ kBytesPerSample24,
+                                   /*_bitresolution*/ kBitsPerSample24),
+
+    TUD_AUDIO20_DESC_STD_AS_ISO_EP(
+        /*_ep*/ kEpAudioOut,
+        /*_attr*/ (static_cast<std::uint8_t>(TUSB_XFER_ISOCHRONOUS) |
+                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_SYNCHRONOUS) |
+                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_DATA)),
+        /*_maxEPsize*/ kAudioEpSize, /*_interval*/ 0x01),
+
+    TUD_AUDIO20_DESC_CS_AS_ISO_EP(
+        /*_attr*/ AUDIO20_CS_AS_ISO_DATA_EP_ATT_NON_MAX_PACKETS_OK,
+        /*_ctrl*/ AUDIO20_CTRL_NONE,
+        /*_lockdelayunit*/ AUDIO20_CS_AS_ISO_DATA_EP_LOCK_DELAY_UNIT_MILLISEC,
+        /*_lockdelay*/ 0x0001),
+
     // --- Streaming interface 2: IN, device -> host (FR-026) ---------------
 
     TUD_AUDIO20_DESC_STD_AS_INT(/*_itfnum*/ kItfNumAudioStreamingIn,
@@ -291,6 +328,39 @@ extern const std::uint8_t kConfigurationDescriptor[kConfigTotalLen] = {
        device as free-running with no feedback. SYNCHRONOUS bmAttributes =
        ISOCHRONOUS(0x01) | SYNCHRONOUS(0x0C) | DATA(0x00) = 0x0D. An IN endpoint
        never carries an explicit feedback endpoint regardless of sync type. */
+    TUD_AUDIO20_DESC_STD_AS_ISO_EP(
+        /*_ep*/ kEpAudioIn,
+        /*_attr*/ (static_cast<std::uint8_t>(TUSB_XFER_ISOCHRONOUS) |
+                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_SYNCHRONOUS) |
+                   static_cast<std::uint8_t>(TUSB_ISO_EP_ATT_DATA)),
+        /*_maxEPsize*/ kAudioEpSize, /*_interval*/ 0x01),
+
+    TUD_AUDIO20_DESC_CS_AS_ISO_EP(
+        /*_attr*/ AUDIO20_CS_AS_ISO_DATA_EP_ATT_NON_MAX_PACKETS_OK,
+        /*_ctrl*/ AUDIO20_CTRL_NONE,
+        /*_lockdelayunit*/ AUDIO20_CS_AS_ISO_DATA_EP_LOCK_DELAY_UNIT_UNDEFINED,
+        /*_lockdelay*/ 0x0000),
+
+    /* Alt 2: packed-24-bit PCM (T015/US3, FR-005/FR-010). The IN-side mirror of
+       the OUT alt 2 above: same clock/terminal/endpoint (kEpAudioIn), only the
+       Type-I FORMAT differs (bSubslotSize=3 / bBitResolution=24). Lock-delay
+       fields match this direction's alt 1 (UNDEFINED / 0). */
+    TUD_AUDIO20_DESC_STD_AS_INT(/*_itfnum*/ kItfNumAudioStreamingIn,
+                                /*_altset*/ kAltStreaming24, /*_nEPs*/ 0x01,
+                                /*_stridx*/ kStrAudioStreamIn),
+
+    TUD_AUDIO20_DESC_CS_AS_INT(
+        /*_termid*/ kEntityInStreamOutputTerminal, /*_ctrl*/ AUDIO20_CTRL_NONE,
+        /*_formattype*/ AUDIO20_FORMAT_TYPE_I,
+        /*_formats*/ AUDIO20_DATA_FORMAT_TYPE_I_PCM,
+        /*_nchannelsphysical*/ kAudioChannels,
+        /*_channelcfg*/
+        (AUDIO20_CHANNEL_CONFIG_FRONT_LEFT | AUDIO20_CHANNEL_CONFIG_FRONT_RIGHT),
+        /*_stridx*/ 0x00),
+
+    TUD_AUDIO20_DESC_TYPE_I_FORMAT(/*_subslotsize*/ kBytesPerSample24,
+                                   /*_bitresolution*/ kBitsPerSample24),
+
     TUD_AUDIO20_DESC_STD_AS_ISO_EP(
         /*_ep*/ kEpAudioIn,
         /*_attr*/ (static_cast<std::uint8_t>(TUSB_XFER_ISOCHRONOUS) |

@@ -149,6 +149,21 @@ inline AudioTransportStats g_transportStats;
 extern bool g_outStreaming;
 extern bool g_inStreaming;
 
+// T015 (US3, FR-005/FR-010): which PCM sample format the host most recently
+// SELECTED via SET_INTERFACE alt setting. alt 1 -> Pcm16, alt 2 -> Pcm24; this
+// is the run-time counterpart to the two alts usb-descriptors.cpp advertises.
+// The poll-loop converters (T019) read this to pick int16 vs packed-24
+// conversion; the format-transition lifecycle (T017/T018) reads it to detect a
+// 16<->24 change. DECLARED extern HERE, DEFINED (and written) in
+// usb-audio-controls.cpp by the SAME strong tud_audio_set_itf_cb that owns
+// g_outStreaming/g_inStreaming -- for exactly the weak-callback-linkage reason
+// documented there and above, an `inline` definition would risk losing to
+// TinyUSB's weak default. Dispatched from tud_task() (D26), so a plain enum
+// needs no atomicity. Default Pcm16 matches alt 1 being the first/16-bit format
+// and the power-up state where no stream is open yet.
+enum class AudioFormat : std::uint8_t { Pcm16, Pcm24 };
+extern AudioFormat g_currentAudioFormat;
+
 // The currently-selected sample rate (Hz), owned by the Clock Source's
 // Sampling-Frequency Control (US2, FR-004). Default kDefaultSampleRateHz
 // (48000). DECLARED extern HERE, DEFINED in usb-audio-controls.cpp beside the
@@ -294,9 +309,16 @@ inline TinyUsbOutFifo g_outFifo;
 // from ITS OWN copies of the packet-frame/channel/sample-size constants and
 // already says those "MUST match" the support library's. This is the one place
 // both are visible, so this is where that must-match becomes enforceable.
-static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX == UsbOutPath::maxPayloadBytes(),
-              "tusb_config.h's OUT packet size and support/sample-format.h's "
-              "kMaxPacketFrames/kChannels have drifted apart");
+// >= not ==, since T015 (US3): CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX is now the
+// 24-bit WORST-CASE envelope (294 B) that the driver's single OUT FIFO is sized
+// for, while UsbOutPath::maxPayloadBytes() is still the 16-bit packet (196 B) —
+// the OUT path itself becomes format-aware in T019, at which point this can
+// tighten back to ==. What must hold NOW is that the endpoint FIFO can hold at
+// least one 16-bit packet, which >= guarantees; a driver buffer SMALLER than a
+// packet is the dangerous drift this still catches.
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX >= UsbOutPath::maxPayloadBytes(),
+              "tusb_config.h's OUT packet envelope must cover support/sample-format.h's "
+              "16-bit kMaxPacketFrames/kChannels packet");
 static_assert(UsbOutPath::maxPayloadBytes() % sizeof(std::int16_t) == 0,
               "OUT packet size must be a whole number of 16-bit samples");
 static_assert(CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ >= UsbOutPath::maxPayloadBytes(),
@@ -414,9 +436,12 @@ inline UsbInPath g_inPath;
 // tusb_config.h's IN packet size and support/sample-format.h's
 // kMaxPacketFrames/kChannels must agree, the same cross-check the OUT side's
 // static_asserts above already perform.
-static_assert(CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX == UsbInPath::maxPayloadBytes(),
-              "tusb_config.h's IN packet size and support/usb-in-path.h's "
-              "kMaxPacketFrames/kChannels have drifted apart");
+// >= not ==, for the same T015 reason as the OUT side above: EP_IN_SZ_MAX is
+// now the 24-bit worst-case envelope (294 B); UsbInPath::maxPayloadBytes() is
+// the 16-bit packet (196 B) until the IN path goes format-aware in T019.
+static_assert(CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX >= UsbInPath::maxPayloadBytes(),
+              "tusb_config.h's IN packet envelope must cover support/usb-in-path.h's "
+              "16-bit kMaxPacketFrames/kChannels packet");
 static_assert(UsbInPath::maxPayloadBytes() % sizeof(std::int16_t) == 0,
               "IN packet size must be a whole number of 16-bit samples");
 static_assert(CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ >= UsbInPath::maxPayloadBytes(),

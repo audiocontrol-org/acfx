@@ -163,39 +163,54 @@
 
 // --- Endpoint size arithmetic (D21/FR-028) ---------------------------------
 //
-// The format is fixed at 48 kHz / 16-bit / stereo (FR-020), full speed, so
-// USB delivers one isochronous packet per 1 ms SOF frame. A host is allowed
-// to vary how many stereo frames it puts in that packet -- D21/FR-028 pin
-// the accepted range at 0 to 49 stereo frames inclusive, NOT a bare 48,
-// because a full-speed host may legitimately deliver one extra frame in a
-// given 1 ms packet to stay caught up with its own clock. That same 49-frame
-// bound is defined once, non-negotiably, as kMaxPacketFrames in
+// The stream is 48 kHz / stereo (FR-020), full speed, so USB delivers one
+// isochronous packet per 1 ms SOF frame. Two PCM sample formats are advertised
+// per direction (T015/US3): alt 1 is 16-bit (2-byte subslot), alt 2 is
+// packed-24-bit (3-byte subslot); the format is selected per-alt at run time,
+// so the DRIVER'S single endpoint FIFO/software buffer is sized for the LARGER
+// (24-bit) one. A host is allowed to vary how many stereo frames it puts in a
+// packet -- D21/FR-028 pin the accepted range at 0 to 49 stereo frames
+// inclusive, NOT a bare 48, because a full-speed host may legitimately deliver
+// one extra frame in a given 1 ms packet to stay caught up with its own clock.
+// That 49-frame bound is defined once, non-negotiably, as kMaxPacketFrames in
 // adapters/nucleo/support/sample-format.h -- the constants below exist only
 // because this file is plain C and cannot #include that C++ header, so the
-// same three numbers (49 frames, 2 channels, 2 bytes/sample) are restated
-// here and must be kept in agreement with it by hand.
+// same three numbers (49 frames, 2 channels, 3 bytes/sample worst case) are
+// restated here and must be kept in agreement with it by hand.
 //
-//   max packet size = kMaxPacketFrames * kChannels * bytes/sample
-//                    =        49        *    2      *      2       = 196 bytes
+//   worst-case packet = kMaxPacketFrames * kChannels * max subslot bytes
+//                     =        49         *    2      *      3        = 294 bytes
 //
-// 196 bytes is comfortably inside the full-speed isochronous ceiling of
+// 294 bytes is comfortably inside the full-speed isochronous ceiling of
 // 1023 bytes/packet, and is also exactly what TinyUSB's own sizing helper
-// TUD_AUDIO_EP_SIZE(is_highspeed=false, 48000, 2, 2) computes
-// (((48000+999)/1000)+1)*2*2 = (48+1)*4 = 196 (src/device/usbd.h:809) -- the
+// TUD_AUDIO_EP_SIZE(is_highspeed=false, 48000, 3, 2) computes
+// (((48000+999)/1000)+1)*3*2 = (48+1)*6 = 294 (src/device/usbd.h:809) -- the
 // two derivations agreeing is a useful cross-check, not a coincidence: both
 // are counting "worst case whole frames deliverable in one 1 ms interval".
+// (The 16-bit alt's own packet is 49*2*2 = 196 B, which this envelope covers.)
 #define ACFX_USB_AUDIO_MAX_PACKET_FRAMES 49  // D21/FR-028; MUST match kMaxPacketFrames
 #define ACFX_USB_AUDIO_CHANNELS 2            // FR-020 stereo only; MUST match kChannels
-#define ACFX_USB_AUDIO_BYTES_PER_SAMPLE 2    // FR-020 16-bit
+
+// WORST-CASE SUBSLOT across the advertised alt settings (T015/US3, FR-005/
+// FR-010). Two PCM formats are advertised per streaming interface: alt 1 is
+// 16-bit (bSubslotSize=2) and alt 2 is packed-24-bit (bSubslotSize=3). The
+// DRIVER'S endpoint FIFO and software buffer are allocated ONCE, from these
+// sizing macros, and must hold the LARGER format's packet, so the sizing uses
+// the maximum subslot (3). This is deliberately NOT a per-alt value: the
+// per-alt Type-I FORMAT descriptors in usb-descriptors.cpp each declare their
+// OWN bSubslotSize (2 or 3); THIS number is only the buffer envelope that
+// covers both. It matches kMaxSubslotBytes in usb-descriptors.h by hand, the
+// same way the frame/channel counts above mirror the C++ header.
+#define ACFX_USB_AUDIO_MAX_SUBSLOT_BYTES 3   // FR-010 packed-24 is the larger format
 
 // Hard-required by the driver: omitting either is a #error at
 // src/class/audio/audio_device.h:57-59 / :73-75.
 #define CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX                                    \
   (ACFX_USB_AUDIO_MAX_PACKET_FRAMES * ACFX_USB_AUDIO_CHANNELS *              \
-   ACFX_USB_AUDIO_BYTES_PER_SAMPLE)  // 49 * 2 * 2 = 196 bytes
+   ACFX_USB_AUDIO_MAX_SUBSLOT_BYTES)  // 49 * 2 * 3 = 294 bytes (24-bit worst case)
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX                                   \
   (ACFX_USB_AUDIO_MAX_PACKET_FRAMES * ACFX_USB_AUDIO_CHANNELS *              \
-   ACFX_USB_AUDIO_BYTES_PER_SAMPLE)  // 49 * 2 * 2 = 196 bytes
+   ACFX_USB_AUDIO_MAX_SUBSLOT_BYTES)  // 49 * 2 * 3 = 294 bytes (24-bit worst case)
 
 // --- Software FIFO depth (also hard-required; defaults to 0, which always
 // fails the driver's own `SW_BUF_SZ >= SZ_MAX` check at
@@ -217,9 +232,9 @@
 // justified it.
 #define ACFX_USB_AUDIO_SW_BUF_MULTIPLE 4
 #define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ                                 \
-  (ACFX_USB_AUDIO_SW_BUF_MULTIPLE * CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX)  // 4*196=784
+  (ACFX_USB_AUDIO_SW_BUF_MULTIPLE * CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX)  // 4*294=1176 (>= 4*Navg 1152 @48k/24-bit)
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ                                \
-  (ACFX_USB_AUDIO_SW_BUF_MULTIPLE * CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX)  // 4*196=784
+  (ACFX_USB_AUDIO_SW_BUF_MULTIPLE * CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX)  // 4*294=1176
 
 // --- IN flow-control FIFO adequacy (R5/R7; audio_device.c's flow-control
 // packet-size loop, audiod_tx_packet_size()/audiod_calc_tx_packet_sz()) ---
@@ -242,9 +257,13 @@
 // also satisfies 4x the true (smaller) average. The check below is built
 // straight from the same three macros that already define
 // CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX above (MAX_PACKET_FRAMES, CHANNELS,
-// BYTES_PER_SAMPLE), not a restated 196/784 constant, so it self-adjusts
-// automatically when T015 resizes ACFX_USB_AUDIO_BYTES_PER_SAMPLE from 2 to
-// 3 for packed-24 (or if the frame/channel bounds ever change).
+// MAX_SUBSLOT_BYTES), not a restated 196/784 constant, so it self-adjusts
+// automatically: T015 has now resized the subslot input from 2 to 3 for
+// packed-24 (ACFX_USB_AUDIO_MAX_SUBSLOT_BYTES above), and because the SZ_MAX
+// macro and THIS assert's RHS are built from the SAME three macros they moved
+// together (Navg proxy grew 196->294, so 4*Navg grew 784->1176, matched by the
+// SW-buf's own 784->1176). The check stays exact for any future subslot/frame/
+// channel change too.
 //
 // #if/#error rather than static_assert: this header is plain C, #include'd
 // directly by TinyUSB's own .c translation units (src/device/usbd.c,
@@ -254,7 +273,7 @@
 // immediately adjacent (src/class/audio/audio_device.h:110-140).
 #if CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ <                                   \
     (4 * ACFX_USB_AUDIO_MAX_PACKET_FRAMES * ACFX_USB_AUDIO_CHANNELS *        \
-     ACFX_USB_AUDIO_BYTES_PER_SAMPLE)
+     ACFX_USB_AUDIO_MAX_SUBSLOT_BYTES)
 #error                                                                        \
     "CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ must be >= 4*Navg (audio_device.c:1864-1865) for CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL adequacy; widen ACFX_USB_AUDIO_SW_BUF_MULTIPLE or its inputs"
 #endif

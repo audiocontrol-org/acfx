@@ -97,14 +97,19 @@ static_assert(kIadItfCountAudio + kIadItfCountMidi + kIadItfCountCdc == kItfCoun
 // Alternate settings (FR-020, D4)
 // ---------------------------------------------------------------------------
 //
-// Each streaming interface has exactly TWO alt settings: alt 0 carries no
-// endpoint at all (the mandatory zero-bandwidth setting a host selects to
-// close a stream), and alt 1 carries the one advertised format. There is no
-// alt 2. Advertising a second format would let a host select a format this
-// firmware does not implement -- a real hazard here, not a theoretical one,
-// because the conversion path (support/sample-format.h) is 16-bit-only.
+// Each streaming interface has THREE alt settings (T015/US3, FR-005): alt 0
+// carries no endpoint at all (the mandatory zero-bandwidth setting a host
+// selects to close a stream), alt 1 carries the 16-bit PCM format, and alt 2
+// carries the packed-24-bit PCM format. Both non-zero alts reference the SAME
+// clock and terminals (a single clock domain, FR-016); they differ ONLY in the
+// Type-I FORMAT descriptor's bSubslotSize/bBitResolution. This is safe now, and
+// was not before US3, because the conversion path (support/sample-format.h)
+// implements BOTH formats (int16 and packed-24) and the strong
+// tud_audio_set_itf_cb records which one the host selected
+// (g_currentAudioFormat) so the poll-loop converters pick the matching one.
 inline constexpr std::uint8_t kAltZeroBandwidth = 0;
-inline constexpr std::uint8_t kAltStreaming = 1;
+inline constexpr std::uint8_t kAltStreaming = 1;    // 16-bit PCM (bSubslotSize=2)
+inline constexpr std::uint8_t kAltStreaming24 = 2;  // packed-24-bit PCM (bSubslotSize=3)
 
 // ---------------------------------------------------------------------------
 // Endpoint addresses (research.md R14.3)
@@ -162,18 +167,35 @@ static_assert(CFG_TUD_CDC_RX_EPSIZE == CFG_TUD_CDC_TX_EPSIZE,
 // request. That is why usb-audio-controls.cpp exists and answers those
 // requests: the descriptor alone cannot say "48 kHz".
 inline constexpr std::uint32_t kSampleRateHz = 48000;
-inline constexpr std::uint8_t kBytesPerSample = 2;  // subslot size
-inline constexpr std::uint8_t kBitsPerSample = 16;  // bit resolution
+inline constexpr std::uint8_t kBytesPerSample = 2;  // alt 1 subslot size (16-bit)
+inline constexpr std::uint8_t kBitsPerSample = 16;  // alt 1 bit resolution
+// Packed-24-bit format carried on alt 2 (T015/US3, FR-010). 3-byte subslot,
+// 24 bits used -- the signed-LE packed-24 support/sample-format.h converts.
+inline constexpr std::uint8_t kBytesPerSample24 = 3;  // alt 2 subslot size (packed-24)
+inline constexpr std::uint8_t kBitsPerSample24 = 24;  // alt 2 bit resolution
 inline constexpr std::uint8_t kAudioChannels = 2;   // stereo, both directions
 
-// wMaxPacketSize for both isochronous endpoints: 49 stereo frames, not 48.
-// D21/FR-028 require accepting one extra frame per 1 ms packet, because a
-// full-speed host may legitimately deliver 49 frames in a frame to stay in
-// step with its own clock. Cross-checked three ways below so the descriptor,
-// the driver's FIFO sizing, and the conversion path cannot disagree.
+// WORST-CASE subslot across the two advertised alts. The endpoint's
+// wMaxPacketSize and the driver's FIFO sizing (tusb_config.h's
+// ACFX_USB_AUDIO_MAX_SUBSLOT_BYTES, kept in agreement with this by hand) are
+// allocated ONCE and must hold the LARGER (24-bit) packet, so both alt
+// endpoints declare this worst-case size; the per-alt Type-I FORMAT
+// descriptors still declare their own bSubslotSize (2 or 3).
+inline constexpr std::uint8_t kMaxSubslotBytes = kBytesPerSample24;  // 3
+
+// wMaxPacketSize for both isochronous endpoints: 49 stereo frames, not 48,
+// AT THE WORST-CASE (24-bit) subslot. D21/FR-028 require accepting one extra
+// frame per 1 ms packet, because a full-speed host may legitimately deliver 49
+// frames in a frame to stay in step with its own clock. Both alt endpoints
+// (16-bit alt 1 and packed-24 alt 2) share this ONE physical endpoint and this
+// ONE wMaxPacketSize -- it is a MAXIMUM, so declaring the 24-bit worst case on
+// the 16-bit alt too is legal (the host reserves iso bandwidth for the larger
+// packet) and keeps the driver's single FIFO sized right for either format.
+// Cross-checked three ways below so the descriptor, the driver's FIFO sizing,
+// and the conversion path cannot disagree.
 inline constexpr std::uint16_t kAudioEpSize =
-    static_cast<std::uint16_t>(kMaxPacketFrames * kAudioChannels * kBytesPerSample);
-static_assert(kAudioEpSize == 196);
+    static_cast<std::uint16_t>(kMaxPacketFrames * kAudioChannels * kMaxSubslotBytes);
+static_assert(kAudioEpSize == 294);
 static_assert(kAudioChannels == kChannels,
               "Descriptor channel count must match support/sample-format.h");
 static_assert(kAudioEpSize == CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX,
@@ -181,7 +203,7 @@ static_assert(kAudioEpSize == CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX,
 static_assert(kAudioEpSize == CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX,
               "Descriptor OUT packet size must match the driver's OUT FIFO sizing");
 static_assert(kAudioEpSize == TUD_AUDIO_EP_SIZE(/*_is_highspeed*/ 0, kSampleRateHz,
-                                                kBytesPerSample, kAudioChannels),
+                                                kMaxSubslotBytes, kAudioChannels),
               "Disagrees with TinyUSB's own EP sizing helper (usbd.h:809)");
 static_assert(kAudioEpSize <= 1023, "Full-speed isochronous packet ceiling");
 
@@ -237,15 +259,24 @@ inline constexpr std::uint16_t kAudioControlEntitiesLen =
     TUD_AUDIO20_DESC_OUTPUT_TERM_LEN + TUD_AUDIO20_DESC_INPUT_TERM_LEN +
     TUD_AUDIO20_DESC_OUTPUT_TERM_LEN;  // 8 + 17 + 12 + 17 + 12 = 66
 
-// One streaming interface: alt 0 (zero bandwidth) + alt 1 (the one format).
+// One streaming interface: alt 0 (zero bandwidth) + alt 1 (16-bit format) +
+// alt 2 (packed-24-bit format). Each non-zero alt carries the same five-
+// descriptor block (STD_AS interface, CS_AS general, Type-I format, iso data
+// endpoint, its class-specific companion); alt 1 and alt 2 differ only in the
+// Type-I format's bSubslotSize/bBitResolution (T015/US3, FR-005).
 inline constexpr std::uint16_t kAudioStreamingItfLen =
     TUD_AUDIO20_DESC_STD_AS_LEN +          // alt 0, no endpoint
-    TUD_AUDIO20_DESC_STD_AS_LEN +          // alt 1
+    TUD_AUDIO20_DESC_STD_AS_LEN +          // alt 1 (16-bit)
+    TUD_AUDIO20_DESC_CS_AS_INT_LEN +       //   AS general
+    TUD_AUDIO20_DESC_TYPE_I_FORMAT_LEN +   //   Type I format
+    TUD_AUDIO20_DESC_STD_AS_ISO_EP_LEN +   //   iso data endpoint
+    TUD_AUDIO20_DESC_CS_AS_ISO_EP_LEN +    //   its class-specific companion
+    TUD_AUDIO20_DESC_STD_AS_LEN +          // alt 2 (packed-24-bit)
     TUD_AUDIO20_DESC_CS_AS_INT_LEN +       //   AS general
     TUD_AUDIO20_DESC_TYPE_I_FORMAT_LEN +   //   Type I format
     TUD_AUDIO20_DESC_STD_AS_ISO_EP_LEN +   //   iso data endpoint
     TUD_AUDIO20_DESC_CS_AS_ISO_EP_LEN;     //   its class-specific companion
-                                           // 9 + 9 + 16 + 6 + 7 + 8 = 55
+                                           // 9 + (9+16+6+7+8) + (9+16+6+7+8) = 101
 
 // ***********************************************************************
 // NO FEEDBACK ENDPOINT -- DELIBERATE (FR-027, D20). READ BEFORE "FIXING".
@@ -283,8 +314,8 @@ inline constexpr std::uint16_t kAudioFunctionLen =
     TUD_AUDIO20_DESC_STD_AC_LEN +   // 9
     TUD_AUDIO20_DESC_CS_AC_LEN +    // 9
     kAudioControlEntitiesLen +      // 66
-    2 * kAudioStreamingItfLen;      // 110  (OUT + IN)
-static_assert(kAudioFunctionLen == 202);
+    2 * kAudioStreamingItfLen;      // 202  (OUT + IN, each 101 with alt 1 + alt 2)
+static_assert(kAudioFunctionLen == 294);
 
 // TUD_MIDI_DESCRIPTOR (usbd.h:419-424) emits an AudioControl interface and a
 // MIDIStreaming interface but NO IAD, so this file supplies one -- otherwise a

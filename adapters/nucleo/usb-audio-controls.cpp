@@ -224,18 +224,45 @@ extern "C" bool tud_audio_set_req_entity_cb(std::uint8_t rhport,
 namespace acfx::nucleo {
 bool g_outStreaming = false;
 bool g_inStreaming = false;
+
+// T015 (US3, FR-005/FR-010): the selected PCM format. Owned here beside the
+// streaming flags, written ONLY by the strong tud_audio_set_itf_cb below, read
+// by the poll-loop converters (T019) and the format-transition lifecycle
+// (T017/T018). Declared extern in usb-audio-service.h. Default Pcm16.
+AudioFormat g_currentAudioFormat = AudioFormat::Pcm16;
 }  // namespace acfx::nucleo
 
 // Fires on a SET_INTERFACE that OPENS an endpoint (alt != 0).
+//
+// T015 EXTENSION: this device now advertises TWO non-zero alts per streaming
+// interface -- alt 1 (16-bit) and alt 2 (packed-24-bit). So "is this direction
+// streaming" is any non-zero alt (NOT just alt 1, which the pre-T015 code
+// checked and which would have wrongly read a 24-bit stream as closed), and the
+// alt value ALSO selects the format recorded in g_currentAudioFormat. This
+// callback still ONLY records state -- no heap, no locks, no transport reset;
+// the format-transition reaction is deferred to the poll loop (T018), exactly
+// as the streaming-flag reconciliation already is (ServiceUsbLifecycle).
 extern "C" bool tud_audio_set_itf_cb(uint8_t rhport,
                                      tusb_control_request_t const* p_request) {
     (void) rhport;
+    using namespace acfx::nucleo;
     const uint8_t itf = tu_u16_low(p_request->wIndex);
     const uint8_t alt = tu_u16_low(p_request->wValue);
-    if (itf == acfx::nucleo::kItfNumAudioStreamingOut) {
-        acfx::nucleo::g_outStreaming = (alt == acfx::nucleo::kAltStreaming);
-    } else if (itf == acfx::nucleo::kItfNumAudioStreamingIn) {
-        acfx::nucleo::g_inStreaming = (alt == acfx::nucleo::kAltStreaming);
+    const bool streaming = (alt == kAltStreaming || alt == kAltStreaming24);
+    if (itf == kItfNumAudioStreamingOut) {
+        g_outStreaming = streaming;
+    } else if (itf == kItfNumAudioStreamingIn) {
+        g_inStreaming = streaming;
+    } else {
+        return true;  // MIDI/CDC carry no alt settings; nothing to record.
+    }
+    // Record which format the selected alt declares. Both directions share one
+    // format selection here; the format-transition lifecycle (T018) owns any
+    // cross-direction consistency question.
+    if (alt == kAltStreaming) {
+        g_currentAudioFormat = AudioFormat::Pcm16;
+    } else if (alt == kAltStreaming24) {
+        g_currentAudioFormat = AudioFormat::Pcm24;
     }
     return true;
 }
