@@ -269,3 +269,17 @@ acfx_add_effect_nucleo(
   LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
                  acfx::nucleo_tinyusb
 )
+
+# SPIKE / THROWAWAY — reverse-reverb feasibility probe
+# (core/effects/spike-reverse-reverb). Decimated (D=6, 8 kHz) double-buffered
+# int16 capture window + mono 8 kHz Freeverb tank; validates the capture-window
+# memory technique. Replace with a specced effect if the probe passes.
+acfx_add_effect_nucleo(
+  NAME acfx_nucleo_spike_reverse_reverb
+  EFFECT_TYPE acfx::SpikeReverseReverb
+  EFFECT_HEADER effects/spike-reverse-reverb/spike-reverse-reverb.h
+  SOURCE ${_nucleo_main}
+  LINKER_SCRIPT ${_nucleo_lds}
+  LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
+                 acfx::nucleo_tinyusb
+)
