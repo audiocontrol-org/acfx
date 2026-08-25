@@ -125,30 +125,21 @@ inline constexpr std::uint8_t kAltStreaming24 = 2;  // packed-24-bit PCM (bSubsl
 // only hard guard is TU_ASSERT(epnum < ep_count) at dcd_dwc2.c:211. STM32F4 is
 // not in the CFG_TUD_ENDPOINT_ONE_DIRECTION_ONLY list, so the same number may
 // carry both an IN and an OUT endpoint -- which is why audio can use 0x01 and
-// 0x81, and MIDI 0x02 and 0x82. This design uses 5 IN and 3 OUT non-control
-// endpoints of 5 and 5 available; with the feedback IN endpoint (0x85) added,
-// the five IN endpoint NUMBERS 1..5 are now ALL in use (EP5 was previously the
-// only spare) -- the device is at the OTG-FS IN-endpoint ceiling, so no further
-// IN endpoint can be added without freeing one.
-inline constexpr std::uint8_t kEpAudioOut = 0x01;   // iso, ASYNC sink (host-paced, feedback-regulated)
+// 0x81, and MIDI 0x02 and 0x82. This design uses 4 IN and 3 OUT non-control
+// endpoints of 5 and 5 available; EP5 is free in both directions.
+inline constexpr std::uint8_t kEpAudioOut = 0x01;   // iso, adaptive sink
 inline constexpr std::uint8_t kEpAudioIn = 0x81;    // iso, async source
 inline constexpr std::uint8_t kEpMidiOut = 0x02;    // bulk
 inline constexpr std::uint8_t kEpMidiIn = 0x82;     // bulk
 inline constexpr std::uint8_t kEpCdcNotify = 0x83;  // interrupt
 inline constexpr std::uint8_t kEpCdcOut = 0x04;     // bulk
 inline constexpr std::uint8_t kEpCdcIn = 0x84;      // bulk
-// Explicit-feedback IN endpoint for the ASYNC OUT stream (UAC2 5.12.4.2). It
-// reports the device's OUT-FIFO fill back to the host so the host paces its
-// OUT delivery to hold the FIFO half-full (AUDIO_FEEDBACK_METHOD_FIFO_COUNT).
-// It rides the OUT audio's streaming interface; the driver identifies it by
-// its bmAttributes usage=feedback, not by number (audio_device.c:921).
-inline constexpr std::uint8_t kEpAudioFeedback = 0x85;  // iso, explicit feedback (IN)
 
 // The one hard silicon limit, asserted rather than trusted.
 static_assert((kEpAudioOut & 0x0F) <= 5 && (kEpAudioIn & 0x0F) <= 5 &&
                   (kEpMidiOut & 0x0F) <= 5 && (kEpMidiIn & 0x0F) <= 5 &&
                   (kEpCdcNotify & 0x0F) <= 5 && (kEpCdcOut & 0x0F) <= 5 &&
-                  (kEpCdcIn & 0x0F) <= 5 && (kEpAudioFeedback & 0x0F) <= 5,
+                  (kEpCdcIn & 0x0F) <= 5,
               "OTG_FS has endpoint numbers 0-5 only (stm32f446xx.h:15912)");
 
 // wMaxPacketSize for the two bulk/interrupt functions. Bulk at full speed
@@ -216,16 +207,6 @@ static_assert(kAudioEpSize == TUD_AUDIO_EP_SIZE(/*_is_highspeed*/ 0, kSampleRate
               "Disagrees with TinyUSB's own EP sizing helper (usbd.h:809)");
 static_assert(kAudioEpSize <= 1023, "Full-speed isochronous packet ceiling");
 
-// wMaxPacketSize for the explicit-feedback IN endpoint. UAC2 5.12.4.2 makes
-// the on-the-wire feedback value 10.14 (3 bytes) for full speed and 16.16 (4
-// bytes) for high speed; TinyUSB's driver computes in 16.16 and, for a UAC2
-// (bcdADC 0x0200) function, transfers 4 bytes regardless of bus speed
-// (audio_device.c:610, uac_version==2 -> 4) and allocates the feedback iso
-// endpoint's FIFO at 4 bytes (audio_device.c:965, usbd_edpt_iso_alloc(...,4)).
-// So the endpoint is declared at 4 bytes to match what the driver actually
-// moves; 4 bytes costs exactly one OTG-FS TX-FIFO word (ceil(4/4)).
-inline constexpr std::uint16_t kAudioFeedbackEpSize = 4;
-
 // ---------------------------------------------------------------------------
 // FR-014 feasibility gate — OTG-FS device FIFO-RAM budget (US3, T016)
 // ---------------------------------------------------------------------------
@@ -267,16 +248,13 @@ constexpr unsigned OtgFsRxFifoWords(unsigned largestOutBytes) {
 // The device's endpoint inventory (the addresses/sizes declared above):
 //   IN  TX FIFOs: EP0(64) + audio-IN(kAudioEpSize) + MIDI-IN(kEpMidiSize)
 //                 + CDC-notify(kEpCdcNotifySize) + CDC-IN(kEpCdcSize)
-//                 + audio-feedback(kAudioFeedbackEpSize)
 //   OUT shared RX: EP0(64), audio-OUT(kAudioEpSize), MIDI-OUT(kEpMidiSize),
 //                  CDC-OUT(kEpCdcSize) — audio-OUT (kAudioEpSize) is the
-//                  largest, so it sizes the RX FIFO. The feedback endpoint is
-//                  IN-only, so it adds a TX FIFO word but does NOT enlarge the
-//                  shared RX FIFO (it never carries an OUT packet).
+//                  largest, so it sizes the RX FIFO.
 inline constexpr unsigned kOtgFsTxFifoWords =
     OtgFsFifoWords(CFG_TUD_ENDPOINT0_SIZE) + OtgFsFifoWords(kAudioEpSize) +
     OtgFsFifoWords(kEpMidiSize) + OtgFsFifoWords(kEpCdcNotifySize) +
-    OtgFsFifoWords(kEpCdcSize) + OtgFsFifoWords(kAudioFeedbackEpSize);
+    OtgFsFifoWords(kEpCdcSize);
 inline constexpr unsigned kOtgFsLargestOutBytes =
     kAudioEpSize > kEpMidiSize
         ? (kAudioEpSize > kEpCdcSize ? kAudioEpSize : kEpCdcSize)
@@ -286,32 +264,26 @@ inline constexpr unsigned kOtgFsFifoWordsUsed = kOtgFsTxFifoWords + kOtgFsRxFifo
 inline constexpr unsigned kOtgFsFifoWordsFree = kOtgFsDfifoWords - kOtgFsFifoWordsUsed;
 
 // THE GATE. At 48 kHz / packed-24 / subslot 3 / +1-frame jitter (all inside
-// kAudioEpSize = 294 B), WITH the explicit-feedback IN endpoint (4 B = 1 word)
-// now added by the async rate-matching change: TX = 16 + 74 + 16 + 2 + 16 + 1
-// = 125 words, RX = 176 words (feedback is IN-only, so RX is unchanged),
-// USED = 301 / 320, FREE = 19 words (5.9%). The feedback endpoint cost exactly
-// the one TX-FIFO word its 4-byte packet occupies, and it consumes the last
-// free OTG-FS IN endpoint slot (numbers 1..5 now all used). The margin is
-// TIGHT: a further resize that overruns must NOT be squeezed in by hand-
-// shrinking a buffer — it goes to the operator with the FR-014 fallback table
-// (24-bit @ 44.1 kHz only / 16-bit only / a different FIFO split),
+// kAudioEpSize = 294 B): TX = 16 + 74 + 16 + 2 + 16 = 124 words, RX = 176
+// words, USED = 300 / 320, FREE = 20 words (6.25%). This reconciles EXACTLY
+// with research §R7's re-verified 300/320 (20 free, 6.25%) projection. The
+// margin is TIGHT: a further resize that overruns must NOT be squeezed in by
+// hand-shrinking a buffer — it goes to the operator with the FR-014 fallback
+// table (24-bit @ 44.1 kHz only / 16-bit only / a different FIFO split),
 // Constitution V.
 static_assert(kOtgFsFifoWordsUsed <= kOtgFsDfifoWords,
-              "FR-014 OVERRUN: the current 24-bit + feedback-EP config exceeds the "
+              "FR-014 OVERRUN: the current 24-bit EP/descriptor config exceeds the "
               "STM32F446 OTG-FS 320-word device FIFO RAM. Do NOT hand-shrink a buffer to "
               "fit — take the FR-014 fallback table (24-bit@44.1k-only / 16-bit-only / "
               "different FIFO split) to the operator (Constitution V).");
-// Re-verification tripwire: pins the budget to the re-derived figure WITH the
-// feedback endpoint. A change to the EP inventory or packet sizes that still
-// FITS but moves this number is caught here so the budget is re-derived, not
-// assumed.
-static_assert(kOtgFsFifoWordsUsed == 301,
-              "OTG-FS FIFO budget drifted from the re-derived 301/320 words (300 pre-"
-              "feedback + 1 for the 4-byte feedback IN endpoint); re-derive the budget "
-              "before changing EP sizing.");
-static_assert(kOtgFsFifoWordsFree == 19,
-              "FR-014: expected 19 free words (5.9%) at 48 kHz / 24-bit with the "
-              "feedback endpoint.");
+// Re-verification tripwire: pins the budget to research §R7's computed figure.
+// A change to the EP inventory or packet sizes that still FITS but moves this
+// number is caught here so the budget is re-derived against R7, not assumed.
+static_assert(kOtgFsFifoWordsUsed == 300,
+              "OTG-FS FIFO budget drifted from research §R7's re-verified 300/320 words; "
+              "re-derive the budget and update research §R7 before changing EP sizing.");
+static_assert(kOtgFsFifoWordsFree == 20,
+              "FR-014: expected 20 free words (6.25%) at 48 kHz / 24-bit.");
 
 // ---------------------------------------------------------------------------
 // UAC2 entity IDs
@@ -365,12 +337,11 @@ inline constexpr std::uint16_t kAudioControlEntitiesLen =
     TUD_AUDIO20_DESC_OUTPUT_TERM_LEN + TUD_AUDIO20_DESC_INPUT_TERM_LEN +
     TUD_AUDIO20_DESC_OUTPUT_TERM_LEN;  // 8 + 17 + 12 + 17 + 12 = 66
 
-// One streaming interface's alt 0/1/2 block WITHOUT a feedback endpoint (this
-// is the IN direction). alt 0 (zero bandwidth) + alt 1 (16-bit format) + alt 2
-// (packed-24-bit format); each non-zero alt carries the same five-descriptor
-// block (STD_AS interface, CS_AS general, Type-I format, iso data endpoint, its
-// class-specific companion). alt 1 and alt 2 differ only in the Type-I format's
-// bSubslotSize/bBitResolution (T015/US3, FR-005).
+// One streaming interface: alt 0 (zero bandwidth) + alt 1 (16-bit format) +
+// alt 2 (packed-24-bit format). Each non-zero alt carries the same five-
+// descriptor block (STD_AS interface, CS_AS general, Type-I format, iso data
+// endpoint, its class-specific companion); alt 1 and alt 2 differ only in the
+// Type-I format's bSubslotSize/bBitResolution (T015/US3, FR-005).
 inline constexpr std::uint16_t kAudioStreamingItfLen =
     TUD_AUDIO20_DESC_STD_AS_LEN +          // alt 0, no endpoint
     TUD_AUDIO20_DESC_STD_AS_LEN +          // alt 1 (16-bit)
@@ -384,38 +355,45 @@ inline constexpr std::uint16_t kAudioStreamingItfLen =
     TUD_AUDIO20_DESC_STD_AS_ISO_EP_LEN +   //   iso data endpoint
     TUD_AUDIO20_DESC_CS_AS_ISO_EP_LEN;     //   its class-specific companion
                                            // 9 + (9+16+6+7+8) + (9+16+6+7+8) = 101
-static_assert(kAudioStreamingItfLen == 101);
 
 // ***********************************************************************
-// EXPLICIT FEEDBACK ENDPOINT ON THE OUT STREAM (async rate matching).
+// NO FEEDBACK ENDPOINT -- DELIBERATE (FR-027, D20). READ BEFORE "FIXING".
 // ***********************************************************************
-// The OUT (host -> device) streaming interface is now ASYNCHRONOUS and carries
-// an associated explicit-feedback IN endpoint on EACH non-zero alt (alt 1 and
-// alt 2). This is the INDUSTRY-STANDARD UAC2 mechanism (USB 2.0 5.12.4.2),
-// implemented entirely by TinyUSB's audio driver, that REPLACES the earlier
-// hand-rolled "synchronous, no feedback" scheme which drained the OUT FIFO and
-// injected silence on silicon. Each non-zero OUT alt therefore adds ONE
-// TUD_AUDIO20_DESC_STD_AS_ISO_FB_EP (7 bytes) beyond the IN-direction block
-// above, and declares nEPs = 2 (data + feedback) on its STD_AS interface.
+// There is no TUD_AUDIO20_DESC_STD_AS_ISO_FB_EP_LEN term above, and there is
+// no feedback endpoint anywhere in this descriptor set. That is a design
+// decision with three independent supports, not an omission:
 //
-// The IN (device -> host) direction takes NO feedback endpoint: IN endpoints
-// never carry explicit feedback (it accompanies async OUT only). So the two
-// streaming interfaces now have DIFFERENT lengths, and kAudioFunctionLen sums
-// them separately rather than doubling one.
-inline constexpr std::uint16_t kAudioStreamingItfOutLen =
-    kAudioStreamingItfLen +
-    2 * TUD_AUDIO20_DESC_STD_AS_ISO_FB_EP_LEN;  // 101 + 2*7 = 115
-static_assert(kAudioStreamingItfOutLen == 115);
-inline constexpr std::uint16_t kAudioStreamingItfInLen = kAudioStreamingItfLen;  // 101
+//   1. This device HAS NO LOCAL CLOCK. The host's SOF is the only sample clock
+//      (FR-024). A feedback endpoint exists to report the device's own rate
+//      back to the host so the host can adjust its delivery rate. We have no
+//      rate of our own to report; the value would be manufactured.
+//   2. The USB 2.0 spec attaches explicit feedback to ASYNCHRONOUS OUT
+//      endpoints. Our OUT endpoint is declared ADAPTIVE (FR-025: it consumes
+//      whatever the host paces to it), and an adaptive sink takes no feedback
+//      endpoint by definition. Our IN endpoint is asynchronous, and IN
+//      endpoints never carry one.
+//   3. The pinned driver does not want one: every feedback code path is inside
+//      `#if CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP`, there is no #error or TU_ASSERT
+//      demanding a feedback EP when EP_OUT is enabled, and the closest shipped
+//      duplex example (examples/device/uac2_headset) ships exactly this way --
+//      both directions, no feedback macro at all. See research.md R13.6 for
+//      the file:line evidence, and tusb_config.h's
+//      CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP 0 for the matching configuration.
+//
+// If host-side glitching under HIL ever suggests adding one, that is a
+// question for the operator that also changes D20, FR-024 and FR-027 -- not a
+// local descriptor edit. Adding a feedback endpoint here without changing
+// CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP would produce a descriptor whose feedback
+// endpoint the driver never opens, which the host would wait on forever.
+// ***********************************************************************
 
 inline constexpr std::uint16_t kAudioFunctionLen =
     TUD_AUDIO20_DESC_IAD_LEN +      // 8
     TUD_AUDIO20_DESC_STD_AC_LEN +   // 9
     TUD_AUDIO20_DESC_CS_AC_LEN +    // 9
     kAudioControlEntitiesLen +      // 66
-    kAudioStreamingItfOutLen +      // 115 (OUT: alt1+alt2, each with a feedback EP)
-    kAudioStreamingItfInLen;        // 101 (IN: alt1+alt2, no feedback EP)
-static_assert(kAudioFunctionLen == 308);
+    2 * kAudioStreamingItfLen;      // 202  (OUT + IN, each 101 with alt 1 + alt 2)
+static_assert(kAudioFunctionLen == 294);
 
 // TUD_MIDI_DESCRIPTOR (usbd.h:419-424) emits an AudioControl interface and a
 // MIDIStreaming interface but NO IAD, so this file supplies one -- otherwise a
