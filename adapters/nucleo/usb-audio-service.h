@@ -447,6 +447,29 @@ static_assert(UsbInPath::maxPayloadBytes() % sizeof(std::int16_t) == 0,
 static_assert(CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ >= UsbInPath::maxPayloadBytes(),
               "IN software FIFO cannot hold one maximum packet");
 
+// FR-014 feasibility gate, audio-side cross-check (US3, T016). The OTG-FS
+// 320-word device-FIFO budget itself is computed and asserted in
+// usb-descriptors.h (kOtgFsFifoWordsUsed / kOtgFsFifoWordsFree, derived from
+// the DWC2 dfifo_alloc()/calc_device_grxfsiz() formulas against kAudioEpSize).
+// This is the SW-buffer-side check that the AUDIO endpoints the budget was
+// computed against are the SAME resized envelopes the driver's own EP FIFOs
+// use here: the two isochronous packets (kAudioEpSize, driving both the
+// largest TX FIFO and the shared RX FIFO in that budget) equal the driver's
+// CFG_TUD_AUDIO_FUNC_1_EP_*_SZ_MAX macros. If a future resize moved one but not
+// the other, the FIFO budget in usb-descriptors.h would be computed against a
+// stale packet size; welding them here makes that drift fail the build.
+static_assert(kAudioEpSize == CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX &&
+                  kAudioEpSize == CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX,
+              "OTG-FS FIFO budget (usb-descriptors.h) is computed from kAudioEpSize; it "
+              "must equal the driver's audio EP FIFO envelopes or the budget is stale");
+// Re-affirm, from this translation unit, that the whole EP/descriptor config
+// fits the 320-word OTG-FS device FIFO RAM. Redundant with usb-descriptors.h by
+// design: both audio SW-buffer sizing (this file) and the descriptor/FIFO
+// budget must be recompiled and re-checked whenever the packet envelope moves.
+static_assert(kOtgFsFifoWordsUsed <= kOtgFsDfifoWords,
+              "FR-014 OVERRUN: 24-bit EP config exceeds the OTG-FS 320-word device FIFO "
+              "RAM; surface the FR-014 fallback table to the operator (Constitution V)");
+
 // Service the IN endpoint once. Called every pass of the service loop, after
 // ServiceUsbAudioOut() and ServiceDspBlock() have had their chance to move
 // audio through the rings.

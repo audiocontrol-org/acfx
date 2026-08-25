@@ -208,6 +208,84 @@ static_assert(kAudioEpSize == TUD_AUDIO_EP_SIZE(/*_is_highspeed*/ 0, kSampleRate
 static_assert(kAudioEpSize <= 1023, "Full-speed isochronous packet ceiling");
 
 // ---------------------------------------------------------------------------
+// FR-014 feasibility gate — OTG-FS device FIFO-RAM budget (US3, T016)
+// ---------------------------------------------------------------------------
+//
+// The STM32F446 OTG-FS core has ONE 320-word (1.25 KB) device FIFO SPRAM
+// (dwc2_stm32.h:53, DFIFO_DEPTH_FS = 320) shared across the control EP0 IN
+// FIFO, one dedicated TX FIFO per IN endpoint, and one shared RX FIFO for ALL
+// OUT endpoints. This is the constrained resource FR-014 gates on. The pinned
+// driver (external/.cpm-cache/tinyusb/d34550b3aaa115e7ec09bea0c9e676531bf95dfb/
+// src/portable/synopsys/dwc2/dcd_dwc2.c) allocates it in dfifo_alloc() and
+// calc_device_grxfsiz():
+//   - each IN endpoint's TX FIFO = ceil(wMaxPacketSize / 4) words  (dcd_dwc2.c:210)
+//   - the shared RX FIFO (GRXFSIZ) = 13 + 1 + 2*(ceil(largestOut/4)+1)
+//                                       + 2*EP_COUNT               (dcd_dwc2.c:197-199)
+// EP_COUNT = USB_OTG_FS_MAX_IN_ENDPOINTS = 6 (stm32f446xx.h:15912); buffer-DMA
+// is off on OTG-FS (slave mode), so all 320 words are usable (dfifo_top is not
+// docked for EPInfo). Overrun is NOT a compile error on silicon — it is
+// dfifo_alloc() returning false and ONE interface silently failing to open
+// (dcd_dwc2.c:237). This gate makes that overrun fail the BUILD instead.
+//
+// This is FR-014 re-verified against the ACTUAL post-T015 resized 24-bit
+// constants (kAudioEpSize is now 294 B, not the pre-US3 196 B). Every number
+// below derives from the real macros — kAudioEpSize ⇐ kMaxPacketFrames ·
+// kAudioChannels · kMaxSubslotBytes (packed-24, subslot 3, +1-frame jitter all
+// folded in), plus the CDC/MIDI/EP0 packet sizes — never a hard-coded pass, so
+// any future resize that overruns 320 words trips the static_assert.
+inline constexpr unsigned kOtgFsDfifoWords = 320;  // dwc2_stm32.h:53 DFIFO_DEPTH_FS
+inline constexpr unsigned kOtgFsEpCount = 6;       // stm32f446xx.h:15912 USB_OTG_FS_MAX_IN_ENDPOINTS
+
+// A TX FIFO holds whole 32-bit words: ceil(bytes/4) (dcd_dwc2.c:210).
+constexpr unsigned OtgFsFifoWords(unsigned bytes) { return (bytes + 3u) / 4u; }
+
+// Shared RX FIFO sizing (calc_device_grxfsiz, dcd_dwc2.c:197-199): every OUT
+// endpoint shares ONE FIFO, sized by the LARGEST OUT packet.
+constexpr unsigned OtgFsRxFifoWords(unsigned largestOutBytes) {
+    return 13u + 1u + 2u * (OtgFsFifoWords(largestOutBytes) + 1u) + 2u * kOtgFsEpCount;
+}
+
+// The device's endpoint inventory (the addresses/sizes declared above):
+//   IN  TX FIFOs: EP0(64) + audio-IN(kAudioEpSize) + MIDI-IN(kEpMidiSize)
+//                 + CDC-notify(kEpCdcNotifySize) + CDC-IN(kEpCdcSize)
+//   OUT shared RX: EP0(64), audio-OUT(kAudioEpSize), MIDI-OUT(kEpMidiSize),
+//                  CDC-OUT(kEpCdcSize) — audio-OUT (kAudioEpSize) is the
+//                  largest, so it sizes the RX FIFO.
+inline constexpr unsigned kOtgFsTxFifoWords =
+    OtgFsFifoWords(CFG_TUD_ENDPOINT0_SIZE) + OtgFsFifoWords(kAudioEpSize) +
+    OtgFsFifoWords(kEpMidiSize) + OtgFsFifoWords(kEpCdcNotifySize) +
+    OtgFsFifoWords(kEpCdcSize);
+inline constexpr unsigned kOtgFsLargestOutBytes =
+    kAudioEpSize > kEpMidiSize
+        ? (kAudioEpSize > kEpCdcSize ? kAudioEpSize : kEpCdcSize)
+        : (kEpMidiSize > kEpCdcSize ? kEpMidiSize : kEpCdcSize);
+inline constexpr unsigned kOtgFsRxFifoWords = OtgFsRxFifoWords(kOtgFsLargestOutBytes);
+inline constexpr unsigned kOtgFsFifoWordsUsed = kOtgFsTxFifoWords + kOtgFsRxFifoWords;
+inline constexpr unsigned kOtgFsFifoWordsFree = kOtgFsDfifoWords - kOtgFsFifoWordsUsed;
+
+// THE GATE. At 48 kHz / packed-24 / subslot 3 / +1-frame jitter (all inside
+// kAudioEpSize = 294 B): TX = 16 + 74 + 16 + 2 + 16 = 124 words, RX = 176
+// words, USED = 300 / 320, FREE = 20 words (6.25%). This reconciles EXACTLY
+// with research §R7's re-verified 300/320 (20 free, 6.25%) projection. The
+// margin is TIGHT: a further resize that overruns must NOT be squeezed in by
+// hand-shrinking a buffer — it goes to the operator with the FR-014 fallback
+// table (24-bit @ 44.1 kHz only / 16-bit only / a different FIFO split),
+// Constitution V.
+static_assert(kOtgFsFifoWordsUsed <= kOtgFsDfifoWords,
+              "FR-014 OVERRUN: the current 24-bit EP/descriptor config exceeds the "
+              "STM32F446 OTG-FS 320-word device FIFO RAM. Do NOT hand-shrink a buffer to "
+              "fit — take the FR-014 fallback table (24-bit@44.1k-only / 16-bit-only / "
+              "different FIFO split) to the operator (Constitution V).");
+// Re-verification tripwire: pins the budget to research §R7's computed figure.
+// A change to the EP inventory or packet sizes that still FITS but moves this
+// number is caught here so the budget is re-derived against R7, not assumed.
+static_assert(kOtgFsFifoWordsUsed == 300,
+              "OTG-FS FIFO budget drifted from research §R7's re-verified 300/320 words; "
+              "re-derive the budget and update research §R7 before changing EP sizing.");
+static_assert(kOtgFsFifoWordsFree == 20,
+              "FR-014: expected 20 free words (6.25%) at 48 kHz / 24-bit.");
+
+// ---------------------------------------------------------------------------
 // UAC2 entity IDs
 // ---------------------------------------------------------------------------
 //
