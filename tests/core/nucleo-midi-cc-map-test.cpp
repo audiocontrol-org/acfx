@@ -189,3 +189,18 @@ TEST_CASE("MC3: modulation CCs resolve to their parameter indices (paramCount=21
     // CC84 is deliberately NOT bound (standard Portamento-Control CC).
     CHECK(mapCcToParam(84, n) == std::nullopt);
 }
+
+TEST_CASE("MC4: feedback-filter base params resolve to indices 3/4/5 (paramCount=21)") {
+    using acfx::nucleo::mapCcToParam;
+    const int n = 21;
+    struct { std::uint8_t cc; int idx; } cases[] = {
+        {70, 3},   // fb_cutoff
+        {73, 4},   // fb_resonance
+        {75, 5},   // fb_mode
+    };
+    for (const auto& c : cases) {
+        const auto r = mapCcToParam(c.cc, n);
+        REQUIRE(r.has_value());
+        CHECK(*r == c.idx);
+    }
+}

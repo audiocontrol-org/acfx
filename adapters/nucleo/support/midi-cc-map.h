@@ -37,6 +37,12 @@ inline constexpr CcBinding kCcBindings[] = {
     CcBinding{72, 2},    // CC72 -> mix (dry/wet)
     CcBinding{76, 19},   // CC76 -> lofi_rate
     CcBinding{77, 20},   // CC77 -> lofi_bits
+    // Feedback-filter base settings (the fixed point the cutoff/res LFOs sweep
+    // around). fb_mode is discrete lowpass/highpass/bandpass (index 0/1/2 <- CC
+    // value scaled by paramCount in the effect).
+    CcBinding{70, 3},    // CC70 -> fb_cutoff
+    CcBinding{73, 4},    // CC73 -> fb_resonance
+    CcBinding{75, 5},    // CC75 -> fb_mode
     // Modulation (ModulatedDelayEffect indices 6..18). CC84 skipped: it is the
     // standard Portamento-Control CC. See modulated-delay-params.h for units.
     CcBinding{78, 6},    // CC78 -> delay_mod_rate   (delay-line LFO)
