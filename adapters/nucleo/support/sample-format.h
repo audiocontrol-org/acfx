@@ -83,26 +83,52 @@ inline void interleaveToInt16(const float* const* src, std::int16_t* dst, int fr
     }
 }
 
-// STUB (RED for T013) — unpack 3 signed-LE bytes to float in [-1.0, 1.0) range.
-// Reads exactly 3 bytes from `p` and interprets as a 24-bit signed little-endian integer,
-// then divides by kPacked24Scale to normalize to float. FR-010, T014 implements the real
-// conversion; this stub intentionally returns 0.0 to fail the RED test (T013).
+// Unpack 3 signed-LE bytes to float in [-1.0, 1.0) range.
+// Reads exactly 3 bytes from `p` and interprets them as a 24-bit signed
+// little-endian integer (p[0] = LSB, p[2] = MSB carrying the sign bit at bit
+// 23), sign-extends into a 32-bit signed int using only defined operations
+// (assemble unsigned, then shift left 8 / arithmetic-shift right 8 so the
+// compiler-guaranteed arithmetic right shift on a signed value replicates
+// the sign bit — no implementation-defined narrowing casts of out-of-range
+// values), then divides by kPacked24Scale to normalize to float (FR-010).
 inline float sampleFromWire24Packed(const std::uint8_t* p) noexcept {
-    (void)p;  // suppress unused parameter warning
-    // STUB: deliberately wrong for RED test (T013)
-    return 0.0f;
+    const std::uint32_t raw = static_cast<std::uint32_t>(p[0]) |
+                               (static_cast<std::uint32_t>(p[1]) << 8) |
+                               (static_cast<std::uint32_t>(p[2]) << 16);
+    const std::int32_t signExtended =
+        static_cast<std::int32_t>(raw << 8) >> 8;
+    return static_cast<float>(signExtended) / kPacked24Scale;
 }
 
-// STUB (RED for T013) — pack float to 3 signed-LE bytes.
-// Rounds to nearest (ties away from zero), clamps to the representable 24-bit range,
-// and writes the result as 3 little-endian bytes. FR-010, T014 implements the real
-// conversion; this stub intentionally writes zeros to fail the RED test (T013).
+// Pack float to 3 signed-LE bytes.
+// Rounds to nearest (ties away from zero), clamps to the representable
+// signed 24-bit range [-8388608, 8388607], and writes the result as 3
+// little-endian bytes (FR-010). Mirrors detail::floatToInt16's clamp-then-
+// round convention; the clamp is evaluated on the pre-rounding scaled value
+// so the narrowing cast below is always well defined.
 inline void wireFromSample24Packed(float sample, std::uint8_t* out) noexcept {
-    (void)sample;  // suppress unused parameter warning
-    // STUB: deliberately wrong for RED test (T013)
-    out[0] = 0;
-    out[1] = 0;
-    out[2] = 0;
+    constexpr float kMin = -8388608.0f;
+    constexpr float kMax = 8388607.0f;
+
+    const float scaled = sample * kPacked24Scale;
+
+    std::int32_t value;
+    if (scaled >= kMax) {
+        value = 8388607;
+    } else if (scaled <= kMin) {
+        value = -8388608;
+    } else {
+        // Round to nearest, ties away from zero. `scaled` is strictly
+        // within (kMin, kMax) here, so the biased value stays within the
+        // representable 24-bit range and the cast below is well defined.
+        const float biased = (scaled >= 0.0f) ? (scaled + 0.5f) : (scaled - 0.5f);
+        value = static_cast<std::int32_t>(biased);
+    }
+
+    const std::uint32_t u24 = static_cast<std::uint32_t>(value) & 0xFFFFFFu;
+    out[0] = static_cast<std::uint8_t>(u24 & 0xFFu);
+    out[1] = static_cast<std::uint8_t>((u24 >> 8) & 0xFFu);
+    out[2] = static_cast<std::uint8_t>((u24 >> 16) & 0xFFu);
 }
 
 // Result of validating a USB packet's byte count against the stereo-frame
