@@ -155,18 +155,20 @@ extern const std::uint8_t kConfigurationDescriptor[kConfigTotalLen] = {
 
     /* Clock Source (4.7.2.1) -- the ONLY place a UAC2 device states its sample
        rate, and it states it over control requests, not in these bytes.
-       _attr = INT_FIX_CLK | CLK_SYC_SOF says exactly what FR-024 says: one
-       fixed rate, and it is locked to the host's SOF rather than to any
-       oscillator of ours. _ctrl marks both the frequency and the validity
-       controls READ-ONLY -- read-only because there is exactly one rate to
-       offer (FR-020), so a host SET request must be refused, not honoured.
-       usb-audio-controls.cpp answers the reads; declaring these controls here
-       without answering them there would stall every host that asks. */
+       _attr = INT_VAR_CLK | CLK_SYC_SOF says what FR-004/US2 now says: a
+       VARIABLE-frequency clock (44.1 or 48 kHz, selectable by the host), still
+       locked to the host's SOF rather than to any oscillator of ours. The
+       frequency control is READ-WRITE (AUDIO20_CTRL_RW) so the host can SELECT
+       a rate; the validity control stays READ-ONLY (there is nothing for a host
+       to write to it, and this SOF-locked clock is always valid, FR-024).
+       usb-audio-controls.cpp answers the reads AND the frequency SET request;
+       declaring these controls here without answering them there would stall
+       every host that asks. */
     TUD_AUDIO20_DESC_CLK_SRC(
         /*_clkid*/ kEntityClock,
-        /*_attr*/ (AUDIO20_CLOCK_SOURCE_ATT_INT_FIX_CLK |
+        /*_attr*/ (AUDIO20_CLOCK_SOURCE_ATT_INT_VAR_CLK |
                    AUDIO20_CLOCK_SOURCE_ATT_CLK_SYC_SOF),
-        /*_ctrl*/ ((AUDIO20_CTRL_R << AUDIO20_CLOCK_SOURCE_CTRL_CLK_FRQ_POS) |
+        /*_ctrl*/ ((AUDIO20_CTRL_RW << AUDIO20_CLOCK_SOURCE_CTRL_CLK_FRQ_POS) |
                    (AUDIO20_CTRL_R << AUDIO20_CLOCK_SOURCE_CTRL_CLK_VAL_POS)),
         /*_assocTerm*/ 0x00, /*_stridx*/ 0x00),
 

@@ -38,14 +38,24 @@
 // (research.md R13.0).
 
 #include "usb-descriptors.h"
+#include "usb-audio-service.h"
+#include "sample-rate.h"
 
-// Only GET is implemented. Both Clock Source controls are declared READ-ONLY
-// in the descriptor (see TUD_AUDIO20_DESC_CLK_SRC in usb-descriptors.cpp), so
-// a SET request must be refused -- which the stack's weak
-// tud_audio_set_req_entity_cb default already does by returning false and
-// stalling. Writing our own set handler that rejected everything would be the
-// same behaviour with more code; one that ACCEPTED another rate would
-// contradict the descriptor and FR-020.
+namespace acfx::nucleo {
+// The currently-selected sample rate (US2, FR-004). Owned here: the frequency
+// GET CUR below reports it, and the strong tud_audio_set_req_entity_cb at the
+// bottom of this file is the ONLY writer. Declared extern in usb-audio-service.h
+// for the poll-loop consumers (T010/T011). Default is the US2 default rate.
+std::uint32_t g_currentSampleRateHz = kDefaultSampleRateHz;
+}  // namespace acfx::nucleo
+
+// The frequency control is now READ-WRITE and the clock is INT_VAR_CLK (US2,
+// FR-004): the host may READ the current rate / the offered RANGE (handled in
+// the GET callback below) and WRITE a new rate (handled by the strong
+// tud_audio_set_req_entity_cb at the bottom of this file). The validity control
+// remains read-only. A SET of an unsupported rate is refused (returns false ->
+// the stack stalls it); a SET of a supported rate is stored in
+// g_currentSampleRateHz.
 extern "C" bool tud_audio_get_req_entity_cb(std::uint8_t rhport,
                                             tusb_control_request_t const* p_request) {
     using namespace acfx::nucleo;
@@ -63,24 +73,35 @@ extern "C" bool tud_audio_get_req_entity_cb(std::uint8_t rhport,
 
     if (controlSelector == AUDIO20_CS_CTRL_SAM_FREQ) {
         if (p_request->bRequest == AUDIO20_CS_REQ_CUR) {
+            // Report the rate the host most recently selected (US2, FR-004),
+            // NOT a compile-time constant: after a successful SET (below) the
+            // host reads CUR back to confirm the switch took effect.
             audio20_control_cur_4_t current = {
-                static_cast<std::int32_t>(tu_htole32(kSampleRateHz))};
+                static_cast<std::int32_t>(tu_htole32(g_currentSampleRateHz))};
             return tud_audio_buffer_and_schedule_control_xfer(rhport, p_request, &current,
                                                               sizeof(current));
         }
 
         if (p_request->bRequest == AUDIO20_CS_REQ_RANGE) {
-            // ONE subrange, bMin == bMax, bRes 0: the class spec's way of
-            // saying "this rate and no other" (FR-020). Widening the range, or
-            // adding a second subrange, would let a host select a rate the
-            // conversion path (support/sample-format.h) does not implement --
-            // and a host that picks an unimplemented rate does not get an
-            // error, it gets wrong-speed audio.
-            audio20_control_range_4_n_t(1) range = {};
-            range.wNumSubRanges = tu_htole16(1);
-            range.subrange[0].bMin = static_cast<std::int32_t>(tu_htole32(kSampleRateHz));
-            range.subrange[0].bMax = static_cast<std::int32_t>(tu_htole32(kSampleRateHz));
-            range.subrange[0].bRes = 0;
+            // ONE subrange per supported rate, each with bMin == bMax and
+            // bRes 0: the class spec's way of offering a DISCRETE set of rates
+            // (US2, FR-004), here {44100} and {48000}. Sourced from
+            // kSupportedSampleRatesHz so the RANGE the host reads and the SET it
+            // is allowed to make (isSupportedSampleRate, below) can never
+            // disagree -- a host that could select a rate the RANGE did not
+            // advertise, or vice versa, would get wrong-speed audio with no
+            // error. bRes 0 marks each subrange a single discrete point, not a
+            // continuous span the host could pick an unimplemented rate within.
+            constexpr int kCount = kSupportedSampleRatesCount;
+            audio20_control_range_4_n_t(kCount) range = {};
+            range.wNumSubRanges = tu_htole16(kCount);
+            for (int i = 0; i < kCount; ++i) {
+                const std::int32_t rate =
+                    static_cast<std::int32_t>(tu_htole32(kSupportedSampleRatesHz[i]));
+                range.subrange[i].bMin = rate;
+                range.subrange[i].bMax = rate;
+                range.subrange[i].bRes = 0;
+            }
             return tud_audio_buffer_and_schedule_control_xfer(rhport, p_request, &range,
                                                               sizeof(range));
         }
@@ -100,6 +121,67 @@ extern "C" bool tud_audio_get_req_entity_cb(std::uint8_t rhport,
     }
 
     return false;
+}
+
+// ===========================================================================
+// T009 (US2, FR-004): Clock Source Sampling-Frequency SET handler.
+//
+// STRONG, extern "C", NON-inline, in a .cpp — the TASK-37 weak-callback trap
+// ([[tinyusb-weak-callback-linkage-trap]]). TinyUSB ships a TU_ATTR_WEAK
+// tud_audio_set_req_entity_cb whose default returns false and STALLS every SET
+// (audio_device.c:357-363). A host that cannot SET the clock frequency cannot
+// select 44.1 kHz — the multi-rate half of this feature would silently no-op on
+// silicon. An `inline` or header definition would emit a weak COMDAT symbol the
+// linker may resolve to that default instead; only a strong .cpp definition
+// wins. This is the SET counterpart to the GET handler above and shares its
+// g_currentSampleRateHz.
+//
+// The driver invokes this from audiod_control_complete (audio_device.c:1317),
+// i.e. the EP0 control-transfer DATA-stage completion in tud_task() context —
+// the same single execution context as the poll-loop consumers of
+// g_currentSampleRateHz (D26), so the plain store below needs no atomicity.
+//
+// REAL-TIME / EP0 DISCIPLINE (research §R9): this handler ONLY validates the
+// requested rate and stores it. No heap, no locks, no blocking, and NO effect
+// re-preparation or ring reset here — reacting to the rate change (re-running
+// PrepareEffect at the new rate, resetting rings) is deferred to a poll-loop
+// service step (T010/T011), never done in this EP0 callback.
+extern "C" bool tud_audio_set_req_entity_cb(std::uint8_t rhport,
+                                            tusb_control_request_t const* p_request,
+                                            std::uint8_t* pBuff) {
+    (void) rhport;
+    using namespace acfx::nucleo;
+
+    const std::uint8_t entityId = TU_U16_HIGH(p_request->wIndex);
+    const std::uint8_t controlSelector = TU_U16_HIGH(p_request->wValue);
+
+    // The clock is the only entity with a writable control; the only writable
+    // control is the sampling frequency, and it is written with a SET CUR.
+    // Anything else is refused (return false -> the stack stalls it), which is
+    // the honest answer for a control this device never advertised as writable.
+    if (entityId != kEntityClock) {
+        return false;
+    }
+    if (controlSelector != AUDIO20_CS_CTRL_SAM_FREQ ||
+        p_request->bRequest != AUDIO20_CS_REQ_CUR) {
+        return false;
+    }
+
+    // The 4-byte SET CUR payload (audio20_control_cur_4_t) the host wrote,
+    // little-endian on the wire; tu_unaligned_read32 yields the value on this
+    // little-endian target, mirroring how the driver reads it internally
+    // (audio_device.c:1309) and how the shipped uac2_headset example does.
+    const std::uint32_t requested = tu_unaligned_read32(pBuff);
+
+    // Accept ONLY a rate this device actually advertises (isSupportedSampleRate
+    // over the shared kSupportedSampleRatesHz table). Rejecting an unsupported
+    // rate stalls the SET, so the host keeps the previously agreed rate rather
+    // than silently switching to one the conversion path cannot produce.
+    if (!isSupportedSampleRate(requested)) {
+        return false;
+    }
+    g_currentSampleRateHz = requested;
+    return true;
 }
 
 // ===========================================================================

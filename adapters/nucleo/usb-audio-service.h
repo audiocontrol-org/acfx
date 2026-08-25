@@ -148,6 +148,19 @@ inline AudioTransportStats g_transportStats;
 extern bool g_outStreaming;
 extern bool g_inStreaming;
 
+// The currently-selected sample rate (Hz), owned by the Clock Source's
+// Sampling-Frequency Control (US2, FR-004). Default kDefaultSampleRateHz
+// (48000). DECLARED extern HERE, DEFINED in usb-audio-controls.cpp beside the
+// strong tud_audio_set_req_entity_cb that writes it and the get callback that
+// reports it — same weak-callback-linkage home as the streaming flags above.
+// The SET request that updates it is dispatched from tud_task() in the same
+// single execution context as the poll-loop consumers that read it (D26), so a
+// plain uint32_t needs no atomicity. The EP0 SET callback only VALIDATES and
+// STORES the new rate here; re-configuring the effect/rings at the new rate is
+// deferred to a poll-loop service step (research §R9), never done in EP0
+// context.
+extern std::uint32_t g_currentSampleRateHz;
+
 // Capture-only (D22): the IN streaming interface is open and OUT sits at its
 // zero-bandwidth alt — no playback stream exists at all, not merely one that
 // is momentarily idle. See support/usb-in-path.h's `captureOnly` doc comment

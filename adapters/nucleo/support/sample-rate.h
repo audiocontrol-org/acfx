@@ -17,12 +17,16 @@ inline constexpr int kSupportedSampleRatesCount = 2;
 // The default/current sample rate (FR-004, R3 decision).
 inline constexpr uint32_t kDefaultSampleRateHz = 48000;
 
-// Validate that a sample rate is in the supported set.
-// STUB (RED for T008) — T009 replaces with the real supported-set check.
+// Validate that a sample rate is in the supported set. Derived from
+// kSupportedSampleRatesHz so the table stays the single source of truth: true
+// iff hz is one of the advertised rates (44100 or 48000), false otherwise.
 inline constexpr bool isSupportedSampleRate(uint32_t hz) noexcept {
-    // DELIBERATELY WRONG: accepts only 48000, rejects 44100 and all others.
-    // This stub exists to make the RED test fail as designed.
-    return hz == 48000;
+    for (const uint32_t rate : kSupportedSampleRatesHz) {
+        if (rate == hz) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace acfx::nucleo
