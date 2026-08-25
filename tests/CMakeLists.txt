@@ -268,6 +268,14 @@ add_executable(acfx_core_tests
   # output ring: room-bounded pull size, FR-038a conversion end to end,
   # silence-on-underrun, and sink back-pressure retried without a silent drop.
   core/nucleo-usb-in-path-test.cpp
+  # T019 (US3, FR-010): usb-out-path.h/usb-in-path.h become FORMAT-AWARE —
+  # select the int16 or packed-24 converter by an explicit AudioFormat
+  # parameter, defaulted to Pcm16 so every sibling OUT/IN suite above is
+  # unchanged. This file is the Pcm24 coverage: byte accounting (maxPayload
+  # Bytes/room math), decode/encode correctness, the T006 cold-drain guard
+  # under Pcm24, a float->wire->float round trip per depth through both
+  # paths together, and the no-allocation invariant on the new branch.
+  core/nucleo-usb-format-aware-test.cpp
   # T047 (US7): the capture-only alt-setting state (FR-029, FR-029a, D22) —
   # `captureOnly` silence emission and `inputStarved`, kept mutually
   # exclusive from `outputUnderruns` (I-TS1a). Split into a sibling file

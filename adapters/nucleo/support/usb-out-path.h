@@ -63,6 +63,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "audio-format.h"
 #include "sample-format.h"
 #include "transport-stats.h"
 
@@ -111,6 +112,20 @@ public:
         return kMaxPacketFrames * kChannels * static_cast<int>(sizeof(std::int16_t));
     }
 
+    // T019 (US3, FR-010): the ACTIVE format's maximum payload — the per-pass
+    // read bound serviceOutFifo() must use once a caller knows which format
+    // is selected. maxPayloadBytes() above stays the fixed 16-bit figure
+    // (196 B) it has always been — existing callers (including every OP1-11
+    // host test) that never mention AudioFormat keep reading exactly that
+    // value, unchanged. This overload is strictly ADDITIVE: for Pcm16 it
+    // returns the identical 196 B; for Pcm24 it returns 294 B, the same
+    // worst-case figure tusb_config.h's EP envelope is already sized to
+    // (research R6/R7). Read the active format ONCE per pass and pass the
+    // resulting bound in — never branch on format per sample.
+    static constexpr int maxPayloadBytes(AudioFormat format) noexcept {
+        return kMaxPacketFrames * bytesPerFrame(format);
+    }
+
     // Consume one USB OUT payload: truncate to whole frames, count the
     // remainder, convert to float, de-interleave, and write to `ring`.
     //
@@ -146,11 +161,21 @@ public:
     // `Ring` is a template parameter rather than a concrete AudioRing so the
     // ring's capacity — an HIL-derived number pinned later (D23, FR-035) — does
     // not have to be spelled here.
+    // T019 (US3, FR-010): `format` is threaded in as an EXPLICIT PARAMETER,
+    // defaulted to Pcm16 so every pre-T019 call site (including every OP1-11
+    // host test, none of which mention AudioFormat) compiles and behaves
+    // exactly as before — a global read deep in this loop was deliberately
+    // avoided per the task brief. Read ONCE at the top of the call, not per
+    // sample: `bpf` and the format branch below are both fixed for the
+    // whole call, and the per-sample de-interleave loops themselves
+    // (sample-format.h's deinterleaveToFloat() / deinterleaveToFloat24())
+    // carry no format branch at all.
     template <typename Ring>
     OutPacketResult consumePacket(const std::int16_t* payload,
                                   int byteCount,
                                   Ring& ring,
-                                  AudioTransportStats& stats) noexcept {
+                                  AudioTransportStats& stats,
+                                  AudioFormat format = AudioFormat::Pcm16) noexcept {
         // A negative byte count cannot come from tud_audio_read() (it returns
         // uint16_t) and is a caller error, not a transport condition. This path
         // is noexcept and runs in the audio loop, so it cannot throw; treating
@@ -159,7 +184,7 @@ public:
         // not our own arithmetic.
         const int bytes = (byteCount > 0) ? byteCount : 0;
 
-        const PayloadFrameCount parsed = payloadToFrameCount(bytes);
+        const PayloadFrameCount parsed = payloadToFrameCount(bytes, format);
 
         OutPacketResult result;
         result.wasTruncated = parsed.wasTruncated;
@@ -183,15 +208,32 @@ public:
         //
         // do/while, not while: a zero-frame payload must still reach
         // ring.write() exactly once (see the promotion note above).
+        //
+        // The Pcm24 branch reinterprets `payload` as raw bytes: writing
+        // through / reading through an unsigned-char-family pointer is
+        // always well defined regardless of the pointee's declared type
+        // (the same exception retainRemainder() in usb-in-path.h already
+        // relies on), so this cast is legal even though `payload`'s static
+        // type is int16_t*. The Pcm16 branch below is untouched and calls
+        // the exact same int16 deinterleaveToFloat() as before T019 —
+        // byte-identical, per the task brief.
+        const auto* bytePayload = reinterpret_cast<const std::uint8_t*>(payload);
+        const int bpf = bytesPerFrame(format);
+
         int remaining = parsed.frames;
         int offset = 0;
         bool overran = false;
         do {
             const int chunk = (remaining < kMaxPacketFrames) ? remaining : kMaxPacketFrames;
 
-            deinterleaveToFloat(payload + static_cast<std::ptrdiff_t>(kChannels) * offset,
-                                channels,
-                                chunk);
+            if (format == AudioFormat::Pcm24) {
+                deinterleaveToFloat24(bytePayload + static_cast<std::ptrdiff_t>(bpf) * offset,
+                                      channels, chunk);
+            } else {
+                deinterleaveToFloat(payload + static_cast<std::ptrdiff_t>(kChannels) * offset,
+                                    channels,
+                                    chunk);
+            }
 
             const int dropped = ring.write(channels, chunk);
             if (dropped > 0) {
@@ -251,20 +293,37 @@ struct OutServicePass {
 // Bounded work, no blocking: one bounded read plus one convert-and-write over
 // at most 49 frames. That is what makes it safe to call from a tud_task()
 // service loop whose USB servicing cadence depends on iterating promptly.
+//
+// T019 (US3, FR-010): `format` is an EXPLICIT PARAMETER, defaulted to Pcm16
+// so every pre-T019 call site (OP9-11 included) compiles and behaves exactly
+// as before. The read bound is `UsbOutPath::maxPayloadBytes(format)`,
+// defensively capped at the CALLER'S actual buffer capacity: a caller whose
+// buffer is only sized for the default 16-bit packet must never be handed a
+// wider read request just because a caller elsewhere passed a wider format —
+// over-reading is exactly what merges payload boundaries (file header). The
+// shim is responsible for sizing its own buffer to cover whichever formats
+// it actually passes through; this cap only prevents an out-of-bounds write
+// into a too-small buffer, it does not paper over a caller sizing mistake.
 template <typename Fifo, typename Ring, std::size_t BufferSamples>
 OutServicePass serviceOutFifo(Fifo& fifo,
                               UsbOutPath& path,
                               std::int16_t (&buffer)[BufferSamples],
                               Ring& ring,
-                              AudioTransportStats& stats) noexcept {
+                              AudioTransportStats& stats,
+                              AudioFormat format = AudioFormat::Pcm16) noexcept {
     static_assert(BufferSamples * sizeof(std::int16_t) >=
                       static_cast<std::size_t>(UsbOutPath::maxPayloadBytes()),
                   "OUT staging buffer is smaller than one maximum packet");
 
-    OutServicePass pass;
-    pass.bytesRead = fifo.read(buffer, UsbOutPath::maxPayloadBytes());
+    const int formatBound = UsbOutPath::maxPayloadBytes(format);
+    const int bufferBytes = static_cast<int>(BufferSamples * sizeof(std::int16_t));
+    const int readBound = (formatBound < bufferBytes) ? formatBound : bufferBytes;
 
-    const OutPacketResult result = path.consumePacket(buffer, pass.bytesRead, ring, stats);
+    OutServicePass pass;
+    pass.bytesRead = fifo.read(buffer, readBound);
+
+    const OutPacketResult result =
+        path.consumePacket(buffer, pass.bytesRead, ring, stats, format);
     pass.framesConsumed = result.framesConsumed;
     pass.framesDropped = result.framesDropped;
     pass.chunks = result.chunks;

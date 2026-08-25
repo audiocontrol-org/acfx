@@ -8,6 +8,8 @@
 
 #include <cstdint>
 
+#include "audio-format.h"
+
 namespace acfx::nucleo {
 
 // Normalizing scale between a 16-bit PCM sample and its float representation
@@ -26,6 +28,19 @@ inline constexpr int kBlockFrames = 48;
 
 // Stereo.
 inline constexpr int kChannels = 2;
+
+// Bytes carried by ONE channel's PCM subslot for a given wire format
+// (FR-010): 2 for Pcm16, 3 for Pcm24 (the packed, 3-byte signed-LE format
+// below). usb-out-path.h / usb-in-path.h select their converter AND their
+// byte/frame accounting from this, read once per call — never per sample.
+inline constexpr int subslotBytes(AudioFormat format) noexcept {
+    return (format == AudioFormat::Pcm24) ? 3 : 2;
+}
+
+// Bytes carried by one interleaved stereo frame for a given wire format.
+inline constexpr int bytesPerFrame(AudioFormat format) noexcept {
+    return kChannels * subslotBytes(format);
+}
 
 namespace detail {
 
@@ -131,6 +146,38 @@ inline void wireFromSample24Packed(float sample, std::uint8_t* out) noexcept {
     out[2] = static_cast<std::uint8_t>((u24 >> 16) & 0xFFu);
 }
 
+// USB -> effect, packed-24: de-interleave AND convert a run of 3-byte
+// signed-LE samples (FR-010) via sampleFromWire24Packed(). Reads exactly
+// `3 * kChannels * frames` bytes from `src`; `frames == 0` is a valid no-op.
+// `dst` holds kChannels contiguous float buffers of at least `frames`
+// samples each, matching deinterleaveToFloat() above. This is the packed-24
+// counterpart usb-out-path.h selects when the active format is Pcm24; the
+// int16 deinterleaveToFloat() above is untouched and stays byte-identical
+// for Pcm16.
+inline void deinterleaveToFloat24(const std::uint8_t* src, float* const* dst, int frames) noexcept {
+    for (int frame = 0; frame < frames; ++frame) {
+        for (int channel = 0; channel < kChannels; ++channel) {
+            dst[channel][frame] =
+                sampleFromWire24Packed(src + 3 * (kChannels * frame + channel));
+        }
+    }
+}
+
+// Effect -> USB, packed-24: convert AND interleave a run of 3-byte
+// signed-LE samples (FR-010) via wireFromSample24Packed(). Writes exactly
+// `3 * kChannels * frames` bytes to `dst`; `frames == 0` is a valid no-op.
+// The packed-24 counterpart usb-in-path.h selects when the active format is
+// Pcm24; interleaveToInt16() above is untouched and stays byte-identical
+// for Pcm16.
+inline void interleaveToInt24Packed(const float* const* src, std::uint8_t* dst, int frames) noexcept {
+    for (int frame = 0; frame < frames; ++frame) {
+        for (int channel = 0; channel < kChannels; ++channel) {
+            wireFromSample24Packed(src[channel][frame],
+                                   dst + 3 * (kChannels * frame + channel));
+        }
+    }
+}
+
 // Result of validating a USB packet's byte count against the stereo-frame
 // size (FR-028a). A byte count that is not a whole number of stereo frames
 // truncates to the whole frames it does contain, and `wasTruncated` reports
@@ -147,6 +194,18 @@ inline constexpr PayloadFrameCount payloadToFrameCount(int byteCount) noexcept {
     constexpr int kBytesPerFrame = kChannels * static_cast<int>(sizeof(std::int16_t));
     const int frames = byteCount / kBytesPerFrame;
     const bool wasTruncated = (byteCount % kBytesPerFrame) != 0;
+    return PayloadFrameCount{frames, wasTruncated};
+}
+
+// Format-aware overload of the above (FR-010): truncates against the ACTIVE
+// format's frame size (bytesPerFrame(format)) rather than the fixed 16-bit
+// one. `payloadToFrameCount(byteCount)` above is unchanged and remains the
+// exact 16-bit-only computation existing callers rely on; this overload is
+// what usb-out-path.h calls once it knows the active format.
+inline constexpr PayloadFrameCount payloadToFrameCount(int byteCount, AudioFormat format) noexcept {
+    const int bpf = bytesPerFrame(format);
+    const int frames = byteCount / bpf;
+    const bool wasTruncated = (byteCount % bpf) != 0;
     return PayloadFrameCount{frames, wasTruncated};
 }
 

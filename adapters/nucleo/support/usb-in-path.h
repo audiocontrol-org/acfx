@@ -75,6 +75,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "audio-format.h"
 #include "audio-ring.h"
 #include "sample-format.h"
 #include "transport-stats.h"
@@ -129,9 +130,22 @@ public:
         return kMaxPacketFrames * kChannels * static_cast<int>(sizeof(std::int16_t));
     }
 
+    // T019 (US3, FR-010): the ACTIVE format's maximum payload — the per-pass
+    // write bound service() must use once it knows which format is
+    // selected. maxPayloadBytes() above is unchanged (196 B, 16-bit) and
+    // every pre-T019 call site (IN1-5, CO1-5, the cold-drain test) keeps
+    // reading exactly that value. For Pcm24 this returns 294 B, the same
+    // worst case tusb_config.h's EP envelope is already sized to (research
+    // R6/R7).
+    static constexpr int maxPayloadBytes(AudioFormat format) noexcept {
+        return kMaxPacketFrames * bytesPerFrame(format);
+    }
+
     // Bytes currently retained from a prior pass's partial accept, awaiting
-    // retry. Always in [0, maxPayloadBytes()). Exposed for tests and
-    // diagnostics; service() is the only thing that changes it.
+    // retry. Always in [0, maxPayloadBytes(format)) for whichever format
+    // that pass actually offered — maxPayloadBytes() (196 B) for Pcm16,
+    // maxPayloadBytes(AudioFormat::Pcm24) (294 B) for Pcm24. Exposed for
+    // tests and diagnostics; service() is the only thing that changes it.
     int pendingBytes() const noexcept { return pendingBytes_; }
 
     // Service the IN endpoint once.
@@ -237,10 +251,20 @@ public:
     // branch — those bytes belong to a session that is no longer running,
     // and letting them leak into capture-only silence would violate D22 as
     // surely as sending nothing at all.
+    // T019 (US3, FR-010): `format` is threaded in as an EXPLICIT PARAMETER,
+    // APPENDED after `captureOnly` (not inserted before it) so every
+    // pre-T019 call site — including every positional `captureOnly=true`
+    // call in IN1-5/CO1-5/the cold-drain test, none of which mention
+    // AudioFormat — compiles and behaves exactly as before, defaulted to
+    // Pcm16. Read ONCE at the top of the call into `bpf`, not per sample:
+    // every per-sample loop below (interleaveToInt16() /
+    // interleaveToInt24Packed()) carries no format branch of its own.
     template <typename Ring, typename Sink>
     InServicePass service(Ring& ring, Sink& sink, AudioTransportStats& stats,
-                          bool captureOnly = false) noexcept {
+                          bool captureOnly = false,
+                          AudioFormat format = AudioFormat::Pcm16) noexcept {
         InServicePass pass;
+        const int bpf = bytesPerFrame(format);
 
         if (captureOnly) {
             // Discard, never retry: a carryover left by a duplex session that
@@ -248,7 +272,7 @@ public:
             pendingBytes_ = 0;
 
             const int roomBytes = sink.writeAvailable();
-            const int roomFrames = (roomBytes > 0) ? (roomBytes / kBytesPerFrame) : 0;
+            const int roomFrames = (roomBytes > 0) ? (roomBytes / bpf) : 0;
             const int framesToPull =
                 (roomFrames < kMaxPacketFrames) ? roomFrames : kMaxPacketFrames;
             if (framesToPull <= 0) {
@@ -259,8 +283,12 @@ public:
                 return pass;
             }
 
-            pass.bytesOffered = framesToPull * kBytesPerFrame;
-            const int sampleCount = framesToPull * kChannels;
+            pass.bytesOffered = framesToPull * bpf;
+            // `bpf` is always even (kChannels * subslotBytes, subslotBytes
+            // in {2, 3}), so bpf/2 int16 slots per frame always covers
+            // exactly bpf bytes for either format — no cast needed to zero
+            // the buffer generically.
+            const int sampleCount = framesToPull * (bpf / 2);
             for (int i = 0; i < sampleCount; ++i) {
                 buffer_[i] = 0;
             }
@@ -295,7 +323,7 @@ public:
         }
 
         const int roomBytes = sink.writeAvailable();
-        const int roomFrames = (roomBytes > 0) ? (roomBytes / kBytesPerFrame) : 0;
+        const int roomFrames = (roomBytes > 0) ? (roomBytes / bpf) : 0;
         if (roomFrames <= 0) {
             return pass;
         }
@@ -351,9 +379,20 @@ public:
             ++stats.outputUnderruns;
         }
 
-        interleaveToInt16(channels, buffer_, framesToPull);
+        // The Pcm24 branch reinterprets `buffer_` as raw bytes: writing
+        // through an unsigned-char-family pointer is always well defined
+        // regardless of the pointee's declared type (the same exception
+        // retainRemainder() below already relies on). The Pcm16 branch is
+        // untouched and calls the exact same interleaveToInt16() as before
+        // T019 — byte-identical, per the task brief.
+        if (format == AudioFormat::Pcm24) {
+            interleaveToInt24Packed(channels, reinterpret_cast<std::uint8_t*>(buffer_),
+                                    framesToPull);
+        } else {
+            interleaveToInt16(channels, buffer_, framesToPull);
+        }
 
-        pass.bytesOffered = framesToPull * kBytesPerFrame;
+        pass.bytesOffered = framesToPull * bpf;
         pass.bytesWritten = boundedWrite(sink, pass.bytesOffered);
         retainRemainder(pass.bytesOffered, pass.bytesWritten);
 
@@ -361,7 +400,12 @@ public:
     }
 
 private:
-    static constexpr int kBytesPerFrame = kChannels * static_cast<int>(sizeof(std::int16_t));
+    // Compile-time WORST CASE across supported formats (packed-24, 3 B per
+    // subslot): sizes buffer_ below so it never needs reallocation across a
+    // live 16<->24 format change (FR-010). The byte count ACTUALLY USED per
+    // pass is bpf (`bytesPerFrame(format)`), read once per service() call
+    // above — this constant is for storage sizing only.
+    static constexpr int kMaxBytesPerFrame = kChannels * 3;
 
     // Calls the sink and clamps a caller-error negative return (never
     // observed from tu_fifo_write_n(), which returns an unsigned count, but
@@ -399,12 +443,17 @@ private:
     // Sized for the 49-frame worst case (FR-028): fixed storage, no heap.
     float scratch_[kChannels][kMaxPacketFrames] = {};
 
-    // The interleaved-int16 staging AND carryover buffer, one and the same:
-    // a fresh conversion is written here, offered to the sink, and whatever
-    // is not accepted simply stays here (compacted to the front) as the next
-    // pass's carryover. Sized for exactly one maximum packet — 49 frames x 2
-    // channels — never larger, matching the per-pass bound above.
-    std::int16_t buffer_[kMaxPacketFrames * kChannels] = {};
+    // The interleaved staging AND carryover buffer, one and the same: a
+    // fresh conversion (int16 OR packed-24 byte layout, per the active
+    // format) is written here, offered to the sink, and whatever is not
+    // accepted simply stays here (compacted to the front) as the next
+    // pass's carryover. T019 (US3, FR-010): sized for one maximum packet at
+    // the WORST-CASE format (kMaxBytesPerFrame, packed-24) rather than the
+    // fixed 16-bit figure, so a live format change never needs a
+    // reallocation — this is strictly an ENLARGEMENT (98 -> 147 int16
+    // elements) of the pre-T019 array; every existing Pcm16 test only ever
+    // touches the leading 196 B it already did.
+    std::int16_t buffer_[kMaxPacketFrames * kMaxBytesPerFrame / 2] = {};
 
     int pendingBytes_ = 0;
 
