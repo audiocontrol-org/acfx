@@ -256,3 +256,16 @@ acfx_add_effect_nucleo(
   LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
                  acfx::nucleo_tinyusb
 )
+
+# SPIKE / THROWAWAY — reverb feasibility probe (core/effects/spike-reverb).
+# Decimated-float Freeverb; validates SRAM fit + on-device operation. Replace
+# with a properly-specced effect if the probe passes; do not build on it.
+acfx_add_effect_nucleo(
+  NAME acfx_nucleo_spike_reverb
+  EFFECT_TYPE acfx::SpikeReverb
+  EFFECT_HEADER effects/spike-reverb/spike-reverb.h
+  SOURCE ${_nucleo_main}
+  LINKER_SCRIPT ${_nucleo_lds}
+  LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
+                 acfx::nucleo_tinyusb
+)
