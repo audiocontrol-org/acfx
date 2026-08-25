@@ -11,17 +11,23 @@
 #include "dsp/process-context.h"
 #include "effects/modulated-delay/modulated-delay-effect.h"
 
-// T014 — ModulatedDelayEffect US3: wow & flutter on the input path.
+// T014 — TestDelay US3: wow & flutter on the input path.
 // Covers FR-019 (depth-0 passthrough), FR-020 (present in delay tail),
 // FR-021 (preallocated delay line, reads in range).
 
 using namespace acfx;
 
+// TestDelay is now templated (bounded, heap-free). Bind the
+// unqualified name in this TU to a small stack-safe instantiation (~256 KB)
+// rather than the ~3 MB <96000, float, 8> default that would overflow the test
+// stack (Ruling A). The float path is bit-identical, so assertions are unchanged.
+using TestDelay = acfx::ModulatedDelayEffect<32768, float, 2>;
+
 namespace {
 
-void setParam(ModulatedDelayEffect& fx, ModulatedDelayEffect::Param p, float plain) {
+void setParam(TestDelay& fx, TestDelay::Param p, float plain) {
     fx.setParameter(ParamId{p},
-                    normalize(ModulatedDelayEffect::kParams[p], plain));
+                    normalize(TestDelay::kParams[p], plain));
 }
 
 void fillSine(float* buf, int n, double freqHz, double sr, double& phase) {
@@ -40,7 +46,7 @@ float computeRms(const std::vector<float>& v) {
 }
 
 // Run numBlocks of sine audio through the effect and collect all output samples.
-std::vector<float> runEffect(ModulatedDelayEffect& fx,
+std::vector<float> runEffect(TestDelay& fx,
                               double sr, int blockSize, int numBlocks,
                               double inputFreqHz) {
     std::vector<float> all;
@@ -76,11 +82,11 @@ TEST_CASE("FR-019: depth-0 wow+flutter passthrough — output equals input exact
     const double sr        = 48000.0;
     const int    blockSize = 64;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 1});
     // Leave wow/flutter depths at their defaults (0.0) — bypass active.
-    setParam(fx, ModulatedDelayEffect::kMix,       0.0f);   // dry only
-    setParam(fx, ModulatedDelayEffect::kFeedback,  0.0f);
+    setParam(fx, TestDelay::kMix,       0.0f);   // dry only
+    setParam(fx, TestDelay::kFeedback,  0.0f);
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize));
     // Fill with a varied, non-trivial waveform (ramp with mid-range DC offset).
@@ -102,15 +108,15 @@ TEST_CASE("FR-019: explicit depth=0 via setParameter still gives exact passthrou
     const double sr        = 48000.0;
     const int    blockSize = 64;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 1});
     // Explicitly set both depths to 0 through the parameter path.
-    setParam(fx, ModulatedDelayEffect::kWowDepth,     0.0f);
-    setParam(fx, ModulatedDelayEffect::kFlutterDepth, 0.0f);
-    setParam(fx, ModulatedDelayEffect::kWowRate,      0.5f);
-    setParam(fx, ModulatedDelayEffect::kFlutterRate,  8.0f);
-    setParam(fx, ModulatedDelayEffect::kMix,          0.0f);
-    setParam(fx, ModulatedDelayEffect::kFeedback,     0.0f);
+    setParam(fx, TestDelay::kWowDepth,     0.0f);
+    setParam(fx, TestDelay::kFlutterDepth, 0.0f);
+    setParam(fx, TestDelay::kWowRate,      0.5f);
+    setParam(fx, TestDelay::kFlutterRate,  8.0f);
+    setParam(fx, TestDelay::kMix,          0.0f);
+    setParam(fx, TestDelay::kFeedback,     0.0f);
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize));
     for (int i = 0; i < blockSize; ++i)
@@ -145,13 +151,13 @@ TEST_CASE("FR-018: wow depth > 0 produces measurable pitch modulation on input")
     const int    measure   = 100;    // > 1 full LFO cycle
 
     const auto buildAndRun = [&](float wowDepth) -> std::vector<float> {
-        ModulatedDelayEffect fx;
+        TestDelay fx;
         fx.prepare(ProcessContext{sr, blockSize, 1});
-        setParam(fx, ModulatedDelayEffect::kMix,          0.0f);
-        setParam(fx, ModulatedDelayEffect::kFeedback,     0.0f);
-        setParam(fx, ModulatedDelayEffect::kWowRate,      wowHz);
-        setParam(fx, ModulatedDelayEffect::kWowDepth,     wowDepth);
-        setParam(fx, ModulatedDelayEffect::kFlutterDepth, 0.0f);
+        setParam(fx, TestDelay::kMix,          0.0f);
+        setParam(fx, TestDelay::kFeedback,     0.0f);
+        setParam(fx, TestDelay::kWowRate,      wowHz);
+        setParam(fx, TestDelay::kWowDepth,     wowDepth);
+        setParam(fx, TestDelay::kFlutterDepth, 0.0f);
 
         std::vector<float> buf(static_cast<std::size_t>(blockSize));
         float* chans[1] = {buf.data()};
@@ -241,13 +247,13 @@ TEST_CASE("FR-018: flutter depth > 0 produces measurable pitch modulation on inp
     const int    measure   = 100;   // ~4 flutter cycles at 8 Hz
 
     const auto buildAndRun = [&](float flutterDepth) -> std::vector<float> {
-        ModulatedDelayEffect fx;
+        TestDelay fx;
         fx.prepare(ProcessContext{sr, blockSize, 1});
-        setParam(fx, ModulatedDelayEffect::kMix,          0.0f);
-        setParam(fx, ModulatedDelayEffect::kFeedback,     0.0f);
-        setParam(fx, ModulatedDelayEffect::kWowDepth,     0.0f);
-        setParam(fx, ModulatedDelayEffect::kFlutterRate,  8.0f);
-        setParam(fx, ModulatedDelayEffect::kFlutterDepth, flutterDepth);
+        setParam(fx, TestDelay::kMix,          0.0f);
+        setParam(fx, TestDelay::kFeedback,     0.0f);
+        setParam(fx, TestDelay::kWowDepth,     0.0f);
+        setParam(fx, TestDelay::kFlutterRate,  8.0f);
+        setParam(fx, TestDelay::kFlutterDepth, flutterDepth);
 
         std::vector<float> buf(static_cast<std::size_t>(blockSize));
         float* chans[1] = {buf.data()};
@@ -334,16 +340,16 @@ TEST_CASE("FR-020: wow & flutter instability is present in the delayed tail") {
 
     const auto buildAndRun =
         [&](float wowDepth, int numBlocks) -> std::vector<float> {
-            ModulatedDelayEffect fx;
+            TestDelay fx;
             fx.prepare(ProcessContext{sr, blockSize, 1});
-            setParam(fx, ModulatedDelayEffect::kDelayTime,  delayMs / 1000.0f);
-            setParam(fx, ModulatedDelayEffect::kMix,        1.0f);   // wet only
-            setParam(fx, ModulatedDelayEffect::kFeedback,   0.0f);   // no feedback
-            setParam(fx, ModulatedDelayEffect::kCutoff,     20000.0f);
-            setParam(fx, ModulatedDelayEffect::kResonance,  0.0f);
-            setParam(fx, ModulatedDelayEffect::kWowRate,    1.0f);   // 1 Hz wow
-            setParam(fx, ModulatedDelayEffect::kWowDepth,   wowDepth);
-            setParam(fx, ModulatedDelayEffect::kFlutterDepth, 0.0f);
+            setParam(fx, TestDelay::kDelayTime,  delayMs / 1000.0f);
+            setParam(fx, TestDelay::kMix,        1.0f);   // wet only
+            setParam(fx, TestDelay::kFeedback,   0.0f);   // no feedback
+            setParam(fx, TestDelay::kCutoff,     20000.0f);
+            setParam(fx, TestDelay::kResonance,  0.0f);
+            setParam(fx, TestDelay::kWowRate,    1.0f);   // 1 Hz wow
+            setParam(fx, TestDelay::kWowDepth,   wowDepth);
+            setParam(fx, TestDelay::kFlutterDepth, 0.0f);
 
             return runEffect(fx, sr, blockSize, numBlocks, 440.0);
     };
@@ -353,20 +359,20 @@ TEST_CASE("FR-020: wow & flutter instability is present in the delayed tail") {
     const int measure = 40;
 
     // Build two runs with different wow depths; collect only measurement blocks.
-    ModulatedDelayEffect fxA, fxB;
+    TestDelay fxA, fxB;
     fxA.prepare(ProcessContext{sr, blockSize, 1});
     fxB.prepare(ProcessContext{sr, blockSize, 1});
     for (auto* fx : {&fxA, &fxB}) {
-        setParam(*fx, ModulatedDelayEffect::kDelayTime,  delayMs / 1000.0f);
-        setParam(*fx, ModulatedDelayEffect::kMix,        1.0f);
-        setParam(*fx, ModulatedDelayEffect::kFeedback,   0.0f);
-        setParam(*fx, ModulatedDelayEffect::kCutoff,     20000.0f);
-        setParam(*fx, ModulatedDelayEffect::kResonance,  0.0f);
-        setParam(*fx, ModulatedDelayEffect::kWowRate,    1.0f);
-        setParam(*fx, ModulatedDelayEffect::kFlutterDepth, 0.0f);
+        setParam(*fx, TestDelay::kDelayTime,  delayMs / 1000.0f);
+        setParam(*fx, TestDelay::kMix,        1.0f);
+        setParam(*fx, TestDelay::kFeedback,   0.0f);
+        setParam(*fx, TestDelay::kCutoff,     20000.0f);
+        setParam(*fx, TestDelay::kResonance,  0.0f);
+        setParam(*fx, TestDelay::kWowRate,    1.0f);
+        setParam(*fx, TestDelay::kFlutterDepth, 0.0f);
     }
-    setParam(fxA, ModulatedDelayEffect::kWowDepth, 0.5f);  // A: wow active
-    setParam(fxB, ModulatedDelayEffect::kWowDepth, 0.0f);  // B: no wow
+    setParam(fxA, TestDelay::kWowDepth, 0.5f);  // A: wow active
+    setParam(fxB, TestDelay::kWowDepth, 0.0f);  // B: no wow
 
     std::vector<float> bufA(static_cast<std::size_t>(blockSize));
     std::vector<float> bufB(static_cast<std::size_t>(blockSize));
@@ -410,20 +416,20 @@ TEST_CASE("FR-021: max wow+flutter depths and extreme rates produce finite outpu
     const double sr        = 48000.0;
     const int    blockSize = 256;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 2});  // stereo
 
     // Extreme but in-bounds parameter values.
-    setParam(fx, ModulatedDelayEffect::kDelayTime,    0.3f);
-    setParam(fx, ModulatedDelayEffect::kFeedback,     0.5f);
-    setParam(fx, ModulatedDelayEffect::kMix,          0.5f);
-    setParam(fx, ModulatedDelayEffect::kCutoff,       20000.0f);
-    setParam(fx, ModulatedDelayEffect::kResonance,    0.0f);
+    setParam(fx, TestDelay::kDelayTime,    0.3f);
+    setParam(fx, TestDelay::kFeedback,     0.5f);
+    setParam(fx, TestDelay::kMix,          0.5f);
+    setParam(fx, TestDelay::kCutoff,       20000.0f);
+    setParam(fx, TestDelay::kResonance,    0.0f);
     // US3: max depths, extreme rates.
-    setParam(fx, ModulatedDelayEffect::kWowRate,      2.0f);   // max wow rate
-    setParam(fx, ModulatedDelayEffect::kWowDepth,     1.0f);   // max wow depth
-    setParam(fx, ModulatedDelayEffect::kFlutterRate,  12.0f);  // max flutter rate
-    setParam(fx, ModulatedDelayEffect::kFlutterDepth, 1.0f);   // max flutter depth
+    setParam(fx, TestDelay::kWowRate,      2.0f);   // max wow rate
+    setParam(fx, TestDelay::kWowDepth,     1.0f);   // max wow depth
+    setParam(fx, TestDelay::kFlutterRate,  12.0f);  // max flutter rate
+    setParam(fx, TestDelay::kFlutterDepth, 1.0f);   // max flutter depth
 
     const std::size_t sz = static_cast<std::size_t>(blockSize);
     std::vector<float> left(sz, 0.0f), right(sz, 0.0f);

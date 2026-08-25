@@ -14,6 +14,7 @@ option(ACFX_BUILD_TESTS   "Build the host-side doctest suite for core/"      OFF
 option(ACFX_BUILD_DESKTOP "Build the JUCE workbench + plugin adapters"       OFF)
 option(ACFX_BUILD_DAISY   "Build the Daisy (libDaisy) adapter"               OFF)
 option(ACFX_BUILD_TEENSY  "Build the Teensy adapter"                         OFF)
+option(ACFX_BUILD_NUCLEO  "Build the NUCLEO-F446RE adapter"                  OFF)
 
 # Keep CPM's source cache inside the repo (gitignored) for reproducible fetches.
 if(NOT DEFINED CPM_SOURCE_CACHE)
@@ -63,6 +64,36 @@ target_include_directories(acfx_analysis INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/
 target_compile_features(acfx_analysis INTERFACE cxx_std_17)
 
 # ---------------------------------------------------------------------------
+# acfx_nucleo_support -- the platform-independent half of the NUCLEO-F446RE
+# adapter (nucleo-f446-adapter feature, D1's two-layer decomposition): sample-
+# format conversion, de-interleaving, the audio ring buffer, the parameter seam,
+# and the MIDI-CC mapping. Header-only (INTERFACE), like acfx_core and
+# acfx_analysis above.
+#
+# DELIBERATELY DECLARED UNCONDITIONALLY -- do NOT move this inside
+# `if(ACFX_BUILD_NUCLEO)`. Per research R8: the host doctest suite builds under
+# the `test` preset, which sets no toolchain and enables only ACFX_BUILD_TESTS,
+# so a support library gated behind ACFX_BUILD_NUCLEO would be invisible to the
+# host tests -- silently reproducing the untested-glue blind spot that D1's
+# split exists to close (FR-002, FR-004a). That is also why this target carries
+# NO TinyUSB, CMSIS, or board headers: anything needing silicon belongs in
+# nucleo-main.cpp (FR-003). acfx_core / acfx_analysis set the precedent:
+# declared at top level, consumed by whichever targets are enabled.
+# ---------------------------------------------------------------------------
+add_library(acfx_nucleo_support INTERFACE)
+add_library(acfx::nucleo_support ALIAS acfx_nucleo_support)
+target_include_directories(acfx_nucleo_support INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/adapters/nucleo/support"
+  # A support header (dsp-block-path.h, T033) includes the platform-independent
+  # core spine (dsp/audio-block.h) per FR-037. That is an inward-pointing
+  # dependency, so the INTERFACE must carry core/'s include path — a header
+  # search path only, NOT a link dependency (no acfx_core, no DaisySP). Without
+  # this, a support-only consumer compiles until it first includes the block
+  # path, then fails with a "file not found" three files from the cause.
+  "${CMAKE_CURRENT_SOURCE_DIR}/core")
+target_compile_features(acfx_nucleo_support INTERFACE cxx_std_17)
+
+# ---------------------------------------------------------------------------
 # Subdirectories, gated by the build-surface options.
 # ---------------------------------------------------------------------------
 if(ACFX_BUILD_DESKTOP)
@@ -86,6 +117,11 @@ endif()
 if(ACFX_BUILD_TEENSY)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
   add_subdirectory(adapters/teensy)
+endif()
+
+if(ACFX_BUILD_NUCLEO)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/acfx-effect-targets.cmake)
+  add_subdirectory(adapters/nucleo)
 endif()
 
 if(ACFX_BUILD_TESTS)

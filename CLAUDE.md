@@ -70,7 +70,7 @@
 - Full project principles live in `.specify/memory/constitution.md`.
 
 <!-- SPECKIT START -->
-Active Spec Kit feature: **svf-training-site**.
+Active Spec Kit feature: **synchronous-usb-audio-transport**.
 For technologies, project structure, and the implementation approach, read the
-current plan at `specs/svf-training-site/plan.md` (spec: `specs/svf-training-site/spec.md`).
+current plan at `specs/synchronous-usb-audio-transport/plan.md` (spec: `specs/synchronous-usb-audio-transport/spec.md`).
 <!-- SPECKIT END -->

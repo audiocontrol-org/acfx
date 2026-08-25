@@ -13,10 +13,21 @@ add_executable(acfx_core_tests
   core/measurement-stability-test.cpp
   core/measurement-report-test.cpp
   core/delay-line-test.cpp
+  core/bounded-delay-line-test.cpp
   core/lfo-test.cpp
   core/modulated-delay-test.cpp
   core/modulated-delay-us2-test.cpp
   core/modulated-delay-wowflutter-test.cpp
+  # Task 4 (bounded lo-fi delay): the templated, bounded, heap-free effect —
+  # float clean-path numerical identity vs a committed golden, the no-alloc
+  # invariant, and compile+prepare of the int16 / default policies.
+  core/modulated-delay-bounded-test.cpp
+  # Task 5 (bounded lo-fi delay): the lo-fi layer — internal-rate (decimated)
+  # whole-wet-loop processing (kLofiRate) + in-feedback-loop bit-crush
+  # (kLofiBits) as two live params. D-scales the realizable max delay, keeps the
+  # clean D=1/B=16 wet path full-resolution (RMS vs the float policy), tape-speed
+  # reinterprets on a live D change, and level-preserving crush at low B.
+  core/modulated-delay-lofi-test.cpp
   core/no-allocation-test.cpp
   core/workbench-settings-test.cpp
   # The SourceConfig serde seam is JUCE-free (std::string only), so its TU links
@@ -207,6 +218,106 @@ add_executable(acfx_core_tests
   # DC-settle / energy rig in core/opamp-stage-test-support.h).
   core/opamp-stage-invariants-test.cpp
   # ---------------------------------------------------------------------------
+  # NUCLEO-F446RE adapter support library test suites
+  # (nucleo-f446-adapter feature). Sample-format contract (FR-038, FR-038a,
+  # FR-028, FR-028a); its SF4 no-allocation cases live in a sibling file, split
+  # out for the per-file line budget as the compressor and PDS suites are. Each
+  # nucleo test source is added to this list by the task that authors it.
+  # ---------------------------------------------------------------------------
+  core/nucleo-sample-format-test.cpp
+  core/nucleo-sample-format-no-allocation-test.cpp
+  core/nucleo-packed24-test.cpp
+  core/nucleo-rate-select-test.cpp
+  # T010 (US2, FR-006): RED test for the rate-change latch exactly-once
+  # consumption lifecycle. The SET callback (producer) requests a rate change;
+  # the poll-loop service step (consumer) must react exactly once, not
+  # repeatedly. This is intentionally a failing test against the current code;
+  # T011 implements the fix to make it pass.
+  core/nucleo-rate-change-lifecycle-test.cpp
+  # T017 (US3, FR-006): RED test for the format-change latch exactly-once
+  # consumption lifecycle. The SET callback (producer) requests a format change;
+  # the poll-loop service step (consumer) must react exactly once per change,
+  # performing a single transport reset/re-prime. This is intentionally a failing
+  # test with a deliberately-wrong stub; T018 implements the real fix.
+  core/nucleo-format-transition-test.cpp
+  core/nucleo-audio-ring-test.cpp
+  core/nucleo-audio-ring-lifecycle-test.cpp
+  core/nucleo-audio-ring-no-allocation-test.cpp
+  core/nucleo-transport-stats-test.cpp
+  core/nucleo-usb-out-path-test.cpp
+  # The OUT path's multi-packet structures — serviceOutFifo()'s per-call read
+  # bound and consumePacket()'s chunk loop — split into a sibling file for the
+  # per-file line budget, as the sample-format suite is.
+  core/nucleo-usb-out-service-test.cpp
+  # T034: the effect prepare-parameter contract (FR-036/FR-036a/FR-036b, D28)
+  # — kBlockFrames (48), never kMaxPacketFrames (49).
+  core/nucleo-effect-prepare-test.cpp
+  # T033: the fixed 48-frame block path (FR-030a, FR-036a, FR-037, FR-032) —
+  # the CONSUMER side of the ring, driven with a fake effect so the
+  # non-interleaved/in-place presentation and the packet-size decoupling are
+  # both checkable on the host.
+  core/nucleo-dsp-block-path-test.cpp
+  # T036: the DWT CYCCNT block timer (FR-034, research R6) — cycles-to-micros
+  # conversion, worstBlockMicros as a MAXIMUM, the 2^32 wrap, and the timer
+  # wired into the real block path via a duck-typed ClockSource.
+  core/nucleo-block-timer-test.cpp
+  # T037: fail-loud guard on a DEAD DWT timing source (FR-034b, I-TS4) — FL1
+  # is the POSITIVE CONTROL proving the stuck-at-zero detector actually fires.
+  core/nucleo-block-timer-fail-loud-test.cpp
+  # T035: the polled IN path (device -> host) — the producer side of the
+  # output ring: room-bounded pull size, FR-038a conversion end to end,
+  # silence-on-underrun, and sink back-pressure retried without a silent drop.
+  core/nucleo-usb-in-path-test.cpp
+  # T019 (US3, FR-010): usb-out-path.h/usb-in-path.h become FORMAT-AWARE —
+  # select the int16 or packed-24 converter by an explicit AudioFormat
+  # parameter, defaulted to Pcm16 so every sibling OUT/IN suite above is
+  # unchanged. This file is the Pcm24 coverage: byte accounting (maxPayload
+  # Bytes/room math), decode/encode correctness, the T006 cold-drain guard
+  # under Pcm24, a float->wire->float round trip per depth through both
+  # paths together, and the no-allocation invariant on the new branch.
+  core/nucleo-usb-format-aware-test.cpp
+  # T047 (US7): the capture-only alt-setting state (FR-029, FR-029a, D22) —
+  # `captureOnly` silence emission and `inputStarved`, kept mutually
+  # exclusive from `outputUnderruns` (I-TS1a). Split into a sibling file
+  # rather than growing nucleo-usb-in-path-test.cpp, as the OUT/sample-format
+  # suites already do for the same per-file line budget reason.
+  core/nucleo-usb-in-path-capture-only-test.cpp
+  # T005 (US1, FR-007): RED test for the cold-drain startup defect — the IN path
+  # must not starve on the first SOF-paced pull. This is intentionally a failing
+  # test against the current code; T006 implements the fix to make it pass.
+  core/nucleo-inpath-startup-test.cpp
+  # T053-T056 (US10): USB bus lifecycle policy — suspend (FR-051) stops and
+  # clears both rings, resume/bus-reset (FR-052/FR-053) re-prime both, the
+  # alt-setting stream-open edge (FR-055, contract AR9) resets the ring the
+  # OPENING interface feeds/drains, and every path leaves
+  # AudioTransportStats byte-for-byte unchanged (FR-054).
+  core/nucleo-lifecycle-policy-test.cpp
+  core/nucleo-lifecycle-integration-test.cpp
+  # T058 (US9): the main-loop CDC diagnostic serializer (FR-033a, FR-033c,
+  # FR-033d, SC-004, research R7) — the pure key=value line formatter the
+  # firmware-side diagnostic-service.h writes to CDC. Host-testable: no
+  # TinyUSB, no CMSIS.
+  core/nucleo-diagnostic-serializer-test.cpp
+  # US6 (parameters over USB MIDI): the live-parameter seam. T039 the parameter
+  # shadow (PS1-PS6: bounded, last-write-wins, no eviction, exactly-once flush),
+  # T040 the CC->index map (MC1-MC3: workbench convention CC74->0, CC71->1),
+  # T041 the duck-typed parameter-source seam (PSRC1/2/4/5: two source kinds,
+  # dead-band, composable last-write-wins, application only via flush).
+  core/nucleo-parameter-shadow-test.cpp
+  core/nucleo-midi-cc-map-test.cpp
+  core/nucleo-parameter-source-test.cpp
+  # T066: FR-046a/FR-046b no-allocation / no-lock assertion over the composed
+  # audio-path region (payload truncation, conversion, ring access, the
+  # parameter dirty-flag walk, process()) — closes the dynamic-coverage gap on
+  # the dirty-flag walk (previously noexcept-only, PS6) and adds a
+  # file-scoped positive control (TASK-27).
+  core/nucleo-fr046a-region-no-alloc-test.cpp
+  # ---------------------------------------------------------------------------
+  # Lo-Fi primitive test suites (lo-fi feature)
+  # ---------------------------------------------------------------------------
+  core/lofi-bit-crush-test.cpp
+  core/lofi-decimator-test.cpp
+  # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
   core/mna-system-test.cpp
@@ -260,8 +371,15 @@ target_include_directories(acfx_core_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
 # adapters/workbench on the include path so the serde test (and its TU) resolve
 # #include "workbench-settings.h".
 target_include_directories(acfx_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/adapters/workbench")
-target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host acfx_analysis doctest::doctest)
+target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host acfx_analysis acfx_nucleo_support doctest::doctest)
+# acfx_nucleo_support wires the host coverage seam (FR-049). Each core/nucleo-*-test.cpp
+# source is added to the list above by the task that authors it, so this link deliberately
+# stands ahead of any such entry: it is the platform, not the sources.
 target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
+# Absolute path to the committed golden vector for the ModulatedDelayEffect
+# numerical-identity test (Task 4), independent of the ctest working directory.
+target_compile_definitions(acfx_core_tests PRIVATE
+  "ACFX_MODULATED_DELAY_GOLDEN=\"${CMAKE_CURRENT_SOURCE_DIR}/core/golden/modulated-delay-default.txt\"")
 
 # Per-test-case ctest registration when doctest ships its CMake helper; otherwise
 # register the whole binary as a single test (still satisfies the test preset).

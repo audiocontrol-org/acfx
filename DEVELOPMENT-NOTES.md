@@ -2,6 +2,665 @@
 
 ---
 
+## 2026-08-25: Phase 12/13 hardware, the bounded lo-fi delay (SDD), and rooting out — then speccing a fix for — the USB transport clock-model bug
+
+**Goal:** Pick up `nucleo-f446-adapter` where the last session left off, then follow the operator's
+asks wherever they led: finish the remaining phases on the connected board, build a *device-runnable*
+delay effect, and — once the operator tried it live in Logic — diagnose and specify a fix for a deep
+USB-transport defect.
+
+**Accomplished:**
+- **Phase 12 (US9) + Phase 13 on hardware.** CDC diagnostic service (T058), the `scripts/nucleo-hil`
+  transport-quality harness (T059–T061), the polish/measurement pass (T064–T070), and the FR-048
+  dev-host amendment (T014). SVF firmware live-verified (`worstBlockMicros`=65 µs); captured
+  TASK-34/37/38/39/40.
+- **Bounded lo-fi delay, via full subagent-driven-development** (7 tasks, 2 fix rounds, clean final
+  review). New `BoundedDelayLine`/`bit-crush`/`decimator` primitives; templated **heap-free**
+  `ModulatedDelayEffect` (float path golden-bit-exact); whole-wet-loop internal decimation +
+  bit-crush as live MIDI-CC params; the `acfx_nucleo_lofi_delay` firmware target. **Live on the
+  board**: boots/enumerates/delays, CC76 stretches the echo 0.3 s→~2 s (decimation's
+  bandwidth-for-time confirmed on silicon), `wb`=686 µs. **Closed TASK-34.** Added CC72→mix for
+  auditioning.
+- **Diagnosed the transport defect** the operator hit in Logic (pitch-down + digital noise + ~0.5 s
+  latency): the device is a free-running, **no-feedback asynchronous** source whose IN endpoint sends
+  a variable, ring-gated, decoupled-from-SOF packet stream (ZLP when the ring is empty — nearly every
+  pull); a CoreAudio aggregate's resampler can't lock → stretch/noise/latency. Proved it's the
+  **transport, not the effect** (the dry signal is affected identically).
+- **Authored the `synchronous-usb-audio-transport` Spec Kit spec end-to-end through the stack-control
+  front door** (`define` → specify/clarify/plan/tasks, runnable). Research resolved the load-bearing
+  unknowns: **no SOF-pipeline rewrite** (TinyUSB IN flow control paces the exact cadence, incl.
+  fractional 44 100/1 000, off iso-completion); **24-bit fits the OTG-FS FIFO but tightly (~6.25 %)**;
+  latency reporting is best-effort (UAC2 control unconsumed in practice). Two third-party review
+  rounds on the spec (UAC2 correctness) and one on the tasks — all adopted.
+
+**Didn't Work:**
+- **The base feature's "objective" HIL acceptance was blind to this whole bug class.** It used a
+  single-device loopback with noise/burst signals — never a sustained tone, never an aggregate — so a
+  transport clock-model / pitch/rate defect was invisible to it. "Acceptance passed" did not mean the
+  transport was correct. The new spec makes packet cadence a first-class observable with a USB-level
+  capture guard.
+- **CoreAudio degraded after ~8 reflashes** (ffmpeg/sox loopback returned digital *silence* on every
+  firmware) mid-debug — I nearly read it as a firmware regression before recognising the known host
+  artifact and switching to code analysis + the operator's Logic observations.
+- **govern FATAL'd immediately** — `nucleo-main.cpp` (500 lines / 29 435 bytes) alone exceeds govern's
+  24 576-byte per-file envelope, and govern won't hunk-split; a Constitution-VII-compliant 500-line
+  file cannot be governed (set aside per operator; captured as friction).
+- **The old delay firmware didn't enumerate on hardware** (768 KB heap on a 128 KB part) — expected,
+  confirmed TASK-34; the dead target was dropped, superseded by the bounded lo-fi variant.
+
+**Course Corrections:**
+- When the audio rig went unreliable, I stopped trusting my own measurements and treated the
+  operator's Logic observations as the reliable signal — the prior session's "verify, don't assume
+  your own alarms" lesson, applied faster.
+- Reopened the D20 "no feedback endpoint" decision when the operator said it was probably a mistake —
+  but the design landed on **synchronous** (not feedback) as correct for a converter-less device: the
+  fix is declaring the honest clock model, not adding machinery.
+- Owned, didn't defend, the reviewers' real catches: the 44/45 cadence averages **44.5 kHz not 44.1**
+  (needs the rational-accumulator schedule); the task list scheduled implementation before its RED
+  tests; T002 named Linux `usbmon` for a macOS host.
+
+**Insights:**
+- **A device with no converter has no clock to be "asynchronous" about** — its only timebase is USB
+  SOF, so synchronous is the honest model and the host stops rate-guessing. The bug was the wrong
+  clock-model *declaration*, not the absence of feedback.
+- **Objective acceptance is only as good as the conditions it exercises.** Single-device + noise hid
+  an aggregate + sustained-tone bug for the entire base feature; the reliable diagnosis came from the
+  operator's real DAW, and the durable guard is now a USB-packet-level capture, not a signal listen.
+- The lo-fi decimation's fixed-buffer *bandwidth-for-time* exchange behaved on silicon exactly as
+  designed — a fixed memory budget turned into a musical exchange rate.
+- The stack-control front door and superpowers SDD compose cleanly: brainstorm → design record →
+  (Spec Kit spec | superpowers plan) → subagent-driven execution, with independent third-party review
+  as a real gate at each artifact.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 31
+  - docs(spec,tasks): resolve tasks-list review (TDD order, lifecycle, OUT, capture backend)
+  - docs(tasks): synchronous-usb-audio-transport tasks.md (runnable)
+  - docs(plan): synchronous-usb-audio-transport plan + research + design artifacts
+  - docs(spec): resolve UAC2 review of synchronous-usb-audio-transport
+  - docs(spec): author synchronous-usb-audio-transport spec (Spec Kit)
+  - feat(nucleo): map CC72 -> mix (dry/wet) + add ccsend CoreMIDI helper
+  - chore(backlog): close TASK-34 (delay runs on the F446)
+  - docs(nucleo): bounded lo-fi delay hardware acceptance — closes TASK-34
+  - fix(nucleo): drop the dead acfx_nucleo_delay firmware target
+  - refactor(core): split ModulatedDelayEffect's bit/enum helpers into a sibling header
+  - feat(nucleo): acfx_nucleo_lofi_delay firmware target + CC map (lofi_rate/lofi_bits)
+  - feat(core): lo-fi delay layer — internal-rate decimation + bit-crush + live params
+  - feat(core): template ModulatedDelayEffect (bounded, heap-free) — fixes TASK-34; float path identical
+  - test(core): golden reference for the pre-template ModulatedDelayEffect default path
+  - feat(core): sample-and-hold decimator primitive (primitives/lofi)
+  - feat(core): bit-crush mid-tread grid primitive (primitives/lofi)
+  - feat(core): BoundedDelayLine<Sample,N> static storage primitive + core int16 convention
+  - docs(plan): bounded lo-fi delay implementation plan
+  - docs(design): resolve round-2 review of bounded lo-fi delay
+  - docs(design): revise bounded lo-fi delay after third-party review
+  - docs(design): bounded lo-fi delay — design record
+  - chore(nucleo): execute ledger — Phase 12/13 (T058-T070, T014) entries
+  - docs(nucleo): Phase-13 close-out — T014/T065-T070 dispositions + FR-048 amend
+  - test(nucleo): T066 no-alloc/no-lock assertion over FR-046a stages (+ TASK-27 positive control)
+  - feat(nucleo): T067 portability check — acfx_core acquires no USB/board dependency (FR-004)
+  - docs(nucleo): T068 adapters/nucleo/README.md (two-cable, PA11/PA12 wiring, FR-044/FR-047 limits)
+  - docs(nucleo): Phase-12 (US9) hardware verification + T064 worstBlockMicros
+  - docs(nucleo): T060 (US9) verify HIL harness excluded from CI
+  - feat(nucleo): T059 (US9) HIL transport-quality harness (scripts/nucleo-hil)
+  - docs(nucleo): T061 (US9) resolve open questions 2 and 6
+  - feat(nucleo): T058 (US9) main-loop CDC diagnostic service
+- Files changed: 75
+- Backlog touched: TASK-21, TASK-27, TASK-34, TASK-37, TASK-39, TASK-40
+
+## 2026-08-24: nucleo-f446-adapter — the P2 stories (US6/US7/US10), hardware-verified on the board
+
+**Goal:** Resume `specs/nucleo-f446-adapter` through the stack-control `execute` front door and
+work the P2 user stories in order — US6 (live parameters over USB MIDI), US7 (capture-only
+operation), US10 (USB lifecycle events) — verifying each on the physically-connected
+NUCLEO-F446RE, and closing out T038's pending live-signal acceptance from last session.
+
+**Accomplished:**
+- **Phase 8 (US6) complete and HARDWARE-VERIFIED.** The host-testable parameter seam — shadow
+  (`parameter-shadow.h`), CC→index map (`midi-cc-map.h`), duck-typed source seam +
+  `MidiParameterSource` (`parameter-source.h`) — plus the shim wiring (`parameter-service.h` +
+  loop call). Open question 7 was put to the operator and settled to the established workbench
+  convention (CC 74→param0, CC 71→param1, omni, value/127), baked into T043's table. Live on the
+  board: raising CC 74 swung HF(>3k) RMS ~100× (cutoff moves), CC 71 grew the cutoff-band peak
+  3.8× (resonance moves), and an unmapped CC 20 changed nothing (MC1).
+- **T038's parked SC-002 live-signal acceptance closed** the same session: default SVF (LP@1kHz)
+  attenuated input HF(>3k) 0.268→0.011 (~27 dB) with LF preserved — the known signal returns
+  transformed as the compiled-in effect predicts.
+- **Phase 9 (US7) complete and HARDWARE-VERIFIED.** Capture-only detection emits well-defined
+  silence counting `inputStarved` (not `outputUnderruns`), mutually exclusive per FR-029a. Live:
+  capture-only record was silent, `inputStarved` non-zero over SWD (mutually exclusive from
+  `outputUnderruns`), duplex resumed with no restart.
+- **Phase 11 (US10) complete and HARDWARE-VERIFIED.** Suspend→both rings `stop()`,
+  resume/bus-reset→both `reset()` (counters untouched, AR9), stream-open edges reset the ring
+  each direction feeds/drains (`reconcileStreamOpenEdges`). Live: the FR-055 alt-transition tour
+  (duplex↔capture-only, no power cycle) and a forced bus reset — the operator replugged the
+  device USB cable while ST-Link held the clock, and the running firmware re-enumerated and
+  resumed streaming (`tud_umount`/`tud_mount` re-prime, not a reboot).
+- **Reusable HIL rig + durable records.** A no-install macOS loopback rig (ffmpeg avfoundation
+  capture + sox playback + a ~40-line Swift CoreMIDI CC sender + SWD/gdb counter reads); two
+  reference memories (the HIL rig; the TinyUSB weak-callback trap); backlog TASK-37 (weak-callback
+  build guard) and TASK-38 (counters-across-event, a T058 follow-up).
+
+**Didn't Work:**
+- **I called a "confirmed first-duplex regression" — and it wasn't one.** After ~13 rapid
+  reflashes the host's CoreAudio degraded until `ffmpeg` capture hung on EVERY firmware (the
+  pre-change image included); the "first duplex silent" I saw was that onset, not the firmware. I
+  stated it too confidently before A/B-ing. Disproved by the LI1–LI4 host integration tests and
+  then a clean hardware re-run.
+- **The T047 alt-setting callbacks first shipped as `extern "C" inline` in a header** and linked
+  to TinyUSB's `TU_ATTR_WEAK` no-op default — `objdump` showed `tud_audio_set_itf_cb` as
+  `movs r0,#1; bx lr`. Clean link, green host tests (they drive the pure logic), dead on silicon.
+  Caught in review; moved to strong `.cpp` definitions.
+- **SWD counter reads are confounded for "across the event":** `st-util` resets RAM on attach, so
+  before/after reads are impossible; a prior halted session leaves the core stuck at startup
+  reading zeros. The counter-continuity half of SC-013 is deferred to CDC telemetry (T058).
+- **Tooling friction:** repeated reflashing degrades CoreAudio; `sox` won't run two coreaudio
+  clients (play+rec) on one device for full-duplex.
+
+**Course Corrections:**
+- **Operator asked "why do you want to execute the spec out of order?" — a fair hit.** I'd floated
+  jumping to Phase 12 and cherry-picking. Corrected to strict in-order: Phase 10 (US8) is already
+  done/deferred (T049/T050 done, T051/T052 operator-deferred with the `[~]` marker), so Phase 11
+  (US10) was the correct next phase — no reordering.
+- **Applied the T047 weak-callback lesson PROACTIVELY in T053–T056** — strong `.cpp` callbacks,
+  objdump-verified upfront — rather than re-learning it, and the T047 subagent itself objdump-checked.
+- **When hardware evidence went noisy, switched to a deterministic host integration test**
+  (LI1–LI4, driving the real reconcile→fill→DSP→drain pipeline) to settle the firmware-logic
+  question instead of hammering degraded hardware — the right instrument, and it exonerated the code.
+- **Trimmed `nucleo-main.cpp` back to the 500-line budget** after the T056 wiring pushed it to 504.
+
+**Insights:**
+- **A clean link plus green host tests is still not a boot check** — the inline weak callback was
+  invisible to both; only objdump and hardware could see it. Third instance of this class across
+  the feature (missing FPU enable, DaisySP FPv5, now the weak callback).
+- **Verify, don't assume — including my own alarms.** The false regression came from trusting
+  noisy hardware; a deterministic host test was the cheaper, correct answer and should have been
+  the first move, not the fallback.
+- **Repeated reflashing has a host-side cost** (CoreAudio degradation) that can perfectly mimic a
+  firmware fault. Space HIL out, reset/replug between batches, and reach for host tests for logic
+  questions.
+- **SWD is the wrong instrument for counter-across-event verification** (it resets RAM); CDC
+  telemetry (T058) is the right one — which is exactly why Phase 12 is well-placed as the next
+  in-order phase and why TASK-38 waits for it.
+- **A `fast`-tiered "verify on hardware" task is not fast** when the host disagrees — echoing last
+  session's T038.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 13
+  - docs(nucleo): T057 done (operator-accepted) — Phase 11 (US10) complete; TASK-38 tracks the T058 counter-across-event follow-up
+  - docs(nucleo): T057 live-verified in part (FR-055 alt tour + bus reset on hardware); suspend/wake + counter-continuity pending
+  - docs(nucleo): Phase 11 (US10) statuses — T053-T056 done+host-verified, T057 [~] pending clean host
+  - test(nucleo): T056 first-stream integration test (root-cause of an observed hardware silence)
+  - feat(nucleo): T053-T056 (US10) USB lifecycle -> ring state
+  - chore(backlog): capture TASK-37 (tinyusb weak-callback linkage guard)
+  - docs(nucleo): close Phase 9 (US7) — T047/T048 hardware-verified (SC-005)
+  - feat(nucleo): T047 (US7) capture-only silence + inputStarved
+  - docs(nucleo): T038 + US6 hardware-verified on the connected board (SC-002)
+  - docs(nucleo): close Phase 8 (US6) — OQ7 resolution, tasks ledger, execute ledger
+  - feat(nucleo): T045 (US6) wire the live-parameter path into the shim
+  - feat(nucleo): T042-T044 (US6) parameter shadow, CC map, MIDI source
+  - test(nucleo): T039-T041 (US6) RED tests for the live-parameter seam
+- Files changed: 23
+- Backlog touched: TASK-10, TASK-29, TASK-37, TASK-38
+
+## 2026-08-24: nucleo-f446-adapter — Phase 7 (US5), the audio path, and the DaisySP FPv5 fault a clean link hid
+
+**Goal:** Resume `specs/nucleo-f446-adapter` at Phase 7 (US5) through the stack-control
+`execute` front door — the audio data path that turns the enumerating-but-silent board from
+Phase 6 into an actual acfx target: the polled OUT path, fixed-48-frame block processing through
+the effect, the polled IN path, block timing, and a hardware verification. Board attached
+throughout.
+
+**Accomplished:**
+- **Phase 7 (US5) code complete — T032–T037 implemented, reviewed, and ledgered.** The polled
+  OUT path (`usb-out-path.h`, adaptive sink with FR-028a truncation counting), the effect prepare
+  at 48 frames per D28 (`effect-instance.h`, guarded by `static_assert`), the fixed-48-frame
+  block engine (`dsp-block-path.h`), the clamped IN path (`usb-in-path.h`), and the DWT `CYCCNT`
+  block timer with a fail-loud stuck-counter guard (`block-timer.h`). Host suite grew to 846
+  cases; every task was test-first and mutation-verified.
+- **The board is a working audio device again, on the Phase-7 firmware.** After the fix below,
+  `acfx_nucleo` (SVF) flashes and enumerates as the acfx composite device — Core Audio `acfx
+  Audio` 2-in/2-out at 48000 Hz, CDC on `/dev/cu.usbmodem11206`.
+- **Root-caused and fixed a HardFault that a clean link completely hid (TASK-36).** DaisySP's
+  `dsp.h` emits FPv5-only `vmaxnm.f32`/`vminnm.f32` inline asm gated on bare `#ifdef __arm__`;
+  valid on the M7 Daisy, a NOCP UsageFault on the M4 Nucleo. Diagnosed on hardware over SWD
+  (halted core, `CFSR=NOCP` with the FPU *enabled*, stacked PC at `Svf::SetFreq`←`PrepareEffect`).
+  Fixed with an idempotent CPM `PATCH_COMMAND` re-gating the asm on `DSY_FPV5_MAXMIN` (M7
+  toolchains only); M4 + host use DaisySP's portable path. Rebuilt (0 NM in the image), reflashed,
+  enumerated.
+- **Three artifact amendments rather than letting tests or code drift.** US3 AS1 amended across
+  spec.md, data-model.md (I-AR4 + the transition row), and FR-030d to record that T033's
+  occupancy gate makes an input-side short read unreachable by construction — with the honest
+  I-TS1a mis-attribution note (input starvation surfaces only as later `outputUnderruns`).
+- **Five backlog items filed** (TASK-32 through TASK-36) plus one memory record on the DaisySP
+  FPv5 trap for the coming hardware targets.
+
+**Didn't Work:**
+- **T032's clear-on-tear fix — implemented on operator direction, then reverted after it was
+  proven a no-op.** The bounded read means a torn payload is only ever visible on an
+  already-drained FIFO, so the flush discards nothing in the case it targets and only destroys
+  good audio in an ISR race. The genuinely dangerous case (a tear embedded in a sustained
+  backlog) is undetectable by any byte-stream remedy — filed as TASK-33. Three rounds on one task.
+- **My own worked example of the tear bug was wrong, stated confidently to the operator.** I said
+  the L/R swap persists until stream restart; it self-corrects when the backlog drains, because
+  `tu_fifo_read_n` clamps to the queued count. The fix agent caught it; I re-derived it against
+  the pinned source and corrected.
+- **T034 wiring `prepare()` exposed a dead firmware image (TASK-34).** `acfx_nucleo_delay`
+  requests 768 KB of heap on a 128 KB part in `ModulatedDelayEffect::prepare()` and aborts before
+  the service loop. Links clean, never boots — the same shape as the DaisySP fault and TASK-25.
+- **The DaisySP fault presented as a silent hang.** No fault LED, no diagnostic — it took SWD
+  archaeology to find, for the second session running. The parked fault-vectors→LED work would
+  have turned it into a glance.
+- **Two of my root-cause hypotheses were wrong before the right one** (double-precision f64;
+  mismatched compile flags) — each refuted by evidence (no `.f64` in the image; flags were
+  correct) before I acted on it.
+
+**Course Corrections:**
+- **Operator asked whether I was hunting vanishingly-rare corner cases — a fair hit.** I had been
+  running a fixed full review+verify pass on every task regardless of blast radius. Recalibrated
+  to risk-weighted: independent review only on shipped-artifact/audio-path/contract changes,
+  controller build-and-run verification on mechanical wiring, and stop building defenses for
+  rare byte-tears. The real bugs came from building and running, not corner-case hunting.
+- **Reverted clear-on-tear rather than iterating on it**, once the analysis showed the whole
+  approach missed. Kept the parts that stood on their own (bounded read, backlog observability,
+  honest docs, multi-chunk coverage).
+- **Kept scrutiny exactly where it paid: T037's fail-loud guard.** Required a positive-control
+  test, not just the guard's existence. The agent then found its own runtime guard *unprovable*
+  by mutation and replaced it with a load-bearing `static_assert` — refusing to ship a check that
+  could not fail.
+- **Batched T036+T037 into one agent** (same subsystem — a timer and its self-check) rather than
+  rebuild context twice.
+
+**Insights:**
+- **A clean link is not a boot check — three times over this feature now.** The DaisySP FPv5
+  fault, the delay-image heap overshoot, and (last session) the missing FPU enable all linked
+  perfectly and were dead on silicon. The flash-and-enumerate step is what catches this class,
+  and it is cheap next to the live acceptance it protects.
+- **"Verify on hardware" is not a fast task.** T038 was tiered `fast`; it turned into hours of
+  SWD fault-debugging because the firmware disagreed with the build. A tier reflects the happy
+  path, not the diagnostic tail when hardware says no.
+- **Executable evidence broke ties that reasoning could not.** The tear bug had two of us
+  (reviewer and me) reasoning about byte layout and both wrong; only the demand that a regression
+  test *fail against the old code* forced the actual byte sequence and the real answer. Same shape
+  as last session's ctest false green — a check that structurally cannot fail gets believed.
+- **The best agent output this session refused to ship a green that could not fail.** T037's
+  unprovable-guard-→-static_assert swap, and T032's honest "the fix I was told to build does not
+  achieve its goal," were both worth more than a passing test would have been.
+- **A vendored dependency's platform assumption is a portability landmine.** DaisySP assumed
+  `__arm__` ⇒ FPv5; correct for its home platform, fatal one FPU generation down. Every new
+  hardware target inherits that assumption until the guard is fixed — and GCC gives you no macro
+  to catch it automatically.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 18
+  - chore(nucleo): T038 -> operator-acceptance (boot+enumerate hardware-verified, live signal pending); ledger
+  - fix(nucleo): gate DaisySP FPv5 vmaxnm asm on M7-only opt-in, unbreak M4 boot
+  - chore(nucleo): ledger T036 + T037 (DWT block timer + fail-loud positive control)
+  - feat(nucleo): T037 (US5) - fail loud on a stuck DWT counter, with positive control
+  - feat(nucleo): T036 (US5) - DWT CYCCNT block timer, worstBlockMicros live
+  - chore(nucleo): ledger T035 (polled IN path, controller-verified)
+  - feat(nucleo): T035 (US5) — polled IN path, clamped float->int16 to the host
+  - feat(nucleo): T033 (US5) review — CMake core/ include, spec AS1 amendment, ledger
+  - docs(spec): record the T033 block-gate amendment to US3 acceptance scenario 1
+  - feat(nucleo): T033 (US5) — fixed 48-frame block assembly through the effect
+  - chore(nucleo): ledger T034 and capture TASK-34 (delay firmware heap overshoot)
+  - feat(nucleo): T034 (US5) — prepare the effect at 48 frames per D28
+  - chore(nucleo): ledger T032 (polled OUT path, 3 review rounds, clear-on-tear reverted)
+  - chore(backlog): capture TASK-33 - sustained-backlog tear is undetectable in the OUT path
+  - Revert "fix(nucleo): T032 - clear the OUT FIFO on a torn read to bound channel misalignment"
+  - fix(nucleo): T032 — clear the OUT FIFO on a torn read to bound channel misalignment
+  - fix(nucleo): T032 review — bounded per-call OUT read, cover the multi-packet path
+  - feat(nucleo): T032 (US5) — polled OUT path, adaptive sink with FR-028a truncation counting
+- Files changed: 33
+- Backlog touched: TASK-29, TASK-32, TASK-33, TASK-34, TASK-35
+
+## 2026-08-23: nucleo-f446-adapter — Phases 5–6, from host tests to a real USB audio device
+
+**Goal:** Resume `specs/nucleo-f446-adapter` at Phase 5 through the stack-control `execute`
+front door. Phase 5 (US3, the SPSC audio ring) was the last fully host-testable phase; when the
+operator confirmed the board was physically connected mid-session, the goal widened to getting
+the NUCLEO-F446RE enumerating on the host as a composite USB audio device.
+
+**Accomplished:**
+- **Phase 5 (US3) complete and ledgered** — `transport-stats.h` (64 lines) and `audio-ring.h`
+  (233 lines), with 44 ring cases / 394 assertions and 11 stats cases / 27 assertions passing.
+  T022 passed its RED tests on the first run and changed no test file.
+- **Phase 6 (US4) complete and HARDWARE-VERIFIED** — the board enumerates on macOS as
+  `acfx Nucleo F446 Effect` with all seven interfaces registered and matched by built-in class
+  drivers, no driver installation. Core Audio reports `acfx Audio`, 2 in / 2 out, 48000 Hz,
+  Transport USB. CDC presents `/dev/cu.usbmodem11206`. SC-001 met.
+- **Clock bring-up verified on real silicon**, not just linked: flashed and read back over SWD
+  `RCC_PLLCFGR=0x07402a04` (exact match to the spike), HSERDY/HSEBYP/PLLRDY all 1, `SWS=PLL`,
+  `FLASH_ACR` latency 5, prescalers /1 /4 /2 — SYSCLK 168 MHz, USB leg 48.0000 MHz exactly.
+- **Found and fixed the missing Cortex-M4F FPU enable** (TASK-31), which had the board
+  hard-faulting before USB could come up. This was the difference between a dead board and a
+  working audio device.
+- **Two contract amendments** giving `AudioRing` the observable state AR7 always required but the
+  interface could not express, plus a normative transition table, a named exception type, and a
+  decided `startupFill == 0` edge.
+- **Two research records written from pinned source**: R13 (the real TinyUSB 0.21.0 API, every
+  fact cited to file:line) and R14 (the OTG_FS endpoint + FIFO budget, which closes with ~30%
+  headroom and a spare endpoint pair).
+- **Four backlog items filed** (TASK-28 through TASK-31), one of them escalated upstream as
+  audiocontrol-org/deskwork#536.
+
+**Didn't Work:**
+- **The first flash did not enumerate**, and every register a bring-up checklist examines read
+  correctly — PLL locked to the spike value, OTG clock on, device mode forced, transceiver
+  powered, soft-connect asserted, host completing bus reset and speed detection. The only
+  evidence was two *absences*: `NVIC_ISER[2]` bit 3 never set, and `GINTSTS` USBRST/ENUMDNE set
+  but never cleared. Root cause was `SCB_CPACR = 0` — the FPU was never enabled, so the first
+  VFP instruction raised a NOCP UsageFault that escalated to HardFault.
+- **`ctest --preset test` is a false green** and was believed for most of the session. It reports
+  828/828 while the binary run directly reports 3 failed cases. 28 test names contain a
+  semicolon, CMake truncates them as list separators, the resulting filter matches nothing,
+  doctest runs zero cases and exits 0, and ctest records Passed (TASK-29).
+- **T019 and T020 both needed substantial rework.** T019 took two fix rounds plus four assertions
+  added by hand; T020's 26 cases in 340 lines were largely tautological and were rewritten to 11.
+- **US8's fault test is unsatisfiable as written** on any rig (TASK-30) — deferred by the operator
+  along with T051/T052.
+- **I flashed over the spike firmware.** The captured USB baseline contained `F446 Loopback Audio`
+  and I did not read my own baseline before writing to flash.
+
+**Course Corrections:**
+- **The execute gate refused the entire spec on the first command of the session.** `resolve-tiers`
+  cannot parse lettered task ids, and two already-complete ledgered tasks blocked all 72.
+  Operator chose an in-repo renumber (`T010a`/`T012a` → `T071`/`T072`) with matching ledger
+  renames over a cross-repo fix.
+- **Amended the contract twice rather than letting tests guess.** T019 produced a test asserting
+  a counted underrun during Priming — exactly what AR7 forbids — because the declared interface
+  exposed no state accessor. Amending the artifact was the right fix; the behaviour was never
+  ambiguous, only the C++ surface was missing.
+- **Folded T024 forward across a phase boundary** on operator direction, because T051 had nothing
+  to guard until the PLL was actually configured.
+- **Dropped the error-condition work** when the operator said so directly. T051/T052 marked
+  deferred rather than quietly skipped.
+- **A third-party design review improved the AR7 interface** — its framing that "not ready" is a
+  lifecycle property of the transport rather than an outcome of a read was better than the
+  original. Pushed back on three points: the missing `Stopped` state (the spec commits to three,
+  and FR-051 suspend needs somewhere to land), naming churn against the declared contract, and
+  an unvalidated `startupFill > capacity` that would prime forever in silence.
+- **Corrected mid-run by a subagent.** I told T029 that `CFG_TUD_CDC_NOTIFY=0` removes the CDC
+  notify endpoint; it does not — `cdcd_open` opens it unconditionally when the descriptor
+  declares one. T029 verified against the pinned source and computed both budgets anyway.
+
+**Insights:**
+- **Excluding a vendor init file needs an item-by-item inventory of what it did.** D14's call to
+  drop `system_stm32f4xx.c` was right, but `SystemInit()` was not all scaffolding — it also
+  enabled the FPU, and nothing replaced that one line. Same shape as TASK-24's missing C-runtime
+  startup: reviews reason over the artifacts present, never over whether the set is sufficient
+  to boot.
+- **A green signal that cannot fail gets believed.** Two independent instances this session: the
+  ctest false green (28 tests silently not run, reported as passing) and the allocation sentinel
+  with no positive control (every `allocations() == 0` assertion vacuous if the override ever
+  stopped firing). Both were checks that structurally could not report failure.
+- **On bare metal, install the fault handler before anything else.** A HardFault currently
+  presents as a hang. T050's LD2 blink pattern already exists; pointing the fault vectors at it
+  would have turned an hour of CPACR/CFSR/HFSR archaeology into a glance at the board.
+- **Ask a subagent for an artifact, not a claim.** Reports were consistently more confident than
+  the work — a 535-line file called 658, AR7 called covered when the test asserted the opposite,
+  AR8 tests called "moved" when they were copied into both files. Demanding the actual
+  disassembly, the actual build error text, or the actual harness output caught every one.
+- **Test-count inflation reads as coverage and is worse than a gap.** T020's eight
+  `uint32_t max + 1 == 0` cases asserted the C++ standard, not this codebase. The honest
+  deliverable was less than half the size and said out loud which guarantees are *not* provable
+  against a passive record.
+- **A verified number belongs in a `static_assert`, not a comment.** T024 turned the spike's
+  recorded `PLLCFGR = 0x07402a04` into a build-time check, and negative-tested it. That is the
+  difference between a number that stays true and one that quietly rots.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 33
+  - fix(nucleo): enable the Cortex-M4F FPU in Reset_Handler — the board now enumerates
+  - feat(nucleo): T030 - TinyUSB init, OTG_FS ISR, tud_task() service loop
+  - chore(nucleo): ledger T027 (composite USB descriptors, byte-walk verified)
+  - feat(nucleo): T027 (US4) — composite USB descriptors, audio+MIDI+CDC
+  - chore(nucleo): ledger T029 — OTG_FS endpoint budget closes
+  - docs(nucleo): R14 — OTG_FS endpoint + FIFO budget closes (T029)
+  - chore(nucleo): ledger T026 (tusb_config.h)
+  - feat(nucleo): T026 tusb_config.h — audio/MIDI/CDC config, VBUS detect off
+  - chore(nucleo): ledger T025 (PA11/PA12 AF10) and T028 (TinyUSB 0.21.0 API recon)
+  - feat(nucleo): T025 - PA11/PA12 alternate-function GPIO for OTG_FS
+  - docs(nucleo): T028 — record TinyUSB 0.21.0 API read off the pinned tree
+  - chore(nucleo): ledger T024 — clock bring-up verified on real silicon
+  - feat(nucleo): T024 (US4) register-level clock bring-up, HSE bypass + PLL
+  - chore(nucleo): ledger T050 (fault blink pattern, delay loop verified in object code)
+  - feat(nucleo): T050 - fatal clock-fault LED pattern (US8)
+  - chore(nucleo): ledger T049 (LD2 GPIO init, disassembly-verified)
+  - feat(nucleo): T049 init fault LED GPIO before clock validation
+  - chore(nucleo): ledger T023 and close Phase 5 (US3)
+  - test(nucleo): complete allocation-free coverage for audio-ring APIs and add positive control
+  - chore(nucleo): ledger T022 (audio-ring.h, 38 AR cases green) and file TASK-29
+  - feat(nucleo): T022 (US3) — statically sized SPSC audio ring
+  - chore(nucleo): ledger T021 (transport-stats.h, host-verified 11/11)
+  - feat(nucleo): T021 transport-stats.h (US3)
+  - chore(nucleo): ledger T019/T020 and record the T020 file-placement deviation
+  - test(nucleo): rewrite the TransportStats RED tests to assert the contract
+  - test(nucleo): RED tests for AudioTransportStats contract TS1/TS1a/TS2/TS4
+  - test(nucleo): assert the write/read returns T019 left unchecked
+  - fix(nucleo-audio-ring-test): second round review findings (T019)
+  - spec(nucleo): pin the AudioRing constructor exception type and the startupFill==0 edge
+  - test(nucleo): fix AudioRing RED tests (T019 review findings)
+  - spec(nucleo): give AudioRing the observable state AR7 already required
+  - test(nucleo): RED tests for audio-ring contract AR1-AR3, AR5, AR7-AR9
+  - chore(nucleo): renumber T010a/T012a to T071/T072 to clear the execute gate
+- Files changed: 27
+- Backlog touched: TASK-24, TASK-25, TASK-27, TASK-28, TASK-29, TASK-30, TASK-31
+
+## 2026-08-23: nucleo-f446-adapter — execute Phases 1–4, from gated to bootable firmware
+
+**Goal:** Pick up the implementation step last session deliberately held, and drive
+`specs/nucleo-f446-adapter` through the stack-control front door's `execute`: tier-dispatched
+per-task subagents, review each, ledger, commit and push at every phase boundary.
+
+**Accomplished:**
+- **Cleared the execute gate honestly.** The compass hard-refused (`ahead`; exit gate `node-marker
+  analyze-clean` unmet). Last session *had* analyzed, but the marker was never recorded — and two
+  commits landed **after** that analysis (73→79 FRs, 66→70 tasks, design record amended). Rather
+  than stamp the marker on last session's word, re-verified mechanically against the **current**
+  artifacts: 79/79 FR coverage, 13/13 SC coverage, T001–T070 contiguous with no gaps or duplicates,
+  36/36 design-record D-numbers defined with zero dangling citations, and the D15→D28 supersession
+  correctly propagated into `spec.md`, `tasks.md` and `data-model.md`.
+- **19 of 72 tasks across Phases 1–4**, each dispatched to a fresh subagent at its declared tier
+  (`fast`→haiku, `balanced`→sonnet, `powerful`→opus), reviewed, ledgered, committed and pushed.
+- **Phase 1 — build surface.** Nucleo toolchain, `ACFX_BUILD_NUCLEO` option + presets, and three
+  CPM pins (TinyUSB `0.21.0`, `cmsis_device_f4` `v2.6.11`, `CMSIS_5` `5.9.0`) verified first by live
+  `git ls-remote` and then by an actual fetch. The CMSIS_5-vs-CMSIS_6 ambiguity R12 left open was
+  settled by evidence — `cmsis_device_f4`'s release notes name CMSIS Core v5.9.0, and
+  `stm32f446xx.h:169` literally includes `core_cm4.h`.
+- **Phase 2 — build graph.** `acfx_nucleo_support` declared unconditionally (verified structurally
+  at `if()` nesting depth 0, which is the entire point of R8/D1), the `acfx_add_effect_nucleo`
+  factory, and the host-test link seam.
+- **Phase 3 — bootable firmware.** Linker script, hand-written `Reset_Handler`, a vector table
+  derived from the CMSIS `IRQn_Type` enum (113 entries, OTG_FS at index 67), `SystemCoreClock` =
+  168 MHz per FR-014/D6, and `main()`. Two `.elf` images, verified structurally: `.isr_vector`
+  452 bytes at 0x08000000, initial SP 0x20020000, reset vector 0x08000255 (Thumb bit set).
+- **Phase 4 — sample-format conversion.** Suite 744 → **779, all passing**.
+- **Six backlog items captured** (TASK-22 … TASK-27) — only TASK-23/24 appear in the auto-derived
+  section below, because that derivation reads commit messages and the rest were captured mid-phase.
+- **Two tasks added mid-flight with operator approval** (`T010a` C-runtime startup, `T012a` entry
+  point), using **lettered ids rather than a renumber** because the execution ledger is keyed by
+  task id. *(Superseded 2026-08-23: `stackctl resolve-tiers` cannot parse a lettered id and refused
+  the whole spec at the next execute gate — see backlog TASK-28. Renumbered to `T071`/`T072` with
+  their ledger entries renamed to match. They still execute inside US1, not after Phase 13.)*
+
+**Didn't Work:**
+- **I verified the ARM toolchain with `--version` and was wrong.** I told the operator firmware
+  could link and the libstdc++ probe would pass. A subagent then actually compiled
+  `#include <algorithm>` and found Homebrew's `arm-none-eabi-gcc` is **C-only**. `--version`
+  succeeding proves the driver binary exists, nothing more. The complete Arm GNU Toolchain was
+  already installed at `/Applications/ArmGNUToolchain/`, merely shadowed on PATH — so the operator's
+  approval to "provision a toolchain" needed no installation at all.
+- **I misdiagnosed a build failure and stated the wrong cause.** Claimed a subagent had "poisoned"
+  the CMake cache with `CPM_SOURCE_CACHE:PATH=OFF`. That value is CPM's own default cache entry; my
+  story couldn't explain why it survived a clean wipe. The real defect: `CMakeLists.txt` guards with
+  `if(NOT DEFINED CPM_SOURCE_CACHE)`, but CPM *creates* that variable, so **every reconfigure**
+  skips the guard and re-fetches CPM over the network (TASK-23).
+- **`stackctl backlog capture` silently discarded a finding.** A new id with a new body but a `--ref`
+  an existing item already held returned exit 0 and created nothing (TASK-26). Only caught by
+  re-reading the store.
+- **`ctest` reported 744/744 green while `configure` was broken**, running a stale binary. Caught
+  only by checking exit codes rather than the pass line.
+- **The `fast` tier produced two substantively wrong contract tests** (T016): an expectation helper
+  documented as scaling that never multiplied by 32768, and a `wasTruncated == false` assertion
+  contradicted by its own adjacent comment.
+
+**Course Corrections:**
+- **Reverted a completed, verified task on operator direction.** T014's CI job — a real Arm
+  toolchain provisioning step, action version checked upstream — was reverted wholesale when the
+  operator ruled platform-specific work out of the CI pipeline. Flagged that FR-048/D18 still name
+  CI cross-compile+link as "verification layer 1" and left the requirement **unedited**: amending a
+  requirement is the operator's call, not mine.
+- **Instructed every implementation agent to refuse to edit tests and surface disagreements
+  instead.** That single constraint is what caught both wrong contract tests. Had the implementation
+  been bent to satisfy them, conversion would have shipped with no scaling.
+- **Stopped chasing LSP diagnostics** once established as host-clangd false positives — missing
+  `compile_commands` entries, and "aliases are not supported on darwin" for an ELF/ARM target.
+- **Routed every scope question to the operator rather than deciding**: startup ownership, `main()`
+  ownership, the T009 execution-order split, CI provisioning. Four asks, four operator decisions.
+
+**Insights:**
+- **"It links" is not a boot check.** Building the vector table into a STATIC library produced two
+  `.elf` files that linked with zero errors and contained **no vector table at all** — `.isr_vector`
+  size 0, `g_vectorTable` absent, `.text` sitting at the reset address. A linker only extracts an
+  archive member that resolves an undefined symbol, and `KEEP` cannot rescue a section never
+  included; `Reset_Handler` survived only incidentally, via `ENTRY()`. T015's stated criterion —
+  "links one `.elf` per effect" — would have been satisfied **verbatim** by an unbootable image.
+- **A check that cannot fail gets believed** — last session's always-zero `truncatedFrames` counter,
+  restated four more times in one session: the vector table above; `ctest` green off a stale binary;
+  a CI gate with no cross-compiler; and an allocation sentinel whose every assertion is `== 0`, with
+  **no positive control anywhere** proving it ever fires (TASK-27 — hand-verified it does, today).
+- **Reviews that read artifacts miss what only running them reveals.** A checklist, `analyze`, and a
+  third-party review all passed this spec at 100% coverage, yet nothing owned `Reset_Handler`,
+  `.bss` init, static-constructor init, or `main()` — so US1's MVP could not have booted or even
+  linked (TASK-24). Coverage of stated requirements says nothing about sufficiency of the artifact
+  set.
+- **Lettered task ids beat renumbering once execution starts.** Last session recorded renumbering as
+  a documentation hazard; mid-execution it becomes a correctness one, because the ledger keys resume
+  safety on task id. `T010a`/`T012a` cost nothing; a renumber would have invalidated 16 entries.
+  *(Falsified next session: the reasoning held, but `stackctl resolve-tiers` parses ids as `T\d+\b`
+  and rejects a lettered suffix outright — so the ids cost the entire next execute run, not nothing.
+  The real lesson: **an id convention is only free if the tooling that gates on it accepts it.**
+  Resolved by renumbering to unused trailing ids `T071`/`T072` and renaming the two ledger entries —
+  which preserved resume safety after all, because appending beyond the last id needs no cascade.
+  The tool defect is backlog TASK-28.)*
+- **Verification strength deserves recording, not just verification.** The dependency-pin header now
+  distinguishes fetch-and-build from fetch-resolved-only from captured-but-unfetched — three
+  honestly different confidence levels that a single "verified" label would have flattened.
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 12
+  - chore(nucleo): ledger Phase 4
+  - feat(nucleo): Phase 4 (US2) — sample-format conversion, host-verified
+  - chore(nucleo): track the execute ledger (Phase 1-3, 16 entries)
+  - feat(nucleo): Phase 3 — bootable firmware images cross-compile and link
+  - docs(nucleo): add T012a entry point; record T014 superseded by operator CI direction
+  - docs(nucleo): add T010a C-runtime startup; capture TASK-23/TASK-24
+  - chore(nucleo): ledger + mark T007-T009 complete
+  - feat(nucleo): Phase 2 build graph — unconditional support target, effect factory, host link
+  - docs(nucleo): record first-fetch verification of the three Nucleo pins
+  - chore(nucleo): ledger + mark T001-T006 complete
+  - feat(nucleo): Phase 1 build surface — toolchain, preset, CPM pins
+  - chore(roadmap): record analyze-clean on design:gap/nucleo-f446-adapter
+- Files changed: 25
+- Backlog touched: TASK-23, TASK-24
+
+## 2026-08-23: nucleo-f446-adapter — design-approved → runnable spec (+ design record reconciled)
+
+**Goal:** Take `design:gap/nucleo-f446-adapter` — approved design record, exit gate 7/7 — through
+the stack-control front door's `define` step to a complete, coverage-clean Spec Kit spec ready for
+`/stack-control:execute`. Implementation deliberately held as a separate, operator-initiated step.
+
+**Accomplished:**
+- **Full Spec Kit chain inside one capability-mediation bracket.** `specify` → `clarify` → `plan`
+  (+ `research` R1–R12, `data-model`, `contracts/nucleo-support.md`, `quickstart`) → `checklist` →
+  `tasks` → `analyze`. Ended at **79 FRs / 13 SCs / 10 user stories / 70 tier-tagged tasks**, with
+  **100% requirement and success-criterion coverage** and `spec-check` green.
+- **Three review passes, each of which found real defects rather than confirming quality.** The
+  self-authored real-time/transport checklist found 9 substantive gaps in a spec written an hour
+  earlier; `analyze` found 7 more; the operator's third-party review found 2 blocking issues and 5
+  cleanups. All 40 + 7 + 7 resolved.
+- **Design record reconciled (D27–D36).** Four divergences had opened between the approved record
+  and the spec. Amended in place with an amendment log, D1–D26 keeping their numbers because 79
+  requirements cite them.
+- **Model-tier requirement injected at the tasks seam** from the single source, so all 70 tasks
+  were *born* tagged (`fast` 27 / `balanced` 34 / `powerful` 9) rather than annotated after.
+- **Pointers + wiring.** Roadmap `spec:` pointer set via `workflow link-spec`; `feature.json` and
+  the `CLAUDE.md` SPECKIT marker repointed off `svf-training-site`. `TASK-21` captured.
+
+**Didn't Work:**
+- **`/speckit-analyze`'s prerequisite script refused to run.** `check-prerequisites.sh` hard-rejects
+  a descriptive branch name, and Commandment 3 forbids the `NNN-` prefix it demands — so it fires on
+  every acfx feature. `setup-plan.sh`/`setup-tasks.sh` already bypass the guard via
+  `feature_json_matches_feature_dir`; this one does not. Analyzed the artifacts directly instead,
+  computing coverage mechanically. Recurring (TF-09), captured again as friction.
+- **Inserting tasks after review forced a full renumber.** No lettered task-id precedent exists in
+  `specs/*/tasks.md` (unlike FRs, which use `FR-010a`), so four post-review insertions meant
+  rewriting every ID plus every cross-reference in the dependency graph, parallel examples and
+  summary table. Done safely with a one-pass old→new map, but the hazard is real and undocumented.
+- **`session-end` still has no dry-run**, so it committed and pushed the journal before the
+  narrative existed — composed in this follow-up, same as the last two closes. It also left the
+  freshly captured `TASK-21` file uncommitted, since a backlog entry is not a "doc working file".
+
+**Course Corrections:**
+- **Ran the requirements checklist against my own just-written spec and treated its output as
+  findings, not reassurance.** It surfaced a genuine counter-assignment conflict (FR-029/FR-031 both
+  described capture-only silence), a binding rule living outside the requirements entirely, and an
+  absent USB lifecycle class. A checklist that only confirms quality has not been run properly.
+- **Split every finding into "operator decides" vs "I repair."** Policy questions — USB lifecycle
+  scope, ring startup/re-centring, counter overflow, torn-payload policy, the CDC channel — went to
+  the operator (Commandment 5). Traceability and consistency defects I fixed directly. Conflating
+  the two would have been an agent-side scope decision wearing a bug-fix costume.
+- **Pushed back on one review item instead of accepting all seven.** Adopted the structural split of
+  telemetry serialization out of the audio path, but rejected the inference that this relaxes its
+  bounds: D26 gives the firmware a *single execution context*, so a blocking CDC write starves audio
+  servicing from outside the audio path exactly as well as from inside — it would just do so
+  invisibly, having left `worstBlockMicros`. FR-033c relocates the work; FR-033d keeps its bounds.
+- **Refused to invent the numbers D23 deliberately left open.** Ring capacity, water marks and
+  startup fill stay unpinned through spec, plan and contract — `CapacityFrames` is a template
+  parameter with *no default*, so the absence is structural rather than a comment. The task says
+  "measure, do not pick."
+
+**Insights:**
+- **A superseded premise can outlive its decision while keeping its number.** D15 prepared the effect
+  at 49 frames because the endpoint is sized at 49 — true only while the block followed the packet.
+  My own clarification made the ring the decoupling boundary and killed that premise, but D15 kept
+  its number and its 49, so the spec carried transport framing across the exact boundary built to
+  stop it. Neither I nor two review passes caught it; the third-party reviewer did. **Amending a
+  decision's premise obliges re-reading every decision that rested on it.**
+- **Naming a region is what makes a constraint enforceable.** FR-046a was added because "the audio
+  path" was undelimited — and the very gap it predicted (the parameter flush and telemetry write
+  being overlooked *because they don't look like audio code*) then reproduced itself in the task
+  list, where no task covered them. The requirement diagnosed its own violation one artifact later.
+- **A counter can be dead on arrival and worse than absent.** `truncatedFrames` would have
+  incremented by zero forever — a stereo frame is 4 bytes, so a torn remainder is always 1–3 bytes
+  and never a whole frame. An always-zero counter is worse than no counter, because it gets believed.
+  Renamed to an event count.
+- **Reading the build graph changed the architecture.** The host suite builds under a preset with no
+  toolchain, so declaring `acfx_nucleo_support` behind `ACFX_BUILD_NUCLEO` would have made it
+  invisible to the tests — silently reopening the untested-glue gap D1's decomposition exists to
+  close. Ten minutes in `CMakeLists.txt` produced a constraint the design record could not have known.
+- **The unverified claims are the ones worth writing down.** `research.md` tabulates four items as
+  *lookups, not assumptions* — chief among them that TinyUSB 0.21.0 removed the `rx_done`/`tx_done`
+  callbacks, so code written against them **links silently** and leaves a board that enumerates
+  perfectly and passes no audio, with nothing to grep for.
+
+**Quantitative (auto-derived from git; verified before publishing):**
+- Commits: 11 (auto-derived count of 9 predated the session-end and backlog commits)
+  - chore(backlog): capture TASK-21 cpm-package-lock convention gap
+  - chore(session): session-end journal + tooling friction
+  - docs(nucleo-f446-adapter): amend the design record; D27-D36, D15 superseded
+  - docs(nucleo-f446-adapter): act on third-party review; 73 -> 79 requirements
+  - docs(nucleo-f446-adapter): close the seven cross-artifact analysis findings
+  - docs(nucleo-f446-adapter): 66 tasks across 10 user stories, tier-tagged
+  - docs(nucleo-f446-adapter): resolve all 40 requirements-review findings
+  - docs(nucleo-f446-adapter): real-time safety and transport correctness checklist
+  - docs(nucleo-f446-adapter): plan, research, data model, contract, quickstart
+  - docs(nucleo-f446-adapter): clarify four gaps the design record left open
+  - docs(nucleo-f446-adapter): spec from the approved design record
+- Files changed: 16
+- Backlog touched: TASK-21 (captured this session, not progressed)
+
 ## 2026-07-09: implicit-integration — design → runnable spec (planned → analyze-clean)
 
 **Goal:** Take up `design:primitive/implicit-integration` (the last of the numerical-solver trio, after the shipped MNA and Newton siblings) and drive it through the stack-control front door — `design` → `define` — from a `planned` roadmap node to an operator-approved, third-party-reviewed design record and a complete, analyze-clean Spec Kit spec ready for `/stack-control:execute`. Implementation deliberately held as a separate, operator-initiated step.

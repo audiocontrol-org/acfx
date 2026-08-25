@@ -10,11 +10,17 @@
 #include "dsp/process-context.h"
 #include "effects/modulated-delay/modulated-delay-effect.h"
 
-// T011 — ModulatedDelayEffect US2: modulation LFOs for delay, cutoff, resonance.
+// T011 — TestDelay US2: modulation LFOs for delay, cutoff, resonance.
 // Covers: FR-011 delay-time mod, FR-012 cutoff mod, FR-012a resonance mod,
 // FR-013 depth-zero equivalence, FR-014 in-range, FR-015 SR-independence.
 
 using namespace acfx;
+
+// TestDelay is now templated (bounded, heap-free). Bind the
+// unqualified name in this TU to a small stack-safe instantiation (~256 KB)
+// rather than the ~3 MB <96000, float, 8> default that would overflow the test
+// stack (Ruling A). The float path is bit-identical, so assertions are unchanged.
+using TestDelay = acfx::ModulatedDelayEffect<32768, float, 2>;
 
 namespace {
 
@@ -36,22 +42,22 @@ float computeRms(const float* buf, int n) {
 }
 
 // Convenience: set a parameter from a plain (denormalized) value.
-void setModParam(ModulatedDelayEffect& fx,
-                 ModulatedDelayEffect::Param p, float plain) {
+void setModParam(TestDelay& fx,
+                 TestDelay::Param p, float plain) {
     fx.setParameter(ParamId{p},
-                    normalize(ModulatedDelayEffect::kParams[p], plain));
+                    normalize(TestDelay::kParams[p], plain));
 }
 
 // Set up the six US1 base params identically on an effect instance.
-void setBaseParams(ModulatedDelayEffect& fx,
+void setBaseParams(TestDelay& fx,
                    float delayTime, float feedback, float mix,
                    float cutoff, float res, float mode) {
-    setModParam(fx, ModulatedDelayEffect::kDelayTime,  delayTime);
-    setModParam(fx, ModulatedDelayEffect::kFeedback,   feedback);
-    setModParam(fx, ModulatedDelayEffect::kMix,        mix);
-    setModParam(fx, ModulatedDelayEffect::kCutoff,     cutoff);
-    setModParam(fx, ModulatedDelayEffect::kResonance,  res);
-    setModParam(fx, ModulatedDelayEffect::kMode,       mode);
+    setModParam(fx, TestDelay::kDelayTime,  delayTime);
+    setModParam(fx, TestDelay::kFeedback,   feedback);
+    setModParam(fx, TestDelay::kMix,        mix);
+    setModParam(fx, TestDelay::kCutoff,     cutoff);
+    setModParam(fx, TestDelay::kResonance,  res);
+    setModParam(fx, TestDelay::kMode,       mode);
 }
 
 }  // namespace
@@ -69,7 +75,7 @@ TEST_CASE("FR-013: depth-zero mod produces output identical to US1 within tolera
     const double sr        = 48000.0;
     const int    blockSize = 256;
 
-    ModulatedDelayEffect fxA, fxB;
+    TestDelay fxA, fxB;
     fxA.prepare(ProcessContext{sr, blockSize, 1});
     fxB.prepare(ProcessContext{sr, blockSize, 1});
 
@@ -77,15 +83,15 @@ TEST_CASE("FR-013: depth-zero mod produces output identical to US1 within tolera
     setBaseParams(fxB, 0.3f, 0.6f, 0.5f, 1000.0f, 0.3f, 0.0f);
 
     // fxB: set fast rates on all three LFOs but keep all depths at 0.
-    setModParam(fxB, ModulatedDelayEffect::kDelayModRate,   10.0f);
-    setModParam(fxB, ModulatedDelayEffect::kDelayModDepth,   0.0f);
-    setModParam(fxB, ModulatedDelayEffect::kDelayModShape,   2.0f);   // saw
-    setModParam(fxB, ModulatedDelayEffect::kCutoffModRate,   7.0f);
-    setModParam(fxB, ModulatedDelayEffect::kCutoffModDepth,  0.0f);
-    setModParam(fxB, ModulatedDelayEffect::kCutoffModShape,  1.0f);   // triangle
-    setModParam(fxB, ModulatedDelayEffect::kResModRate,      5.0f);
-    setModParam(fxB, ModulatedDelayEffect::kResModDepth,     0.0f);
-    setModParam(fxB, ModulatedDelayEffect::kResModShape,     3.0f);   // random
+    setModParam(fxB, TestDelay::kDelayModRate,   10.0f);
+    setModParam(fxB, TestDelay::kDelayModDepth,   0.0f);
+    setModParam(fxB, TestDelay::kDelayModShape,   2.0f);   // saw
+    setModParam(fxB, TestDelay::kCutoffModRate,   7.0f);
+    setModParam(fxB, TestDelay::kCutoffModDepth,  0.0f);
+    setModParam(fxB, TestDelay::kCutoffModShape,  1.0f);   // triangle
+    setModParam(fxB, TestDelay::kResModRate,      5.0f);
+    setModParam(fxB, TestDelay::kResModDepth,     0.0f);
+    setModParam(fxB, TestDelay::kResModShape,     3.0f);   // random
 
     std::vector<float> bufA(static_cast<std::size_t>(blockSize));
     std::vector<float> bufB(static_cast<std::size_t>(blockSize));
@@ -121,11 +127,11 @@ TEST_CASE("FR-011: delay-time modulation causes measurable output difference") {
     const int    measure   = 100;
 
     const auto runEffect = [&](float modDepth) -> std::vector<float> {
-        ModulatedDelayEffect fx;
+        TestDelay fx;
         fx.prepare(ProcessContext{sr, blockSize, 1});
         setBaseParams(fx, 0.15f, 0.0f, 1.0f, 20000.0f, 0.0f, 0.0f);
-        setModParam(fx, ModulatedDelayEffect::kDelayModRate,  2.0f);
-        setModParam(fx, ModulatedDelayEffect::kDelayModDepth, modDepth);
+        setModParam(fx, TestDelay::kDelayModRate,  2.0f);
+        setModParam(fx, TestDelay::kDelayModDepth, modDepth);
 
         std::vector<float> all;
         all.reserve(static_cast<std::size_t>(blockSize * measure));
@@ -171,11 +177,11 @@ TEST_CASE("FR-012: cutoff modulation causes periodic brightness variation") {
     const int    warmup    = 25;  // let echoes build up
     const int    measure   = 48;  // ~0.5s @ 512 samples ≈ 1 mod cycle at 1 Hz
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 1});
     setBaseParams(fx, 0.05f, 0.0f, 1.0f, 1000.0f, 0.0f, 0.0f);  // LP at 1 kHz
-    setModParam(fx, ModulatedDelayEffect::kCutoffModRate,  1.0f);
-    setModParam(fx, ModulatedDelayEffect::kCutoffModDepth, 1.0f);
+    setModParam(fx, TestDelay::kCutoffModRate,  1.0f);
+    setModParam(fx, TestDelay::kCutoffModDepth, 1.0f);
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize));
     float* chans[1] = {buf.data()};
@@ -217,17 +223,17 @@ TEST_CASE("FR-015: delay-mod rate is sample-rate independent") {
         // Run 1.5 mod periods so the period is well covered.
         const int totalSamples = static_cast<int>(sr * 1.5f / modRateHz);
 
-        ModulatedDelayEffect fxMod, fxFlat;
+        TestDelay fxMod, fxFlat;
         fxMod.prepare(ProcessContext{sr, blockSize, 1});
         fxFlat.prepare(ProcessContext{sr, blockSize, 1});
 
-        const auto setupBase = [&](ModulatedDelayEffect& fx) {
+        const auto setupBase = [&](TestDelay& fx) {
             setBaseParams(fx, 0.15f, 0.0f, 1.0f, 20000.0f, 0.0f, 0.0f);
         };
         setupBase(fxMod);
         setupBase(fxFlat);
-        setModParam(fxMod, ModulatedDelayEffect::kDelayModRate,  modRateHz);
-        setModParam(fxMod, ModulatedDelayEffect::kDelayModDepth, 0.5f);
+        setModParam(fxMod, TestDelay::kDelayModRate,  modRateHz);
+        setModParam(fxMod, TestDelay::kDelayModDepth, 0.5f);
 
         std::vector<float> bufMod(static_cast<std::size_t>(blockSize));
         std::vector<float> bufFlat(static_cast<std::size_t>(blockSize));
@@ -288,20 +294,20 @@ TEST_CASE("FR-014: maximal modulation produces no NaN/Inf and bounded output") {
     const double sr        = 48000.0;
     const int    blockSize = 256;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 2});
 
     setBaseParams(fx, 2.0f, 0.5f, 0.5f, 20000.0f, 0.0f, 0.0f);
 
-    setModParam(fx, ModulatedDelayEffect::kDelayModRate,   20.0f);
-    setModParam(fx, ModulatedDelayEffect::kDelayModDepth,   1.0f);
-    setModParam(fx, ModulatedDelayEffect::kDelayModShape,   0.0f);
-    setModParam(fx, ModulatedDelayEffect::kCutoffModRate,  20.0f);
-    setModParam(fx, ModulatedDelayEffect::kCutoffModDepth,  1.0f);
-    setModParam(fx, ModulatedDelayEffect::kCutoffModShape,  1.0f);
-    setModParam(fx, ModulatedDelayEffect::kResModRate,     20.0f);
-    setModParam(fx, ModulatedDelayEffect::kResModDepth,     1.0f);
-    setModParam(fx, ModulatedDelayEffect::kResModShape,     2.0f);
+    setModParam(fx, TestDelay::kDelayModRate,   20.0f);
+    setModParam(fx, TestDelay::kDelayModDepth,   1.0f);
+    setModParam(fx, TestDelay::kDelayModShape,   0.0f);
+    setModParam(fx, TestDelay::kCutoffModRate,  20.0f);
+    setModParam(fx, TestDelay::kCutoffModDepth,  1.0f);
+    setModParam(fx, TestDelay::kCutoffModShape,  1.0f);
+    setModParam(fx, TestDelay::kResModRate,     20.0f);
+    setModParam(fx, TestDelay::kResModDepth,     1.0f);
+    setModParam(fx, TestDelay::kResModShape,     2.0f);
 
     const std::size_t sz = static_cast<std::size_t>(blockSize);
     std::vector<float> left(sz, 0.0f), right(sz, 0.0f);
@@ -337,12 +343,12 @@ TEST_CASE("FR-012a: resonance modulation causes periodic output variation") {
     const int    warmup    = 25;
     const int    measure   = 48;  // ~0.5s @ 512 samples — 1 cycle at 1 Hz
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 1});
     // LP at 1 kHz, base resonance 0.3, no feedback (isolate filter effect).
     setBaseParams(fx, 0.05f, 0.0f, 1.0f, 1000.0f, 0.3f, 0.0f);
-    setModParam(fx, ModulatedDelayEffect::kResModRate,  1.0f);
-    setModParam(fx, ModulatedDelayEffect::kResModDepth, 1.0f);  // effRes: 0..~0.8
+    setModParam(fx, TestDelay::kResModRate,  1.0f);
+    setModParam(fx, TestDelay::kResModDepth, 1.0f);  // effRes: 0..~0.8
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize));
     float* chans[1] = {buf.data()};
@@ -385,16 +391,16 @@ TEST_CASE("depth-to-zero restores base cutoff coefficient") {
     const float  freqHz    = 880.0f;
 
     // Instance A: base params only, no cutoff modulation ever.
-    ModulatedDelayEffect fxA;
+    TestDelay fxA;
     fxA.prepare(ProcessContext{sr, blockSize, 1});
     setBaseParams(fxA, 0.05f, 0.0f, 1.0f, 2000.0f, 0.0f, 0.0f);
 
     // Instance B: same base params, cutoff mod active, then depth->0.
-    ModulatedDelayEffect fxB;
+    TestDelay fxB;
     fxB.prepare(ProcessContext{sr, blockSize, 1});
     setBaseParams(fxB, 0.05f, 0.0f, 1.0f, 2000.0f, 0.0f, 0.0f);
-    setModParam(fxB, ModulatedDelayEffect::kCutoffModRate,  5.0f);
-    setModParam(fxB, ModulatedDelayEffect::kCutoffModDepth, 1.0f);
+    setModParam(fxB, TestDelay::kCutoffModRate,  5.0f);
+    setModParam(fxB, TestDelay::kCutoffModDepth, 1.0f);
 
     std::vector<float> bufA(static_cast<std::size_t>(blockSize));
     std::vector<float> bufB(static_cast<std::size_t>(blockSize));
@@ -412,7 +418,7 @@ TEST_CASE("depth-to-zero restores base cutoff coefficient") {
 
     // Transition: set B's depth to 0 — applyPending() calls applyCutoff() to
     // restore the base coefficient immediately.
-    setModParam(fxB, ModulatedDelayEffect::kCutoffModDepth, 0.0f);
+    setModParam(fxB, TestDelay::kCutoffModDepth, 0.0f);
 
     // Settling period: with no feedback and a short delay, the SVF state
     // converges to base-coefficient steady-state within a few input periods.
@@ -447,15 +453,15 @@ TEST_CASE("depth-to-zero restores base resonance coefficient") {
     const int    blockSize = 512;
     const float  freqHz    = 1000.0f;
 
-    ModulatedDelayEffect fxA;
+    TestDelay fxA;
     fxA.prepare(ProcessContext{sr, blockSize, 1});
     setBaseParams(fxA, 0.05f, 0.0f, 1.0f, 1000.0f, 0.3f, 0.0f);
 
-    ModulatedDelayEffect fxB;
+    TestDelay fxB;
     fxB.prepare(ProcessContext{sr, blockSize, 1});
     setBaseParams(fxB, 0.05f, 0.0f, 1.0f, 1000.0f, 0.3f, 0.0f);
-    setModParam(fxB, ModulatedDelayEffect::kResModRate,  5.0f);
-    setModParam(fxB, ModulatedDelayEffect::kResModDepth, 1.0f);
+    setModParam(fxB, TestDelay::kResModRate,  5.0f);
+    setModParam(fxB, TestDelay::kResModDepth, 1.0f);
 
     std::vector<float> bufA(static_cast<std::size_t>(blockSize));
     std::vector<float> bufB(static_cast<std::size_t>(blockSize));
@@ -470,7 +476,7 @@ TEST_CASE("depth-to-zero restores base resonance coefficient") {
         AudioBlock blockB(chansB, 1, blockSize); fxB.process(blockB);
     }
 
-    setModParam(fxB, ModulatedDelayEffect::kResModDepth, 0.0f);
+    setModParam(fxB, TestDelay::kResModDepth, 0.0f);
 
     for (int b = 0; b < 100; ++b) {
         fillSine(bufA.data(), blockSize, freqHz, sr, phase);

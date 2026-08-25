@@ -37,3 +37,6 @@ external/.cpm-cache/
 
 # stack-control execute ledger — local resume-safety state, not shared
 .stack-control/execute/
+
+# Compiled Swift HIL loopback tester (build artifact; source is committed)
+scripts/nucleo-hil/acfx-loopback

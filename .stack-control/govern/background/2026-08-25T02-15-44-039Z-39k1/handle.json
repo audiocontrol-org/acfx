@@ -1,0 +1,11 @@
+{
+  "handle": "2026-08-25T02-15-44-039Z-39k1",
+  "governArgs": [
+    "--mode",
+    "implement"
+  ],
+  "cwd": "/Users/orion/work/acfx-work/nucleo-f446-adapter",
+  "startedAt": "2026-08-25T02:15:44.039Z",
+  "pid": 41615,
+  "logPath": "/Users/orion/work/acfx-work/nucleo-f446-adapter/.stack-control/govern/background/2026-08-25T02-15-44-039Z-39k1/govern.log"
+}

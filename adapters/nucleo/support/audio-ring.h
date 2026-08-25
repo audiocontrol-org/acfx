@@ -1,0 +1,344 @@
+#pragma once
+
+// Platform-independent single-producer / single-consumer audio ring for the
+// Nucleo USB audio adapter (FR-030, FR-030a, FR-030b, FR-030c, FR-030d,
+// FR-031, FR-032, FR-046, FR-051, FR-008). No TinyUSB, no CMSIS, no board
+// headers, no <cstdio> — this header compiles under the `test` preset with no
+// toolchain file. Anything that cannot satisfy that constraint belongs in
+// nucleo-main.cpp instead.
+//
+// OCCUPANCY WATERMARKS (T021, R15). occupancyMin()/occupancyMax() are pure
+// instrumentation, not a new contract: they never change what write()/read()
+// do to the ring's contents or state, only record the low/high bounds
+// occupancy() has taken since construction or the last reset()/stop(). See
+// those accessors' own doc comments below for the full rationale.
+//
+// The ring is a passive buffer that REPORTS facts and never hides them
+// (AR4): every dropped or substituted frame comes back as a return value so
+// the caller can increment the matching AudioTransportStats counter. The ring
+// owns no counters of its own — see transport-stats.h for the record and
+// contracts/nucleo-support.md § "Audio ring" for the normative contract.
+//
+// Storage is a fixed member array sized by the CapacityFrames template
+// parameter: no heap, no locks, and — the constructor aside — no exceptions,
+// so every member below the constructor is callable from the audio path
+// (AR5, AR6). Single-producer / single-consumer is sufficient here under the
+// single-execution-context assumption (D26, FR-046); a lock-free
+// multi-producer structure would buy nothing and cost clarity.
+
+#include <stdexcept>
+
+#include "sample-format.h"
+
+namespace acfx::nucleo {
+
+// The ring's lifecycle (FR-030d, I-AR6). Three states, not two: Stopped is
+// NOT a synonym for Priming. Priming means a stream is open and the producer
+// is actively filling; Stopped means no streaming alt-setting is open and
+// nothing is arriving. Collapsing them would leave suspend (FR-051) nowhere
+// to land and would make "empty and filling" indistinguishable from "empty
+// because the host went away" — the very ambiguity AR7 exists to remove.
+enum class RingState { Stopped, Priming, Running };
+
+// A statically sized SPSC ring of non-interleaved float frames.
+//
+// `CapacityFrames` is deliberately a template parameter WITH NO DEFAULT, and
+// `startupFillFrames` a constructor argument with no default: both are
+// derived from HIL measurement per research R5 and pinned in Phase 13 (D23,
+// FR-035). A default for either would be an invented number wearing the
+// costume of a decision. They differ in kind, which is why they are supplied
+// differently: capacity sizes the fixed member array and so must be known at
+// compile time (AR5); the fill threshold is a policy value compared against
+// occupancy at run time, and a constructor argument lets the host tests sweep
+// it (0, 48, capacity) without instantiating a fresh template per value.
+template <int CapacityFrames, int Channels = kChannels>
+class AudioRing {
+    static_assert(CapacityFrames > 0, "AudioRing capacity must be positive");
+    static_assert(Channels > 0, "AudioRing must carry at least one channel");
+
+public:
+    // `startupFillFrames` is the occupancy at which Priming becomes Running.
+    //
+    // Throws std::invalid_argument if it is negative or exceeds
+    // CapacityFrames: such a ring could never reach Running and would prime
+    // forever, SILENTLY. Construction is startup work, never the audio path,
+    // so throwing here is safe and is the fail-loud behaviour this codebase
+    // requires over a silent clamp (AR6). This is the sole member permitted
+    // to throw.
+    //
+    // EXCEPTION-FREE BUILDS (found while wiring T032). All three embedded
+    // toolchains compile with -fno-exceptions (cmake/toolchains/nucleo-f446
+    // .cmake:63 and its daisy/teensy siblings), so an unguarded `throw` here
+    // is a hard COMPILE error the moment any firmware actually instantiates a
+    // ring — which nothing did until the OUT path landed. The throw is
+    // therefore guarded on __cpp_exceptions, and the exception-free branch
+    // traps rather than clamping: a silent clamp is exactly the failure AR6
+    // exists to prevent, and on Cortex-M __builtin_trap() is an undefined
+    // instruction, i.e. an immediate HardFault a debugger stops on. That
+    // branch is not a fallback and is not meant to be reached at run time —
+    // firmware callers pass compile-time constants and are expected to
+    // static_assert the same two conditions at the call site — the Nucleo
+    // adapter's are in adapters/nucleo/usb-audio-service.h, immediately above
+    // the g_inputRing definition, which is what makes this branch provably
+    // dead there. That is a call-site CONVENTION, not something this class can
+    // enforce: a caller that omits the static_asserts still compiles.
+    explicit AudioRing(int startupFillFrames) : startupFill_(startupFillFrames) {
+        if (startupFillFrames < 0 || startupFillFrames > CapacityFrames) {
+#if defined(__cpp_exceptions)
+            throw std::invalid_argument(
+                "AudioRing: startupFillFrames must be within [0, CapacityFrames]; "
+                "outside that range the ring could never reach Running and would "
+                "prime forever");
+#else
+            __builtin_trap();
+#endif
+        }
+        clearStorage();
+    }
+
+    // Push `frames` frames from `src`, which holds `Channels` contiguous
+    // float buffers of at least `frames` samples each.
+    //
+    // Overflow drops the OLDEST frames, never the newest (AR3, D24): the
+    // incoming audio is what the consumer is about to need, so discarding it
+    // in favour of stale audio already in the ring would add latency on top
+    // of the loss. Returns the number of frames dropped — 0 on the normal
+    // path. `frames <= 0` is a valid no-op that still evaluates the promotion
+    // threshold below.
+    int write(const float* const* src, int frames) noexcept {
+        const int incoming = (frames > 0) ? frames : 0;
+
+        // Frames that cannot fit: those already held plus those arriving,
+        // minus what the ring can hold. Non-positive means no overflow.
+        const int overflow = count_ + incoming - CapacityFrames;
+        const int dropped = (overflow > 0) ? overflow : 0;
+
+        // A single write larger than the whole ring drops its own leading
+        // frames too — only its newest CapacityFrames can survive, and they
+        // are the ones AR3 says to keep.
+        const int accepted = (incoming < CapacityFrames) ? incoming : CapacityFrames;
+        const int srcOffset = incoming - accepted;
+
+        // The remainder of the drop comes off the FRONT of the ring: the
+        // oldest frames it holds.
+        const int dropFromRing = dropped - srcOffset;
+        if (dropFromRing > 0) {
+            tail_ = advance(tail_, dropFromRing);
+            count_ -= dropFromRing;
+        }
+
+        int slot = advance(tail_, count_);
+        for (int frame = 0; frame < accepted; ++frame) {
+            for (int channel = 0; channel < Channels; ++channel) {
+                storage_[channel][slot] = src[channel][srcOffset + frame];
+            }
+            slot = advance(slot, 1);
+        }
+        count_ += accepted;
+
+        // AR7 / the contract's normative transition table: the threshold is
+        // evaluated at the END of every write(), and ONLY here. Fixing the
+        // check to one place is what makes the edge cases decidable by
+        // reading one rule — startupFill() == 0 (promoted by the first write,
+        // including a zero-frame one), a write that overshoots the threshold,
+        // and a write while Stopped (which does NOT promote) all fall out of
+        // this single line. Reads never change state.
+        if (state_ == RingState::Priming && count_ >= startupFill_) {
+            state_ = RingState::Running;
+        }
+
+        observeOccupancy();
+
+        return dropped;
+    }
+
+    // Draw exactly `frames` frames into `dst`, which holds `Channels`
+    // contiguous float buffers of at least `frames` samples each.
+    //
+    // ALWAYS writes exactly `frames` frames — never a short write, never
+    // uninitialised memory. Any shortfall is filled with SILENCE and the
+    // count of substituted frames returned (AR2).
+    //
+    // The caller MUST consult state() first and draw nothing unless Running
+    // (AR7). Lifecycle is deliberately NOT encoded in this return value: "not
+    // ready" is a property of the transport, not an outcome of a read.
+    // Calling read() while Priming or Stopped is therefore a caller error;
+    // the ring still behaves predictably, but the returned count is
+    // meaningless and must not be recorded as an underrun.
+    int read(float* const* dst, int frames) noexcept {
+        const int requested = (frames > 0) ? frames : 0;
+        const int available = (count_ < requested) ? count_ : requested;
+
+        for (int frame = 0; frame < available; ++frame) {
+            for (int channel = 0; channel < Channels; ++channel) {
+                dst[channel][frame] = storage_[channel][tail_];
+            }
+            tail_ = advance(tail_, 1);
+        }
+        count_ -= available;
+
+        const int substituted = requested - available;
+        for (int frame = available; frame < requested; ++frame) {
+            for (int channel = 0; channel < Channels; ++channel) {
+                dst[channel][frame] = 0.0f;
+            }
+        }
+
+        // No state change on read. In particular Running is NEVER demoted by
+        // starvation (AR7): once primed, an empty ring is a genuine fault and
+        // stays visible as one. Silently dropping back to Priming would mask
+        // sustained drift behind a "still starting up" reading — the same
+        // masking the no-re-centring guarantee (AR8) forbids.
+        observeOccupancy();
+
+        return substituted;
+    }
+
+    RingState state() const noexcept { return state_; }
+
+    // Always in [0, capacity()], on every path (AR1). No re-centring: the
+    // ring never drops or duplicates frames to steer this value toward a
+    // target, so drift stays visible (AR8, FR-030c).
+    int occupancy() const noexcept { return count_; }
+
+    int capacity() const noexcept { return CapacityFrames; }
+
+    int startupFill() const noexcept { return startupFill_; }
+
+    // R15 measurement gap (FR-008, T021): the running low/high-water marks of
+    // occupancy() observed across write()/read() calls since construction or
+    // the last reset()/stop() (see observeOccupancy() below). Today there is
+    // no way to learn how full the rings actually get in service — T022's
+    // HIL harness reads these to derive the ring capacity / startup-fill /
+    // water-range from measurement, replacing the 1024/98 placeholders
+    // usb-audio-service.h currently carries.
+    //
+    // BEFORE THE FIRST write()/read(), both read 0 — matching occupancy()'s
+    // own value at that point, since nothing has happened yet. THE FIRST
+    // write()/read() CALL SEEDS BOTH MARKS TO ITS RESULT, not folds it
+    // against the pre-call 0: occupancy() is bounded below by 0 (AR1) and
+    // every ring is constructed empty, so folding that construction-time 0
+    // into the running minimum would pin occupancyMin() at 0 for the entire
+    // life of every ring, unconditionally — a low-water mark that can never
+    // move is not a measurement, and is exactly the "no way to measure how
+    // full the rings get" gap this task exists to close. Once seeded, every
+    // later write()/read() folds normally (two comparisons), so a genuine
+    // in-service underrun that drains the ring back to 0 is still captured
+    // correctly — only the trivial pre-streaming emptiness is excluded.
+    //
+    // Always within [0, capacity()], the same bound occupancy() itself keeps
+    // (AR1): the watermarks can never record a value occupancy() itself was
+    // never actually set to. Read-only, allocation-free, noexcept — safe to
+    // call from a diagnostic path that must not perturb the ring it reports
+    // on, the same contract errorRate() in transport-stats.h documents for
+    // its own counters.
+    int occupancyMin() const noexcept { return occupancyMin_; }
+    int occupancyMax() const noexcept { return occupancyMax_; }
+
+    // Stream open, resume, bus reset (AR9, FR-052, FR-053, FR-054): clear the
+    // contents and return to Priming, so each of those restarts from a
+    // defined state rather than draining a stale partial ring. The watermarks
+    // reset alongside count_ for the same reason: a fresh streaming session
+    // (FR-008) must measure its OWN water range, not carry forward a mark
+    // from before the ring was last emptied out from under it.
+    void reset() noexcept {
+        clearStorage();
+        tail_ = 0;
+        count_ = 0;
+        state_ = RingState::Priming;
+        occupancyMin_ = 0;
+        occupancyMax_ = 0;
+        watermarksObserved_ = false;
+    }
+
+    // Suspend (AR9, FR-051): clear the contents and enter Stopped. Resets the
+    // watermarks for the same reason reset() does above: count_ is forced
+    // back to 0 here too, and a watermark surviving that forced-empty would
+    // misrepresent the occupancy range of whatever session follows.
+    void stop() noexcept {
+        clearStorage();
+        tail_ = 0;
+        count_ = 0;
+        state_ = RingState::Stopped;
+        occupancyMin_ = 0;
+        occupancyMax_ = 0;
+        watermarksObserved_ = false;
+    }
+
+    // Neither reset() nor stop() touches any counter — lifecycle events must
+    // not erase the transport history the diagnostics report (AR9). That is
+    // structurally guaranteed here: the ring owns no counters at all (AR4).
+
+private:
+    // Step an index forward by `delta` frames, wrapping at capacity.
+    // `delta` is always in [0, CapacityFrames] at every call site, so one
+    // conditional subtraction suffices — no modulo, no division on the audio
+    // path.
+    static int advance(int index, int delta) noexcept {
+        const int stepped = index + delta;
+        return (stepped >= CapacityFrames) ? (stepped - CapacityFrames) : stepped;
+    }
+
+    void clearStorage() noexcept {
+        for (int channel = 0; channel < Channels; ++channel) {
+            for (int frame = 0; frame < CapacityFrames; ++frame) {
+                storage_[channel][frame] = 0.0f;
+            }
+        }
+    }
+
+    // Folds the CURRENT occupancy (count_) into the running watermarks.
+    // Called exactly once at the end of write() and once at the end of
+    // read() — the same "fixed to one place" discipline write()'s Priming ->
+    // Running promotion check documents above — so every occupancy the ring
+    // ever actually reported through occupancy() is captured without
+    // re-deriving it at multiple call sites.
+    //
+    // The FIRST call after construction/reset()/stop() seeds BOTH marks to
+    // count_ rather than folding it against the 0/0 defaults: see
+    // occupancyMin()'s doc comment for why treating construction-time 0 as a
+    // real observation would pin the low-water mark at 0 forever. Every
+    // subsequent call is the plain two-comparison fold. watermarksObserved_
+    // is a single bool, not a per-call cost of note beyond the pre-existing
+    // comparisons (FR-008/R15).
+    void observeOccupancy() noexcept {
+        if (!watermarksObserved_) {
+            occupancyMin_ = count_;
+            occupancyMax_ = count_;
+            watermarksObserved_ = true;
+            return;
+        }
+        if (count_ < occupancyMin_) {
+            occupancyMin_ = count_;
+        }
+        if (count_ > occupancyMax_) {
+            occupancyMax_ = count_;
+        }
+    }
+
+    // Non-interleaved: one contiguous run per channel, matching the
+    // `float* const*` channel-pointer signatures the DSP core uses.
+    float storage_[Channels][CapacityFrames] = {};
+
+    int tail_ = 0;   // index of the oldest held frame
+    int count_ = 0;  // frames currently held; occupancy()
+
+    // Low/high-water marks of count_ (occupancyMin()/occupancyMax()). Both
+    // default to 0, matching count_'s own construction-time value — a
+    // correct reading right up until the first write()/read(), which is
+    // where watermarksObserved_ takes over (see observeOccupancy() above).
+    int occupancyMin_ = 0;
+    int occupancyMax_ = 0;
+
+    // Whether observeOccupancy() has seeded the marks from a real write()/
+    // read() yet. False after construction and after every reset()/stop();
+    // flips true on the first fold and never resets on its own thereafter.
+    bool watermarksObserved_ = false;
+
+    const int startupFill_;
+    RingState state_ = RingState::Priming;  // construction ALWAYS yields
+                                            // Priming, even when
+                                            // startupFill_ == 0 (AR7).
+};
+
+} // namespace acfx::nucleo

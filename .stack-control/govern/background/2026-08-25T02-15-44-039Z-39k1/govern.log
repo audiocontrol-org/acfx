@@ -1,0 +1,4 @@
+govern clone-step: 0 clone group(s) in this codebase; 0 NEW (no baseline yet).
+govern: code-only scoping active — excluded 14 documentation file(s) from the audit payload.
+govern: FATAL — govern: FATAL — file 'adapters/nucleo/nucleo-main.cpp' alone renders 29435 bytes, exceeding the fleet envelope 24576. A code file this large violates the 300-500-line cap (Constitution VI); a non-code file this large is not useful in the stack-control audit context. Fix or remove the file — govern does not hunk-split an a-priori-broken input.
+govern: terminal-outcome=fatal
