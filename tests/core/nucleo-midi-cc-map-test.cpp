@@ -164,3 +164,28 @@ TEST_CASE("MC3: interleaved calls with different CCs show no state corruption") 
     // r1 and r3 are identical, proving r2 and r4 did not corrupt state.
     CHECK(r1 == r3);
 }
+
+// ============================================================================
+// MC3: modulation-parameter CC bindings (ModulatedDelayEffect indices 6..18).
+// paramCount = 21 (kDelayTime..kLofiBits). Locks in the CC->index map so a
+// future table edit that reshuffles or drops a modulation binding fails here.
+// ============================================================================
+
+TEST_CASE("MC3: modulation CCs resolve to their parameter indices (paramCount=21)") {
+    using acfx::nucleo::mapCcToParam;
+    const int n = 21;
+    struct { std::uint8_t cc; int idx; } cases[] = {
+        {78, 6}, {79, 7}, {80, 8},        // delay-line LFO
+        {81, 9}, {82, 10}, {83, 11},      // cutoff LFO
+        {85, 12}, {86, 13}, {87, 14},     // resonance LFO
+        {88, 15}, {89, 16},               // wow
+        {90, 17}, {91, 18},               // flutter
+    };
+    for (const auto& c : cases) {
+        const auto r = mapCcToParam(c.cc, n);
+        REQUIRE(r.has_value());
+        CHECK(*r == c.idx);
+    }
+    // CC84 is deliberately NOT bound (standard Portamento-Control CC).
+    CHECK(mapCcToParam(84, n) == std::nullopt);
+}

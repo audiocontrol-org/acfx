@@ -37,6 +37,21 @@ inline constexpr CcBinding kCcBindings[] = {
     CcBinding{72, 2},    // CC72 -> mix (dry/wet)
     CcBinding{76, 19},   // CC76 -> lofi_rate
     CcBinding{77, 20},   // CC77 -> lofi_bits
+    // Modulation (ModulatedDelayEffect indices 6..18). CC84 skipped: it is the
+    // standard Portamento-Control CC. See modulated-delay-params.h for units.
+    CcBinding{78, 6},    // CC78 -> delay_mod_rate   (delay-line LFO)
+    CcBinding{79, 7},    // CC79 -> delay_mod_depth
+    CcBinding{80, 8},    // CC80 -> delay_mod_shape
+    CcBinding{81, 9},    // CC81 -> cutoff_mod_rate  (feedback-cutoff LFO)
+    CcBinding{82, 10},   // CC82 -> cutoff_mod_depth
+    CcBinding{83, 11},   // CC83 -> cutoff_mod_shape
+    CcBinding{85, 12},   // CC85 -> res_mod_rate     (feedback-resonance LFO)
+    CcBinding{86, 13},   // CC86 -> res_mod_depth
+    CcBinding{87, 14},   // CC87 -> res_mod_shape
+    CcBinding{88, 15},   // CC88 -> wow_rate         (slow tape pitch drift)
+    CcBinding{89, 16},   // CC89 -> wow_depth
+    CcBinding{90, 17},   // CC90 -> flutter_rate     (fast tape pitch drift)
+    CcBinding{91, 18},   // CC91 -> flutter_depth
     // -- Add further CC -> parameter-index bindings above this line. --
 };
 
