@@ -269,6 +269,12 @@ add_executable(acfx_core_tests
   core/nucleo-parameter-shadow-test.cpp
   core/nucleo-midi-cc-map-test.cpp
   core/nucleo-parameter-source-test.cpp
+  # T066: FR-046a/FR-046b no-allocation / no-lock assertion over the composed
+  # audio-path region (payload truncation, conversion, ring access, the
+  # parameter dirty-flag walk, process()) — closes the dynamic-coverage gap on
+  # the dirty-flag walk (previously noexcept-only, PS6) and adds a
+  # file-scoped positive control (TASK-27).
+  core/nucleo-fr046a-region-no-alloc-test.cpp
   # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
