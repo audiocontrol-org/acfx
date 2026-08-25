@@ -56,7 +56,7 @@ operator drives them. During `execute` they use the `- [~]` marker so the govern
 - [ ] T004 [US1] [tier:balanced] *(config — impl-first)* Enable `CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL 1` in `adapters/nucleo/tusb_config.h` (research §R5). Express the IN-FIFO adequacy as a **parametric** `static_assert` (IN SW-buf ≥ 4·Navg where `Navg` derives from the active max subslot size and rate) rather than a magic 16-bit constant — it must survive the 24-bit resize (T015)
 - [ ] T005 [P] [US1] [tier:fast] **RED** host test `tests/core/nucleo-inpath-startup-test.cpp` (registered in `tests/CMakeLists.txt`): assert the IN path / output ring does NOT empty at startup under a SOF-paced draw (the FR-007 cold-drain), driving the host-testable logic in `support/usb-in-path.h`/`audio-ring.h`; confirm it FAILS first
 - [ ] T006 [US1] [tier:balanced] Implement the FR-007 cold-drain fix in `adapters/nucleo/support/usb-in-path.h`/`usb-audio-service.h` so SOF-paced reads are served real audio (GREEN for T005)
-- [ ] T007 [US1] [tier:balanced] ⚠ Hardware verification: via the T002 capture confirm 48k/16-bit holds steady 48-frame IN packets, **zero ZLP/short**, accumulated 48000/1000; and in a Logic aggregate a sustained tone returns **pitch-correct + noise-free** (SC-001/002/003)
+- [~] T007 [US1] [tier:balanced] ⚠ Hardware verification: via the T002 capture confirm 48k/16-bit holds steady 48-frame IN packets, **zero ZLP/short**, accumulated 48000/1000; and in a Logic aggregate a sustained tone returns **pitch-correct + noise-free** (SC-001/002/003). **[analyze fold-in — FR-011]** also confirm the **dry / effect-bypassed** signal round-trips **pitch-correct + noise-free** in the same aggregate (the transport correctness is independent of the effect)
 
 **Checkpoint**: the core defect is fixed at 48 kHz/16-bit — a usable real-time effect (MVP).
 
@@ -72,7 +72,7 @@ operator drives them. During `execute` they use the `- [~]` marker so the govern
 - [ ] T009 [US2] [tier:powerful] *(descriptor part impl-first)* Multi-rate clock in `adapters/nucleo/usb-descriptors.cpp` + `usb-audio-controls.cpp` (research §R3): `INT_FIX_CLK`→`INT_VAR_CLK`, freq control `AUDIO20_CTRL_R`→`AUDIO20_CTRL_RW`, RANGE two subranges {44100},{48000}, CUR = `g_currentSampleRateHz`; add the STRONG `extern "C"` `tud_audio_set_req_entity_cb` accepting SAM_FREQ ∈ {44100,48000} (research §R9; STRONG `.cpp` def — TASK-37 weak-callback trap) — GREEN for T008
 - [ ] T010 [P] [US2] [tier:fast] **RED** host test `tests/core/nucleo-rate-change-lifecycle-test.cpp`: the rate-change flag is set on a frequency change and consumed exactly once by the service step; confirm it FAILS first
 - [ ] T011 [US2] [tier:balanced] Make `PrepareEffect()` re-invokable at the selected rate in `adapters/nucleo/nucleo-main.cpp` (today one-shot at 48k, `:440`) and add a poll-loop **rate-change service step** in `adapters/nucleo/usb-audio-service.h` that re-prepares the effect + resets the rings off EP0 context (FR-006; mirrors `ServiceUsbLifecycle`) — GREEN for T010
-- [ ] T012 [US2] [tier:balanced] ⚠ Hardware verification: select 44.1 kHz — capture shows accumulated **44100/1000** (44/45 scheduled), zero ZLP/short, pitch-correct + noise-free; a **live 48↔44.1 change** streams through without a re-plug (SC-005)
+- [~] T012 [US2] [tier:balanced] ⚠ Hardware verification: select 44.1 kHz — capture shows accumulated **44100/1000** (44/45 scheduled), zero ZLP/short, pitch-correct + noise-free; a **live 48↔44.1 change** streams through without a re-plug (SC-005)
 
 ---
 
@@ -89,7 +89,7 @@ operator drives them. During `execute` they use the `- [~]` marker so the govern
 - [ ] T017 [P] [US3] [tier:fast] **RED** host test `tests/core/nucleo-format-transition-test.cpp`: a format change records the pending format and the service step performs exactly one transport reset/re-prime; confirm it FAILS first
 - [ ] T018 [US3] [tier:balanced] **Format-transition service** (the missing lifecycle op): on a SET_INTERFACE alt change, defer to the poll loop a defined **transport reset / re-prime** — reuse the rate-change / stream-open-edge machinery to reset the rings + flush in-flight FIFO across the packet-size change and switch the converter depth cleanly, then resume (FR-006). NOTE: bit depth does NOT re-run the effect `prepare()` (the DSP stays float); this resets *transport* state, not the effect. GREEN for T017
 - [ ] T019 [US3] [tier:balanced] Make `adapters/nucleo/support/usb-out-path.h` and `usb-in-path.h` format-aware (select the 16/24 converter by the recorded format); host test both depths in `tests/core/`
-- [ ] T020 [US3] [tier:balanced] ⚠ Hardware verification: select 24-bit at 44.1 and 48 kHz — capture + Logic confirm correct, noise-free streaming; a **live 16↔24 format change** resets/re-primes without a re-plug (SC-005)
+- [~] T020 [US3] [tier:balanced] ⚠ Hardware verification: select 24-bit at 44.1 and 48 kHz — capture + Logic confirm correct, noise-free streaming; a **live 16↔24 format change** resets/re-primes without a re-plug (SC-005)
 
 ---
 
@@ -100,7 +100,7 @@ operator drives them. During `execute` they use the `- [~]` marker so the govern
 **Independent test**: measured round-trip is a small bounded value (not ~0.5 s); pinned values recorded.
 
 - [ ] T021 [US4] [tier:balanced] Add ring **occupancy instrumentation** (min/max) to `adapters/nucleo/support/audio-ring.h`/`usb-audio-service.h` — the missing R15 measurement gap (FR-008)
-- [ ] T022 [US4] [tier:powerful] ⚠ Measure across all 4 rate×depth combos + a live rate/format change via the base feature's HIL harness (`scripts/nucleo-hil/run-hil.sh`, the tool the base spec built); **derive and PIN** ring capacity/startup-fill/water-range + round-trip latency (frames + ms) — reduce the rings from the 1024/98 placeholder to the measured minimum in `usb-audio-service.h`, recording the evidence in `specs/synchronous-usb-audio-transport/research.md` (FR-008/SC-004)
+- [~] T022 [US4] [tier:powerful] ⚠ Measure across all 4 rate×depth combos + a live rate/format change via the base feature's HIL harness (`scripts/nucleo-hil/run-hil.sh`, the tool the base spec built); **derive and PIN** ring capacity/startup-fill/water-range + round-trip latency (frames + ms) — reduce the rings from the 1024/98 placeholder to the measured minimum in `usb-audio-service.h`, recording the evidence in `specs/synchronous-usb-audio-transport/research.md` (FR-008/SC-004)
 - [ ] T023 [US4] [tier:balanced] **Latency (FR-009, three obligations)**: (a) **MUST** — record the measured round-trip latency (frames + ms) from T022 in research.md/`adapters/nucleo/README.md`; (b) SHOULD — expose device latency via a UAC2 mechanism ONLY IF research/testing confirms a host actually consumes one (NOT `bLockDelay`); (c) **MUST** — verify empirically whether Logic/CoreAudio applies it for PDC and record the result. Do NOT block (a)/(c) on (b)
 
 ---
@@ -121,8 +121,8 @@ operator drives them. During `execute` they use the `- [~]` marker so the govern
 - [ ] T026 [tier:fast] Objdump-verify every new/changed TinyUSB callback (`tud_audio_set_req_entity_cb`, `tud_audio_set_itf_cb`) is a STRONG symbol, not the weak default (TASK-37 / [[tinyusb-weak-callback-linkage-trap]]) — a clean link is not a boot check
 - [ ] T027 [tier:fast] Confirm `./scripts/check-portability.sh` passes (core acquired no adapter/USB dep; every changed file ≤ 500 lines) and the nucleo cross-build is clean
 - [ ] T028 [tier:fast] Update `adapters/nucleo/README.md` (multi-rate/multi-format + latency notes) and record the D4/D20 supersession (FR-015) + the pinned latency/ring values
-- [ ] T029 [tier:balanced] ⚠ **Lifecycle regression** (FR-012 — descriptor/FIFO/cadence/ring changes can regress it): re-run on hardware **capture-only, playback-only, duplex, both-closed, suspend→resume, bus-reset/re-enumeration, rate-change-while-streaming, format-change-while-streaming** and confirm each still behaves per the base US10 contract (counters untouched across events, AR9)
-- [ ] T030 [tier:balanced] ⚠ Final acceptance: full host suite + nucleo cross-build + portability gate green; operator sign-off across all four rate×depth combinations in Logic (SC-006)
+- [~] T029 [tier:balanced] ⚠ **Lifecycle regression** (FR-012 — descriptor/FIFO/cadence/ring changes can regress it): re-run on hardware **capture-only, playback-only, duplex, both-closed, suspend→resume, bus-reset/re-enumeration, rate-change-while-streaming, format-change-while-streaming** and confirm each still behaves per the base US10 contract (counters untouched across events, AR9). **[analyze fold-in — FR-016]** confirm the host sees a **single SOF-derived clock domain** (both AudioStreaming interfaces cite the same Clock Source Entity). **[analyze fold-in — FR-017]** inject a torn/short/ZLP OUT payload and confirm it is **counted** (substitution counter), does **not** misalign the stereo channels, and does **not** perturb the IN cadence
+- [~] T030 [tier:balanced] ⚠ Final acceptance: full host suite + nucleo cross-build + portability gate green; operator sign-off across all four rate×depth combinations in Logic (SC-006)
 
 ---
 
