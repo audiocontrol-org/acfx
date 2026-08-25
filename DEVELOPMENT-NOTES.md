@@ -2,21 +2,75 @@
 
 ---
 
-## 2026-08-25: <!-- session title -->
+## 2026-08-25: Phase 12/13 hardware, the bounded lo-fi delay (SDD), and rooting out — then speccing a fix for — the USB transport clock-model bug
 
-**Goal:** <!-- compose: what we set out to do -->
+**Goal:** Pick up `nucleo-f446-adapter` where the last session left off, then follow the operator's
+asks wherever they led: finish the remaining phases on the connected board, build a *device-runnable*
+delay effect, and — once the operator tried it live in Logic — diagnose and specify a fix for a deep
+USB-transport defect.
 
 **Accomplished:**
-- <!-- compose -->
+- **Phase 12 (US9) + Phase 13 on hardware.** CDC diagnostic service (T058), the `scripts/nucleo-hil`
+  transport-quality harness (T059–T061), the polish/measurement pass (T064–T070), and the FR-048
+  dev-host amendment (T014). SVF firmware live-verified (`worstBlockMicros`=65 µs); captured
+  TASK-34/37/38/39/40.
+- **Bounded lo-fi delay, via full subagent-driven-development** (7 tasks, 2 fix rounds, clean final
+  review). New `BoundedDelayLine`/`bit-crush`/`decimator` primitives; templated **heap-free**
+  `ModulatedDelayEffect` (float path golden-bit-exact); whole-wet-loop internal decimation +
+  bit-crush as live MIDI-CC params; the `acfx_nucleo_lofi_delay` firmware target. **Live on the
+  board**: boots/enumerates/delays, CC76 stretches the echo 0.3 s→~2 s (decimation's
+  bandwidth-for-time confirmed on silicon), `wb`=686 µs. **Closed TASK-34.** Added CC72→mix for
+  auditioning.
+- **Diagnosed the transport defect** the operator hit in Logic (pitch-down + digital noise + ~0.5 s
+  latency): the device is a free-running, **no-feedback asynchronous** source whose IN endpoint sends
+  a variable, ring-gated, decoupled-from-SOF packet stream (ZLP when the ring is empty — nearly every
+  pull); a CoreAudio aggregate's resampler can't lock → stretch/noise/latency. Proved it's the
+  **transport, not the effect** (the dry signal is affected identically).
+- **Authored the `synchronous-usb-audio-transport` Spec Kit spec end-to-end through the stack-control
+  front door** (`define` → specify/clarify/plan/tasks, runnable). Research resolved the load-bearing
+  unknowns: **no SOF-pipeline rewrite** (TinyUSB IN flow control paces the exact cadence, incl.
+  fractional 44 100/1 000, off iso-completion); **24-bit fits the OTG-FS FIFO but tightly (~6.25 %)**;
+  latency reporting is best-effort (UAC2 control unconsumed in practice). Two third-party review
+  rounds on the spec (UAC2 correctness) and one on the tasks — all adopted.
 
 **Didn't Work:**
-- <!-- compose -->
+- **The base feature's "objective" HIL acceptance was blind to this whole bug class.** It used a
+  single-device loopback with noise/burst signals — never a sustained tone, never an aggregate — so a
+  transport clock-model / pitch/rate defect was invisible to it. "Acceptance passed" did not mean the
+  transport was correct. The new spec makes packet cadence a first-class observable with a USB-level
+  capture guard.
+- **CoreAudio degraded after ~8 reflashes** (ffmpeg/sox loopback returned digital *silence* on every
+  firmware) mid-debug — I nearly read it as a firmware regression before recognising the known host
+  artifact and switching to code analysis + the operator's Logic observations.
+- **govern FATAL'd immediately** — `nucleo-main.cpp` (500 lines / 29 435 bytes) alone exceeds govern's
+  24 576-byte per-file envelope, and govern won't hunk-split; a Constitution-VII-compliant 500-line
+  file cannot be governed (set aside per operator; captured as friction).
+- **The old delay firmware didn't enumerate on hardware** (768 KB heap on a 128 KB part) — expected,
+  confirmed TASK-34; the dead target was dropped, superseded by the bounded lo-fi variant.
 
 **Course Corrections:**
-- <!-- compose -->
+- When the audio rig went unreliable, I stopped trusting my own measurements and treated the
+  operator's Logic observations as the reliable signal — the prior session's "verify, don't assume
+  your own alarms" lesson, applied faster.
+- Reopened the D20 "no feedback endpoint" decision when the operator said it was probably a mistake —
+  but the design landed on **synchronous** (not feedback) as correct for a converter-less device: the
+  fix is declaring the honest clock model, not adding machinery.
+- Owned, didn't defend, the reviewers' real catches: the 44/45 cadence averages **44.5 kHz not 44.1**
+  (needs the rational-accumulator schedule); the task list scheduled implementation before its RED
+  tests; T002 named Linux `usbmon` for a macOS host.
 
 **Insights:**
-- <!-- compose -->
+- **A device with no converter has no clock to be "asynchronous" about** — its only timebase is USB
+  SOF, so synchronous is the honest model and the host stops rate-guessing. The bug was the wrong
+  clock-model *declaration*, not the absence of feedback.
+- **Objective acceptance is only as good as the conditions it exercises.** Single-device + noise hid
+  an aggregate + sustained-tone bug for the entire base feature; the reliable diagnosis came from the
+  operator's real DAW, and the durable guard is now a USB-packet-level capture, not a signal listen.
+- The lo-fi decimation's fixed-buffer *bandwidth-for-time* exchange behaved on silicon exactly as
+  designed — a fixed memory budget turned into a musical exchange rate.
+- The stack-control front door and superpowers SDD compose cleanly: brainstorm → design record →
+  (Spec Kit spec | superpowers plan) → subagent-driven execution, with independent third-party review
+  as a real gate at each artifact.
 
 **Quantitative (auto-derived from git; verify before publishing):**
 - Commits: 31

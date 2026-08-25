@@ -395,3 +395,8 @@ Milestone 1: prove the acfx spine end-to-end with a State-Variable Filter — co
 - design-approved: yes
 - design: docs/superpowers/specs/2026-08-22-nucleo-f446-adapter-design.md
 - part-of: multi:feature/hardware-targets
+
+## multi:feature/synchronous-usb-transport
+- status: planned
+- depends-on: design:gap/nucleo-f446-adapter
+- spec: specs/synchronous-usb-audio-transport
