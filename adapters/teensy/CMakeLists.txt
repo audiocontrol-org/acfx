@@ -45,7 +45,7 @@ acfx_add_effect_teensy(
 # Modulated delay — firmware for the second effect.
 acfx_add_effect_teensy(
   NAME acfx_teensy_delay
-  EFFECT_TYPE acfx::ModulatedDelayEffect
+  EFFECT_TYPE acfx::ModulatedDelayEffect<>
   EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
   SOURCE ${_teensy_main}
   LINKER_SCRIPT ${_teensy_lds}

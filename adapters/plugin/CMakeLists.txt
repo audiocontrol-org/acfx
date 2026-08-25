@@ -29,7 +29,7 @@ acfx_add_effect_plugin(
 # Modulated delay — new plugin for the second effect (unique code + CLAP id).
 acfx_add_effect_plugin(
   NAME acfx_plugin_delay
-  EFFECT_TYPE acfx::ModulatedDelayEffect
+  EFFECT_TYPE acfx::ModulatedDelayEffect<>
   EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
   PRODUCT "acfx Modulated Delay"
   PLUGIN_CODE Amdl

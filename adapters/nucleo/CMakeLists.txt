@@ -234,7 +234,7 @@ acfx_add_effect_nucleo(
 # Modulated delay — firmware for the second effect.
 acfx_add_effect_nucleo(
   NAME acfx_nucleo_delay
-  EFFECT_TYPE acfx::ModulatedDelayEffect
+  EFFECT_TYPE acfx::ModulatedDelayEffect<>
   EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
   SOURCE ${_nucleo_main}
   LINKER_SCRIPT ${_nucleo_lds}

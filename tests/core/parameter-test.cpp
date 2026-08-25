@@ -15,6 +15,11 @@
 
 using namespace acfx;
 
+// TestDelay is now templated. This TU only reads its static
+// parameter table, so bind the unqualified name to any instantiation; the
+// descriptors are identical across template arguments.
+using TestDelay = acfx::ModulatedDelayEffect<32768, float, 2>;
+
 namespace {
 constexpr ParameterDescriptor linearRes{ParamId{1}, "resonance", ParamUnit::none,
                                          0.0f,       1.0f,        0.0f,
@@ -112,8 +117,8 @@ TEST_CASE("SvfEffect mode descriptor carries correct option labels") {
     CHECK(d.choices[2] == std::string_view{"bandpass"});
 }
 
-TEST_CASE("ModulatedDelayEffect fb_mode descriptor carries correct option labels") {
-    const auto& d = ModulatedDelayEffect::kParams[ModulatedDelayEffect::kMode];
+TEST_CASE("TestDelay fb_mode descriptor carries correct option labels") {
+    const auto& d = TestDelay::kParams[TestDelay::kMode];
     CHECK(isValidDescriptor(d));
     REQUIRE(d.choices.size() == 3);
     CHECK(d.choices[0] == std::string_view{"lowpass"});
@@ -121,14 +126,14 @@ TEST_CASE("ModulatedDelayEffect fb_mode descriptor carries correct option labels
     CHECK(d.choices[2] == std::string_view{"bandpass"});
 }
 
-TEST_CASE("ModulatedDelayEffect LFO shape descriptors carry correct option labels") {
-    constexpr std::array<ModulatedDelayEffect::Param, 3> shapeParams = {{
-        ModulatedDelayEffect::kDelayModShape,
-        ModulatedDelayEffect::kCutoffModShape,
-        ModulatedDelayEffect::kResModShape,
+TEST_CASE("TestDelay LFO shape descriptors carry correct option labels") {
+    constexpr std::array<TestDelay::Param, 3> shapeParams = {{
+        TestDelay::kDelayModShape,
+        TestDelay::kCutoffModShape,
+        TestDelay::kResModShape,
     }};
     for (const auto p : shapeParams) {
-        const auto& d = ModulatedDelayEffect::kParams[p];
+        const auto& d = TestDelay::kParams[p];
         CHECK(isValidDescriptor(d));
         REQUIRE(d.choices.size() == 4);
         CHECK(d.choices[0] == std::string_view{"sine"});

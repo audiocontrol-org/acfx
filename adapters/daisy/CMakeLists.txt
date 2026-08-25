@@ -36,7 +36,7 @@ acfx_add_effect_daisy(
 # Modulated delay — firmware for the second effect.
 acfx_add_effect_daisy(
   NAME acfx_daisy_delay
-  EFFECT_TYPE acfx::ModulatedDelayEffect
+  EFFECT_TYPE acfx::ModulatedDelayEffect<>
   EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
   SOURCE ${_daisy_main}
   LINKER_SCRIPT ${_daisy_lds}

@@ -18,6 +18,10 @@ add_executable(acfx_core_tests
   core/modulated-delay-test.cpp
   core/modulated-delay-us2-test.cpp
   core/modulated-delay-wowflutter-test.cpp
+  # Task 4 (bounded lo-fi delay): the templated, bounded, heap-free effect —
+  # float clean-path numerical identity vs a committed golden, the no-alloc
+  # invariant, and compile+prepare of the int16 / default policies.
+  core/modulated-delay-bounded-test.cpp
   core/no-allocation-test.cpp
   core/workbench-settings-test.cpp
   # The SourceConfig serde seam is JUCE-free (std::string only), so its TU links
@@ -340,6 +344,10 @@ target_link_libraries(acfx_core_tests PRIVATE acfx_core acfx_host acfx_analysis 
 # source is added to the list above by the task that authors it, so this link deliberately
 # stands ahead of any such entry: it is the platform, not the sources.
 target_compile_features(acfx_core_tests PRIVATE cxx_std_20)
+# Absolute path to the committed golden vector for the ModulatedDelayEffect
+# numerical-identity test (Task 4), independent of the ctest working directory.
+target_compile_definitions(acfx_core_tests PRIVATE
+  "ACFX_MODULATED_DELAY_GOLDEN=\"${CMAKE_CURRENT_SOURCE_DIR}/core/golden/modulated-delay-default.txt\"")
 
 # Per-test-case ctest registration when doctest ships its CMake helper; otherwise
 # register the whole binary as a single test (still satisfies the test preset).

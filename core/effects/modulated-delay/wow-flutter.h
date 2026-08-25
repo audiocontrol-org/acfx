@@ -1,7 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
-#include <vector>
+#include <cstddef>
 
 #include "primitives/delays/delay-line.h"
 #include "primitives/modulation/lfo.h"
@@ -10,6 +11,12 @@
 // Owns its own short per-channel DelayLine plus two independent LFOs:
 //   wow_     (slow, default ~0.5 Hz)  — tape wow component
 //   flutter_ (fast, default ~8 Hz)    — tape flutter component
+//
+// Templated on <MaxChannels, MaxWowSamples> so all storage is in-object
+// std::array (no heap): the effect must be allocation-free to boot on the
+// STM32F446RE (TASK-34). Each per-channel scratch buffer is a
+// std::array<float, MaxWowSamples>; a DelayLine is pointed at its data() with a
+// capacity clamped to MaxWowSamples. No assign()/resize() anywhere.
 //
 // Signal flow per sample (see ModulatedDelayEffect contract):
 //   1. Call tickModulation() ONCE PER SAMPLE (shared across all channels) to
@@ -29,18 +36,21 @@
 // Buffer sizing: with kNominalSecs = 10 ms and kModRangeSecs = 5 ms (the
 // per-LFO range at depth=1), the worst-case combined displacement is ±10 ms
 // (both LFOs bipolar +1, both depths = 1.0 → +5+5 = +10 ms; or −10 ms).
-// Read range: [0 ms, 20 ms] — strictly within the ~21 ms preallocated buffer.
+// Read range: [0 ms, 20 ms] — strictly within the ~21 ms buffer. MaxWowSamples
+// must cover nominal + 2*range at the intended sample rate; the caller
+// (ModulatedDelayEffect) sizes it and static_asserts it fits the device rate.
 // DelayLine also clamps delaySamples to [0, capacity-1] as a hard invariant
 // (FR-021).
 //
-// RT-safety (FR-021, Constitution VI): all buffers preallocated in prepare();
-// process path zero-heap, lock-free, O(1) bounded work.
+// RT-safety (FR-021, Constitution VI): all buffers are in-object std::array,
+// so prepare() and the process path are zero-heap, lock-free, O(1) bounded work.
 //
 // Platform independence (Constitution IV): standard library only; no desktop
 // or MCU platform-specific headers.
 
 namespace acfx {
 
+template <std::size_t MaxChannels, std::size_t MaxWowSamples>
 class WowFlutterStage {
 public:
     // Per-LFO displacement at depth=1 (±5 ms).  Combined worst case: ±10 ms.
@@ -48,23 +58,29 @@ public:
     static constexpr float kNominalSecs  = 0.010f;   // 10 ms center tap
     static constexpr float kModRangeSecs = 0.005f;   // 5 ms displacement per LFO @ depth=1
 
-    // Audio stream must be stopped.  Allocates per-channel delay buffers and
-    // initialises both LFOs.  numChannels is clamped to kMaxChannels.
+    static_assert(MaxWowSamples > 0, "WowFlutterStage needs a non-empty buffer");
+
+    // Audio stream must be stopped.  Binds each in-object per-channel buffer to
+    // its DelayLine (no heap) and initialises both LFOs.  numChannels is clamped
+    // to MaxChannels; the per-channel capacity is clamped to MaxWowSamples.
     void prepare(float sampleRate, int numChannels) noexcept {
         sampleRate_  = sampleRate;
-        numChannels_ = numChannels < kMaxChannels ? numChannels : kMaxChannels;
+        const int maxCh = static_cast<int>(MaxChannels);
+        numChannels_ = numChannels < maxCh ? numChannels : maxCh;
 
         nominalSamples_   = kNominalSecs  * sampleRate_;
         modRangeSamples_  = kModRangeSecs * sampleRate_;
 
-        // Capacity: nominal + 2*range (max combined displacement) + 4 guard samples.
-        // At 48 kHz: nominal=480, 2*range=480, capacity≈964 samples (~20 ms).
-        const int capacity =
+        // Capacity: nominal + 2*range (max combined displacement) + 4 guard samples,
+        // clamped to the in-object buffer size.  At 48 kHz: nominal=480, 2*range=480,
+        // needed≈964 samples (~20 ms).
+        const int needed =
             static_cast<int>(nominalSamples_ + modRangeSamples_ * 2.0f) + 4;
+        const int capacity =
+            std::min(needed, static_cast<int>(MaxWowSamples));
 
         for (int ch = 0; ch < numChannels_; ++ch) {
             const std::size_t idx = static_cast<std::size_t>(ch);
-            buffers_[idx].assign(static_cast<std::size_t>(capacity), 0.0f);
             lines_[idx].prepare(buffers_[idx].data(), capacity, sampleRate_);
         }
 
@@ -122,10 +138,8 @@ public:
     }
 
 private:
-    static constexpr int kMaxChannels = 8;
-
-    std::array<std::vector<float>, kMaxChannels> buffers_{};
-    std::array<DelayLine,          kMaxChannels> lines_{};
+    std::array<std::array<float, MaxWowSamples>, MaxChannels> buffers_{};
+    std::array<DelayLine,                        MaxChannels> lines_{};
 
     Lfo   wow_{};
     Lfo   flutter_{};

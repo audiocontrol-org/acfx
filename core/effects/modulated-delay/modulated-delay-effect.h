@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <cstring>
 #include <string_view>
-#include <vector>
 
 #include "dsp/audio-block.h"
 #include "dsp/param-id.h"
@@ -15,7 +14,7 @@
 #include "dsp/process-context.h"
 #include "dsp/span.h"
 #include "effects/modulated-delay/wow-flutter.h"
-#include "primitives/delays/delay-line.h"
+#include "primitives/delays/bounded-delay-line.h"
 #include "primitives/modulation/lfo.h"
 #include "primitives/filters/svf-primitive.h"
 
@@ -46,6 +45,19 @@
 
 namespace acfx {
 
+// Templated on three compile-time policy parameters (design "Bounding
+// foundation"): per-channel delay-line capacity, per-sample storage type, and
+// maximum channel count. All storage is in-object std::array (via
+// BoundedDelayLine), so the effect is heap-free and can boot on the STM32F446RE
+// (TASK-34). Defaulting all three preserves today's behavior:
+// ModulatedDelayEffect<> == the 2 s @ 48 kHz, float, 8-channel effect; for
+// Sample = float the delay line is bit-identical to the old heap DelayLine, so
+// the clean float path is numerically unchanged (asserted bit-exact against a
+// captured golden vector, design Decisions 12a). NOTE: the ~3 MB default object
+// must be heap-allocated (desktop/plugin/Daisy do); a stack local overflows.
+template <std::size_t MaxDelaySamples = 96000,
+          typename    Sample          = float,
+          std::size_t MaxChannels      = 8>
 class ModulatedDelayEffect {
 public:
     // Stable parameter ids — dense index into kParams.  US1 ids 0..5 are frozen.
@@ -144,16 +156,21 @@ public:
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
-    // Audio stream must be stopped.  Allocates 2.0-second delay buffers per channel.
+    // Audio stream must be stopped.  Prepares the in-object (heap-free) delay
+    // lines: capacity is the 2.0 s @ sampleRate request, clamped to MaxDelaySamples.
     void prepare(const ProcessContext& ctx) noexcept {
         sampleRate_  = static_cast<float>(ctx.sampleRate);
-        numChannels_ = ctx.numChannels < kMaxChannels ? ctx.numChannels : kMaxChannels;
+        const int maxCh = static_cast<int>(MaxChannels);
+        numChannels_ = ctx.numChannels < maxCh ? ctx.numChannels : maxCh;
 
-        const int capacity = static_cast<int>(sampleRate_ * 2.0f) + 2;
+        const int requested = static_cast<int>(sampleRate_ * 2.0f) + 2;
+        const int capacity  =
+            requested < static_cast<int>(MaxDelaySamples)
+                ? requested
+                : static_cast<int>(MaxDelaySamples);
         for (int ch = 0; ch < numChannels_; ++ch) {
             const std::size_t idx = static_cast<std::size_t>(ch);
-            buffers_[idx].assign(static_cast<std::size_t>(capacity), 0.0f);
-            delays_[idx].prepare(buffers_[idx].data(), capacity, sampleRate_);
+            delays_[idx].prepare(capacity, sampleRate_);
             filters_[idx].init(sampleRate_);
         }
 
@@ -248,7 +265,7 @@ public:
             for (int ch = 0; ch < channels; ++ch) {
                 const std::size_t idx = static_cast<std::size_t>(ch);
                 float* const      x   = io.channel(ch);
-                DelayLine&        dl  = delays_[idx];
+                auto&             dl  = delays_[idx];
                 SvfPrimitive&     sv  = filters_[idx];
 
                 if (modCutoff) sv.setFreq(effCutoff);
@@ -278,8 +295,17 @@ public:
     }
 
 private:
-    static constexpr int         kMaxChannels = 8;
     static constexpr std::size_t kNumParams   = 19;
+
+    // Wow/flutter scratch buffer size (compile-time): nominal(10 ms) +
+    // 2*range(2*5 ms) + guard, sized for the highest prepared sample rate so the
+    // wow range is never truncated. 0.020 s * 96 kHz + guard ≈ 1928 samples.
+    static constexpr float       kWowSpanSecs      = 0.020f;
+    static constexpr float       kWowMaxSampleRate = 96000.0f;
+    static constexpr std::size_t kWowSamples =
+        static_cast<std::size_t>(kWowSpanSecs * kWowMaxSampleRate) + 8;
+    static_assert(kWowSamples >= static_cast<std::size_t>(kWowSpanSecs * 48000.0f) + 4,
+                  "wow/flutter buffer too small for the 48 kHz device rate");
 
     // Physical modulation ranges (in plain units).
     // kDelayModRangeSecs: ±30 ms peak modulation; musical vibrato at depth=1.
@@ -438,9 +464,8 @@ private:
         applyMode();
     }
 
-    std::array<std::vector<float>, kMaxChannels> buffers_{};
-    std::array<DelayLine,          kMaxChannels> delays_{};
-    std::array<SvfPrimitive,       kMaxChannels> filters_{};
+    std::array<BoundedDelayLine<Sample, MaxDelaySamples>, MaxChannels> delays_{};
+    std::array<SvfPrimitive,                              MaxChannels> filters_{};
 
     float sampleRate_  = 48000.0f;
     int   numChannels_ = 0;
@@ -464,7 +489,7 @@ private:
     float resModDepth_    = kParams[kResModDepth].defaultValue;     // 0 = off
 
     // US3: wow & flutter stage on the input path (FR-017..FR-021).
-    WowFlutterStage wowFlutter_{};
+    WowFlutterStage<MaxChannels, kWowSamples> wowFlutter_{};
 
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingBits_;
     std::array<std::atomic<std::uint32_t>, kNumParams> pendingDirty_;

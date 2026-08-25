@@ -12,7 +12,7 @@
 #include "effects/modulated-delay/modulated-delay-effect.h"
 #include "support/allocation-sentinel.h"
 
-// T007 — ModulatedDelayEffect US1: filtered-feedback delay.
+// T007 — TestDelay US1: filtered-feedback delay.
 // Covers: progressive feedback-filter shaping, dry/wet mix endpoints,
 // click-free delay-time change, feedback stability at the max bound,
 // and the no-heap-allocation invariant.
@@ -20,12 +20,20 @@
 using namespace acfx;
 using acfx::test::AllocationSentinel;
 
+// TestDelay is now templated (bounded, heap-free). Bind the
+// unqualified name in this TU to a small stack-safe instantiation: <32768,
+// float, 2> is ~256 KB (0.68 s capacity — comfortably covers the 500 ms tap
+// exercised by the smoother tests) versus the ~3 MB <96000, float, 8> default,
+// which would overflow the test stack (Ruling A). The float path is bit-
+// identical regardless of capacity, so every assertion below is unchanged.
+using TestDelay = acfx::ModulatedDelayEffect<32768, float, 2>;
+
 namespace {
 
 // Set a parameter by its plain (denormalized) value.
-void setParam(ModulatedDelayEffect& fx, ModulatedDelayEffect::Param p, float plain) {
+void setParam(TestDelay& fx, TestDelay::Param p, float plain) {
     fx.setParameter(ParamId{p},
-                    normalize(ModulatedDelayEffect::kParams[p], plain));
+                    normalize(TestDelay::kParams[p], plain));
 }
 
 // Fill a buffer with one block of a sine wave.
@@ -62,14 +70,14 @@ TEST_CASE("LP feedback filter: low-freq echoes decay slower than high-freq") {
 
     // Measure wet-only RMS at a given input frequency after 300 ms with LP at 150 Hz.
     auto measureRms = [&](double inputFreqHz) -> float {
-        ModulatedDelayEffect fx;
+        TestDelay fx;
         fx.prepare(ProcessContext{sr, blockSize, 1});
-        setParam(fx, ModulatedDelayEffect::kDelayTime,  0.020f);  // 20 ms (many echoes in 300 ms)
-        setParam(fx, ModulatedDelayEffect::kFeedback,   0.85f);
-        setParam(fx, ModulatedDelayEffect::kMix,        1.0f);    // wet only — isolates filter effect
-        setParam(fx, ModulatedDelayEffect::kCutoff,     150.0f);  // LP at 150 Hz
-        setParam(fx, ModulatedDelayEffect::kResonance,  0.0f);
-        setParam(fx, ModulatedDelayEffect::kMode,       0.0f);    // lowpass
+        setParam(fx, TestDelay::kDelayTime,  0.020f);  // 20 ms (many echoes in 300 ms)
+        setParam(fx, TestDelay::kFeedback,   0.85f);
+        setParam(fx, TestDelay::kMix,        1.0f);    // wet only — isolates filter effect
+        setParam(fx, TestDelay::kCutoff,     150.0f);  // LP at 150 Hz
+        setParam(fx, TestDelay::kResonance,  0.0f);
+        setParam(fx, TestDelay::kMode,       0.0f);    // lowpass
 
         std::vector<float> buf(static_cast<std::size_t>(blockSize));
         float* chans[1] = {buf.data()};
@@ -116,11 +124,11 @@ TEST_CASE("LP feedback filter: low-freq echoes decay slower than high-freq") {
 TEST_CASE("mix=0 passes dry input unchanged") {
     const int blockSize = 64;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{48000.0, blockSize, 1});
-    setParam(fx, ModulatedDelayEffect::kMix,      0.0f);
-    setParam(fx, ModulatedDelayEffect::kFeedback, 0.7f);
-    setParam(fx, ModulatedDelayEffect::kDelayTime, 0.1f);
+    setParam(fx, TestDelay::kMix,      0.0f);
+    setParam(fx, TestDelay::kFeedback, 0.7f);
+    setParam(fx, TestDelay::kDelayTime, 0.1f);
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize));
     for (int i = 0; i < blockSize; ++i)
@@ -140,11 +148,11 @@ TEST_CASE("mix=1 outputs zero before delay propagates") {
     // output is zero — no dry leaks in because mix=1 removes it entirely.
     const int blockSize = 64;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{48000.0, blockSize, 1});
-    setParam(fx, ModulatedDelayEffect::kMix,       1.0f);
-    setParam(fx, ModulatedDelayEffect::kFeedback,  0.0f);
-    setParam(fx, ModulatedDelayEffect::kDelayTime, 0.5f);  // 500 ms >> 64 samples
+    setParam(fx, TestDelay::kMix,       1.0f);
+    setParam(fx, TestDelay::kFeedback,  0.0f);
+    setParam(fx, TestDelay::kDelayTime, 0.5f);  // 500 ms >> 64 samples
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize), 1.0f);  // full amplitude
     float* chans[1] = {buf.data()};
@@ -173,11 +181,11 @@ TEST_CASE("delay time change is click-free: output stays finite and bounded") {
     const double sr        = 48000.0;
     const int    blockSize = 256;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 1});
-    setParam(fx, ModulatedDelayEffect::kDelayTime,  0.5f);   // 500 ms
-    setParam(fx, ModulatedDelayEffect::kFeedback,   0.0f);
-    setParam(fx, ModulatedDelayEffect::kMix,        0.5f);
+    setParam(fx, TestDelay::kDelayTime,  0.5f);   // 500 ms
+    setParam(fx, TestDelay::kFeedback,   0.0f);
+    setParam(fx, TestDelay::kMix,        0.5f);
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize));
     float* chans[1] = {buf.data()};
@@ -192,7 +200,7 @@ TEST_CASE("delay time change is click-free: output stays finite and bounded") {
     }
 
     // Change delay time dramatically.
-    setParam(fx, ModulatedDelayEffect::kDelayTime, 0.05f);  // 50 ms
+    setParam(fx, TestDelay::kDelayTime, 0.05f);  // 50 ms
 
     float maxDelta   = 0.0f;
     float prevSample = buf[blockSize - 1];
@@ -232,13 +240,13 @@ TEST_CASE("delay time change: smoother keeps read position near old tap") {
     const double sr        = 48000.0;
     const int    blockSize = 64;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 1});
-    setParam(fx, ModulatedDelayEffect::kDelayTime,  0.5f);    // 500 ms
-    setParam(fx, ModulatedDelayEffect::kFeedback,   0.0f);    // no feedback
-    setParam(fx, ModulatedDelayEffect::kMix,        1.0f);    // wet only
-    setParam(fx, ModulatedDelayEffect::kCutoff,     20000.0f);// near-passthrough LP
-    setParam(fx, ModulatedDelayEffect::kResonance,  0.0f);
+    setParam(fx, TestDelay::kDelayTime,  0.5f);    // 500 ms
+    setParam(fx, TestDelay::kFeedback,   0.0f);    // no feedback
+    setParam(fx, TestDelay::kMix,        1.0f);    // wet only
+    setParam(fx, TestDelay::kCutoff,     20000.0f);// near-passthrough LP
+    setParam(fx, TestDelay::kResonance,  0.0f);
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize));
     float* chans[1] = {buf.data()};
@@ -269,7 +277,7 @@ TEST_CASE("delay time change: smoother keeps read position near old tap") {
     // At t=800ms: 500ms-tap is in POSITIVE, 50ms-tap is in NEGATIVE.
     // SVF has been settled at +0.5 output for the last 100ms.
     // Change delay to 50ms and process one block.
-    setParam(fx, ModulatedDelayEffect::kDelayTime, 0.05f);
+    setParam(fx, TestDelay::kDelayTime, 0.05f);
     std::fill(buf.begin(), buf.end(), -0.5f);
     {
         AudioBlock block(chans, 1, blockSize);
@@ -293,14 +301,14 @@ TEST_CASE("feedback at max bound stays finite and decays") {
     const double sr        = 48000.0;
     const int    blockSize = 512;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{sr, blockSize, 1});
-    setParam(fx, ModulatedDelayEffect::kDelayTime,  0.05f);   // 50 ms
-    setParam(fx, ModulatedDelayEffect::kFeedback,   0.98f);   // max descriptor value
-    setParam(fx, ModulatedDelayEffect::kMix,        1.0f);
-    setParam(fx, ModulatedDelayEffect::kCutoff,     8000.0f); // high cutoff (near-passthrough)
-    setParam(fx, ModulatedDelayEffect::kResonance,  0.5f);
-    setParam(fx, ModulatedDelayEffect::kMode,       0.0f);
+    setParam(fx, TestDelay::kDelayTime,  0.05f);   // 50 ms
+    setParam(fx, TestDelay::kFeedback,   0.98f);   // max descriptor value
+    setParam(fx, TestDelay::kMix,        1.0f);
+    setParam(fx, TestDelay::kCutoff,     8000.0f); // high cutoff (near-passthrough)
+    setParam(fx, TestDelay::kResonance,  0.5f);
+    setParam(fx, TestDelay::kMode,       0.0f);
 
     std::vector<float> buf(static_cast<std::size_t>(blockSize), 0.0f);
     float* chans[1] = {buf.data()};
@@ -335,9 +343,9 @@ TEST_CASE("feedback at max bound stays finite and decays") {
 // calls (and setParameter on the audio thread, which must also be lock-free)
 // in the AllocationSentinel and assert the count is zero.
 // ---------------------------------------------------------------------------
-TEST_CASE("ModulatedDelayEffect::process allocates nothing across block sizes") {
+TEST_CASE("TestDelay::process allocates nothing across block sizes") {
     for (int blockSize : {16, 64, 256, 512}) {
-        ModulatedDelayEffect fx;
+        TestDelay fx;
         fx.prepare(ProcessContext{48000.0, blockSize, 2});
 
         const std::size_t sz = static_cast<std::size_t>(blockSize);
@@ -350,7 +358,7 @@ TEST_CASE("ModulatedDelayEffect::process allocates nothing across block sizes") 
             AudioBlock block(chans, 2, blockSize);
             fx.process(block);
             // setParameter on the audio thread must also be allocation-free.
-            fx.setParameter(ParamId{ModulatedDelayEffect::kCutoff},
+            fx.setParameter(ParamId{TestDelay::kCutoff},
                             (i % 2 == 0) ? 0.25f : 0.75f);
         }
         const std::size_t allocations = AllocationSentinel::allocations();
@@ -368,21 +376,21 @@ TEST_CASE("ModulatedDelayEffect::process allocates nothing across block sizes") 
 TEST_CASE("extreme settings produce no crash and finite output") {
     const int blockSize = 256;
 
-    ModulatedDelayEffect fx;
+    TestDelay fx;
     fx.prepare(ProcessContext{44100.0, blockSize, 2});
 
     // Verify the Effect contract is satisfied at compile time.
     // The test target compiles as C++20, so the named concept is available.
-    static_assert(acfx::Effect<ModulatedDelayEffect>,
-                  "ModulatedDelayEffect must satisfy the Effect contract");
+    static_assert(acfx::Effect<TestDelay>,
+                  "TestDelay must satisfy the Effect contract");
 
     // Max delay, max feedback, full wet, LP at minimum cutoff, max resonance.
-    setParam(fx, ModulatedDelayEffect::kDelayTime,  2.0f);
-    setParam(fx, ModulatedDelayEffect::kFeedback,   0.98f);
-    setParam(fx, ModulatedDelayEffect::kMix,        1.0f);
-    setParam(fx, ModulatedDelayEffect::kCutoff,     20.0f);
-    setParam(fx, ModulatedDelayEffect::kResonance,  1.0f);
-    setParam(fx, ModulatedDelayEffect::kMode,       2.0f);  // bandpass
+    setParam(fx, TestDelay::kDelayTime,  2.0f);
+    setParam(fx, TestDelay::kFeedback,   0.98f);
+    setParam(fx, TestDelay::kMix,        1.0f);
+    setParam(fx, TestDelay::kCutoff,     20.0f);
+    setParam(fx, TestDelay::kResonance,  1.0f);
+    setParam(fx, TestDelay::kMode,       2.0f);  // bandpass
 
     std::vector<float> left(static_cast<std::size_t>(blockSize));
     std::vector<float> right(static_cast<std::size_t>(blockSize));

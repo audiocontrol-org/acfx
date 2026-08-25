@@ -31,7 +31,7 @@ acfx_add_effect_workbench(
 # Modulated delay — new workbench for the second effect.
 acfx_add_effect_workbench(
   NAME acfx_workbench_delay
-  EFFECT_TYPE acfx::ModulatedDelayEffect
+  EFFECT_TYPE acfx::ModulatedDelayEffect<>
   EFFECT_HEADER effects/modulated-delay/modulated-delay-effect.h
   PRODUCT "acfx Workbench Delay"
   SOURCES ${_acfx_workbench_sources}
