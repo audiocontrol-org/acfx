@@ -52,7 +52,7 @@
 // state (support/audio-ring.h) — so an untouched ring after an unplug cannot
 // make the service loop spin. Adding a strong tud_umount_cb that did nothing
 // would be compile surface with no behaviour behind it, which this codebase
-// avoids elsewhere (see nucleo-main.cpp's SignalFatalClockFaultAndHalt()
+// avoids elsewhere (see board-init.h's SignalFatalClockFaultAndHalt()
 // comment on the same principle, applied to the opposite situation — code
 // kept despite having no caller yet, rather than a caller added with nothing
 // for it to do).
