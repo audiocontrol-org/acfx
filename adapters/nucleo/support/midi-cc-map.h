@@ -34,6 +34,8 @@ struct CcBinding {
 inline constexpr CcBinding kCcBindings[] = {
     CcBinding{74, 0},
     CcBinding{71, 1},
+    CcBinding{76, 19},   // CC76 -> lofi_rate
+    CcBinding{77, 20},   // CC77 -> lofi_bits
     // -- Add further CC -> parameter-index bindings above this line. --
 };
 
