@@ -184,7 +184,18 @@ public:
     //
     // 4. THE PULL SIZE is room, capped at kMaxPacketFrames — never more than
     //    one packet regardless of how much room is free, for the bounded-
-    //    work reason in the file header.
+    //    work reason in the file header. FR-007 ADDS ONE MORE, NARROW CAP
+    //    here: while this ring's Running run has never yet held more than
+    //    its own startupFill() (i.e. the Priming -> Running promotion that
+    //    just happened is the only reason it is Running at all — see the
+    //    RUNNING branch below for why occupancy sits at EXACTLY
+    //    startupFill() at that instant), the pull is additionally bounded by
+    //    current occupancy, so this path never asks the ring for more than
+    //    it has ever been given a chance to hold. That guard retires
+    //    permanently, for this Running run, the first time occupancy is
+    //    observed above startupFill() — a real, measured cushion — after
+    //    which every shortfall is reported exactly as step 5 describes,
+    //    with nothing hidden.
     //
     // 5. THE RING READ. AudioRing::read() ALWAYS supplies exactly the frames
     //    asked for, zero-filling any shortfall and returning the substituted
@@ -272,6 +283,14 @@ public:
         }
 
         if (ring.state() != RingState::Running) {
+            // Not (yet, or no longer) delivering steady audio: re-arm the
+            // FR-007 startup-cushion guard below so the NEXT time this ring
+            // enters Running — whether that is the very first stream open or
+            // a later reopen/resume/reset (FR-051..FR-054, all of which
+            // re-clear the ring to Priming/Stopped) — is protected as its
+            // own fresh cold start, not treated as a continuation of a
+            // cushion this run never actually built.
+            coldStartPending_ = true;
             return pass;
         }
 
@@ -280,7 +299,46 @@ public:
         if (roomFrames <= 0) {
             return pass;
         }
-        const int framesToPull = (roomFrames < kMaxPacketFrames) ? roomFrames : kMaxPacketFrames;
+        int framesToPull = (roomFrames < kMaxPacketFrames) ? roomFrames : kMaxPacketFrames;
+
+        // FR-007 cold-drain fix. AudioRing::write() promotes Priming ->
+        // Running the INSTANT occupancy first reaches startupFill() (audio-
+        // ring.h: "the threshold is evaluated at the END of every write(),
+        // and ONLY here") — at that instant occupancy sits at EXACTLY
+        // startupFill(), no more, because the promotion fires on the very
+        // write that crosses it. A room/packet-bounded pull the caller makes
+        // before the ring has ever held more than that bare minimum would
+        // therefore ask for more than the ring has EVER had a chance to
+        // build, manufacturing a substitution out of the Priming->Running
+        // transition itself — not a genuine shortfall — which is exactly the
+        // "cold-buffer greedy-drain" FR-007 requires be eliminated.
+        //
+        // This guard is intentionally narrow and self-retiring, so it can
+        // never become a general-purpose way to hide a real underrun (which
+        // FR-030d/FR-031/FR-032, already fixed by the base feature, forbid
+        // suppressing): the FIRST time occupancy is observed strictly above
+        // startupFill() — i.e. the ring has built real cushion beyond the
+        // bare promotion minimum, FR-007's "cushioned steady state" — the
+        // guard retires permanently for this Running run. Every shortfall
+        // after that point, and every shortfall on a ring whose startupFill()
+        // was already exceeded on THIS very first observation (an
+        // already-cushioned ring, or one with startupFill() == 0), is
+        // reported exactly as before: silence-filled, `outputUnderruns`
+        // incremented, nothing hidden.
+        if (coldStartPending_) {
+            if (ring.occupancy() > ring.startupFill()) {
+                coldStartPending_ = false;
+            } else if (framesToPull > ring.occupancy()) {
+                // Defer to what is actually available rather than fabricate
+                // silence for frames the ring was never given a chance to
+                // hold; the remainder is served on the very next pass, once
+                // the DSP's next write lands. Bounded, one-time added
+                // startup latency — never more than one packet — is the
+                // intended FR-007/FR-008 trade, not a spurious
+                // `outputUnderruns`.
+                framesToPull = ring.occupancy();
+            }
+        }
 
         float* channels[kChannels];
         for (int channel = 0; channel < kChannels; ++channel) {
@@ -349,6 +407,19 @@ private:
     std::int16_t buffer_[kMaxPacketFrames * kChannels] = {};
 
     int pendingBytes_ = 0;
+
+    // FR-007 startup-cushion guard. Starts armed (true) so the FIRST Running
+    // observation of this instance's life is protected; re-armed every time
+    // service() observes the ring NOT Running (Stopped or Priming, including
+    // after a lifecycle reset/reopen/resume) so each fresh Running run gets
+    // its own cold-start protection; retired (false) permanently for a given
+    // Running run the first time occupancy is observed strictly above the
+    // ring's startupFill() — real cushion beyond the bare promotion minimum,
+    // i.e. FR-007's "cushioned steady state" has been reached and every
+    // shortfall from then on is a genuine fault, reported exactly as
+    // FR-030d/FR-031/FR-032 already require. See the RUNNING branch of
+    // service() for the full rationale.
+    bool coldStartPending_ = true;
 };
 
 } // namespace acfx::nucleo
