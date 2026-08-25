@@ -990,3 +990,55 @@ with a 2-packet-deep RX FIFO survive real host traffic, and what `..._SW_BUF_SZ`
 both are HIL measurements (OQ1 / **D23**), not arithmetic. The RX FIFO's `2 × (mps/4 + 1)` term
 gives room for two 196-byte OUT packets, which is TinyUSB's recommended sizing, not a measured
 one.
+
+## R15 — Phase-12 hardware measurement results (T062 / T063 / T064)
+
+Live on the physical NUCLEO-F446RE (SVF firmware, `acfx_nucleo.elf`), 2026-08-24, via the
+T059 HIL harness with the T058 CDC counter readback. Run: 20 s full-duplex, pink-noise known
+signal (`sox synth pinknoise`), `ffmpeg` avfoundation capture of the processed device output
+while `sox play` fed the device input. ST-Link targeted by serial (two programmers on the host);
+CDC telemetry read from `/dev/cu.usbmodem11206`.
+
+**The effect works on hardware (the operator's acceptance bar).** The compiled-in SVF
+(low-pass, 1 kHz) transform is intact live — per-band RMS, input vs recorded output:
+
+| band        | input  | output | note                          |
+|-------------|--------|--------|-------------------------------|
+| LF (<1 kHz) | 0.088  | 0.081  | passes ~unchanged (−0.7 dB)   |
+| HF (>3 kHz) | 0.052  | 0.0118 | attenuated ~13 dB (LP acting) |
+
+Recorded RMS 0.083, peak 0.35 (no clipping). Not silence, not garbage — the known signal
+returns transformed exactly as the compiled-in effect predicts.
+
+**Counters over the window** (`before` idle → `after`): `blocksProcessed` 0 → 20487;
+`inputUnderruns`/`inputOverruns`/`outputOverruns`/`inputStarved`/`malformedPayloads` all 0;
+`worstBlockMicros` **65 µs** with `timingSourceLive=true`; `outputUnderruns` 20486
+(rate 0.9999 vs `blocksProcessed`).
+
+**T064 — `worstBlockMicros`.** SVF firmware: **65 µs** of the 1000 µs/block real-time budget
+(48 frames ÷ 48 kHz), ≈ 6.5 % of budget — ample headroom, DWT-live (`tl=true`). The delay
+firmware (`acfx_nucleo_delay.elf`) is UNMEASURABLE: it does not enumerate on hardware (aborts in
+`PrepareEffect()` before the service loop; board alive over SWD, no `acfx Audio` device, no acfx
+CDC) — the pre-existing 768 KB-heap-on-a-128 KB-part defect, live-confirmed under backlog TASK-34.
+
+**T062 / T063 — ring capacity.** At the current (un-tuned placeholder) `AudioRing` sizes the
+audio works and the ring never over/underflows in the over/overrun sense (`inputUnderruns`,
+`inputOverruns`, `outputOverruns` all 0). The lone non-zero error class is `outputUnderruns` at
+~1.0/block, which is NOT audible ring starvation: the IN path counts one event per pass in which
+`ring.read()` zero-fills ≥1 frame, and the host-SOF-paced pull size (`min(room, 48)`) does not
+align to the DSP's 48-frame block boundary, so almost every pull catches a small partial-block
+remainder. The small per-pass substitution is confirmed by the audio itself (LF passes almost
+untouched — a large zero-fill fraction would have collapsed LF RMS). Captured as backlog TASK-39
+(reconsider the `outputUnderruns` event definition and/or expose `framesSubstituted`; an output-
+ring startup-fill/watermark lead would remove most misalignment underruns). Operator direction
+2026-08-24: *"if it works on the hardware, I don't care"* about ring tuning — the audio works, so
+the placeholder sizes are accepted as-shipped and formal watermark tuning is deferred to TASK-39,
+not pinned here. R5's measure-don't-pick procedure remains the recipe if/when tuning is taken up.
+
+**Harness note.** `scripts/nucleo-hil/read-serial-snapshot.sh` and
+`evaluate-transport-quality.sh` ran verbatim on the real snapshots and produced the correct
+verdict (FAIL under the strict zero-error-delta bar, driven by the benign `outputUnderruns`).
+`run-hil.sh` as authored could not orchestrate this host unattended — it flashes without an
+ST-Link serial (two programmers present) and refuses when multiple `/dev/cu.usbmodem*` nodes
+exist; the flash + full-duplex steps were driven manually. Harness-usability gap captured
+separately.
