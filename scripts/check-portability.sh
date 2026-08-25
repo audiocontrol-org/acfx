@@ -91,6 +91,11 @@
 #   C-CA-ISO. component-abstractions lab isolation (FR-018): the lab must not be included
 #      by any primitive/effect, and the primitive must not depend on the lab — explicit
 #      named coverage for the load-bearing seam (component-abstractions T003)
+#   C-CORE-INWARD. core/ acquires no USB / TinyUSB / board dependency (FR-004): every
+#      source file under core/ is verified to contain no #include directives matching
+#      USB, TinyUSB, board, or MCU headers (tusb, tinyusb, stm32, cmsis, core_cm,
+#      libDaisy, daisy_, usb_device, usbd_) — dependencies point strictly inward, the
+#      portable core knows nothing of adapters (Constitution IV, T067)
 
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -656,6 +661,16 @@ if grep -rEn '#include.*labs/component-abstractions/' core/primitives core/effec
 else
   note "  OK: core/primitives/ and core/effects/ do not include the component-abstractions lab"
 fi
+
+note "== C-CORE-INWARD. core/ acquires no USB/TinyUSB/board dependency (FR-004) =="
+_ccore_fail=0
+while IFS= read -r f; do
+  if grep -EHin '#include.*(tusb|tinyusb|stm32|cmsis|core_cm|libDaisy|daisy_|usb_device|usbd_)' "$f" 2>/dev/null; then
+    _ccore_fail=1
+    fail=1
+  fi
+done < <(find core -type f \( -name '*.h' -o -name '*.cpp' \) 2>/dev/null)
+[ "$_ccore_fail" -eq 0 ] && note "  OK: core/ has no USB/TinyUSB/board dependencies"
 
 if [ "$fail" -eq 0 ]; then
   note ""
