@@ -2,6 +2,58 @@
 
 ---
 
+## 2026-08-25: <!-- session title -->
+
+**Goal:** <!-- compose: what we set out to do -->
+
+**Accomplished:**
+- <!-- compose -->
+
+**Didn't Work:**
+- <!-- compose -->
+
+**Course Corrections:**
+- <!-- compose -->
+
+**Insights:**
+- <!-- compose -->
+
+**Quantitative (auto-derived from git; verify before publishing):**
+- Commits: 31
+  - docs(spec,tasks): resolve tasks-list review (TDD order, lifecycle, OUT, capture backend)
+  - docs(tasks): synchronous-usb-audio-transport tasks.md (runnable)
+  - docs(plan): synchronous-usb-audio-transport plan + research + design artifacts
+  - docs(spec): resolve UAC2 review of synchronous-usb-audio-transport
+  - docs(spec): author synchronous-usb-audio-transport spec (Spec Kit)
+  - feat(nucleo): map CC72 -> mix (dry/wet) + add ccsend CoreMIDI helper
+  - chore(backlog): close TASK-34 (delay runs on the F446)
+  - docs(nucleo): bounded lo-fi delay hardware acceptance — closes TASK-34
+  - fix(nucleo): drop the dead acfx_nucleo_delay firmware target
+  - refactor(core): split ModulatedDelayEffect's bit/enum helpers into a sibling header
+  - feat(nucleo): acfx_nucleo_lofi_delay firmware target + CC map (lofi_rate/lofi_bits)
+  - feat(core): lo-fi delay layer — internal-rate decimation + bit-crush + live params
+  - feat(core): template ModulatedDelayEffect (bounded, heap-free) — fixes TASK-34; float path identical
+  - test(core): golden reference for the pre-template ModulatedDelayEffect default path
+  - feat(core): sample-and-hold decimator primitive (primitives/lofi)
+  - feat(core): bit-crush mid-tread grid primitive (primitives/lofi)
+  - feat(core): BoundedDelayLine<Sample,N> static storage primitive + core int16 convention
+  - docs(plan): bounded lo-fi delay implementation plan
+  - docs(design): resolve round-2 review of bounded lo-fi delay
+  - docs(design): revise bounded lo-fi delay after third-party review
+  - docs(design): bounded lo-fi delay — design record
+  - chore(nucleo): execute ledger — Phase 12/13 (T058-T070, T014) entries
+  - docs(nucleo): Phase-13 close-out — T014/T065-T070 dispositions + FR-048 amend
+  - test(nucleo): T066 no-alloc/no-lock assertion over FR-046a stages (+ TASK-27 positive control)
+  - feat(nucleo): T067 portability check — acfx_core acquires no USB/board dependency (FR-004)
+  - docs(nucleo): T068 adapters/nucleo/README.md (two-cable, PA11/PA12 wiring, FR-044/FR-047 limits)
+  - docs(nucleo): Phase-12 (US9) hardware verification + T064 worstBlockMicros
+  - docs(nucleo): T060 (US9) verify HIL harness excluded from CI
+  - feat(nucleo): T059 (US9) HIL transport-quality harness (scripts/nucleo-hil)
+  - docs(nucleo): T061 (US9) resolve open questions 2 and 6
+  - feat(nucleo): T058 (US9) main-loop CDC diagnostic service
+- Files changed: 75
+- Backlog touched: TASK-21, TASK-27, TASK-34, TASK-37, TASK-39, TASK-40
+
 ## 2026-08-24: nucleo-f446-adapter — the P2 stories (US6/US7/US10), hardware-verified on the board
 
 **Goal:** Resume `specs/nucleo-f446-adapter` through the stack-control `execute` front door and
