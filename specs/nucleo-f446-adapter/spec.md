@@ -931,6 +931,15 @@ resolved by omission.
 2. **The acceptable glitch bar.** Now directly measurable via `AudioTransportStats` rather than
    inferred from signal correlation, so the question narrows to: what counter rate constitutes
    a failing build, and which verification layer enforces it?
+   **RESOLVED (2026-08-24, operator — T061): operator delegated ("I don't care"); controller
+   applied the strict, well-justified default.** The failing bar is **zero error-class counter
+   deltas over the steady-state measurement window** — after startup, the deltas of
+   `inputUnderruns`, `inputOverruns`, `outputUnderruns`, `outputOverruns`, `inputStarved`, and
+   `malformedPayloads` between snapshots must all be zero, and `blocksProcessed` must advance
+   (a stalled denominator is itself a failure). `worstBlockMicros` is reported, not gated. The
+   enforcing layer is the **HIL harness's own exit code on a board-attached development host**
+   (nonzero on breach); it is **not** a CI gate — consistent with the operator's 2026-08-23
+   direction that device-specific tests do not run in GitHub CI (see T014).
 3. **Does the single-context assumption (D26) survive physical peripherals?** The single-context
    assumption is what lets the shadow block skip lock-free discipline. Sampling ADCs from a timer
    interrupt would break it and require revisiting FR-041's memory ordering. That is the explicit
@@ -946,6 +955,16 @@ resolved by omission.
    cannot be a normal CI job. In-repo with a manual target? A dedicated runner? The spike's
    `tools/loopback_test.py` is a starting point. Its *readback channel* is no longer open —
    CDC serial, per FR-033a — but its home and invocation are.
+   **RESOLVED (2026-08-24, operator — T061): "use established project standards."** The repo's
+   established host-tooling convention is a **`bash` script under `scripts/`** (the sole
+   precedent is `scripts/check-portability.sh`, `#!/usr/bin/env bash`); the spike's
+   `tools/loopback_test.py` Python home is **not** carried forward (no `tools/` dir or Python
+   tooling exists in-repo). The harness therefore lives at **`scripts/nucleo-hil/`** as bash,
+   reusing the established ad-hoc macOS rig (`st-flash` to flash, `ffmpeg` avfoundation capture +
+   `sox` playback for the full-duplex signal, `swiftc` CoreMIDI for CC, and now **CDC serial**
+   readback of the T058 `key=value` counters from `/dev/cu.usbmodem*`). It is invoked **manually
+   on a board-attached development host** and is **excluded from CI** (T060). It is not a normal
+   CI job and needs no dedicated runner.
 7. **MIDI CC → `ParamId` mapping convention.** Fixed CC numbers per parameter index? A learn
    mode? Which channel? Should it match how the workbench already consumes MIDI CC, so one
    mapping serves both?
