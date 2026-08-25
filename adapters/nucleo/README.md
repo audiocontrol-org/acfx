@@ -57,6 +57,106 @@ Always verify your wiring against the actual morpho header pin labels and the da
 
 ---
 
+## Synchronous Clock Model (FR-001, FR-015)
+
+The device presents both isochronous audio endpoints (IN and OUT) as **Synchronous** (USB synchronization attribute `0x0D`), with **NO feedback endpoint**. The device's timebase is derived exclusively from the USB Start-of-Frame (SOF) clock.
+
+### Why Synchronous?
+
+The device has **no analog converter** — all audio is pure DSP flowing between the host and the device. Therefore, there is no independent clock for the device to report. The honest, correct model is **synchronous**: both endpoints are paced by and locked to the USB SOF frame clock, and both directions deliver the nominal per-frame audio count for the selected sample rate.
+
+This fixes a critical defect observed when the device is used in a CoreAudio aggregate (host → device → host for monitoring): the old asynchronous-with-no-feedback model forced the host's resampler to compensate for an effectively free-running return stream, causing consistent pitch downward shift (~0.5 kHz), broadband digital noise, and ~0.5 s of accumulated latency. With the correct synchronous declaration, the host locks to the USB clock and does not resample the device for rate — the aggregate performs only gentle ordinary drift correction, if any, and the audio returns clean and pitch-accurate.
+
+**Note**: This supersedes decision **D20** from the base feature (see **D4/D20 Supersession** below).
+
+---
+
+## Multi-rate Support (FR-004)
+
+The device now supports **two sample rates**:
+- **48 000 Hz** (48 audio frames per 1 ms USB frame — nominal)
+- **44 100 Hz** (44 100 audio frames per 1 000 USB frames — rational, averaging ~44.1 frames/frame)
+
+The host selects the sample rate by writing to the device's **Clock Source Sampling-Frequency Control**. The device re-prepares its audio processing at the new rate and resumes streaming without requiring a power cycle or device re-plug.
+
+### Fractional Cadence at 44.1 kHz
+
+At 44.1 kHz, the per-USB-frame audio count is not an integer. The device implements the exact rational schedule via a phase accumulator: each USB frame carries either 44 or 45 audio frames, placed on the schedule such that the **accumulated frame count over 1000 USB frames equals exactly 44 100 frames**. This is NOT a naive 44/45 alternation (which averages 44.5 kHz); it is the deterministic rational-accumulator schedule that maintains the exact long-term rate.
+
+---
+
+## Multi-format Support (FR-005, FR-010)
+
+The device now supports **two stereo PCM formats**:
+
+| Format | Wire Width | bSubslotSize | bBitResolution | Alt-Setting |
+|--------|-----------|------|---|---|
+| 16-bit signed PCM | 2 bytes per sample | 2 | 16 | Alt-1 |
+| Packed 24-bit signed PCM | 3 bytes per sample | 3 | 24 | Alt-2 |
+
+The host selects the format by switching to the corresponding USB alternate setting. Each format is available at both 44.1 kHz and 48 kHz sample rates. Format changes are handled without a power cycle or device re-plug.
+
+### 24-bit FIFO Budget Note
+
+The 24-bit format at 48 kHz stereo in + out (~288 bytes per millisecond per direction) uses **~6.25% free margin** of the STM32F446 OTG-FS device FIFO-RAM budget (300/320 words at nominal 48 frames). This tight margin is verified in the build via `static_assert` (see `support/usb-out-path.h` and `support/usb-in-path.h`). If changes to buffer sizing or endpoint configuration reduce the remaining headroom below that margin, the fallback is to restrict 24-bit to 44.1 kHz only, or to 16-bit-only operation.
+
+---
+
+## D4/D20 Supersession (FR-015)
+
+This feature supersedes two decisions from the base feature's specification. The exact original decisions, and how they are superseded, are recorded here.
+
+### Decision D4: Single Format (Superseded)
+
+**Original D4** (base feature `specs/nucleo-f446-adapter/spec.md`, FR-020):
+
+> "The device MUST advertise **48 kHz, 16-bit, stereo only**, with one streaming alt-setting per streaming interface in addition to the zero-bandwidth alt-setting (**D4**)."
+
+And (Open Questions, item 5):
+
+> "**Additional audio formats.** 24-bit, 44.1 kHz, and 96 kHz all fit inside full-speed bandwidth for stereo. The operator scoped the advertised matrix to 48/16 (**D4**); 44.1 in particular forces variable packet sizes and is more work than it appears."
+
+**How D4 is Superseded**:
+
+The synchronous multi-rate/multi-format feature now declares **both 44.1 kHz and 48 kHz**, and **both 16-bit and 24-bit**, replacing the fixed single-format model. The 48/16 baseline remains as Alt-1 for maximum compatibility; 44.1 and 24-bit are added as Alt-2 and additional rate options. The rational 44.1 kHz cadence (44/45-frame packets per SOF schedule) is the mechanism that allows 44.1 kHz to coexist with 48 kHz without degrading the transport.
+
+### Decision D20: Asynchronous with No Feedback (Superseded)
+
+**Original D20** (base feature `specs/nucleo-f446-adapter/spec.md`, FR-024 through FR-027):
+
+> - FR-024: "The host's SOF MUST be treated as the only sample clock; the device MUST NOT assert a rate of its own (**D20**)."
+> - FR-025: "The OUT (host → device) stream MUST behave as an **adaptive sink** — whatever arrives is consumed (**D20**)."
+> - FR-026: "The IN (device → host) stream MUST behave as an **asynchronous source**, producing one host-paced frame per SOF (**D20**)."
+> - FR-027: "There MUST be **no feedback endpoint** (**D20**). Its absence is a design consequence of having no local clock, not an omission, and MUST be documented as such."
+
+**How D20 is Superseded**:
+
+D20 was a compromise model: the device used SOF as its timebase but declared itself asynchronous and produced variable packet sizes (0–49 frames per SOF, with zero-length packets when the output buffer was empty). This forced the host resampler to compensate for the device's effectively free-running return stream, causing the defects named above (pitch shift, noise, latency).
+
+The new model **keeps the honest D20 principle** — the device has no independent clock, so SOF is the only timebase — but **corrects the declaration**: both endpoints are now **Synchronous**, not Asynchronous. The device commits to delivering the **exact nominal per-frame count** for the selected rate at each USB frame, making it rate-coherent with the host. There is still **no feedback endpoint** (the device has no clock to report), but the endpoint declarations and packet delivery are now honest and stable. This is what ended the pitch shift and noise in the CoreAudio aggregate.
+
+---
+
+## Latency and Ring Capacity (FR-008, FR-009)
+
+### Round-Trip Latency
+
+The latency measurements (round-trip time in both audio frames and milliseconds, and the device's internally pinned ring capacity/startup-fill/water-range values) are **pending the T022 hardware measurement**, which is operator-driven and has not yet been run on this transport.
+
+**Measured latency (frames)**: *Pending T022 hardware measurement*
+
+**Measured latency (milliseconds)**: *Pending T022 hardware measurement*
+
+**Ring capacity (frames)**: *Pending T022 hardware measurement*
+
+**Ring startup fill (frames)**: *Pending T022 hardware measurement*
+
+**Ring steady-state water range (frames, min–max)**: *Pending T022 hardware measurement*
+
+Once measured, these values will be pinned in this section and in the device's firmware configuration, and will become part of the delivered specification. The base feature's earlier placeholder values (1024-frame capacity, 98-frame startup fill) were conservative and are expected to be significantly smaller under the new synchronous, predictable packet cadence.
+
+---
+
 ## Limitation 1: Parameter Seam — State-Valued Only (FR-044)
 
 The parameter update mechanism uses a **per-parameter shadow block** with dirty flags. This design is correct for **state-valued parameters** (volume, filter cutoff, any control that sets a persisting value) but **is wrong for event-valued controls** (momentary triggers, tap tempo, any control that fires an event once).
