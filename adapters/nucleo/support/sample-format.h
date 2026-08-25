@@ -14,6 +14,10 @@ namespace acfx::nucleo {
 // in [-1.0, 1.0). Applied in both directions (FR-038a).
 inline constexpr float kInt16Scale = 32768.0f;
 
+// Normalizing scale between a packed-24-bit PCM sample and its float representation
+// in [-1.0, 1.0). Applied in both directions (FR-010).
+inline constexpr float kPacked24Scale = 8388608.0f;  // 2^23
+
 // A USB audio packet carries 0 to 49 stereo frames inclusive (D21 / FR-028).
 inline constexpr int kMaxPacketFrames = 49;
 
@@ -77,6 +81,28 @@ inline void interleaveToInt16(const float* const* src, std::int16_t* dst, int fr
             dst[kChannels * frame + channel] = detail::floatToInt16(src[channel][frame]);
         }
     }
+}
+
+// STUB (RED for T013) — unpack 3 signed-LE bytes to float in [-1.0, 1.0) range.
+// Reads exactly 3 bytes from `p` and interprets as a 24-bit signed little-endian integer,
+// then divides by kPacked24Scale to normalize to float. FR-010, T014 implements the real
+// conversion; this stub intentionally returns 0.0 to fail the RED test (T013).
+inline float sampleFromWire24Packed(const std::uint8_t* p) noexcept {
+    (void)p;  // suppress unused parameter warning
+    // STUB: deliberately wrong for RED test (T013)
+    return 0.0f;
+}
+
+// STUB (RED for T013) — pack float to 3 signed-LE bytes.
+// Rounds to nearest (ties away from zero), clamps to the representable 24-bit range,
+// and writes the result as 3 little-endian bytes. FR-010, T014 implements the real
+// conversion; this stub intentionally writes zeros to fail the RED test (T013).
+inline void wireFromSample24Packed(float sample, std::uint8_t* out) noexcept {
+    (void)sample;  // suppress unused parameter warning
+    // STUB: deliberately wrong for RED test (T013)
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
 }
 
 // Result of validating a USB packet's byte count against the stereo-frame

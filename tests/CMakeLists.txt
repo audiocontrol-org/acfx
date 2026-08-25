@@ -226,6 +226,7 @@ add_executable(acfx_core_tests
   # ---------------------------------------------------------------------------
   core/nucleo-sample-format-test.cpp
   core/nucleo-sample-format-no-allocation-test.cpp
+  core/nucleo-packed24-test.cpp
   core/nucleo-rate-select-test.cpp
   # T010 (US2, FR-006): RED test for the rate-change latch exactly-once
   # consumption lifecycle. The SET callback (producer) requests a rate change;
