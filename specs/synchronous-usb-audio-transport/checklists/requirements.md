@@ -48,3 +48,30 @@
   so it does not block spec completion.
 - This spec supersedes base-feature decisions D20 (no feedback endpoint) and D4 (single 48/16
   format); FR-015 records that so the base spec is not read as still-authoritative.
+
+## Third-party UAC2 review resolutions (2026-08-25)
+
+A USB-Audio-Class review requested changes; all adopted (one tempered):
+
+1. **44.1 kHz cadence** — corrected from a wrong "44/45 alternation" (averages 44.5 kHz) to the
+   exact **44 100 frames / 1 000 USB frames** rational-accumulator schedule (US2, FR-002, FR-013,
+   SC-002).
+2. **Latency mechanism** — adopted the correction that `bLockDelay*` is clock-lock delay, not
+   end-to-end latency, and that host delay-compensation must be verified not assumed (FR-009,
+   US4). **Tempered:** did NOT assert a standard "UAC2 Latency Control" exists — framed as a
+   plan research item ("the correct mechanism, if one hosts consume exists"), since its existence
+   is unconfirmed.
+3. **24-bit wire format pinned** — packed 3-byte subslots (`bSubslotSize=3`, 24-bit, signed LE),
+   288 bytes/ms at 48 kHz; consistent across FR-005, FR-010, FR-014, Key Entities.
+4. **Rate vs format selection separated** — rate via Clock Source frequency control, format via
+   AudioStreaming alternate setting (FR-004, FR-005, FR-006, edge cases).
+5. **Single shared clock domain** — both interfaces reference one SOF-derived Clock Source
+   (new FR-016).
+6. **FR-001 rationale reframed** — coherent SOF-locked nominal rate, NOT "no host resampling
+   ever" (which contradicted the aggregate-drift-correction assumption).
+7. **OUT abnormal-packet fault handling carried forward** — new FR-017 with the IN-owns-cadence /
+   OUT-owns-contents asymmetry.
+8. **Packet-capture guard strengthened** — full metric set + accumulated-rate tracking (FR-013,
+   US5, SC-002).
+9. **Latency success criterion made measurable** — SC-004 now requires pinned measured values
+   (ring capacity/fill/water range, round-trip in frames + ms, device-reported latency).

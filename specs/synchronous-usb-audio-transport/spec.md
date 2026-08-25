@@ -89,20 +89,25 @@ rate.
 
 **Why this priority**: Multi-rate is a stated requirement and is coupled to the fix — a
 synchronous device must deliver the correct nominal-per-frame cadence for the *selected* rate
-(including the fractional 44/45 cadence at 44.1 kHz), and native rate support minimises the
-aggregate's resampling burden.
+(including the **rational, non-integer** per-frame cadence at 44.1 kHz, where each 1 ms USB frame
+cannot carry a whole 44.1 audio frames), and native rate support minimises the aggregate's
+resampling burden.
 
 **Independent Test**: Select each rate from the host and confirm (via USB capture) the device
-clock source reports and honours the selected rate, delivering the correct average frames/second
-(48 000 at 48 kHz; 44 100 via an alternating 44/45 per-frame cadence at 44.1 kHz).
+clock source reports and honours the selected rate, delivering the **exact long-term SOF-derived
+rate** — 48 000 audio frames per 1 000 USB frames at 48 kHz, and **44 100 audio frames per 1 000
+USB frames** at 44.1 kHz (mostly 44-frame packets with a 45-frame packet inserted on the schedule
+a rational phase accumulator dictates — e.g. `acc += 44100; frames = acc / 1000; acc %= 1000` —
+NOT a 44/45 alternation, which would average 44.5 kHz).
 
 **Acceptance Scenarios**:
 
 1. **Given** the device enumerated, **When** the host queries the clock source's supported
    frequencies, **Then** both 44 100 and 48 000 Hz are offered.
-2. **Given** the host selects 44.1 kHz, **When** the device streams, **Then** the IN endpoint
-   delivers an alternating 44/45 frames-per-USB-frame cadence averaging 44 100 Hz, and the return
-   is pitch-correct and noise-free.
+2. **Given** the host selects 44.1 kHz, **When** the device streams, **Then** the IN endpoint's
+   audio-frame count accumulates to **exactly 44 100 frames over every 1 000 USB frames** (per-frame
+   packets of 44 or 45 placed on the rational-accumulator schedule), and the return is pitch-correct
+   and noise-free.
 3. **Given** a live rate change from the host, **When** it occurs, **Then** the device re-prepares
    its audio processing at the new rate and resumes streaming at that rate without requiring a
    re-plug or power cycle.
@@ -149,8 +154,10 @@ device reports a latency value the host reads.
 
 1. **Given** a clean synchronous stream, **When** round-trip latency is measured, **Then** it is a
    small bounded value driven by USB framing plus a minimal buffer cushion, not the prior ~0.5 s.
-2. **Given** the device enumerated, **When** the host reads the device's reported audio latency,
-   **Then** a non-zero latency figure is present for the DAW's delay compensation.
+2. **Given** the device enumerated, **When** the device's latency is exposed through the correct
+   UAC2 mechanism, **Then** a class-compliant host can query it — with the caveat that whether a
+   specific DAW/CoreAudio actually uses it for automatic delay compensation is verified as host
+   behaviour, not assumed.
 
 ---
 
@@ -163,22 +170,28 @@ subjective listen.
 **Why this priority**: The defect was invisible to the existing signal-based HIL harness (single
 device, no aggregate, noise-only signals). An objective USB-level check is the durable guard.
 
-**Independent Test**: Run a host-side USB packet-size capture against the streaming device and
-report the distribution of IN-endpoint packet sizes per USB frame; a healthy transport shows a
-tight steady nominal distribution with no zero-length/short packets in steady state.
+**Independent Test**: Run a host-side USB packet capture against the streaming device and report
+the selected rate, selected bit depth/subslot size, USB frames observed, total audio frames
+observed, a packet-size histogram, zero-length and non-nominal packet counts, and effective
+frames/second; a healthy transport shows a tight steady nominal distribution with no
+zero-length/short packets and an accumulated frame count matching the exact SOF-derived schedule.
 
 **Acceptance Scenarios**:
 
 1. **Given** the device streaming at a selected rate, **When** the USB packet capture runs, **Then**
-   it reports the per-frame IN packet-size distribution and flags any zero-length/short packets.
-2. **Given** a healthy synchronous transport, **When** the capture is evaluated, **Then** steady
-   state shows the expected nominal cadence for the selected rate and zero starvation packets.
+   it reports the full metric set (rate, subslot size, USB/audio frame totals, size histogram, ZLP
+   and non-nominal counts, effective frames/second) and flags any zero-length/short packets.
+2. **Given** a healthy synchronous transport at 44.1 kHz, **When** the capture is evaluated over the
+   measurement interval, **Then** the **accumulated audio-frame count tracks the exact 44 100 / 1 000
+   SOF-derived schedule** (not merely that packets are 44 or 45), with zero starvation packets.
 
 ### Edge Cases
 
 - **Host rate change mid-stream** while audio is flowing: the device must re-prepare and resume at
   the new rate without corrupting the stream, dropping the device, or requiring a re-plug.
-- **Host format (bit-depth) change mid-stream**: same requirement as a rate change.
+- **Host format (bit-depth) change mid-stream** (a *distinct* USB mechanism — an AudioStreaming
+  alternate-setting change, vs a Clock Source frequency change for rate): the device must
+  reconfigure its wire↔float conversion and resume without a re-plug.
 - **Startup / cold buffers**: the transport must not empty its output buffer at startup and seed a
   permanent underrun (the diagnosed cold-FIFO greedy-drain); it must reach a cushioned steady
   state before, or gracefully during, the first host reads.
@@ -193,23 +206,40 @@ tight steady nominal distribution with no zero-length/short packets in steady st
 
 ### Functional Requirements
 
-- **FR-001**: The device MUST present both isochronous audio endpoints as **Synchronous** (locked
-  to the USB frame clock), so the host does not resample the device for rate.
-- **FR-002**: The device MUST deliver, on the device→host (IN) endpoint, a **steady nominal number
-  of audio frames per USB frame** for the selected rate — 48 per frame at 48 kHz, and an
-  alternating cadence averaging 44.1 per frame at 44.1 kHz — locked to the USB frame cadence, with
-  **no zero-length or systematically short packets in steady state**.
+- **FR-001**: The device MUST present both isochronous audio endpoints as **Synchronous** (their
+  timing derived from the USB frame clock), so the device presents a **coherent SOF-locked nominal
+  sample rate** instead of forcing the host to compensate for a malformed or effectively
+  free-running return stream. *(This does NOT claim "no host resampling ever": inside a CoreAudio
+  aggregate the host may still perform normal, gentle drift-correction between the device — on the
+  USB clock — and another interface's clock; see Assumptions. The requirement is a correct clock
+  model + correct packet cadence, which reduces that to ordinary aggregate synchronisation.)*
+- **FR-002**: The device MUST deliver, on the device→host (IN) endpoint, the **exact long-term
+  SOF-derived audio-frame rate** for the selected sample rate — **48 000 audio frames per 1 000 USB
+  frames** at 48 kHz (48 per USB frame), and **44 100 audio frames per 1 000 USB frames** at
+  44.1 kHz (per-USB-frame packets of 44 or 45 placed by a rational phase accumulator, e.g.
+  `acc += rate_hz; frames = acc / 1000; acc %= 1000`; **NOT** a 44/45 alternation, which averages
+  44.5 kHz). The IN endpoint is SOF-paced with **no zero-length or systematically short packets in
+  steady state** — the device owns the IN cadence and always emits the scheduled nominal count.
 - **FR-003**: The device MUST consume, on the host→device (OUT) endpoint, the host's nominal
-  per-frame delivery for the selected rate without accumulating or dropping frames in steady state.
-- **FR-004**: The device MUST advertise a clock source supporting **both 44 100 Hz and 48 000 Hz**
-  and MUST honour the host's rate selection (report supported frequencies; accept the host setting
-  the current frequency).
-- **FR-005**: The device MUST advertise **both 16-bit and 24-bit** stereo formats at each supported
-  rate and MUST honour the host's format selection — **subject to the FR-014 feasibility gate**.
-- **FR-006**: On a host **rate or format change**, the device MUST re-prepare its compiled-in audio
-  processing at the new sample rate and reset its audio buffers, then resume streaming in the new
-  rate/format **without requiring a re-plug or power cycle** (a lifecycle event, consistent with the
-  base feature's suspend/resume handling).
+  per-USB-frame delivery for the selected rate without accumulating or dropping frames in steady
+  state.
+- **FR-004**: The device MUST expose a **programmable Clock Source** supporting **both 44 100 Hz and
+  48 000 Hz**, report those as its supported frequencies, and honour the host **selecting the sample
+  rate via the Clock Source Sampling-Frequency Control** (the rate-selection mechanism — distinct
+  from format selection, FR-005).
+- **FR-005**: The device MUST advertise, on each AudioStreaming interface, **alternate settings for
+  both 16-bit and 24-bit stereo PCM** (plus the zero-bandwidth alt-0), and honour the host
+  **selecting the wire format via `SET_INTERFACE` (the alternate setting)** — the format-selection
+  mechanism, distinct from rate selection (FR-004). The 24-bit wire representation is **packed
+  3-byte subslots** (`bSubslotSize = 3`, `bBitResolution = 24`, signed little-endian PCM), i.e.
+  48 frames × 2 ch × 3 bytes = 288 bytes/ms per direction at 48 kHz. **Subject to the FR-014
+  feasibility gate.**
+- **FR-006**: Rate selection (FR-004) and format selection (FR-005) are **distinct USB mechanisms**
+  and MUST both be handled: a Clock Source frequency change MUST re-prepare the compiled-in audio
+  processing at the new sample rate and reset the audio buffers; an AudioStreaming alternate-setting
+  change MUST reconfigure the wire↔float conversion for the new bit depth. Either MUST resume
+  streaming in the new rate/format **without requiring a re-plug or power cycle** (a lifecycle
+  event, consistent with the base feature's suspend/resume handling).
 - **FR-007**: The device MUST eliminate the startup path that empties its output buffer before the
   first host reads (the diagnosed cold-buffer greedy-drain), reaching a cushioned steady state so
   paced reads are served real audio rather than substituted silence.
@@ -217,35 +247,58 @@ tight steady nominal distribution with no zero-length/short packets in steady st
   nominal-per-frame IN delivery is served from real audio and does not starve; the buffer
   capacity, startup fill, and water marks MUST be **derived from measurement** (the base feature's
   deferred T062/T063 procedure), not left at the generous placeholder values.
-- **FR-009**: The device MUST **report its audio latency** to the host (the USB audio class latency
-  descriptor field) so the host can perform delay compensation, and MUST **minimise** the
-  round-trip latency (dominated by USB framing plus a minimal buffer cushion).
+- **FR-009**: The device MUST expose its **processing/transport latency** to the host through the
+  **appropriate UAC2 mechanism, if one that class-compliant hosts consume exists** — the plan MUST
+  identify it. Note that the isochronous-endpoint `bLockDelayUnits`/`wLockDelay` fields describe
+  **clock-recovery lock delay, NOT** end-to-end processing latency, and MUST NOT be repurposed as
+  the latency declaration. Whether CoreAudio or a DAW actually consumes any exposed value for
+  automatic delay compensation MUST be **verified as host behaviour, not assumed** (it may not be).
+  Independently, the device MUST **minimise** the round-trip latency (dominated by USB framing plus
+  a minimal buffer cushion).
 - **FR-010**: The device MUST convert between the USB wire format and the internal float audio for
-  **both 16-bit and 24-bit** sample formats (a 24-bit path alongside the existing 16-bit one),
-  preserving sample accuracy within each format's resolution.
+  **both 16-bit and packed-24-bit** sample formats (`bSubslotSize` 2 and 3 respectively; a 24-bit
+  path alongside the existing 16-bit one), preserving sample accuracy within each format's
+  resolution.
 - **FR-011**: The transport MUST remain correct for the **dry (unprocessed) signal** as well as the
   processed signal — the fix is in the transport, independent of the compiled-in effect.
 - **FR-012**: The device MUST continue to satisfy the base feature's lifecycle behaviours
   (enumeration, suspend/resume, stream open/close, capture-only) under the new synchronous,
   multi-format transport.
-- **FR-013**: A **host-side USB packet-size capture** MUST be provided that objectively records the
-  IN-endpoint per-USB-frame packet sizes and flags zero-length/short packets, usable as the
-  regression guard for FR-002 independent of any host resampler.
-- **FR-014** *(feasibility gate — operator-owned scope)*: 24-bit at 48 kHz stereo in + out MUST be
-  verified to fit the device's USB endpoint FIFO-RAM budget and full-speed USB bandwidth. If it
-  does not fit, the 24-bit scope (FR-005/FR-010) is renegotiated with the operator — the fallback is
-  16-bit-only, or 24-bit restricted to 44.1 kHz — a decision surfaced to the operator, never cut
-  silently.
+- **FR-013**: A **host-side USB packet capture** MUST be provided that objectively verifies the IN
+  cadence independent of any host resampler, reporting at least: the selected sample rate, the
+  selected bit depth / subslot size, USB frames observed, total audio frames observed, a packet-size
+  histogram, zero-length-packet count, non-nominal-packet count, and effective frames/second. For
+  44.1 kHz, success MUST be that the **accumulated audio-frame count tracks the exact 44 100 / 1 000
+  SOF-derived schedule** over the measurement interval — not merely that packets contain 44 or 45
+  frames.
+- **FR-014** *(feasibility gate — operator-owned scope)*: **Packed-24-bit** (FR-005) at 48 kHz stereo
+  in + out (~288 bytes/ms per direction) MUST be verified to fit the STM32F446 OTG-FS device
+  endpoint FIFO-RAM budget and full-speed USB bandwidth. If it does not fit, the 24-bit scope
+  (FR-005/FR-010) is renegotiated with the operator — the fallback is 16-bit-only, or 24-bit
+  restricted to 44.1 kHz — a decision surfaced to the operator, never cut silently.
 - **FR-015**: This feature **supersedes** base-feature decisions **D20** (no feedback endpoint) and
   **D4** (single 48 kHz / 16-bit format); the superseding rationale MUST be recorded so the base
   spec's decisions are not read as still-authoritative.
+- **FR-016**: Both AudioStreaming interfaces (IN and OUT) MUST reference the **same programmable
+  Clock Source Entity**, and both directions MUST belong to a **single clock domain whose master
+  timing is derived from USB SOF** — the descriptor topology MUST NOT imply two independently
+  controlled clocks when the device has only one timing source.
+- **FR-017**: Abnormal **host→device (OUT)** transactions MUST retain bounded fault handling: the
+  host owns the OUT transaction contents, so a short, zero-length, or malformed/torn OUT payload
+  remains a **counted** substitution/truncation (carrying forward the base feature's FR-028a
+  behaviour) and MUST NOT corrupt stereo channel alignment nor perturb the device-owned IN cadence
+  (FR-002). This is the deliberate asymmetry: **IN — the device owns cadence and always emits the
+  scheduled nominal packet; OUT — the host owns contents and the device robustly consumes whatever
+  physically arrives.**
 
 ### Key Entities
 
-- **Clock source**: the device's advertised sample-clock, now multi-rate (44.1 / 48 kHz), whose
+- **Clock source**: the device's **single, shared, programmable** sample-clock (one clock domain,
+  SOF-derived), now multi-rate (44.1 / 48 kHz), referenced by both AudioStreaming interfaces, whose
   current frequency the host selects and the device honours.
-- **Audio format**: the advertised wire format (bit depth × channels) the host selects (16/24-bit
-  stereo).
+- **Audio format**: the advertised wire format the host selects via an AudioStreaming alternate
+  setting — 16-bit (`bSubslotSize=2`) or packed 24-bit (`bSubslotSize=3`, 24 valid bits, signed
+  LE) stereo PCM.
 - **IN (device→host) stream**: the processed-audio return, which must carry a steady nominal
   frame count per USB frame for the selected rate.
 - **OUT (host→device) stream**: the input audio, consumed at the host's nominal per-frame rate.
@@ -261,13 +314,17 @@ tight steady nominal distribution with no zero-length/short packets in steady st
 - **SC-001**: A sustained tone played through the device returns with its fundamental frequency
   **matching the input** (no consistent downward pitch offset) at both 44.1 and 48 kHz.
 - **SC-002**: In steady-state streaming, the device→host stream shows **zero zero-length/short
-  packets** and holds the expected nominal per-USB-frame cadence for the selected rate, as measured
-  by the host-side USB packet capture.
+  packets**, and its **accumulated audio-frame count matches the exact SOF-derived schedule** for
+  the selected rate (48 000/1 000 at 48 kHz; 44 100/1 000 at 44.1 kHz) over the measurement
+  interval, as measured by the host-side USB packet capture.
 - **SC-003**: The returned signal carries **no added broadband digital noise** beyond the selected
   format's quantisation floor (i.e. no starvation/silence-substitution artefacts).
-- **SC-004**: Round-trip latency is a **small bounded value** dominated by USB framing plus a
-  minimal buffer cushion (not the prior ~0.5 s / ~24 000 samples), and the device reports a latency
-  figure the host reads for compensation.
+- **SC-004**: The measurement phase produces and **pins recorded values** (not a qualitative
+  judgement): ring capacity, startup fill, steady-state water range, measured round-trip latency in
+  **both frames and milliseconds**, and the device-reported latency figure. The pinned round-trip
+  latency MUST be a small bounded value dominated by USB framing plus a minimal buffer cushion (not
+  the prior ~0.5 s / ~24 000 samples). These values need not be invented before hardware
+  measurement, but MUST be measured, selected, and recorded before the feature closes.
 - **SC-005**: The device streams correctly at **all in-scope rate × bit-depth combinations**
   (44.1/48 kHz × 16/24-bit, subject to FR-014), including a **live rate/format change without a
   re-plug**.
