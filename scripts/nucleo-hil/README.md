@@ -22,6 +22,22 @@ self-tests below run *without* a board.
   `./selftest-evaluate-packet-capture.sh` (runs the fixtures in
   `fixtures/packet-capture/`).
 
+- **Single-clock audio loopback** (reliable, this session): `loopback-audio-check.sh`
+  over `acfx-loopback.swift` — opens ONE AUHAL unit on the `acfx Audio` device
+  with input+output enabled, so capture and playback share ONE IOProc / ONE
+  clock domain (the reliable analogue of a DAW aggregate). It plays a sine tone
+  through the device+effect, captures the return, and objectively measures
+  **pitch (cents)** and a **THD+N residual** (least-squares-removing the
+  fundamental), and reads the CDC counters before/after. This exists because the
+  two-independent-streams approach (`ffmpeg` capture + `sox` play) is flaky
+  against a synchronous device — two unsynchronised host clocks underrun on their
+  own. On a healthy board a tone returns pitch-correct (a few cents) and
+  tone-dominant (~-25 dB THD+N — the known TASK-39 boundary-misalignment floor,
+  audio intact); the original async-transport defect instead produced a gross
+  multi-semitone pitch-down + audible noise. Run: `./loopback-audio-check.sh
+  [toneHz] [seconds]` (auto-compiles the Swift tester, auto-detects the CDC
+  serial device). Needs `swiftc`.
+
 ## Capture backend (T002) — operator/host-owned, not in this repo
 
 `evaluate-packet-capture.sh` consumes a per-frame size series; **producing** that
