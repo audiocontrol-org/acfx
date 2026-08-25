@@ -299,3 +299,35 @@ extern "C" bool tud_audio_set_itf_close_ep_cb(uint8_t rhport,
     }
     return true;
 }
+
+// ===========================================================================
+// Explicit-feedback parameters (async rate matching, UAC2 5.12.4.2).
+//
+// This is the STRONG override of TinyUSB's TU_ATTR_WEAK default
+// (audio_device.c:305-309), which sets method = AUDIO_FEEDBACK_METHOD_DISABLED
+// and would leave the feedback endpoint sending nothing. The same weak-symbol/
+// `extern "C"` linkage trap this file's header documents applies here: an
+// inline, C++-mangled, or misspelled definition would link cleanly against the
+// weak default and the feedback loop would silently never run. `nm` must show
+// this as a strong `T tud_audio_feedback_params_cb`.
+//
+// AUDIO_FEEDBACK_METHOD_FIFO_COUNT: the driver measures the OUT software FIFO's
+// fill level and computes a feedback value that regulates it to half-full. It
+// needs NO SOF ISR and NO master-clock input (this device has neither a local
+// audio clock nor a spare hardware counter locked to one, FR-024) -- only the
+// current sample frequency, so it can scale the FIFO level into the 16.16
+// feedback format. sample_freq is g_currentSampleRateHz, the same rate the
+// Clock Source SET CUR above records (44.1 or 48 kHz). fifo_count.fifo_threshold
+// is left 0 so the driver targets the default half-FIFO level.
+//
+// REAL-TIME SAFETY: this runs in USB driver context. It does nothing but fill
+// in the small out-param struct -- no heap, no locks, no blocking.
+extern "C" void tud_audio_feedback_params_cb(std::uint8_t func_id,
+                                             std::uint8_t alt_itf,
+                                             audio_feedback_params_t* feedback_param) {
+    (void) func_id;
+    (void) alt_itf;
+    feedback_param->method = AUDIO_FEEDBACK_METHOD_FIFO_COUNT;
+    feedback_param->sample_freq = acfx::nucleo::g_currentSampleRateHz;
+    feedback_param->fifo_count.fifo_threshold = 0;  // 0 => driver uses half-FIFO
+}

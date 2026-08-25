@@ -318,21 +318,31 @@
 // (CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ's #if/#error), not left implicit.
 #define CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL 1
 
-// Defaults to 0 already, but restated here as a DECISION, not an omission
-// (FR-027, D20; R13.6). With no local clock, this device has no rate to
-// REPORT to the host, so a feedback endpoint would have nothing meaningful
-// to send -- its absence is a direct consequence of D20, not a corner cut.
-// R13.6 confirmed against the pinned driver that a feedback EP is not
-// required for an async OUT stream (every feedback code path is compiled
-// out at 0, with no #error/TU_ASSERT anywhere demanding one), and that the
-// closest shipped duplex example, examples/device/uac2_headset, ships
-// exactly this way -- CFG_TUD_AUDIO_ENABLE_EP_IN=1,
-// CFG_TUD_AUDIO_ENABLE_EP_OUT=1, and NO feedback macro at all. A LATER
-// READER: if the host-side glitch rate under HIL (research.md R5/OQ2) turns
-// out unacceptable, that is a question for the operator to weigh, not a
-// license to silently add a feedback EP back in without updating this
-// comment and D20.
-#define CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP 0
+// ENABLED (1). This turns on TinyUSB's UAC2 EXPLICIT-FEEDBACK endpoint --
+// the INDUSTRY-STANDARD USB-audio rate-matching mechanism -- and REPLACES the
+// earlier hand-rolled "synchronous, no feedback" open-loop scheme, which
+// glitched on silicon: the device's OUT FIFO drained empty and injected
+// silence (audible clicks, ~0.25-0.9% of samples). The failure mode is
+// fundamental to synchronous operation with no shared clock -- this device
+// has NO local audio clock (FR-024), only the host's SOF -- so no amount of
+// buffer sizing fixes it. The standard fix is ASYNCHRONOUS operation: the OUT
+// streaming endpoint is declared Asynchronous (usb-descriptors-audio-
+// streaming.h) with an associated feedback IN endpoint, and TinyUSB's driver
+// computes a feedback value that tells the host to speed up / slow down its
+// OUT delivery so the device's OUT FIFO stays half-full -- a closed loop that
+// keeps the buffers from drifting. It is well-tested on Windows/Linux/macOS.
+//
+// Method: AUDIO_FEEDBACK_METHOD_FIFO_COUNT, selected by the STRONG
+// tud_audio_feedback_params_cb() in usb-audio-controls.cpp. FIFO_COUNT
+// regulates the OUT software FIFO to half-full and needs NO SOF ISR (the
+// driver recomputes off the feedback endpoint's own interval), so the
+// real-time cost is one small (4-byte) IN transfer per frame. Its documented
+// requirement is an OUT software FIFO of at least 4 frames -- satisfied by
+// CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ below (4 * worst-case packet). The
+// feedback endpoint is an additional IN endpoint; its OTG-FS TX-FIFO slot and
+// device-FIFO word cost are re-budgeted in usb-descriptors.h (still fits the
+// 320-word device FIFO: 301/320 used).
+#define CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP 1
 
 // Defaults to 0 already; restated for the same "every soft macro gets a
 // decision, not a default" policy as the two above. This adapter has no
