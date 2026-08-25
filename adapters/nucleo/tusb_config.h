@@ -221,6 +221,44 @@
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ                                \
   (ACFX_USB_AUDIO_SW_BUF_MULTIPLE * CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX)  // 4*196=784
 
+// --- IN flow-control FIFO adequacy (R5/R7; audio_device.c's flow-control
+// packet-size loop, audiod_tx_packet_size()/audiod_calc_tx_packet_sz()) ---
+//
+// With CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL=1 (below), the driver's own comment
+// at audio_device.c:1864-1865 states the requirement directly: "Flow
+// control need[s] a FIFO size of at least 4*Navg", where Navg is the
+// AVERAGE per-SOF byte count (`packet_sz_tx_norm` = sample_rate/1000 *
+// channels * bytes/sample, audio_device.c:1826-1861) the loop interleaves
+// packet sizes around to hold the exact fractional-rate average (e.g.
+// 44/45-byte interleave at 44.1 kHz).
+//
+// This adapter has no separate "average sample count" macro -- adding one
+// would be a second sample-rate-derived constant to keep in agreement with
+// ACFX_USB_AUDIO_MAX_PACKET_FRAMES by hand, the exact trap this file's
+// policy avoids elsewhere. ACFX_USB_AUDIO_MAX_PACKET_FRAMES (D21/FR-028) IS
+// already the worst-case "average + 1" frames/SOF bound, so it is STRICTLY
+// >= the true average frame count at any accepted rate -- using it in place
+// of Navg is a deliberately CONSERVATIVE proxy: satisfying 4x the proxy
+// also satisfies 4x the true (smaller) average. The check below is built
+// straight from the same three macros that already define
+// CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX above (MAX_PACKET_FRAMES, CHANNELS,
+// BYTES_PER_SAMPLE), not a restated 196/784 constant, so it self-adjusts
+// automatically when T015 resizes ACFX_USB_AUDIO_BYTES_PER_SAMPLE from 2 to
+// 3 for packed-24 (or if the frame/channel bounds ever change).
+//
+// #if/#error rather than static_assert: this header is plain C, #include'd
+// directly by TinyUSB's own .c translation units (src/device/usbd.c,
+// src/class/audio/audio_device.c), and a bare `static_assert` identifier is
+// only available in C after `#include <assert.h>` (C11) -- #if/#error needs
+// no such dependency and matches this driver's own adequacy checks
+// immediately adjacent (src/class/audio/audio_device.h:110-140).
+#if CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ <                                   \
+    (4 * ACFX_USB_AUDIO_MAX_PACKET_FRAMES * ACFX_USB_AUDIO_CHANNELS *        \
+     ACFX_USB_AUDIO_BYTES_PER_SAMPLE)
+#error                                                                        \
+    "CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ must be >= 4*Navg (audio_device.c:1864-1865) for CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL adequacy; widen ACFX_USB_AUDIO_SW_BUF_MULTIPLE or its inputs"
+#endif
+
 // --- Soft macros: silently defaulted by the driver if omitted. Every one
 // below is set EXPLICITLY, specifically because silently inheriting a
 // default is the exact failure mode this feature keeps tripping over
@@ -230,28 +268,36 @@
 // (audio_device.h:42-44) and is restated here rather than left implicit.
 #define CFG_TUD_AUDIO_CTRL_BUF_SZ 64
 
-// Defaults to 1 (audio_device.h:147-149) if left unset. Explicitly set to 0
-// here -- an OPERATOR DECISION, recorded so nobody "fixes" it back to the
-// default later:
+// Defaults to 1 (audio_device.h:147-149) if left unset. Explicitly set to 1
+// here -- an OPERATOR DECISION (research.md R5), superseding an earlier
+// draft of this file that set it to 0 (see git history for that draft's
+// now-superseded reasoning), so nobody "reverts" it back to 0 without
+// re-reading this:
 //
 // This device has NO local clock and asserts no sample rate of its own
 // (FR-024) -- the host's SOF is the only clock, the OUT stream is a pure
-// adaptive sink (FR-025), and the IN stream is a pure asynchronous source
-// (FR-026). CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL=1 selects a rate-VARYING IN
-// packet-size path, audiod_tx_packet_size() (audio_device.c:538-543), that
-// sizes each outgoing packet against the IN software FIFO's fill level
-// relative to a threshold -- machinery for a device that is itself tracking
-// and correcting a rate. It also makes the driver scan the descriptor for
-// flow-control parameters at mount time
-// (audiod_parse_flow_control_params(), audio_device.c:1198-1200). Neither
-// is this design: with no rate of our own to correct toward, that
-// machinery has nothing meaningful to steer by, and packet sizing should
-// instead stay entirely under this adapter's own control (T030's polled
-// tud_audio_write() calls), consistent with there being no feedback
-// endpoint either (see CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP below). This is
-// revisitable if HIL testing surfaces a reason flow control would help, but
-// it is not the shipped default's job to make that call silently.
-#define CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL 0
+// adaptive sink (FR-025), and the IN stream must deliver the SYNCHRONOUS,
+// nominal-per-SOF cadence FR-002 requires, including the fractional
+// 44/45-frame interleave a 44.1 kHz rate needs to hold its exact average.
+// CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL=1 selects audiod_tx_packet_size()
+// (audio_device.c:538-543,1863-1896): a FIFO-fill-level control loop that
+// TinyUSB itself runs, off iso-transfer-completion re-arming the endpoint
+// each frame -- NOT off the (absent, and still not needed -- see
+// CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP below) feedback endpoint's SOF path. It
+// also makes the driver scan the descriptor for flow-control parameters at
+// mount time (audiod_parse_flow_control_params(), audio_device.c:
+// 1198-1200). R5 established this is precisely the mechanism that lets
+// TinyUSB -- not a hand-rolled SOF-driven pipeline in this adapter's own
+// code -- do the exact per-SOF packet-size cadence; the app's job stays
+// "keep the IN FIFO fed" (T030's polled tud_audio_write() calls,
+// ServiceUsbAudioIn) with no feed-logic change. This IS a change from an
+// earlier reading of this same driver code (see the CFG_TUD_AUDIO_
+// ENABLE_FEEDBACK_EP comment below, which still correctly explains why NO
+// feedback endpoint is needed either way -- flow control and a feedback EP
+// are independent knobs). The adequacy this setting places on the IN
+// software FIFO is enforced immediately above
+// (CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ's #if/#error), not left implicit.
+#define CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL 1
 
 // Defaults to 0 already, but restated here as a DECISION, not an omission
 // (FR-027, D20; R13.6). With no local clock, this device has no rate to
