@@ -234,6 +234,12 @@ add_executable(acfx_core_tests
   # repeatedly. This is intentionally a failing test against the current code;
   # T011 implements the fix to make it pass.
   core/nucleo-rate-change-lifecycle-test.cpp
+  # T017 (US3, FR-006): RED test for the format-change latch exactly-once
+  # consumption lifecycle. The SET callback (producer) requests a format change;
+  # the poll-loop service step (consumer) must react exactly once per change,
+  # performing a single transport reset/re-prime. This is intentionally a failing
+  # test with a deliberately-wrong stub; T018 implements the real fix.
+  core/nucleo-format-transition-test.cpp
   core/nucleo-audio-ring-test.cpp
   core/nucleo-audio-ring-lifecycle-test.cpp
   core/nucleo-audio-ring-no-allocation-test.cpp
