@@ -72,9 +72,11 @@ class ModulatedDelayEffect;
 ```
 
 - **Desktop / Daisy:** `Sample = float`, `MaxChannels = 8`, `MaxDelaySamples = 96000`
-  (2 s at 48 kHz). Numerically identical to today (same float math), *not* claimed
-  byte-for-byte: the storage moves heap→static (Daisy must link the object into SDRAM, per
-  the memory contract below).
+  (2 s at 48 kHz). *Intended* to preserve today's numerical behavior at the clean settings
+  (`D=1`, `B=16`) — same float math, storage moved heap→static (Daisy must link the object
+  into SDRAM, per the memory contract below). This is an **acceptance property, verified by a
+  test** (§Decisions 12), not assumed; the float path's `B=16` crush bypass (below) is the
+  mechanism that makes it hold.
 - **Nucleo:** `ModulatedDelayEffect<14400, std::int16_t, 2>` ≈ **57.6 KB** static.
 - The bound is a sample count, so the achievable maximum is `MaxDelaySamples / sampleRate`
   seconds — 2 s at 48 kHz, 1 s at 96 kHz. No universal "2 seconds" is claimed.
@@ -116,29 +118,54 @@ CPU for the wet path therefore falls ~linearly with `D`; the only full-rate work
 path and the S&H mix. Decimation and reconstruction are naive **sample-and-hold** — the
 aliasing and stairstep *are* the lo-fi character and are wanted, not filtered away.
 
-**int16 quantization + saturation contract.** Reusing the existing FR-038a convention:
+**Bit-crush + storage contract.** Bit-crush is a **mid-tread quantization onto a `B`-bit
+grid** — zero is always a grid point, so silence stays silent and no idle offset is injected.
+`lofi_bits = B ∈ {4…16}`. The sign-safe round-to-grid, with a hard bypass at `B = 16`:
 
 ```
-store:  x_f (float, finite; non-finite → 0)
-        code16 = clamp( round_ties_away(x_f * 32768), -32768, 32767 )   // saturate, no wrap
-        code_B = arithmetic_shift_round(code16, 16 - B)                 // B-bit crush, sign-preserving
-                 // B = 16 → identity; store code_B
-read:   x_f = code_stored / 32768.0f
+crush_grid(v, q) = clamp( round_ties_away(v / q) * q, lo, hi )   // mid-tread, saturate; B=16 ⇒ bypass
 ```
 
-Quantization sits **inside** the feedback loop, so it is recursive (grittier the longer a
-repeat rings). No dither. At `B = 16` the explicit crusher is a no-op but int16 storage still
-quantizes — the clean end is therefore **full-resolution 16-bit**, not "transparent". On the
-`float` (desktop/Daisy) policy, `int16_quantize`/`to_float` collapse to identity and the
-delay stays full float.
+Storage then applies each policy's own quantization:
+
+- **int16 policy (Nucleo)** — reuse FR-038a for the container:
+  ```
+  store:  x_f (finite; non-finite → 0)
+          code16 = clamp( round_ties_away(x_f * 32768), -32768, 32767 )   // saturate, no wrap
+          code_B = (B == 16) ? code16 : crush_grid(code16, 2^(16-B))      // q ∈ {2^12 … 2}
+          store code_B
+  read:   x_f = code_stored / 32768.0f
+  ```
+  So `B=8 ⇒ q=256`, `B=4 ⇒ q=4096`: the low bits are **rounded away while the 16-bit
+  container scale is retained** — `code_B / 32768` stays normalized and the signal level is
+  unchanged (it does *not* shrink by `2^(16-B)`, the trap in a literal right-shift).
+- **float policy (desktop/Daisy)** — no container quantization; crush in the normalized domain:
+  ```
+  store:  x_c = (B == 16) ? x_f : crush_grid(x_f, 2^(1-B))               // step 2^(1-B) over [-1,1)
+          store x_c                                                       // raw float; verbatim when B=16
+  read:   x_f = stored
+  ```
+  The **`B=16` hard bypass is load-bearing**: it stores raw float (no grid imposed), which is
+  what makes the clean float path bit-exact with today's delay — the numerical-identity
+  acceptance test (§Decisions 12) asserts exactly this.
+
+Crush sits **inside** the feedback loop, so it is recursive (grittier the longer a repeat
+rings). No dither. On the int16 policy the clean end (`B=16`) is **full-resolution 16-bit**
+(the always-on container quantization is the lo-fi floor); on the float policy the clean end
+is bit-exact float.
 
 **Live rate-change semantics (reinterpret / tape-speed).** Read and write positions are in
 internal-sample units. On a live `D` change the buffer contents are **retained and
 reinterpreted at the new rate**: the `N` stored internal samples now represent
 `N / (48000/D_new)` seconds, so existing repeats pitch/time-smear like a tape-speed change
 and the available delay range jumps. The read offset is clamped to the new realizable max.
-This is a defined feature with a dedicated test (write at `D=1`, switch to `D=2`, assert the
-expected time-stretch/reinterpretation), not accidental behavior.
+On the change the **decimator phase is reset** — the sample on which the new `D` takes effect
+is an internal tick — giving immediate, deterministic control response; sub-cycle phase
+continuity is intentionally *not* preserved (the change is already a deliberate
+discontinuity, so preserving it buys nothing and only complicates tests). This is a defined
+feature with a dedicated test (write at `D=1`, switch to `D=2`, assert the expected
+time-stretch/reinterpretation and that the new value takes effect on an internal tick), not
+accidental behavior.
 
 **Delay-time parameter (OQ1 resolved).** Delay time is **physical seconds, clamped to the
 current rate's realizable maximum**. The normalized `[0,1]` control maps to the *fixed*
@@ -208,10 +235,12 @@ operator wants live control.
    reconstruction out; dry path + mix at 48 kHz. Delay-time LFO and wow/flutter compute in
    seconds→internal-samples.
 5. **Approach A:** buffer holds decimated-rate samples ⇒ max delay `= MaxDelaySamples·D/48000`.
-6. **int16 quantize + B-bit crush inside the feedback loop**, per the explicit contract
-   (×32768, round ties-away, clamp/saturate, sign-preserving bit mask, non-finite→0, no
-   dither); clean end is **full-resolution 16-bit**.
-7. **Live `D` change = reinterpret buffer (tape-speed jump)**, a tested feature contract.
+6. **Bit-crush = mid-tread round-to-`B`-bit-grid inside the feedback loop**, per the explicit
+   contract (`round(v/q)*q` keeping the container scale, `B=16` hard bypass, saturate,
+   non-finite→0, no dither, 0 preserved). int16 clean end is **full-resolution 16-bit**; float
+   clean end is bit-exact.
+7. **Live `D` change = reinterpret buffer (tape-speed jump)** with the **decimator phase
+   reset** (new `D` takes effect on an internal tick), a tested feature contract.
 8. **Delay time in physical seconds**, normalized to the fixed `D=8` maximum, clamped to the
    current `D`'s realizable max (OQ1 resolved).
 9. **Memory contract:** `sizeof` bounded + observable; Nucleo `static_assert` on footprint +
@@ -221,7 +250,11 @@ operator wants live control.
     decimator + bit-crush = lo-fi policies under `primitives/lofi/`.
 12. **Host TDD first, then hardware acceptance** — flash, confirm enumeration (the TASK-34
     fix), sweep CC to audition, capture `worstBlockMicros` + counters over the T058/T059 HIL
-    rig; verify the tape-speed reinterpret and the no-alloc guarantee with tests.
+    rig. Named acceptance tests: (a) **float clean-path numerical identity** — the
+    `float`/`D=1`/`B=16` path is bit-exact against the pre-change float delay on a reference
+    signal; (b) the **tape-speed reinterpret** on a live `D` change; (c) the **no-alloc**
+    guarantee (T066 sentinel); (d) the **crush level-preservation** (a B-bit-crushed
+    full-scale tone keeps its RMS, guarding against the right-shift level-drop trap).
 
 ### Captured but scoping-deferred (capture-over-YAGNI)
 
@@ -243,7 +276,9 @@ operator wants live control.
 
 ## Third-party review resolutions (2026-08-24)
 
-A design review raised eight points; disposition:
+### Round 1 (eight points)
+
+Disposition:
 
 1. **"Byte-for-byte unchanged" is impossible** — accepted, and strengthened: storage is a
    **policy**, float32 default so desktop/Daisy stay numerically identical (heap→static only);
@@ -264,6 +299,24 @@ A design review raised eight points; disposition:
 8. **Keep the buffer out of `lofi/`** — accepted: bounded delay line is a storage primitive
    under `primitives/delays/`; only decimator + bit-crush under `primitives/lofi/`.
 
+### Round 2 (two clarifications + a wording point) — "approve with clarifications"
+
+1. **Bit-crush stored representation** — accepted, and it fixed a latent bug: the earlier
+   `arithmetic_shift_round(code16, 16-B)` wording, taken literally, is a level-dropping fader,
+   not a bit-crusher. Replaced with mid-tread round-to-grid keeping the container scale
+   (`crush_grid`), int16 and float variants, `B=16` bypass. A crush-level-preservation
+   acceptance test guards the trap.
+2. **Decimator phase on a live `D` change** — accepted: phase is **reset**; the new `D` takes
+   effect on an internal tick. Deterministic, immediate, consistent with the intentional
+   tape-speed discontinuity.
+3. **Wording: "numerically identical" → "intended to preserve"** — accepted, and made a
+   *tested* acceptance property; the float-path `B=16` crush bypass is the mechanism that
+   makes clean-path bit-exactness actually hold, so the two are specified together.
+
+No substantive disagreement with round 2; both clarifications were correct and the wording
+point exposed a real correctness dependency (float clean-path bypass) rather than only a
+phrasing nuance.
+
 ## Provenance
 
 Brainstormed 2026-08-24 with the operator after the Phase-12 (US9) hardware verification of
@@ -273,4 +326,7 @@ Approach A (bandwidth-for-time); float-default/int16-Nucleo storage policy; rein
 (tape-speed) live rate changes; whole-wet-loop internal decimation. Revised the same day to
 resolve a third-party review (three blocking contracts pinned: compatibility/fidelity,
 live-rate semantics, quantization math). The bounding half resolves backlog TASK-34; the
-lo-fi half seeds reusable primitives for the future reverb.
+lo-fi half seeds reusable primitives for the future reverb. A second review round approved the
+design with two clarifications (bit-crush grid math; decimator phase on a live rate change),
+both folded in above, leaving only the three non-blocking open questions (CC assignments, CPU
+headroom, build path).
