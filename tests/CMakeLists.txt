@@ -277,6 +277,10 @@ add_executable(acfx_core_tests
   # file-scoped positive control (TASK-27).
   core/nucleo-fr046a-region-no-alloc-test.cpp
   # ---------------------------------------------------------------------------
+  # Lo-Fi primitive test suites (lo-fi feature)
+  # ---------------------------------------------------------------------------
+  core/lofi-bit-crush-test.cpp
+  # ---------------------------------------------------------------------------
   # Modified Nodal Analysis (MNA) primitive test suites
   # ---------------------------------------------------------------------------
   core/mna-system-test.cpp
