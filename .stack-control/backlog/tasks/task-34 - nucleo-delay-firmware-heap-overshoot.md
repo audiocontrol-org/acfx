@@ -1,9 +1,10 @@
 ---
 id: TASK-34
 title: nucleo-delay-firmware-heap-overshoot
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-24 02:12'
+updated_date: '2026-08-25 05:32'
 labels:
   - agent-found
   - 'type:bug'
@@ -24,3 +25,9 @@ Options for the operator, none taken: (a) give ModulatedDelayEffect a compile-ti
 
 HARDWARE-CONFIRMED 2026-08-24 (Phase-12 / US9 live run, T064): flashed acfx_nucleo_delay.bin to the F446 (st-flash write+verify OK) - the board stays alive over SWD (st-flash read of 0x08000000 succeeds) but the acfx USB composite device does NOT enumerate: /dev/cu.usbmodem11206 (the acfx CDC that the SVF image presents) never appears, and `ffmpeg -f avfoundation -list_devices` shows NO "acfx Audio" device. This is precisely the predicted dead-image behavior - the image aborts in PrepareEffect() before tud_task(), so USB never comes up. It is a silent hang (no LD2 fault pattern, reinforcing the "point HardFault vectors at the blink pattern" note above). Consequence for T064: worstBlockMicros is UNMEASURABLE for the delay firmware because it never processes a block; the SVF firmware records wb=65 us (of a 1000 us/block budget). SVF firmware re-flashed afterward to restore the working image.
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed: Bounded heap-free ModulatedDelayEffect ships as acfx_nucleo_lofi_delay; boots+enumerates+delays live on the F446 (research R16). Old unbounded target dropped (option b).
+<!-- SECTION:NOTES:END -->
