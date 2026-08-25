@@ -13,6 +13,7 @@ add_executable(acfx_core_tests
   core/measurement-stability-test.cpp
   core/measurement-report-test.cpp
   core/delay-line-test.cpp
+  core/bounded-delay-line-test.cpp
   core/lfo-test.cpp
   core/modulated-delay-test.cpp
   core/modulated-delay-us2-test.cpp
