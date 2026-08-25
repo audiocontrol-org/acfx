@@ -5,7 +5,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <string_view>
 
 #include "dsp/audio-block.h"
@@ -13,6 +12,7 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
+#include "effects/modulated-delay/modulated-delay-detail.h"
 #include "effects/modulated-delay/modulated-delay-params.h"
 #include "effects/modulated-delay/wow-flutter.h"
 #include "primitives/delays/bounded-delay-line.h"
@@ -284,7 +284,8 @@ public:
         const std::uint8_t i = id.value;
         if (i >= kNumParams)
             return;
-        pendingBits_[i].store(floatBits(normalized), std::memory_order_relaxed);
+        pendingBits_[i].store(modulated_delay_detail::floatBits(normalized),
+                               std::memory_order_relaxed);
         pendingDirty_[i].store(1u, std::memory_order_release);
     }
 
@@ -309,39 +310,14 @@ private:
     static constexpr float kCutoffModOctaves  = 2.0f;
     static constexpr float kResModRange       = 0.5f;
 
-    static std::uint32_t floatBits(float f) noexcept {
-        std::uint32_t u = 0;
-        std::memcpy(&u, &f, sizeof(u));
-        return u;
-    }
-    static float bitsFloat(std::uint32_t u) noexcept {
-        float f = 0.0f;
-        std::memcpy(&f, &u, sizeof(f));
-        return f;
-    }
-
-    static SvfMode toMode(float index) noexcept {
-        switch (static_cast<int>(index)) {
-        case 1:  return SvfMode::highpass;
-        case 2:  return SvfMode::bandpass;
-        case 0:
-        default: return SvfMode::lowpass;
-        }
-    }
-
-    static LfoShape toShape(int index) noexcept {
-        switch (index) {
-        case 1:  return LfoShape::triangle;
-        case 2:  return LfoShape::saw;
-        case 3:  return LfoShape::random;
-        case 0:
-        default: return LfoShape::sine;
-        }
-    }
-
+    // floatBits/bitsFloat/toMode/toShape now live in
+    // modulated-delay-detail.h (acfx::modulated_delay_detail) — moved out to
+    // keep this file under the Constitution VII per-file line budget. Pure
+    // helpers, no effect state; behavior is unchanged (identical bodies).
     float pendingValue(Param p) const noexcept {
-        return bitsFloat(pendingBits_[static_cast<std::size_t>(p)].load(
-            std::memory_order_relaxed));
+        return modulated_delay_detail::bitsFloat(
+            pendingBits_[static_cast<std::size_t>(p)].load(
+                std::memory_order_relaxed));
     }
 
     // Consume any parameter edits published since the last block.  Audio thread only.
@@ -368,7 +344,8 @@ private:
             applyResonance();
         }
         if (pendingDirty_[kMode].exchange(0u, std::memory_order_acquire)) {
-            mode_ = toMode(denormalize(kParams[kMode], pendingValue(kMode)));
+            mode_ = modulated_delay_detail::toMode(
+                denormalize(kParams[kMode], pendingValue(kMode)));
             applyMode();
         }
         // US2: delay-time modulation
@@ -381,7 +358,7 @@ private:
                 denormalize(kParams[kDelayModDepth], pendingValue(kDelayModDepth));
         }
         if (pendingDirty_[kDelayModShape].exchange(0u, std::memory_order_acquire)) {
-            delayLfo_.setShape(toShape(static_cast<int>(
+            delayLfo_.setShape(modulated_delay_detail::toShape(static_cast<int>(
                 denormalize(kParams[kDelayModShape], pendingValue(kDelayModShape)))));
         }
         // US2: cutoff modulation
@@ -395,7 +372,7 @@ private:
             applyCutoff();  // depth->0: immediately restore base coefficient (I-1)
         }
         if (pendingDirty_[kCutoffModShape].exchange(0u, std::memory_order_acquire)) {
-            cutoffLfo_.setShape(toShape(static_cast<int>(
+            cutoffLfo_.setShape(modulated_delay_detail::toShape(static_cast<int>(
                 denormalize(kParams[kCutoffModShape], pendingValue(kCutoffModShape)))));
         }
         // US2: resonance modulation
@@ -409,7 +386,7 @@ private:
             applyResonance();  // depth->0: immediately restore base coefficient (I-1)
         }
         if (pendingDirty_[kResModShape].exchange(0u, std::memory_order_acquire)) {
-            resLfo_.setShape(toShape(static_cast<int>(
+            resLfo_.setShape(modulated_delay_detail::toShape(static_cast<int>(
                 denormalize(kParams[kResModShape], pendingValue(kResModShape)))));
         }
         // US3: wow & flutter parameters
