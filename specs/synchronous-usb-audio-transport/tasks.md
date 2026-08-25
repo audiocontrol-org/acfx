@@ -111,7 +111,7 @@ operator drives them. During `execute` they use the `- [~]` marker so the govern
 
 **Independent test**: the evaluator reports the full metric set for IN and OUT and PASS/FAILs on zero-ZLP + accumulated-rate tracking + no input-ring drift.
 
-- [ ] T024 [US5] [tier:balanced] Complete the packet-capture **evaluator** (`scripts/nucleo-hil/`) covering **BOTH the IN and OUT endpoints**: report per direction the selected rate, subslot size, USB/audio frame totals, size histogram, ZLP + non-nominal counts, effective frames/second; and assert **OUT health** (FR-003) — expected OUT cadence and **no systematic input-ring drift / accumulated over-underrun** in healthy streaming. PASS = zero ZLP/short in steady state AND accumulated frames tracking the exact SOF-derived schedule (FR-013). Add fixtures + a host self-test of the pure evaluator
+- [X] T024 [US5] [tier:balanced] Complete the packet-capture **evaluator** (`scripts/nucleo-hil/`) covering **BOTH the IN and OUT endpoints**: report per direction the selected rate, subslot size, USB/audio frame totals, size histogram, ZLP + non-nominal counts, effective frames/second; and assert **OUT health** (FR-003) — expected OUT cadence and **no systematic input-ring drift / accumulated over-underrun** in healthy streaming. PASS = zero ZLP/short in steady state AND accumulated frames tracking the exact SOF-derived schedule (FR-013). Add fixtures + a host self-test of the pure evaluator
 - [ ] T025 [US5] [tier:fast] Confirm the capture harness is excluded from CI and documented (no `.github`/ctest reference), mirroring the base HIL harness
 
 ---
