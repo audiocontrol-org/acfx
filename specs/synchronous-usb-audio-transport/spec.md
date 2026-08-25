@@ -247,14 +247,19 @@ zero-length/short packets and an accumulated frame count matching the exact SOF-
   nominal-per-frame IN delivery is served from real audio and does not starve; the buffer
   capacity, startup fill, and water marks MUST be **derived from measurement** (the base feature's
   deferred T062/T063 procedure), not left at the generous placeholder values.
-- **FR-009**: The device MUST expose its **processing/transport latency** to the host through the
-  **appropriate UAC2 mechanism, if one that class-compliant hosts consume exists** — the plan MUST
-  identify it. Note that the isochronous-endpoint `bLockDelayUnits`/`wLockDelay` fields describe
-  **clock-recovery lock delay, NOT** end-to-end processing latency, and MUST NOT be repurposed as
-  the latency declaration. Whether CoreAudio or a DAW actually consumes any exposed value for
-  automatic delay compensation MUST be **verified as host behaviour, not assumed** (it may not be).
-  Independently, the device MUST **minimise** the round-trip latency (dominated by USB framing plus
-  a minimal buffer cushion).
+- **FR-009** *(latency — three distinct obligations, split for clarity)*:
+  - **(a) MUST — measured latency.** The device MUST **minimise** the round-trip latency (dominated
+    by USB framing plus a minimal buffer cushion) and MUST **measure and record** it (frames + ms).
+    This obligation is unconditional.
+  - **(b) SHOULD/conditional — standards-based reporting.** The device SHOULD expose its
+    processing/transport latency through a UAC2 mechanism **only if one that class-compliant hosts
+    actually consume is confirmed technically and host-meaningfully valid** (the plan identifies it;
+    research §R8 found the UAC2 Latency Control present in the class but unimplemented by TinyUSB and
+    with no evidence macOS consumes it — so this is conditional, not a blocking MUST). The
+    isochronous-endpoint `bLockDelayUnits`/`wLockDelay` fields (clock-recovery lock delay) MUST NOT
+    be repurposed as the latency declaration.
+  - **(c) MUST — empirical verification.** Whether a DAW/CoreAudio actually consumes any exposed
+    value for automatic delay compensation MUST be **verified as host behaviour, not assumed**.
 - **FR-010**: The device MUST convert between the USB wire format and the internal float audio for
   **both 16-bit and packed-24-bit** sample formats (`bSubslotSize` 2 and 3 respectively; a 24-bit
   path alongside the existing 16-bit one), preserving sample accuracy within each format's
