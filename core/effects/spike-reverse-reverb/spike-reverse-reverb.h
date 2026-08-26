@@ -3,24 +3,26 @@
 // ============================================================================
 // SPIKE / THROWAWAY — reverse-reverb feasibility probe, NOT a shipping effect.
 // ----------------------------------------------------------------------------
-// A reverse reverb must buffer a window before it can reverse it, so it is
-// inherently latent (latency == window length) and double-buffered (capture
-// window A while emitting the reversed+reverberated B).
+// GRANULAR (overlap-add) REVERSE variant — supports smooth, real-time window
+// (grain length) changes, unlike the earlier double-buffer block version whose
+// length could only change on a swap boundary.
 //
-// DECIMATION DONE PROPERLY: capture at 16 kHz (D=3), int16, double-buffered
-// (64 KB); an anti-alias biquad runs at the full rate BEFORE decimation so
-// content above the 8 kHz decimated-Nyquist cannot fold back as aliasing; the
-// reversed window streams through a mono 16 kHz Freeverb tank and the wet
-// output is linearly interpolated (not zero-order held) to kill imaging.
+// How it works: the decimated (16 kHz, int16, anti-aliased) input is captured
+// continuously into ONE circular buffer. The reversed output is reconstructed
+// as a stream of OVERLAPPING grains — each grain reads the last L samples
+// backward from the write pointer, Hann-enveloped, launched every L/2 ticks
+// (50% overlap, ~constant-sum). Each new grain adopts the CURRENT grain length,
+// so resizing is smooth; the envelopes+overlap also remove the block version's
+// window-swap click. The buffer is 2x the max grain so the backward read never
+// overruns the advancing write pointer.
 //
-// v2 adds a MODULATED DELAY stage on the WET output (per channel, full-rate
-// int16, up to 60 ms): an LFO-swept tap blended with the swell — chorus with a
-// 1/4-cycle stereo LFO offset for width, feedback for shimmer/echo. Params 3..6
-// map onto the existing CC70/73/75/78 bindings.
+// Character note: this is a continuous, near-zero-latency reverse SMEAR whose
+// grain length is the resizable knob — a different texture from the block
+// version's discrete "commit a phrase, hear it swell back" gesture.
 //
-// int16 is retained deliberately (its ~-96 dB floor is inaudible next to the
-// reverb; float capture would double the window to 128 KB). If this probe
-// passes it gets replaced by a specced effect — do not build on it.
+// Reversed stream -> mono 16 kHz Freeverb tank -> stereo modulated chorus.
+// int16 capture retained (its floor is inaudible next to the reverb). If this
+// probe passes it gets replaced by a specced effect — do not build on it.
 //
 // Platform independence (Constitution IV): standard library only, no heap.
 // Single-context setParameter (D26): params applied directly.
@@ -44,8 +46,10 @@ namespace acfx {
 class SpikeReverseReverb {
 public:
     static constexpr int kInternalDivisor = 3;       // 48k -> 16k capture + tank rate
-    static constexpr int kWindow          = 16000;   // 1.0 s @ 16 kHz — MAX window (memory bound)
-    static constexpr int kMinWindow       = 1600;    // 0.1 s @ 16 kHz — shortest swell
+    static constexpr int kMaxGrain = 16000;          // 1.0 s @ 16 kHz longest grain
+    static constexpr int kMinGrain = 1600;           // 0.1 s @ 16 kHz shortest grain
+    static constexpr int kBufSize  = 2 * kMaxGrain;  // backward read must not overrun the write ptr
+    static constexpr int kGrains   = 3;              // overlapping grain slots (2 active + margin)
 
     static constexpr int kComb[8] = {405, 431, 463, 492, 516, 541, 565, 587};
     static constexpr int kAp[4]   = {202, 160, 124, 82};
@@ -79,15 +83,14 @@ public:
     }
 
     void reset() noexcept {
-        bufs_[0].fill(0);
-        bufs_[1].fill(0);
+        cap_.fill(0);
         pool_.fill(0.0f);
         for (int i = 0; i < 8; ++i) { combPos_[i] = 0; combStore_[i] = 0.0f; }
         for (int i = 0; i < 4; ++i) { apPos_[i] = 0; }
         for (int ch = 0; ch < 2; ++ch) preLine_[ch].reset();
         aa_.reset();
-        sel_ = 0; writeIdx_ = 0; playIdx_ = 0; playActive_ = false;
-        fillCount_[0] = 0; fillCount_[1] = 0; windowLen_ = pendingWindow_;
+        for (int k = 0; k < kGrains; ++k) { grActive_[k] = 0; grI_[k] = 0; grLen_[k] = grainLen_; grStart_[k] = 0; }
+        w_ = 0; ticksSinceLaunch_ = 0; hop_ = grainLen_ / 2;
         decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f;
     }
 
@@ -103,13 +106,13 @@ public:
             case kModRate:   lfoInc_    = v / sampleRate_;                  break;
             case kFeedback:  feedback_  = v;                                break;
             case kWindowTime: {
-                // Seconds of captured audio -> decimated-rate samples, clamped
-                // to [kMinWindow, kWindow]. Latched at the next swap so an
-                // in-flight window is never truncated mid-capture.
-                int w = static_cast<int>(v * sampleRate_ / static_cast<float>(kInternalDivisor));
-                if (w < kMinWindow) w = kMinWindow;
-                if (w > kWindow)    w = kWindow;
-                pendingWindow_ = w;
+                // Grain length in seconds -> decimated samples. Applied to the
+                // NEXT grain launched, so it changes smoothly and continuously
+                // (no boundary latch, no truncation of an in-flight grain).
+                int g = static_cast<int>(v * sampleRate_ / static_cast<float>(kInternalDivisor));
+                if (g < kMinGrain) g = kMinGrain;
+                if (g > kMaxGrain) g = kMaxGrain;
+                grainLen_ = g;
                 break;
             }
             default: break;
@@ -131,32 +134,45 @@ public:
             const float monoAA = aa_.process((dryL + dryR) * 0.5f);
 
             if (decimPhase_ == 0) {
-                bufs_[sel_][static_cast<std::size_t>(writeIdx_)] = quantizeInt16(monoAA);
-                ++writeIdx_;
+                // Capture one decimated sample, then reconstruct the reversed
+                // stream from overlapping backward grains.
+                cap_[static_cast<std::size_t>(w_)] = quantizeInt16(monoAA);
+
+                if (ticksSinceLaunch_ >= hop_) {
+                    for (int k = 0; k < kGrains; ++k) {
+                        if (!grActive_[k]) {
+                            grActive_[k] = 1; grI_[k] = 0;
+                            grLen_[k] = grainLen_; grStart_[k] = w_;
+                            break;
+                        }
+                    }
+                    hop_ = grainLen_ / 2; if (hop_ < 1) hop_ = 1;
+                    ticksSinceLaunch_ = 0;
+                }
+                ++ticksSinceLaunch_;
+                w_ = (w_ + 1) % kBufSize;
 
                 float rev = 0.0f;
-                if (playActive_ && playIdx_ >= 0) {
-                    rev = dequantizeInt16(bufs_[sel_ ^ 1][static_cast<std::size_t>(playIdx_)]);
-                    --playIdx_;
+                for (int k = 0; k < kGrains; ++k) {
+                    if (!grActive_[k]) continue;
+                    const int L = grLen_[k];
+                    const int i = grI_[k];
+                    int idx = (grStart_[k] - i) % kBufSize;
+                    if (idx < 0) idx += kBufSize;
+                    const float env = 0.5f * (1.0f - std::cos(kTwoPi * static_cast<float>(i)
+                                                              / static_cast<float>(L - 1)));
+                    rev += dequantizeInt16(cap_[static_cast<std::size_t>(idx)]) * env;
+                    if (++grI_[k] >= L) grActive_[k] = 0;
                 }
+
                 wetPrev_ = wetCur_;
                 wetCur_  = runTank(rev * kGain);
-
-                if (writeIdx_ >= windowLen_) {
-                    fillCount_[sel_] = writeIdx_;            // samples this buffer holds
-                    sel_ ^= 1;
-                    writeIdx_  = 0;
-                    playIdx_   = fillCount_[sel_ ^ 1] - 1;  // play the buffer just filled
-                    playActive_ = true;
-                    windowLen_ = pendingWindow_;             // latch new length for next cycle
-                }
             }
 
             const float frac = static_cast<float>(decimPhase_) * invD;
-            const float wet  = wetPrev_ + (wetCur_ - wetPrev_) * frac;   // mono reconstructed swell
+            const float wet  = wetPrev_ + (wetCur_ - wetPrev_) * frac;
             decimPhase_ = (decimPhase_ + 1) % kInternalDivisor;
 
-            // Modulated chorus on the wet swell (full rate, stereo via LFO offset).
             const float lfoL = std::sin(kTwoPi * lfoPhase_);
             const float lfoR = std::sin(kTwoPi * (lfoPhase_ + 0.25f));
             lfoPhase_ += lfoInc_;
@@ -260,25 +276,28 @@ private:
          ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kFeedback}, "delay_feedback", ParamUnit::none, 0.0f, 0.85f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kWindowTime}, "window_time", ParamUnit::seconds, 0.1f, 1.0f, 1.0f,
+        {ParamId{kWindowTime}, "grain_time", ParamUnit::seconds, 0.1f, 1.0f, 1.0f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
     }};
 
-    // Double-buffered decimated int16 capture (the memory-critical store).
-    std::array<std::array<std::int16_t, kWindow>, 2> bufs_{};
-    int  sel_        = 0;
-    int  writeIdx_   = 0;
-    int  playIdx_    = 0;
-    bool playActive_ = false;
-    int  fillCount_[2]  = {0, 0};     // valid samples in each buffer
-    int  windowLen_     = kWindow;    // active capture length (latched at swap)
-    int  pendingWindow_ = kWindow;    // target set by the window_time param
+    // Continuous circular capture buffer (2x max grain).
+    std::array<std::int16_t, kBufSize> cap_{};
+    int w_ = 0;
+
+    // Overlapping grain readers.
+    int grActive_[kGrains] = {};
+    int grI_[kGrains]      = {};
+    int grLen_[kGrains]    = {};
+    int grStart_[kGrains]  = {};
+    int grainLen_          = kMaxGrain;   // current grain length (samples)
+    int ticksSinceLaunch_  = 0;
+    int hop_               = kMaxGrain / 2;
 
     Biquad aa_{};
 
     // Wet-side modulated chorus stage.
     std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
-    float baseDelay_  = 672.0f;    // 14 ms @ 48 kHz default
+    float baseDelay_  = 672.0f;
     float modDepth_   = 0.45f;
     float modMaxSamp_ = 240.0f;
     float lfoInc_     = 0.0000104f;
