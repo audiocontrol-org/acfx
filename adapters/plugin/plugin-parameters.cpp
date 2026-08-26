@@ -15,6 +15,8 @@ juce::String unitSuffix(ParamUnit unit) {
         return " dB";
     case ParamUnit::percent:
         return " %";
+    case ParamUnit::seconds:
+        return " s";
     case ParamUnit::ratio:
     case ParamUnit::none:
     default:
@@ -74,7 +76,7 @@ void PluginParameters::build(juce::AudioProcessor& processor,
                     .withLabel(unitSuffix(d.unit))
                     .withStringFromValueFunction([desc](float norm, int) {
                         const float plain = denormalize(desc, norm);
-                        return juce::String(plain, 2);
+                        return juce::String(plain, 2) + unitSuffix(desc.unit);
                     });
             auto p = std::make_unique<juce::AudioParameterFloat>(
                 paramId, label, juce::NormalisableRange<float>(0.0f, 1.0f), defaultNorm,

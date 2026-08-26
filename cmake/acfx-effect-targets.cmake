@@ -88,7 +88,7 @@ function(acfx_add_effect_plugin)
 
   # AU is Apple-only; request it only on Apple so the desktop preset stays buildable
   # on Linux/Windows (VST3 + CLAP there, VST3 + AU + CLAP on macOS).
-  set(_formats VST3)
+  set(_formats VST3 Standalone)
   if(APPLE)
     list(APPEND _formats AU)
   endif()

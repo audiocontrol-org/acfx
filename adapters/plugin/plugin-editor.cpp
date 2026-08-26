@@ -1,129 +1,215 @@
 #include <cmath>
-#include <cstdint>
 
 #include "plugin-editor.h"
 #include "plugin-processor.h"
 
-// Implementation of the plugin's live harmonic readout editor (see
-// plugin-editor.h). All audio-thread interaction is confined to
-// CaptureProbeRing::push(), called directly by PluginProcessor::processBlock;
-// everything here runs on the message thread.
+// Grouped control surface for the plugin (see plugin-editor.h). Everything here
+// runs on the message thread; parameter attachments keep the knobs and the host
+// in sync. The look is deliberate: near-black warm charcoal, a single amber /
+// tape accent, arc-drawn knobs, section eyebrows with hairline rules.
 
 namespace acfx::plugin {
 
 namespace {
-constexpr int kTimerHz = 20; // FR-027: ~15-30 Hz nominal live-readout cadence
-constexpr double kMinFundamentalHz = 20.0;
-constexpr double kMaxFundamentalHz = 20000.0;
-constexpr double kDefaultFundamentalHz = 1000.0;
-constexpr int kRowHeight = 14;
-constexpr int kControlRowHeight = 28;
-constexpr int kEditorWidth = 360;
-constexpr int kEditorHeight =
-    kControlRowHeight + (1 + kHarmonicNumHarmonics + 1) * kRowHeight + 12;
+
+// --- palette (warm dark, single amber accent — not the generic acid green) ---
+const juce::Colour kBg          (0xff17181a);
+const juce::Colour kPanel       (0xff202327);
+const juce::Colour kText        (0xffe9e4da);
+const juce::Colour kMuted       (0xff8b867d);
+const juce::Colour kAccent      (0xffe0a34a); // amber
+const juce::Colour kTrack       (0xff34383d);
+
+// Layout metrics.
+constexpr int kPad       = 16;
+constexpr int kHeaderH   = 52;
+constexpr int kSecHeadH  = 24;
+constexpr int kCellW     = 86;
+constexpr int kCellH     = 88;
+constexpr int kSecGap    = 8;
+constexpr int kWidth     = 2 * kPad + 5 * kCellW; // fits the widest section (5 cells)
+
+class AcfxLookAndFeel final : public juce::LookAndFeel_V4 {
+public:
+    AcfxLookAndFeel() {
+        setColour(juce::Slider::textBoxTextColourId, kText);
+        setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+        setColour(juce::Label::textColourId, kMuted);
+        setColour(juce::ComboBox::backgroundColourId, kPanel);
+        setColour(juce::ComboBox::textColourId, kText);
+        setColour(juce::ComboBox::arrowColourId, kAccent);
+        setColour(juce::ComboBox::outlineColourId, kTrack);
+        setColour(juce::PopupMenu::backgroundColourId, kPanel);
+        setColour(juce::PopupMenu::textColourId, kText);
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, kAccent.withAlpha(0.28f));
+        setColour(juce::PopupMenu::highlightedTextColourId, kText);
+    }
+
+    void drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h, float pos,
+                          float startAngle, float endAngle, juce::Slider&) override {
+        const auto bounds = juce::Rectangle<int>(x, y, w, h).toFloat().reduced(7.0f);
+        const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
+        const float cx = bounds.getCentreX();
+        const float cy = bounds.getCentreY();
+        const float angle = startAngle + pos * (endAngle - startAngle);
+
+        // knob body
+        g.setColour(kPanel);
+        g.fillEllipse(cx - radius * 0.72f, cy - radius * 0.72f, radius * 1.44f, radius * 1.44f);
+
+        // track arc
+        juce::Path track;
+        track.addCentredArc(cx, cy, radius, radius, 0.0f, startAngle, endAngle, true);
+        g.setColour(kTrack);
+        g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+        // value arc
+        juce::Path val;
+        val.addCentredArc(cx, cy, radius, radius, 0.0f, startAngle, angle, true);
+        g.setColour(kAccent);
+        g.strokePath(val, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+        // pointer dot (JUCE angle is clockwise from 12 o'clock)
+        const float tipX = cx + radius * 0.62f * std::sin(angle);
+        const float tipY = cy - radius * 0.62f * std::cos(angle);
+        g.setColour(kAccent);
+        g.fillEllipse(tipX - 2.4f, tipY - 2.4f, 4.8f, 4.8f);
+    }
+};
+
 } // namespace
 
 PluginEditor::PluginEditor(PluginProcessor& processor)
-    : juce::AudioProcessorEditor(processor), processor_(processor),
-      probe_(processor.harmonicProbe()), sampleRate_(processor.currentSampleRate()) {
-    fundamentalLabel_.setText("Fundamental (Hz)", juce::dontSendNotification);
-    fundamentalLabel_.setJustificationType(juce::Justification::centredLeft);
-    fundamentalLabel_.setColour(juce::Label::textColourId, juce::Colours::white);
-    addAndMakeVisible(fundamentalLabel_);
+    : juce::AudioProcessorEditor(processor) {
+    lnf_ = std::make_unique<AcfxLookAndFeel>();
+    setLookAndFeel(lnf_.get());
 
-    fundamentalSlider_.setSliderStyle(juce::Slider::LinearHorizontal);
-    fundamentalSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 80, 20);
-    fundamentalSlider_.setRange(kMinFundamentalHz, kMaxFundamentalHz, 1.0);
-    fundamentalSlider_.setSkewFactorFromMidPoint(kDefaultFundamentalHz);
-    fundamentalSlider_.setValue(kDefaultFundamentalHz, juce::dontSendNotification);
-    // A fundamental change invalidates the running window (the Goertzel bin it
-    // targets moves), so it rebuilds the readout rather than mutating it in place.
-    fundamentalSlider_.onValueChange = [this] { rebuildReadout(); };
-    addAndMakeVisible(fundamentalSlider_);
+    buildControls(processor);
 
-    rebuildReadout();
-    setSize(kEditorWidth, kEditorHeight);
-    startTimerHz(kTimerHz);
-}
-
-PluginEditor::~PluginEditor() { stopTimer(); }
-
-void PluginEditor::rebuildReadout() {
-    acfx::analysis::LiveReadoutConfig config;
-    config.fundamentalHz = fundamentalSlider_.getValue();
-    config.sampleRate = sampleRate_;
-    config.numHarmonics = kHarmonicNumHarmonics;
-    config.windowSize = kHarmonicWindowSize;
-    // A fresh LiveReadout starts with no result; the ring itself is untouched (it
-    // still holds whatever the audio thread already pushed), so the very next
-    // timerCallback picks back up as soon as a full window is available.
-    readout_ = std::make_unique<acfx::analysis::LiveReadout<kHarmonicRingCapacity>>(probe_,
-                                                                                      config);
-}
-
-void PluginEditor::timerCallback() {
-    // The editor is created/destroyed per GUI open (unlike the workbench's
-    // permanent window), so it PULLS the processor's current sample rate each
-    // tick rather than being pushed to from prepareToPlay -- see plugin-editor.h.
-    const double currentSampleRate = processor_.currentSampleRate();
-    if (currentSampleRate > 0.0 && currentSampleRate != sampleRate_) {
-        sampleRate_ = currentSampleRate;
-        rebuildReadout();
+    int height = kHeaderH;
+    for (const Section& s : sections_) {
+        const int perRow = juce::jmax(1, (kWidth - 2 * kPad) / kCellW);
+        const int rows = (static_cast<int>(s.cells.size()) + perRow - 1) / perRow;
+        height += kSecHeadH + rows * kCellH + kSecGap;
     }
+    setSize(kWidth, height + kPad);
+}
 
-    if (readout_)
-        readout_->update(); // drains the ring + runs the shared engine (analysis thread role)
-    repaint();
+PluginEditor::~PluginEditor() { setLookAndFeel(nullptr); }
+
+void PluginEditor::buildControls(PluginProcessor& processor) {
+    for (const juce::AudioProcessorParameterGroup* group :
+         processor.getParameterTree().getSubgroups(false)) {
+        Section section;
+        section.name = group->getName();
+
+        for (juce::AudioProcessorParameter* p : group->getParameters(false)) {
+            const juce::String label = p->getName(64);
+
+            if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(p)) {
+                auto cell = std::make_unique<Choice>();
+                cell->box.addItemList(choice->choices, 1);
+                cell->box.setJustificationType(juce::Justification::centred);
+                cell->attach = std::make_unique<juce::ComboBoxParameterAttachment>(*choice, cell->box);
+                cell->label.setText(label, juce::dontSendNotification);
+                cell->label.setJustificationType(juce::Justification::centred);
+                cell->label.setFont(juce::Font(11.0f));
+                addAndMakeVisible(cell->box);
+                addAndMakeVisible(cell->label);
+                section.cells.push_back({true, static_cast<int>(choices_.size())});
+                choices_.push_back(std::move(cell));
+            } else if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(p)) {
+                auto cell = std::make_unique<Knob>();
+                cell->slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+                cell->slider.setRotaryParameters(juce::MathConstants<float>::pi * 1.25f,
+                                                 juce::MathConstants<float>::pi * 2.75f, true);
+                cell->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, kCellW - 8, 16);
+                cell->slider.setColour(juce::Slider::textBoxTextColourId, kText);
+                cell->attach = std::make_unique<juce::SliderParameterAttachment>(*ranged, cell->slider);
+                cell->label.setText(label, juce::dontSendNotification);
+                cell->label.setJustificationType(juce::Justification::centred);
+                cell->label.setFont(juce::Font(11.0f));
+                addAndMakeVisible(cell->slider);
+                addAndMakeVisible(cell->label);
+                section.cells.push_back({false, static_cast<int>(knobs_.size())});
+                knobs_.push_back(std::move(cell));
+            }
+        }
+        sections_.push_back(std::move(section));
+    }
 }
 
 void PluginEditor::resized() {
-    auto area = getLocalBounds().reduced(4);
-    auto controlRow = area.removeFromTop(kControlRowHeight - 4);
-    fundamentalLabel_.setBounds(controlRow.removeFromLeft(120));
-    fundamentalSlider_.setBounds(controlRow);
+    auto area = getLocalBounds();
+    area.removeFromTop(kHeaderH);
+    area.removeFromLeft(kPad);
+    area.removeFromRight(kPad);
+
+    const int perRow = juce::jmax(1, area.getWidth() / kCellW);
+
+    for (Section& s : sections_) {
+        s.headerArea = area.removeFromTop(kSecHeadH);
+        int i = 0;
+        while (i < static_cast<int>(s.cells.size())) {
+            auto rowArea = area.removeFromTop(kCellH);
+            for (int c = 0; c < perRow && i < static_cast<int>(s.cells.size()); ++c, ++i) {
+                auto cellBounds = rowArea.removeFromLeft(kCellW);
+                const Cell& cell = s.cells[static_cast<std::size_t>(i)];
+                auto labelArea = cellBounds.removeFromTop(16);
+                if (cell.isChoice) {
+                    Choice& ch = *choices_[static_cast<std::size_t>(cell.index)];
+                    ch.label.setBounds(labelArea);
+                    ch.box.setBounds(cellBounds.reduced(6, 20));
+                } else {
+                    Knob& kb = *knobs_[static_cast<std::size_t>(cell.index)];
+                    kb.label.setBounds(labelArea);
+                    kb.slider.setBounds(cellBounds);
+                }
+            }
+        }
+        area.removeFromTop(kSecGap);
+    }
 }
 
 void PluginEditor::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
-    auto area = getLocalBounds().reduced(4);
-    area.removeFromTop(kControlRowHeight); // controls row (fundamental label + slider)
+    g.fillAll(kBg);
 
-    g.setColour(juce::Colours::white);
-    g.setFont(12.0f);
+    // Header: title + a small reverse-arc motif as the signature nod to "reverse".
+    auto header = getLocalBounds().removeFromTop(kHeaderH);
+    auto titleArea = header.reduced(kPad, 0);
 
-    if (readout_ == nullptr || !readout_->hasResult()) {
-        g.drawText("analyzing... (needs a full analysis window of audio)", area,
-                   juce::Justification::topLeft);
-        return;
-    }
+    const float cy = titleArea.getCentreY();
+    const float mx = static_cast<float>(titleArea.getRight()) - 12.0f;
+    juce::Path arc;
+    arc.addCentredArc(mx, cy, 9.0f, 9.0f, 0.0f,
+                      juce::MathConstants<float>::pi * 0.15f,
+                      juce::MathConstants<float>::pi * 1.7f, true);
+    g.setColour(kAccent);
+    g.strokePath(arc, juce::PathStrokeType(2.0f));
+    g.fillEllipse(mx - 10.0f, cy - 9.0f - 2.0f, 4.0f, 4.0f); // arrowhead dot
 
-    const acfx::analysis::HarmonicSpectrum& spectrum = readout_->spectrum();
-    const acfx::analysis::ThdnResult& thdn = readout_->thdn();
+    g.setColour(kText);
+    g.setFont(juce::Font(20.0f, juce::Font::bold));
+    g.drawText("acfx", titleArea.removeFromLeft(56), juce::Justification::centredLeft);
+    g.setColour(kMuted);
+    g.setFont(juce::Font(15.0f));
+    g.drawText("REVERSE REVERB", titleArea, juce::Justification::centredLeft);
 
-    auto row = area.removeFromTop(kRowHeight);
-    const juce::String snrText =
-        std::isfinite(thdn.snr) ? juce::String(thdn.snr, 1) + " dB" : juce::String("inf dB");
-    g.drawText("THD+N: " + juce::String(thdn.thdPlusN * 100.0, 3) + " %   SNR: " + snrText
-                   + "   noise floor: " + juce::String(thdn.noiseFloor, 5),
-               row, juce::Justification::topLeft);
+    g.setColour(kTrack);
+    g.fillRect(getLocalBounds().removeFromTop(kHeaderH).removeFromBottom(1));
 
-    for (int k = 1; k <= spectrum.numHarmonics; ++k) {
-        const acfx::analysis::HarmonicSpectrum::Bin bin = spectrum.at(k);
-        row = area.removeFromTop(kRowHeight);
-        const juce::String magText =
-            std::isnan(bin.magnitude) ? juce::String("--") : juce::String(bin.magnitude, 5);
-        const juce::String phaseText =
-            std::isnan(bin.phaseRad) ? juce::String("--") : juce::String(bin.phaseRad, 3);
-        g.drawText("H" + juce::String(k) + "  mag=" + magText + "  phase=" + phaseText + " rad",
-                   row, juce::Justification::topLeft);
-    }
-
-    const std::uint64_t overruns = probe_.overrunCount();
-    if (overruns > 0) {
-        row = area.removeFromTop(kRowHeight);
-        g.setColour(juce::Colours::orange);
-        g.drawText("ring overruns: " + juce::String(static_cast<juce::int64>(overruns)), row,
-                   juce::Justification::topLeft);
+    // Section eyebrows + hairline rules.
+    g.setFont(juce::Font(11.0f, juce::Font::bold));
+    for (const Section& s : sections_) {
+        auto hb = s.headerArea;
+        g.setColour(kAccent);
+        g.drawText(s.name.toUpperCase(), hb.removeFromLeft(140),
+                   juce::Justification::centredLeft);
+        // hairline rule filling the space to the right of the eyebrow
+        auto ruleRow = hb.withTrimmedLeft(8);
+        g.setColour(kTrack);
+        g.fillRect(ruleRow.getX(), ruleRow.getCentreY(), ruleRow.getWidth(), 1);
     }
 }
 
