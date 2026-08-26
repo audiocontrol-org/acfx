@@ -68,8 +68,9 @@ public:
         kPitchLfoRate = 11, kPitchLfoDepth = 12,
         kPitchLpCutoff = 13, kPitchLpReso = 14,
         kFilterLfoRate = 15, kFilterLfoCutoffDepth = 16, kFilterLfoResoDepth = 17,
+        kEqFreq = 18, kEqGain = 19, kEqQ = 20,
     };
-    static constexpr std::size_t kNumParams = 18;
+    static constexpr std::size_t kNumParams = 21;
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -102,6 +103,8 @@ public:
         aa_.reset();
         pitch_.reset();
         pitchLp_.reset();
+        eqL_.reset();
+        eqR_.reset();
         resetCapture();
         decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f;
         pitchLfoPhase_ = 0.0f; filterLfoPhase_ = 0.0f;
@@ -164,6 +167,9 @@ public:
                 filterLfoResoDepth_ = v;
                 restoreFilterBaseIfIdle();
                 break;
+            case kEqFreq: eqFreq_   = v; redesignEq(); break;
+            case kEqGain: eqGainDb_ = v; redesignEq(); break;
+            case kEqQ:    eqQ_      = v; redesignEq(); break;
             default: break;
         }
     }
@@ -231,8 +237,9 @@ public:
             const float wetL = chorusSample(0, wet, lfoL);
             const float wetR = channels > 1 ? chorusSample(1, wet, lfoR) : wetL;
 
-            xL[n] = dryL * (1.0f - mix_) + wetL * mix_;
-            if (channels > 1) xR[n] = dryR * (1.0f - mix_) + wetR * mix_;
+            // Final mix, then the output parametric EQ (full rate, per channel).
+            xL[n] = eqL_.process(dryL * (1.0f - mix_) + wetL * mix_);
+            if (channels > 1) xR[n] = eqR_.process(dryR * (1.0f - mix_) + wetR * mix_);
         }
     }
 
@@ -317,6 +324,13 @@ private:
                           pitchLpCutoff_, pitchLpQ_);
     }
 
+    // Redesign both output-EQ channels from the current freq/gain/Q (stereo-linked
+    // coefficients, independent state). Full-rate fs.
+    void redesignEq() noexcept {
+        designPeaking(eqL_, sampleRate_, eqFreq_, eqGainDb_, eqQ_);
+        designPeaking(eqR_, sampleRate_, eqFreq_, eqGainDb_, eqQ_);
+    }
+
     // Two-tap crossfade granular pitch shifter (classic real-time method) on the
     // decimated reversed stream. Two read pointers half a window apart, each
     // stepping at (1 - ratio); Hann-crossfaded so the wrap is inaudible.
@@ -375,6 +389,21 @@ private:
         bq.b2 = (1.0f - cosw) * 0.5f / a0;
         bq.a1 = (-2.0f * cosw)       / a0;
         bq.a2 = (1.0f - alpha)       / a0;
+    }
+    // RBJ peaking (bell) EQ. Identity at gainDb == 0, so the band is transparent
+    // when flat. Used for the output parametric EQ.
+    static void designPeaking(Biquad& bq, float fs, float f0, float gainDb, float q) noexcept {
+        const float A     = std::pow(10.0f, gainDb / 40.0f);
+        const float w0    = 2.0f * 3.14159265358979f * f0 / fs;
+        const float cosw  = std::cos(w0);
+        const float sinw  = std::sin(w0);
+        const float alpha = sinw / (2.0f * q);
+        const float a0    = 1.0f + alpha / A;
+        bq.b0 = (1.0f + alpha * A) / a0;
+        bq.b1 = (-2.0f * cosw)     / a0;
+        bq.b2 = (1.0f - alpha * A) / a0;
+        bq.a1 = (-2.0f * cosw)     / a0;
+        bq.a2 = (1.0f - alpha / A) / a0;
     }
 
     static constexpr int kPoolSize = [] {
@@ -458,6 +487,12 @@ private:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kFilterLfoResoDepth}, "filter_lfo_reso", ParamUnit::none, 0.0f, 1.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kEqFreq}, "eq_freq", ParamUnit::hz, 40.0f, 12000.0f, 300.0f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqGain}, "eq_gain", ParamUnit::decibels, -18.0f, 18.0f, 0.0f,
+         ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kEqQ}, "eq_q", ParamUnit::none, 0.3f, 8.0f, 1.0f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
     }};
 
     // kParams stays in ParamId order (internal lookups + the shared CC map key
@@ -474,6 +509,7 @@ private:
             kDecay, kDamping,                                      // reverb tank
             kDelayTime, kModDepth, kModRate, kFeedback,           // wet chorus
             kMix,                                                 // output
+            kEqFreq, kEqGain, kEqQ,                              // output parametric EQ
         };
         std::array<ParameterDescriptor, kNumParams> out = kParams;
         for (std::size_t i = 0; i < kNumParams; ++i) out[i] = kParams[order[i]];
@@ -518,6 +554,13 @@ private:
     float filterLfoPhase_      = 0.0f;
     float filterLfoCutoffDepth_ = 0.0f;
     float filterLfoResoDepth_   = 0.0f;
+
+    // Output parametric EQ (one peaking band, full rate, stereo-linked).
+    Biquad eqL_{};
+    Biquad eqR_{};
+    float  eqFreq_   = 300.0f;
+    float  eqGainDb_ = 0.0f;
+    float  eqQ_      = 1.0f;
 
     // Wet-side modulated chorus stage.
     std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
