@@ -62,9 +62,9 @@ public:
     enum : std::uint8_t {
         kDecay = 0, kDamping = 1, kMix = 2,
         kDelayTime = 3, kModDepth = 4, kModRate = 5, kFeedback = 6,
-        kWindowTime = 7, kMode = 8, kPitch = 9,
+        kWindowTime = 7, kMode = 8, kPitch = 9, kPitchBlend = 10,
     };
-    static constexpr std::size_t kNumParams = 10;
+    static constexpr std::size_t kNumParams = 11;
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -124,8 +124,9 @@ public:
             }
             case kPitch:
                 pitch_.rate  = std::pow(2.0f, v / 12.0f);        // semitones -> ratio
-                pitchActive_ = (v > 0.05f || v < -0.05f);        // exact 0 => transparent bypass
+                pitchActive_ = (v > 0.05f || v < -0.05f);        // exact 0 => transparent
                 break;
+            case kPitchBlend: pitchBlend_ = v; break;            // 0=dry reverse .. 1=fully pitched
             default: break;
         }
     }
@@ -147,7 +148,12 @@ public:
             if (decimPhase_ == 0) {
                 float rev = (mode_ == kModeGranular) ? granularTick(monoAA)
                                                      : blockTick(monoAA);
-                if (pitchActive_) rev = pitch_.process(rev);   // pitch the reversed stream
+                // Always advance the shifter (keeps its buffer current); blend
+                // the pitched copy into the reverse stream. Transparent at 0
+                // semitones. pitch_blend: 0 = dry reverse, 1 = fully pitched.
+                float pitched = pitch_.process(rev);
+                if (!pitchActive_) pitched = rev;
+                rev += (pitched - rev) * pitchBlend_;
                 wetPrev_ = wetCur_;
                 wetCur_  = runTank(rev * kGain);
             }
@@ -365,6 +371,8 @@ private:
          ParamSkew::linear, ParamKind::discrete, 2, kModeLabels},
         {ParamId{kPitch}, "pitch", ParamUnit::none, -12.0f, 12.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kPitchBlend}, "pitch_blend", ParamUnit::none, 0.0f, 1.0f, 1.0f,
+         ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
     // Shared capture buffer (granular circular / block two halves).
@@ -392,7 +400,8 @@ private:
 
     Biquad aa_{};
     PitchShifter pitch_{};
-    bool pitchActive_ = false;
+    bool  pitchActive_ = false;
+    float pitchBlend_  = 1.0f;
 
     // Wet-side modulated chorus stage.
     std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
