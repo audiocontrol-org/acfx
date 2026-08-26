@@ -75,6 +75,10 @@ cmake --preset desktop
 cmake --build --preset desktop --target acfx_plugin_VST3 acfx_plugin_AU acfx_plugin_CLAP
 ```
 
+To ship a build others can install (Developer ID signed + Apple notarized, universal,
+loads with no Gatekeeper prompts or OS-version errors), follow the runbook:
+[**Signing & notarization**](adapters/plugin/SIGNING-AND-NOTARIZATION.md).
+
 The workbench's built-in player is reached from the UI (the **Load file…** button);
 `ACFX_WORKBENCH_FILE=/path/to/audio.wav` remains only as a **first-run convenience**
 that seeds the source when nothing has been saved yet — a saved selection always takes
