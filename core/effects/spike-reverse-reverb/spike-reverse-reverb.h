@@ -62,9 +62,9 @@ public:
     enum : std::uint8_t {
         kDecay = 0, kDamping = 1, kMix = 2,
         kDelayTime = 3, kModDepth = 4, kModRate = 5, kFeedback = 6,
-        kWindowTime = 7, kMode = 8,
+        kWindowTime = 7, kMode = 8, kPitch = 9,
     };
-    static constexpr std::size_t kNumParams = 9;
+    static constexpr std::size_t kNumParams = 10;
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -91,6 +91,7 @@ public:
         for (int i = 0; i < 4; ++i) { apPos_[i] = 0; }
         for (int ch = 0; ch < 2; ++ch) preLine_[ch].reset();
         aa_.reset();
+        pitch_.reset();
         resetCapture();
         decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f;
     }
@@ -121,6 +122,10 @@ public:
                 if (m != mode_) { mode_ = m; resetCapture(); }  // clean re-fill on switch
                 break;
             }
+            case kPitch:
+                pitch_.rate  = std::pow(2.0f, v / 12.0f);        // semitones -> ratio
+                pitchActive_ = (v > 0.05f || v < -0.05f);        // exact 0 => transparent bypass
+                break;
             default: break;
         }
     }
@@ -140,8 +145,9 @@ public:
             const float monoAA = aa_.process((dryL + dryR) * 0.5f);
 
             if (decimPhase_ == 0) {
-                const float rev = (mode_ == kModeGranular) ? granularTick(monoAA)
-                                                           : blockTick(monoAA);
+                float rev = (mode_ == kModeGranular) ? granularTick(monoAA)
+                                                     : blockTick(monoAA);
+                if (pitchActive_) rev = pitch_.process(rev);   // pitch the reversed stream
                 wetPrev_ = wetCur_;
                 wetCur_  = runTank(rev * kGain);
             }
@@ -234,6 +240,43 @@ private:
         return x + 0.5f * tap;
     }
 
+    // Two-tap crossfade granular pitch shifter (classic real-time method) on the
+    // decimated reversed stream. Two read pointers half a window apart, each
+    // stepping at (1 - ratio); Hann-crossfaded so the wrap is inaudible.
+    struct PitchShifter {
+        static constexpr int kBuf = 2048;    // ~128 ms @ 16 kHz
+        static constexpr int kWin = 1024;    // crossfade window (samples)
+        std::array<std::int16_t, kBuf> buf{};
+        int   w    = 0;
+        float o0   = 0.0f;
+        float o1   = static_cast<float>(kWin) * 0.5f;
+        float rate = 1.0f;
+        void reset() noexcept { buf.fill(0); w = 0; o0 = 0.0f; o1 = static_cast<float>(kWin) * 0.5f; }
+        float readFrac(float pos) const noexcept {
+            while (pos < 0.0f)                            pos += static_cast<float>(kBuf);
+            while (pos >= static_cast<float>(kBuf))       pos -= static_cast<float>(kBuf);
+            const int   i0 = static_cast<int>(pos);
+            const float fr = pos - static_cast<float>(i0);
+            int i1 = i0 + 1; if (i1 >= kBuf) i1 = 0;
+            return dequantizeInt16(buf[static_cast<std::size_t>(i0)]) * (1.0f - fr)
+                 + dequantizeInt16(buf[static_cast<std::size_t>(i1)]) * fr;
+        }
+        float process(float x) noexcept {
+            constexpr float kTwoPi = 6.28318530718f;
+            buf[static_cast<std::size_t>(w)] = quantizeInt16(x);
+            const float t0 = readFrac(static_cast<float>(w) - o0);
+            const float t1 = readFrac(static_cast<float>(w) - o1);
+            const float e0 = 0.5f * (1.0f - std::cos(kTwoPi * o0 / static_cast<float>(kWin)));
+            const float e1 = 0.5f * (1.0f - std::cos(kTwoPi * o1 / static_cast<float>(kWin)));
+            const float out = t0 * e0 + t1 * e1;
+            w = (w + 1) % kBuf;
+            const float step = 1.0f - rate;
+            o0 += step; if (o0 < 0.0f) o0 += kWin; else if (o0 >= kWin) o0 -= kWin;
+            o1 += step; if (o1 < 0.0f) o1 += kWin; else if (o1 >= kWin) o1 -= kWin;
+            return out;
+        }
+    };
+
     struct Biquad {
         float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
         float x1 = 0, x2 = 0, y1 = 0, y2 = 0;
@@ -320,6 +363,8 @@ private:
          ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 1.0f, 1.0f,
          ParamSkew::linear, ParamKind::discrete, 2, kModeLabels},
+        {ParamId{kPitch}, "pitch", ParamUnit::none, -12.0f, 12.0f, 0.0f,
+         ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
     // Shared capture buffer (granular circular / block two halves).
@@ -346,6 +391,8 @@ private:
     int w_                 = 0;
 
     Biquad aa_{};
+    PitchShifter pitch_{};
+    bool pitchActive_ = false;
 
     // Wet-side modulated chorus stage.
     std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
