@@ -64,8 +64,9 @@ public:
         kDelayTime = 3, kModDepth = 4, kModRate = 5, kFeedback = 6,
         kWindowTime = 7, kMode = 8, kPitch = 9, kPitchBlend = 10,
         kPitchLfoRate = 11, kPitchLfoDepth = 12,
+        kPitchLpCutoff = 13, kPitchLpReso = 14,
     };
-    static constexpr std::size_t kNumParams = 13;
+    static constexpr std::size_t kNumParams = 15;
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -76,7 +77,7 @@ public:
         sampleRate_  = static_cast<float>(ctx.sampleRate);
         modMaxSamp_  = kModMaxMs * 0.001f * sampleRate_;
         const float decimatedRate = sampleRate_ / static_cast<float>(kInternalDivisor);
-        designLowpass(aa_, sampleRate_, decimatedRate * 0.5f * 0.85f);
+        designLowpass(aa_, sampleRate_, decimatedRate * 0.5f * 0.85f, 0.70710678f);
         const int cap = static_cast<int>(0.060f * sampleRate_) + 1;
         for (int ch = 0; ch < 2; ++ch) preLine_[ch].prepare(cap, sampleRate_);
         for (std::size_t i = 0; i < kNumParams; ++i)
@@ -93,6 +94,7 @@ public:
         for (int ch = 0; ch < 2; ++ch) preLine_[ch].reset();
         aa_.reset();
         pitch_.reset();
+        pitchLp_.reset();
         resetCapture();
         decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f; pitchLfoPhase_ = 0.0f;
     }
@@ -133,6 +135,16 @@ public:
                 pitchLfoInc_ = v / (sampleRate_ / static_cast<float>(kInternalDivisor));
                 break;
             case kPitchLfoDepth: pitchLfoDepth_ = v; break;      // vibrato depth in semitones
+            case kPitchLpCutoff:
+                pitchLpCutoff_ = v;
+                designLowpass(pitchLp_, sampleRate_ / static_cast<float>(kInternalDivisor),
+                              pitchLpCutoff_, pitchLpQ_);
+                break;
+            case kPitchLpReso:
+                pitchLpQ_ = 0.5f + v * 5.5f;                     // 0..1 -> Q 0.5..6.0
+                designLowpass(pitchLp_, sampleRate_ / static_cast<float>(kInternalDivisor),
+                              pitchLpCutoff_, pitchLpQ_);
+                break;
             default: break;
         }
     }
@@ -166,7 +178,11 @@ public:
                     pitch_.rate = std::pow(2.0f, (pitchBaseSemi_ + lfo * pitchLfoDepth_) / 12.0f);
                 }
                 float pitched = pitch_.process(rev);
-                if (!(pitchActive_ || lfoOn)) pitched = rev;
+                if (pitchActive_ || lfoOn) {
+                    pitched = pitchLp_.process(pitched);   // tame the shifter clang
+                } else {
+                    pitched = rev;                          // transparent when not pitching
+                }
                 rev += (pitched - rev) * pitchBlend_;
                 wetPrev_ = wetCur_;
                 wetCur_  = runTank(rev * kGain);
@@ -307,11 +323,11 @@ private:
             return y;
         }
     };
-    static void designLowpass(Biquad& bq, float fs, float fc) noexcept {
+    static void designLowpass(Biquad& bq, float fs, float fc, float q) noexcept {
         const float w0    = 2.0f * 3.14159265358979f * fc / fs;
         const float cosw  = std::cos(w0);
         const float sinw  = std::sin(w0);
-        const float alpha = sinw / (2.0f * 0.70710678f);
+        const float alpha = sinw / (2.0f * q);
         const float a0    = 1.0f + alpha;
         bq.b0 = (1.0f - cosw) * 0.5f / a0;
         bq.b1 = (1.0f - cosw)        / a0;
@@ -391,6 +407,10 @@ private:
          ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kPitchLfoDepth}, "pitch_lfo_depth", ParamUnit::none, 0.0f, 12.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kPitchLpCutoff}, "pitch_lp_cutoff", ParamUnit::hz, 200.0f, 7000.0f, 4000.0f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kPitchLpReso}, "pitch_lp_reso", ParamUnit::none, 0.0f, 1.0f, 0.1f,
+         ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
     // Shared capture buffer (granular circular / block two halves).
@@ -418,12 +438,15 @@ private:
 
     Biquad aa_{};
     PitchShifter pitch_{};
+    Biquad pitchLp_{};                  // lowpass on the pitch-shifter output (tames clang)
     bool  pitchActive_   = false;
     float pitchBlend_    = 1.0f;
     float pitchBaseSemi_ = 0.0f;
     float pitchLfoInc_   = 0.0f;
     float pitchLfoPhase_ = 0.0f;
     float pitchLfoDepth_ = 0.0f;
+    float pitchLpCutoff_ = 4000.0f;
+    float pitchLpQ_      = 0.707f;
 
     // Wet-side modulated chorus stage.
     std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
