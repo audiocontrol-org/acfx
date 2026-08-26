@@ -58,6 +58,8 @@ public:
 
     static constexpr int   kPreMax   = 2880;   // 60 ms @ 48 kHz wet-side mod delay
     static constexpr float kModMaxMs = 5.0f;
+    static constexpr float kFilterLfoMaxOct = 2.5f;  // cutoff LFO full-depth swing (+/- octaves)
+    static constexpr float kFilterLfoMaxQ   = 5.0f;  // resonance LFO full-depth swing (+/- Q)
 
     enum : std::uint8_t {
         kDecay = 0, kDamping = 1, kMix = 2,
@@ -65,8 +67,9 @@ public:
         kWindowTime = 7, kMode = 8, kPitch = 9, kPitchBlend = 10,
         kPitchLfoRate = 11, kPitchLfoDepth = 12,
         kPitchLpCutoff = 13, kPitchLpReso = 14,
+        kFilterLfoRate = 15, kFilterLfoCutoffDepth = 16, kFilterLfoResoDepth = 17,
     };
-    static constexpr std::size_t kNumParams = 15;
+    static constexpr std::size_t kNumParams = 18;
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -100,7 +103,8 @@ public:
         pitch_.reset();
         pitchLp_.reset();
         resetCapture();
-        decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f; pitchLfoPhase_ = 0.0f;
+        decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f;
+        pitchLfoPhase_ = 0.0f; filterLfoPhase_ = 0.0f;
     }
 
     void setParameter(ParamId id, float normalized) noexcept {
@@ -149,6 +153,17 @@ public:
                 designLowpass(pitchLp_, sampleRate_ / static_cast<float>(kInternalDivisor),
                               pitchLpCutoff_, pitchLpQ_);
                 break;
+            case kFilterLfoRate:
+                filterLfoInc_ = v / (sampleRate_ / static_cast<float>(kInternalDivisor));
+                break;
+            case kFilterLfoCutoffDepth:
+                filterLfoCutoffDepth_ = v;
+                restoreFilterBaseIfIdle();
+                break;
+            case kFilterLfoResoDepth:
+                filterLfoResoDepth_ = v;
+                restoreFilterBaseIfIdle();
+                break;
             default: break;
         }
     }
@@ -184,6 +199,21 @@ public:
                 float pitched = pitch_.process(rev);
                 if (!(pitchActive_ || lfoOn)) pitched = rev;   // transparent when not pitching
                 rev += (pitched - rev) * pitchBlend_;          // blend pitched into the reverse
+                // Optional filter LFO: sweep cutoff (in octaves) and/or Q, redesign
+                // the biquad per tick only while engaged (keeps the transcendentals
+                // off the hot path otherwise).
+                if (filterLfoCutoffDepth_ > 0.001f || filterLfoResoDepth_ > 0.001f) {
+                    const float flfo = std::sin(kTwoPi * filterLfoPhase_);
+                    filterLfoPhase_ += filterLfoInc_;
+                    if (filterLfoPhase_ >= 1.0f) filterLfoPhase_ -= 1.0f;
+                    float fc = pitchLpCutoff_ * std::pow(2.0f, flfo * filterLfoCutoffDepth_ * kFilterLfoMaxOct);
+                    if (fc < 100.0f)  fc = 100.0f;
+                    if (fc > 7000.0f) fc = 7000.0f;
+                    float q = pitchLpQ_ + flfo * filterLfoResoDepth_ * kFilterLfoMaxQ;
+                    if (q < 0.4f)  q = 0.4f;
+                    if (q > 10.0f) q = 10.0f;
+                    designLowpass(pitchLp_, sampleRate_ / static_cast<float>(kInternalDivisor), fc, q);
+                }
                 rev = pitchLp_.process(rev);                   // lowpass the blended stream
                                                                // (pitched + dry reverse both)
                 wetPrev_ = wetCur_;
@@ -276,6 +306,15 @@ private:
         const float tap = line.readFractional(d);
         line.write(x + feedback_ * tap);
         return x + 0.5f * tap;
+    }
+
+    // When both filter-LFO depths are off, restore the biquad to its base
+    // cutoff/Q (the per-tick modulation path is skipped, so it would otherwise
+    // stay stuck at the last swept coefficients).
+    void restoreFilterBaseIfIdle() noexcept {
+        if (filterLfoCutoffDepth_ < 0.001f && filterLfoResoDepth_ < 0.001f)
+            designLowpass(pitchLp_, sampleRate_ / static_cast<float>(kInternalDivisor),
+                          pitchLpCutoff_, pitchLpQ_);
     }
 
     // Two-tap crossfade granular pitch shifter (classic real-time method) on the
@@ -413,6 +452,12 @@ private:
          ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kPitchLpReso}, "pitch_lp_reso", ParamUnit::none, 0.0f, 1.0f, 0.1f,
          ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kFilterLfoRate}, "filter_lfo_rate", ParamUnit::hz, 0.02f, 8.0f, 0.3f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kFilterLfoCutoffDepth}, "filter_lfo_cutoff", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+         ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kFilterLfoResoDepth}, "filter_lfo_reso", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+         ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
     // kParams stays in ParamId order (internal lookups + the shared CC map key
@@ -423,7 +468,8 @@ private:
         constexpr std::uint8_t order[kNumParams] = {
             kMode, kWindowTime,                                     // reverse engine
             kPitch, kPitchBlend,                                    // pitch
-            kPitchLpCutoff, kPitchLpReso,                          // pitch filter
+            kPitchLpCutoff, kPitchLpReso,                          // filter
+            kFilterLfoRate, kFilterLfoCutoffDepth, kFilterLfoResoDepth, // filter LFO
             kPitchLfoRate, kPitchLfoDepth,                        // pitch LFO
             kDecay, kDamping,                                      // reverb tank
             kDelayTime, kModDepth, kModRate, kFeedback,           // wet chorus
@@ -468,6 +514,10 @@ private:
     float pitchLfoDepth_ = 0.0f;
     float pitchLpCutoff_ = 4000.0f;
     float pitchLpQ_      = 0.707f;
+    float filterLfoInc_        = 0.0f;
+    float filterLfoPhase_      = 0.0f;
+    float filterLfoCutoffDepth_ = 0.0f;
+    float filterLfoResoDepth_   = 0.0f;
 
     // Wet-side modulated chorus stage.
     std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
