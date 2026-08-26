@@ -58,6 +58,7 @@ inline constexpr CcBinding kCcBindings[] = {
     CcBinding{89, 16},   // CC89 -> wow_depth
     CcBinding{90, 17},   // CC90 -> flutter_rate     (fast tape pitch drift)
     CcBinding{91, 18},   // CC91 -> flutter_depth
+    CcBinding{92, 21},   // CC92 -> reverb algorithm (reverse-reverb: room/hall/plate)
     // -- Add further CC -> parameter-index bindings above this line. --
 };
 

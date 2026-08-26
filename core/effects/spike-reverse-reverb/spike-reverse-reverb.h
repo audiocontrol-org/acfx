@@ -51,10 +51,15 @@ public:
     static constexpr int kBufSize  = 2 * kWindow;    // shared: granular circular / block two halves
     static constexpr int kGrains   = 3;              // overlapping grain slots (2 active + margin)
 
-    static constexpr int kComb[8] = {405, 431, 463, 492, 516, 541, 565, 587};
-    static constexpr int kAp[4]   = {202, 160, 124, 82};
+    static constexpr int kComb[8] = {405, 431, 463, 492, 516, 541, 565, 587}; // Room: combs
+    static constexpr int kAp[4]   = {202, 160, 124, 82};                      // Room: allpasses
+    static constexpr int kFdn[4]         = {887, 1129, 1381, 1607}; // Hall: FDN delay lines
+    static constexpr int kPlateDiff[4]   = {113, 162, 241, 399};    // Plate: input diffusers
+    static constexpr int kPlateLoopAp    = 683;                     // Plate: in-loop allpass
+    static constexpr int kPlateLoopDelay = 2411;                    // Plate: loop delay
     static constexpr float kGain  = 0.015f;
     static constexpr float kApFb  = 0.5f;
+    enum { kRoom = 0, kHall = 1, kPlate = 2 };   // reverb algorithms (share the pool)
 
     static constexpr int   kPreMax   = 2880;   // 60 ms @ 48 kHz wet-side mod delay
     static constexpr float kModMaxMs = 5.0f;
@@ -68,9 +73,10 @@ public:
         kPitchLfoRate = 11, kPitchLfoDepth = 12,
         kPitchLpCutoff = 13, kPitchLpReso = 14,
         kFilterLfoRate = 15, kFilterLfoCutoffDepth = 16, kFilterLfoResoDepth = 17,
-        kEqFreq = 18, kEqGain = 19, kEqQ = 20,
+        kEqFreq = 18, kEqGain = 19, kEqQ = 20, kReverbAlgo = 21,
     };
-    static constexpr std::size_t kNumParams = 21;
+    static constexpr std::size_t kNumParams = 22;
+    static constexpr std::array<std::string_view, 3> kAlgoLabels = {{"room", "hall", "plate"}};
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -96,9 +102,7 @@ public:
 
     void reset() noexcept {
         cap_.fill(0);
-        pool_.fill(0.0f);
-        for (int i = 0; i < 8; ++i) { combPos_[i] = 0; combStore_[i] = 0.0f; }
-        for (int i = 0; i < 4; ++i) { apPos_[i] = 0; }
+        resetTank();
         for (int ch = 0; ch < 2; ++ch) preLine_[ch].reset();
         aa_.reset();
         pitch_.reset();
@@ -170,6 +174,11 @@ public:
             case kEqFreq: eqFreq_   = v; redesignEq(); break;
             case kEqGain: eqGainDb_ = v; redesignEq(); break;
             case kEqQ:    eqQ_      = v; redesignEq(); break;
+            case kReverbAlgo: {
+                const int a = v < 0.5f ? kRoom : (v < 1.5f ? kHall : kPlate);
+                if (a != algo_) { algo_ = a; resetTank(); }   // clear tail on switch
+                break;
+            }
             default: break;
         }
     }
@@ -406,26 +415,42 @@ private:
         bq.a2 = (1.0f - alpha / A) / a0;
     }
 
-    static constexpr int kPoolSize = [] {
-        int t = 0;
-        for (int i = 0; i < 8; ++i) t += kComb[i];
-        for (int i = 0; i < 4; ++i) t += kAp[i];
-        return t;
-    }();
+    // The three algorithms overlap in one shared pool (only one is active; a
+    // switch clears it). Pool is sized to the largest algorithm's footprint.
+    static constexpr int kRoomSize  = [] { int t = 0; for (int i = 0; i < 8; ++i) t += kComb[i];
+                                                       for (int i = 0; i < 4; ++i) t += kAp[i]; return t; }();
+    static constexpr int kHallSize  = [] { int t = 0; for (int i = 0; i < 4; ++i) t += kFdn[i]; return t; }();
+    static constexpr int kPlateSize = [] { int t = 0; for (int i = 0; i < 4; ++i) t += kPlateDiff[i];
+                                                       return t + kPlateLoopAp + kPlateLoopDelay; }();
+    static constexpr int kTankPool  = (kRoomSize > kHallSize ? kRoomSize : kHallSize) > kPlateSize
+                                    ? (kRoomSize > kHallSize ? kRoomSize : kHallSize) : kPlateSize;
 
-    int combOff(int i) const noexcept {
-        int off = 0;
-        for (int k = 0; k < i; ++k) off += kComb[k];
-        return off;
+    // Clear the tank buffer + all algorithm state (on reset / algorithm switch).
+    void resetTank() noexcept {
+        pool_.fill(0.0f);
+        for (int i = 0; i < 8; ++i) { combPos_[i] = 0; combStore_[i] = 0.0f; }
+        for (int i = 0; i < 4; ++i) { apPos_[i] = 0; }
+        for (int i = 0; i < 4; ++i) { fdnPos_[i] = 0; fdnDamp_[i] = 0.0f; platePos_[i] = 0; }
+        plateLoopApPos_ = 0; plateLoopDelayPos_ = 0; plateDamp_ = 0.0f;
     }
+
+    float runTank(float fed) noexcept {
+        switch (algo_) {
+            case kHall:  return runHall(fed);
+            case kPlate: return runPlate(fed);
+            default:     return runRoom(fed);
+        }
+    }
+
+    // --- Room: Freeverb (8 comb -> 4 allpass) ---
+    int combOff(int i) const noexcept { int off = 0; for (int k = 0; k < i; ++k) off += kComb[k]; return off; }
     int apOff(int i) const noexcept {
         int off = 0;
         for (int k = 0; k < 8; ++k) off += kComb[k];
         for (int k = 0; k < i; ++k) off += kAp[k];
         return off;
     }
-
-    float runTank(float fed) noexcept {
+    float runRoom(float fed) noexcept {
         float acc = 0.0f;
         for (int i = 0; i < 8; ++i) {
             const int off = combOff(i);
@@ -448,6 +473,58 @@ private:
             x = out;
         }
         return x;
+    }
+
+    // --- Hall: 4-line feedback delay network with a normalised Hadamard matrix ---
+    int fdnOff(int i) const noexcept { int off = 0; for (int k = 0; k < i; ++k) off += kFdn[k]; return off; }
+    float runHall(float fed) noexcept {
+        float d[4];
+        for (int i = 0; i < 4; ++i) {
+            const int idx = fdnOff(i) + fdnPos_[i];
+            float v = pool_[static_cast<std::size_t>(idx)];
+            fdnDamp_[i] = v * damp2_ + fdnDamp_[i] * damp1_;   // per-line damping
+            d[i] = fdnDamp_[i];
+        }
+        // Orthonormal 4x4 Hadamard mix (rows scaled by 0.5).
+        const float f0 = (d[0] + d[1] + d[2] + d[3]) * 0.5f;
+        const float f1 = (d[0] - d[1] + d[2] - d[3]) * 0.5f;
+        const float f2 = (d[0] + d[1] - d[2] - d[3]) * 0.5f;
+        const float f3 = (d[0] - d[1] - d[2] + d[3]) * 0.5f;
+        const float f[4] = {f0, f1, f2, f3};
+        for (int i = 0; i < 4; ++i) {
+            const int idx = fdnOff(i) + fdnPos_[i];
+            pool_[static_cast<std::size_t>(idx)] = fed + combFb_ * f[i];
+            if (++fdnPos_[i] >= kFdn[i]) fdnPos_[i] = 0;
+        }
+        return (d[0] + d[1] + d[2] + d[3]) * 0.5f;
+    }
+
+    // --- Plate: input diffusion -> a single damped allpass+delay feedback loop ---
+    int plateDiffOff(int i) const noexcept { int off = 0; for (int k = 0; k < i; ++k) off += kPlateDiff[k]; return off; }
+    int plateLoopApOff() const noexcept { int off = 0; for (int k = 0; k < 4; ++k) off += kPlateDiff[k]; return off; }
+    int plateLoopDelayOff() const noexcept { return plateLoopApOff() + kPlateLoopAp; }
+    float runPlate(float fed) noexcept {
+        float x = fed;
+        for (int i = 0; i < 4; ++i) {                 // input diffusion
+            const int idx = plateDiffOff(i) + platePos_[i];
+            const float bufout = pool_[static_cast<std::size_t>(idx)];
+            const float out    = -x + bufout;
+            pool_[static_cast<std::size_t>(idx)] = x + bufout * 0.7f;
+            if (++platePos_[i] >= kPlateDiff[i]) platePos_[i] = 0;
+            x = out;
+        }
+        const int dIdx = plateLoopDelayOff() + plateLoopDelayPos_;
+        const float d  = pool_[static_cast<std::size_t>(dIdx)];
+        plateDamp_ = d * damp2_ + plateDamp_ * damp1_;          // loop damping
+        const float loopIn = x + combFb_ * plateDamp_;          // decay feedback
+        const int aIdx = plateLoopApOff() + plateLoopApPos_;    // in-loop allpass
+        const float aBuf = pool_[static_cast<std::size_t>(aIdx)];
+        const float aOut = -loopIn + aBuf;
+        pool_[static_cast<std::size_t>(aIdx)] = loopIn + aBuf * 0.6f;
+        if (++plateLoopApPos_ >= kPlateLoopAp) plateLoopApPos_ = 0;
+        pool_[static_cast<std::size_t>(dIdx)] = aOut;           // write loop delay
+        if (++plateLoopDelayPos_ >= kPlateLoopDelay) plateLoopDelayPos_ = 0;
+        return plateDamp_;
     }
 
     static constexpr std::array<ParameterDescriptor, kNumParams> kParams = {{
@@ -493,6 +570,8 @@ private:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kEqQ}, "Output/EQ Q", ParamUnit::none, 0.3f, 8.0f, 1.0f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kReverbAlgo}, "Reverb/Algorithm", ParamUnit::none, 0.0f, 2.0f, 0.0f,
+         ParamSkew::linear, ParamKind::discrete, 3, kAlgoLabels},
     }};
 
     // kParams stays in ParamId order (internal lookups + the shared CC map key
@@ -505,7 +584,7 @@ private:
             kPitch, kPitchBlend, kPitchLfoRate, kPitchLfoDepth,           // Pitch
             kPitchLpCutoff, kPitchLpReso,                                 // Filter
             kFilterLfoRate, kFilterLfoCutoffDepth, kFilterLfoResoDepth,   // Filter LFO
-            kDecay, kDamping,                                             // Reverb
+            kReverbAlgo, kDecay, kDamping,                                // Reverb
             kDelayTime, kModDepth, kModRate, kFeedback,                   // Chorus
             kMix, kEqFreq, kEqGain, kEqQ,                                 // Output
         };
@@ -570,10 +649,18 @@ private:
     float feedback_   = 0.0f;
 
     // Mono 16 kHz Freeverb tank.
-    std::array<float, kPoolSize> pool_{};
-    int   combPos_[8]   = {};
+    // Shared tank buffer (one algorithm active at a time; switching clears it).
+    std::array<float, kTankPool> pool_{};
+    int   algo_ = kRoom;
+    int   combPos_[8]   = {};     // Room
     float combStore_[8] = {};
     int   apPos_[4]     = {};
+    int   fdnPos_[4]    = {};     // Hall
+    float fdnDamp_[4]   = {};
+    int   platePos_[4]  = {};     // Plate
+    int   plateLoopApPos_    = 0;
+    int   plateLoopDelayPos_ = 0;
+    float plateDamp_         = 0.0f;
 
     int   decimPhase_ = 0;
     float wetPrev_    = 0.0f;
