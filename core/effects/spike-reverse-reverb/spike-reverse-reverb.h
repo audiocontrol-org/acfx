@@ -70,7 +70,11 @@ public:
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
-    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
+    // Display order for hosts/plugins groups related controls (reverse -> pitch
+    // -> pitch filter -> pitch LFO -> reverb -> wet chorus -> mix). The stable
+    // ParamId in each descriptor is preserved, so setParameter, the shared CC
+    // map, and automation ids are all unaffected by this regrouping.
+    static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParamsDisplay; }
 
     void prepare(const ProcessContext& ctx) noexcept {
         numChannels_ = ctx.numChannels < 2 ? ctx.numChannels : 2;
@@ -412,6 +416,25 @@ private:
         {ParamId{kPitchLpReso}, "pitch_lp_reso", ParamUnit::none, 0.0f, 1.0f, 0.1f,
          ParamSkew::linear, ParamKind::continuous, 0},
     }};
+
+    // kParams stays in ParamId order (internal lookups + the shared CC map key
+    // off position == id). This is the grouped view hosts show — a reordering of
+    // the SAME descriptors (each keeps its ParamId), derived so there is one
+    // source of truth.
+    static constexpr std::array<ParameterDescriptor, kNumParams> kParamsDisplay = [] {
+        constexpr std::uint8_t order[kNumParams] = {
+            kMode, kWindowTime,                                     // reverse engine
+            kPitch, kPitchBlend,                                    // pitch
+            kPitchLpCutoff, kPitchLpReso,                          // pitch filter
+            kPitchLfoRate, kPitchLfoDepth,                        // pitch LFO
+            kDecay, kDamping,                                      // reverb tank
+            kDelayTime, kModDepth, kModRate, kFeedback,           // wet chorus
+            kMix,                                                 // output
+        };
+        std::array<ParameterDescriptor, kNumParams> out = kParams;
+        for (std::size_t i = 0; i < kNumParams; ++i) out[i] = kParams[order[i]];
+        return out;
+    }();
 
     // Shared capture buffer (granular circular / block two halves).
     std::array<std::int16_t, kBufSize> cap_{};
