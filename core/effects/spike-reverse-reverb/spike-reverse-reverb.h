@@ -451,47 +451,47 @@ private:
     }
 
     static constexpr std::array<ParameterDescriptor, kNumParams> kParams = {{
-        {ParamId{kDecay}, "decay", ParamUnit::none, 0.0f, 1.0f, 1.0f,
+        {ParamId{kDecay}, "Reverb/Decay", ParamUnit::none, 0.0f, 1.0f, 1.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kDamping}, "damping", ParamUnit::none, 0.0f, 1.0f, 0.7f,
+        {ParamId{kDamping}, "Reverb/Damping", ParamUnit::none, 0.0f, 1.0f, 0.7f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kMix}, "mix", ParamUnit::none, 0.0f, 1.0f, 1.0f,
+        {ParamId{kMix}, "Output/Mix", ParamUnit::none, 0.0f, 1.0f, 1.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kDelayTime}, "delay_time", ParamUnit::seconds, 0.001f, 0.060f, 0.014f,
+        {ParamId{kDelayTime}, "Chorus/Time", ParamUnit::seconds, 0.001f, 0.060f, 0.014f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kModDepth}, "mod_depth", ParamUnit::none, 0.0f, 1.0f, 0.45f,
+        {ParamId{kModDepth}, "Chorus/Depth", ParamUnit::none, 0.0f, 1.0f, 0.45f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kModRate}, "mod_rate", ParamUnit::hz, 0.05f, 8.0f, 0.5f,
+        {ParamId{kModRate}, "Chorus/Rate", ParamUnit::hz, 0.05f, 8.0f, 0.5f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kFeedback}, "delay_feedback", ParamUnit::none, 0.0f, 0.85f, 0.0f,
+        {ParamId{kFeedback}, "Chorus/Feedback", ParamUnit::none, 0.0f, 0.85f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kWindowTime}, "window_time", ParamUnit::seconds, 0.1f, 1.0f, 0.5f,
+        {ParamId{kWindowTime}, "Reverse/Window", ParamUnit::seconds, 0.1f, 1.0f, 0.5f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kMode}, "mode", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+        {ParamId{kMode}, "Reverse/Mode", ParamUnit::none, 0.0f, 1.0f, 0.0f,
          ParamSkew::linear, ParamKind::discrete, 2, kModeLabels},
-        {ParamId{kPitch}, "pitch", ParamUnit::none, -12.0f, 12.0f, 0.0f,
+        {ParamId{kPitch}, "Pitch/Amount", ParamUnit::none, -12.0f, 12.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kPitchBlend}, "pitch_blend", ParamUnit::none, 0.0f, 1.0f, 0.11f,
+        {ParamId{kPitchBlend}, "Pitch/Blend", ParamUnit::none, 0.0f, 1.0f, 0.11f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kPitchLfoRate}, "pitch_lfo_rate", ParamUnit::hz, 0.02f, 1.0f, 0.2f,
+        {ParamId{kPitchLfoRate}, "Pitch/LFO Rate", ParamUnit::hz, 0.02f, 1.0f, 0.2f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kPitchLfoDepth}, "pitch_lfo_depth", ParamUnit::none, 0.0f, 12.0f, 0.0f,
+        {ParamId{kPitchLfoDepth}, "Pitch/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kPitchLpCutoff}, "pitch_lp_cutoff", ParamUnit::hz, 200.0f, 7000.0f, 4000.0f,
+        {ParamId{kPitchLpCutoff}, "Filter/Cutoff", ParamUnit::hz, 200.0f, 7000.0f, 4000.0f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kPitchLpReso}, "pitch_lp_reso", ParamUnit::none, 0.0f, 1.0f, 0.1f,
+        {ParamId{kPitchLpReso}, "Filter/Resonance", ParamUnit::none, 0.0f, 1.0f, 0.1f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kFilterLfoRate}, "filter_lfo_rate", ParamUnit::hz, 0.02f, 8.0f, 0.3f,
+        {ParamId{kFilterLfoRate}, "Filter/LFO Rate", ParamUnit::hz, 0.02f, 8.0f, 0.3f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kFilterLfoCutoffDepth}, "filter_lfo_cutoff", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+        {ParamId{kFilterLfoCutoffDepth}, "Filter/LFO Cutoff", ParamUnit::none, 0.0f, 1.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kFilterLfoResoDepth}, "filter_lfo_reso", ParamUnit::none, 0.0f, 1.0f, 0.0f,
+        {ParamId{kFilterLfoResoDepth}, "Filter/LFO Reso", ParamUnit::none, 0.0f, 1.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kEqFreq}, "eq_freq", ParamUnit::hz, 40.0f, 12000.0f, 300.0f,
+        {ParamId{kEqFreq}, "Output/EQ Freq", ParamUnit::hz, 40.0f, 12000.0f, 300.0f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kEqGain}, "eq_gain", ParamUnit::decibels, -18.0f, 18.0f, 0.0f,
+        {ParamId{kEqGain}, "Output/EQ Gain", ParamUnit::decibels, -18.0f, 18.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kEqQ}, "eq_q", ParamUnit::none, 0.3f, 8.0f, 1.0f,
+        {ParamId{kEqQ}, "Output/EQ Q", ParamUnit::none, 0.3f, 8.0f, 1.0f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
     }};
 
@@ -501,15 +501,13 @@ private:
     // source of truth.
     static constexpr std::array<ParameterDescriptor, kNumParams> kParamsDisplay = [] {
         constexpr std::uint8_t order[kNumParams] = {
-            kMode, kWindowTime,                                     // reverse engine
-            kPitch, kPitchBlend,                                    // pitch
-            kPitchLpCutoff, kPitchLpReso,                          // filter
-            kFilterLfoRate, kFilterLfoCutoffDepth, kFilterLfoResoDepth, // filter LFO
-            kPitchLfoRate, kPitchLfoDepth,                        // pitch LFO
-            kDecay, kDamping,                                      // reverb tank
-            kDelayTime, kModDepth, kModRate, kFeedback,           // wet chorus
-            kMix,                                                 // output
-            kEqFreq, kEqGain, kEqQ,                              // output parametric EQ
+            kMode, kWindowTime,                                            // Reverse
+            kPitch, kPitchBlend, kPitchLfoRate, kPitchLfoDepth,           // Pitch
+            kPitchLpCutoff, kPitchLpReso,                                 // Filter
+            kFilterLfoRate, kFilterLfoCutoffDepth, kFilterLfoResoDepth,   // Filter LFO
+            kDecay, kDamping,                                             // Reverb
+            kDelayTime, kModDepth, kModRate, kFeedback,                   // Chorus
+            kMix, kEqFreq, kEqGain, kEqQ,                                 // Output
         };
         std::array<ParameterDescriptor, kNumParams> out = kParams;
         for (std::size_t i = 0; i < kNumParams; ++i) out[i] = kParams[order[i]];
