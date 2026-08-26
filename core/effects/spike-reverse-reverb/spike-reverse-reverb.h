@@ -387,7 +387,7 @@ private:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kPitchBlend}, "pitch_blend", ParamUnit::none, 0.0f, 1.0f, 1.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kPitchLfoRate}, "pitch_lfo_rate", ParamUnit::hz, 0.05f, 12.0f, 2.0f,
+        {ParamId{kPitchLfoRate}, "pitch_lfo_rate", ParamUnit::hz, 0.02f, 2.5f, 0.5f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kPitchLfoDepth}, "pitch_lfo_depth", ParamUnit::none, 0.0f, 12.0f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
