@@ -44,7 +44,8 @@ namespace acfx {
 class SpikeReverseReverb {
 public:
     static constexpr int kInternalDivisor = 3;       // 48k -> 16k capture + tank rate
-    static constexpr int kWindow          = 16000;   // 1.0 s @ 16 kHz (fixed for the spike)
+    static constexpr int kWindow          = 16000;   // 1.0 s @ 16 kHz — MAX window (memory bound)
+    static constexpr int kMinWindow       = 1600;    // 0.1 s @ 16 kHz — shortest swell
 
     static constexpr int kComb[8] = {405, 431, 463, 492, 516, 541, 565, 587};
     static constexpr int kAp[4]   = {202, 160, 124, 82};
@@ -57,8 +58,9 @@ public:
     enum : std::uint8_t {
         kDecay = 0, kDamping = 1, kMix = 2,
         kDelayTime = 3, kModDepth = 4, kModRate = 5, kFeedback = 6,
+        kWindowTime = 7,
     };
-    static constexpr std::size_t kNumParams = 7;
+    static constexpr std::size_t kNumParams = 8;
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
@@ -85,6 +87,7 @@ public:
         for (int ch = 0; ch < 2; ++ch) preLine_[ch].reset();
         aa_.reset();
         sel_ = 0; writeIdx_ = 0; playIdx_ = 0; playActive_ = false;
+        fillCount_[0] = 0; fillCount_[1] = 0; windowLen_ = pendingWindow_;
         decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f;
     }
 
@@ -99,6 +102,16 @@ public:
             case kModDepth:  modDepth_  = v;                                break;
             case kModRate:   lfoInc_    = v / sampleRate_;                  break;
             case kFeedback:  feedback_  = v;                                break;
+            case kWindowTime: {
+                // Seconds of captured audio -> decimated-rate samples, clamped
+                // to [kMinWindow, kWindow]. Latched at the next swap so an
+                // in-flight window is never truncated mid-capture.
+                int w = static_cast<int>(v * sampleRate_ / static_cast<float>(kInternalDivisor));
+                if (w < kMinWindow) w = kMinWindow;
+                if (w > kWindow)    w = kWindow;
+                pendingWindow_ = w;
+                break;
+            }
             default: break;
         }
     }
@@ -129,11 +142,13 @@ public:
                 wetPrev_ = wetCur_;
                 wetCur_  = runTank(rev * kGain);
 
-                if (writeIdx_ >= kWindow) {
+                if (writeIdx_ >= windowLen_) {
+                    fillCount_[sel_] = writeIdx_;            // samples this buffer holds
                     sel_ ^= 1;
                     writeIdx_  = 0;
-                    playIdx_   = kWindow - 1;
+                    playIdx_   = fillCount_[sel_ ^ 1] - 1;  // play the buffer just filled
                     playActive_ = true;
+                    windowLen_ = pendingWindow_;             // latch new length for next cycle
                 }
             }
 
@@ -245,6 +260,8 @@ private:
          ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kFeedback}, "delay_feedback", ParamUnit::none, 0.0f, 0.85f, 0.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kWindowTime}, "window_time", ParamUnit::seconds, 0.1f, 1.0f, 1.0f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
     }};
 
     // Double-buffered decimated int16 capture (the memory-critical store).
@@ -253,6 +270,9 @@ private:
     int  writeIdx_   = 0;
     int  playIdx_    = 0;
     bool playActive_ = false;
+    int  fillCount_[2]  = {0, 0};     // valid samples in each buffer
+    int  windowLen_     = kWindow;    // active capture length (latched at swap)
+    int  pendingWindow_ = kWindow;    // target set by the window_time param
 
     Biquad aa_{};
 
