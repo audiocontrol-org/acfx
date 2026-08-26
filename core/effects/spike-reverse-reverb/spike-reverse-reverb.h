@@ -3,26 +3,24 @@
 // ============================================================================
 // SPIKE / THROWAWAY — reverse-reverb feasibility probe, NOT a shipping effect.
 // ----------------------------------------------------------------------------
-// Answers "does a reverse reverb fit in the F446 SRAM using decimation for the
-// capture window?" A reverse reverb must buffer a window before it can reverse
-// it, so it is inherently latent (latency == window length) and double-
-// buffered (capture window A while emitting the reversed+reverberated B).
+// A reverse reverb must buffer a window before it can reverse it, so it is
+// inherently latent (latency == window length) and double-buffered (capture
+// window A while emitting the reversed+reverberated B).
 //
-// DECIMATION DONE PROPERLY (revised after the first probe aliased audibly):
-//   - capture rate is 16 kHz (D=3 from 48k), stored int16, double-buffered:
-//     16000 * int16 * 2 buffers = 64 KB (vs 375 KB full-rate stereo).
-//   - an anti-alias BIQUAD lowpass runs at the full rate BEFORE the input is
-//     decimated, so content above the 8 kHz decimated-Nyquist can no longer
-//     fold back down as aliasing (the first /6 sample-and-hold probe's main
-//     artifact source).
-//   - the reversed window is streamed through a mono 16 kHz Freeverb tank, and
-//     the wet output is LINEARLY INTERPOLATED across each decimation interval
-//     (not zero-order held) to suppress the stair-step imaging.
+// DECIMATION DONE PROPERLY: capture at 16 kHz (D=3), int16, double-buffered
+// (64 KB); an anti-alias biquad runs at the full rate BEFORE decimation so
+// content above the 8 kHz decimated-Nyquist cannot fold back as aliasing; the
+// reversed window streams through a mono 16 kHz Freeverb tank and the wet
+// output is linearly interpolated (not zero-order held) to kill imaging.
 //
-// int16 is retained deliberately: its ~-96 dB floor is inaudible next to the
-// reverb, and float capture would double the window to 128 KB. If this probe
-// passes it gets replaced by a specced effect (window/rate as live params,
-// crossfaded swaps, tests) — do not build on it.
+// v2 adds a MODULATED DELAY stage on the WET output (per channel, full-rate
+// int16, up to 60 ms): an LFO-swept tap blended with the swell — chorus with a
+// 1/4-cycle stereo LFO offset for width, feedback for shimmer/echo. Params 3..6
+// map onto the existing CC70/73/75/78 bindings.
+//
+// int16 is retained deliberately (its ~-96 dB floor is inaudible next to the
+// reverb; float capture would double the window to 128 KB). If this probe
+// passes it gets replaced by a specced effect — do not build on it.
 //
 // Platform independence (Constitution IV): standard library only, no heap.
 // Single-context setParameter (D26): params applied directly.
@@ -38,6 +36,7 @@
 #include "dsp/parameter.h"
 #include "dsp/process-context.h"
 #include "dsp/span.h"
+#include "primitives/delays/bounded-delay-line.h"
 #include "primitives/lofi/int16-quant.h"
 
 namespace acfx {
@@ -47,26 +46,33 @@ public:
     static constexpr int kInternalDivisor = 3;       // 48k -> 16k capture + tank rate
     static constexpr int kWindow          = 16000;   // 1.0 s @ 16 kHz (fixed for the spike)
 
-    // Mono Freeverb tunings scaled from 44.1 kHz to 16 kHz (round(len*16000/44100)).
     static constexpr int kComb[8] = {405, 431, 463, 492, 516, 541, 565, 587};
     static constexpr int kAp[4]   = {202, 160, 124, 82};
     static constexpr float kGain  = 0.015f;
     static constexpr float kApFb  = 0.5f;
 
-    enum : std::uint8_t { kDecay = 0, kDamping = 1, kMix = 2 };
-    static constexpr std::size_t kNumParams = 3;
+    static constexpr int   kPreMax   = 2880;   // 60 ms @ 48 kHz wet-side mod delay
+    static constexpr float kModMaxMs = 5.0f;
+
+    enum : std::uint8_t {
+        kDecay = 0, kDamping = 1, kMix = 2,
+        kDelayTime = 3, kModDepth = 4, kModRate = 5, kFeedback = 6,
+    };
+    static constexpr std::size_t kNumParams = 7;
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
     void prepare(const ProcessContext& ctx) noexcept {
         numChannels_ = ctx.numChannels < 2 ? ctx.numChannels : 2;
-        const float fs = static_cast<float>(ctx.sampleRate);
-        // Anti-alias cutoff at 85% of the decimated Nyquist (16 kHz / 2).
-        const float decimatedRate = fs / static_cast<float>(kInternalDivisor);
-        designLowpass(aa_, fs, decimatedRate * 0.5f * 0.85f);
-        setParameter(ParamId{kDecay},   normalize(kParams[kDecay],   kParams[kDecay].defaultValue));
-        setParameter(ParamId{kDamping}, normalize(kParams[kDamping], kParams[kDamping].defaultValue));
-        setParameter(ParamId{kMix},     normalize(kParams[kMix],     kParams[kMix].defaultValue));
+        sampleRate_  = static_cast<float>(ctx.sampleRate);
+        modMaxSamp_  = kModMaxMs * 0.001f * sampleRate_;
+        const float decimatedRate = sampleRate_ / static_cast<float>(kInternalDivisor);
+        designLowpass(aa_, sampleRate_, decimatedRate * 0.5f * 0.85f);
+        const int cap = static_cast<int>(0.060f * sampleRate_) + 1;
+        for (int ch = 0; ch < 2; ++ch) preLine_[ch].prepare(cap, sampleRate_);
+        for (std::size_t i = 0; i < kNumParams; ++i)
+            setParameter(ParamId{static_cast<std::uint8_t>(i)},
+                         normalize(kParams[i], kParams[i].defaultValue));
         reset();
     }
 
@@ -76,18 +82,23 @@ public:
         pool_.fill(0.0f);
         for (int i = 0; i < 8; ++i) { combPos_[i] = 0; combStore_[i] = 0.0f; }
         for (int i = 0; i < 4; ++i) { apPos_[i] = 0; }
+        for (int ch = 0; ch < 2; ++ch) preLine_[ch].reset();
         aa_.reset();
         sel_ = 0; writeIdx_ = 0; playIdx_ = 0; playActive_ = false;
-        decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f;
+        decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f;
     }
 
     void setParameter(ParamId id, float normalized) noexcept {
         if (id.value >= kNumParams) return;
         const float v = denormalize(kParams[id.value], normalized);
         switch (id.value) {
-            case kDecay:   combFb_ = v * 0.28f + 0.7f;                 break;
-            case kDamping: damp1_  = v * 0.4f; damp2_ = 1.0f - damp1_; break;
-            case kMix:     mix_    = v;                                break;
+            case kDecay:     combFb_    = v * 0.28f + 0.7f;                 break;
+            case kDamping:   damp1_     = v * 0.4f; damp2_ = 1.0f - damp1_; break;
+            case kMix:       mix_       = v;                                break;
+            case kDelayTime: baseDelay_ = v * sampleRate_;                  break;
+            case kModDepth:  modDepth_  = v;                                break;
+            case kModRate:   lfoInc_    = v / sampleRate_;                  break;
+            case kFeedback:  feedback_  = v;                                break;
             default: break;
         }
     }
@@ -98,22 +109,18 @@ public:
         float* xL = io.channel(0);
         float* xR = channels > 1 ? io.channel(1) : xL;
         const float invD = 1.0f / static_cast<float>(kInternalDivisor);
+        constexpr float kTwoPi = 6.28318530718f;
 
         for (int n = 0; n < samples; ++n) {
             const float dryL = xL[n];
             const float dryR = xR[n];
 
-            // Anti-alias filter the mono input at the FULL rate, every sample,
-            // so the decimated capture below cannot alias.
             const float monoAA = aa_.process((dryL + dryR) * 0.5f);
 
             if (decimPhase_ == 0) {
-                // Store one anti-aliased, decimated sample into the write buffer.
                 bufs_[sel_][static_cast<std::size_t>(writeIdx_)] = quantizeInt16(monoAA);
                 ++writeIdx_;
 
-                // Emit one reversed sample through the tank; interpolate between
-                // the previous and current wet values across the D-sample gap.
                 float rev = 0.0f;
                 if (playActive_ && playIdx_ >= 0) {
                     rev = dequantizeInt16(bufs_[sel_ ^ 1][static_cast<std::size_t>(playIdx_)]);
@@ -130,19 +137,32 @@ public:
                 }
             }
 
-            // Linear reconstruction: ramp from wetPrev_ to wetCur_ over the
-            // interval (removes the zero-order-hold stair-step imaging).
             const float frac = static_cast<float>(decimPhase_) * invD;
-            const float wet  = wetPrev_ + (wetCur_ - wetPrev_) * frac;
+            const float wet  = wetPrev_ + (wetCur_ - wetPrev_) * frac;   // mono reconstructed swell
             decimPhase_ = (decimPhase_ + 1) % kInternalDivisor;
 
-            xL[n] = dryL * (1.0f - mix_) + wet * mix_;
-            if (channels > 1) xR[n] = dryR * (1.0f - mix_) + wet * mix_;
+            // Modulated chorus on the wet swell (full rate, stereo via LFO offset).
+            const float lfoL = std::sin(kTwoPi * lfoPhase_);
+            const float lfoR = std::sin(kTwoPi * (lfoPhase_ + 0.25f));
+            lfoPhase_ += lfoInc_;
+            if (lfoPhase_ >= 1.0f) lfoPhase_ -= 1.0f;
+            const float wetL = chorusSample(0, wet, lfoL);
+            const float wetR = channels > 1 ? chorusSample(1, wet, lfoR) : wetL;
+
+            xL[n] = dryL * (1.0f - mix_) + wetL * mix_;
+            if (channels > 1) xR[n] = dryR * (1.0f - mix_) + wetR * mix_;
         }
     }
 
 private:
-    // --- minimal RBJ biquad (Direct Form I), for the anti-alias lowpass ---
+    float chorusSample(int ch, float x, float lfo) noexcept {
+        auto& line = preLine_[static_cast<std::size_t>(ch)];
+        const float d   = baseDelay_ + lfo * modDepth_ * modMaxSamp_;
+        const float tap = line.readFractional(d);
+        line.write(x + feedback_ * tap);
+        return x + 0.5f * tap;
+    }
+
     struct Biquad {
         float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
         float x1 = 0, x2 = 0, y1 = 0, y2 = 0;
@@ -157,7 +177,7 @@ private:
         const float w0    = 2.0f * 3.14159265358979f * fc / fs;
         const float cosw  = std::cos(w0);
         const float sinw  = std::sin(w0);
-        const float alpha = sinw / (2.0f * 0.70710678f);   // Q = 1/sqrt(2), Butterworth
+        const float alpha = sinw / (2.0f * 0.70710678f);
         const float a0    = 1.0f + alpha;
         bq.b0 = (1.0f - cosw) * 0.5f / a0;
         bq.b1 = (1.0f - cosw)        / a0;
@@ -217,6 +237,14 @@ private:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kMix}, "mix", ParamUnit::none, 0.0f, 1.0f, 0.7f,
          ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kDelayTime}, "delay_time", ParamUnit::seconds, 0.001f, 0.060f, 0.014f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kModDepth}, "mod_depth", ParamUnit::none, 0.0f, 1.0f, 0.45f,
+         ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kModRate}, "mod_rate", ParamUnit::hz, 0.05f, 8.0f, 0.5f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kFeedback}, "delay_feedback", ParamUnit::none, 0.0f, 0.85f, 0.0f,
+         ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
     // Double-buffered decimated int16 capture (the memory-critical store).
@@ -226,7 +254,16 @@ private:
     int  playIdx_    = 0;
     bool playActive_ = false;
 
-    Biquad aa_{};                              // anti-alias lowpass (full-rate)
+    Biquad aa_{};
+
+    // Wet-side modulated chorus stage.
+    std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
+    float baseDelay_  = 672.0f;    // 14 ms @ 48 kHz default
+    float modDepth_   = 0.45f;
+    float modMaxSamp_ = 240.0f;
+    float lfoInc_     = 0.0000104f;
+    float lfoPhase_   = 0.0f;
+    float feedback_   = 0.0f;
 
     // Mono 16 kHz Freeverb tank.
     std::array<float, kPoolSize> pool_{};
@@ -239,6 +276,7 @@ private:
     float wetCur_     = 0.0f;
 
     int   numChannels_ = 2;
+    float sampleRate_  = 48000.0f;
     float combFb_ = 0.924f;
     float damp1_  = 0.16f;
     float damp2_  = 0.84f;
