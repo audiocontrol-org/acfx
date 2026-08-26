@@ -45,3 +45,18 @@ acfx_add_effect_plugin(
 # addition this feature needs (mirrors adapters/workbench/CMakeLists.txt exactly).
 target_link_libraries(acfx_plugin PRIVATE acfx_analysis)
 target_link_libraries(acfx_plugin_delay PRIVATE acfx_analysis)
+
+# SPIKE / THROWAWAY reverse reverb — packaged as a plugin for collaborators to
+# audition. Same experimental core as the nucleo firmware (decimated int16
+# granular/block reverse reverb); unique code + CLAP id.
+acfx_add_effect_plugin(
+  NAME acfx_plugin_reverse_reverb
+  EFFECT_TYPE acfx::SpikeReverseReverb
+  EFFECT_HEADER effects/spike-reverse-reverb/spike-reverse-reverb.h
+  PRODUCT "acfx Reverse Reverb"
+  PLUGIN_CODE Arrv
+  CLAP_ID org.acfx.reverse-reverb
+  CLAP_FEATURES audio-effect reverb
+  SOURCES ${_acfx_plugin_sources}
+)
+target_link_libraries(acfx_plugin_reverse_reverb PRIVATE acfx_analysis)
