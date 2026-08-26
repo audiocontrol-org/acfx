@@ -63,8 +63,9 @@ public:
         kDecay = 0, kDamping = 1, kMix = 2,
         kDelayTime = 3, kModDepth = 4, kModRate = 5, kFeedback = 6,
         kWindowTime = 7, kMode = 8, kPitch = 9, kPitchBlend = 10,
+        kPitchLfoRate = 11, kPitchLfoDepth = 12,
     };
-    static constexpr std::size_t kNumParams = 11;
+    static constexpr std::size_t kNumParams = 13;
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -93,7 +94,7 @@ public:
         aa_.reset();
         pitch_.reset();
         resetCapture();
-        decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f;
+        decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; lfoPhase_ = 0.0f; pitchLfoPhase_ = 0.0f;
     }
 
     void setParameter(ParamId id, float normalized) noexcept {
@@ -123,10 +124,15 @@ public:
                 break;
             }
             case kPitch:
-                pitch_.rate  = std::pow(2.0f, v / 12.0f);        // semitones -> ratio
-                pitchActive_ = (v > 0.05f || v < -0.05f);        // exact 0 => transparent
+                pitchBaseSemi_ = v;                              // base transpose in semitones
+                pitch_.rate    = std::pow(2.0f, v / 12.0f);      // static base rate (LFO depth 0)
+                pitchActive_   = (v > 0.05f || v < -0.05f);      // exact 0 => transparent
                 break;
             case kPitchBlend: pitchBlend_ = v; break;            // 0=dry reverse .. 1=fully pitched
+            case kPitchLfoRate:
+                pitchLfoInc_ = v / (sampleRate_ / static_cast<float>(kInternalDivisor));
+                break;
+            case kPitchLfoDepth: pitchLfoDepth_ = v; break;      // vibrato depth in semitones
             default: break;
         }
     }
@@ -148,11 +154,19 @@ public:
             if (decimPhase_ == 0) {
                 float rev = (mode_ == kModeGranular) ? granularTick(monoAA)
                                                      : blockTick(monoAA);
-                // Always advance the shifter (keeps its buffer current); blend
-                // the pitched copy into the reverse stream. Transparent at 0
-                // semitones. pitch_blend: 0 = dry reverse, 1 = fully pitched.
+                // Optional pitch LFO (vibrato): recompute the shifter rate per
+                // tick only when depth is engaged (keeps powf off the hot path
+                // otherwise). Always advance the shifter to keep its buffer
+                // current; blend the pitched copy in. Transparent at 0.
+                const bool lfoOn = pitchLfoDepth_ > 0.001f;
+                if (lfoOn) {
+                    const float lfo = std::sin(kTwoPi * pitchLfoPhase_);
+                    pitchLfoPhase_ += pitchLfoInc_;
+                    if (pitchLfoPhase_ >= 1.0f) pitchLfoPhase_ -= 1.0f;
+                    pitch_.rate = std::pow(2.0f, (pitchBaseSemi_ + lfo * pitchLfoDepth_) / 12.0f);
+                }
                 float pitched = pitch_.process(rev);
-                if (!pitchActive_) pitched = rev;
+                if (!(pitchActive_ || lfoOn)) pitched = rev;
                 rev += (pitched - rev) * pitchBlend_;
                 wetPrev_ = wetCur_;
                 wetCur_  = runTank(rev * kGain);
@@ -373,6 +387,10 @@ private:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kPitchBlend}, "pitch_blend", ParamUnit::none, 0.0f, 1.0f, 1.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kPitchLfoRate}, "pitch_lfo_rate", ParamUnit::hz, 0.05f, 12.0f, 2.0f,
+         ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kPitchLfoDepth}, "pitch_lfo_depth", ParamUnit::none, 0.0f, 12.0f, 0.0f,
+         ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
     // Shared capture buffer (granular circular / block two halves).
@@ -400,8 +418,12 @@ private:
 
     Biquad aa_{};
     PitchShifter pitch_{};
-    bool  pitchActive_ = false;
-    float pitchBlend_  = 1.0f;
+    bool  pitchActive_   = false;
+    float pitchBlend_    = 1.0f;
+    float pitchBaseSemi_ = 0.0f;
+    float pitchLfoInc_   = 0.0f;
+    float pitchLfoPhase_ = 0.0f;
+    float pitchLfoDepth_ = 0.0f;
 
     // Wet-side modulated chorus stage.
     std::array<BoundedDelayLine<std::int16_t, kPreMax>, 2> preLine_{};
