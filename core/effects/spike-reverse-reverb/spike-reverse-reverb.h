@@ -182,12 +182,10 @@ public:
                     pitch_.rate = std::pow(2.0f, (pitchBaseSemi_ + lfo * pitchLfoDepth_) / 12.0f);
                 }
                 float pitched = pitch_.process(rev);
-                if (pitchActive_ || lfoOn) {
-                    pitched = pitchLp_.process(pitched);   // tame the shifter clang
-                } else {
-                    pitched = rev;                          // transparent when not pitching
-                }
-                rev += (pitched - rev) * pitchBlend_;
+                if (!(pitchActive_ || lfoOn)) pitched = rev;   // transparent when not pitching
+                rev += (pitched - rev) * pitchBlend_;          // blend pitched into the reverse
+                rev = pitchLp_.process(rev);                   // lowpass the blended stream
+                                                               // (pitched + dry reverse both)
                 wetPrev_ = wetCur_;
                 wetCur_  = runTank(rev * kGain);
             }
