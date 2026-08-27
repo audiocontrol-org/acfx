@@ -67,6 +67,10 @@ public:
     static constexpr int kVelvetTaps       = 160;
     static constexpr float kGain  = 0.015f;
     static constexpr float kApFb  = 0.5f;
+    // Per-algorithm output make-up gains, MEASURED offline to match room's level
+    // (scratchpad/measure-algos.cpp): each normalises steady-state RMS to room.
+    static constexpr float kHallGain = 6.3f, kPlateGain = 17.0f, kSpringGain = 15.5f,
+                           kGardnerGain = 17.3f, kSchroGain = 12.7f, kVelvetGain = 116.0f;
     enum { kRoom = 0, kHall = 1, kPlate = 2, kSpring = 3, kGardner = 4,
            kSchroeder = 5, kVelvet = 6 };   // algorithms (share the pool)
 
@@ -528,7 +532,7 @@ private:
             pool_[static_cast<std::size_t>(idx)] = fed + combFb_ * f[i];
             if (++fdnPos_[i] >= kFdn[i]) fdnPos_[i] = 0;
         }
-        return (d[0] + d[1] + d[2] + d[3]) * 1.8f;   // FDN output make-up gain
+        return (d[0] + d[1] + d[2] + d[3]) * kHallGain;
     }
 
     // --- Plate: input diffusion -> a single damped allpass+delay feedback loop ---
@@ -557,7 +561,7 @@ private:
         loopIn = allpassTrue(plateLoopApOff(), plateLoopApPos_, kPlateLoopAp, loopIn, 0.6f);
         pool_[static_cast<std::size_t>(dIdx)] = loopIn;
         if (++plateLoopDelayPos_ >= kPlateLoopDelay) plateLoopDelayPos_ = 0;
-        return plateDamp_;
+        return plateDamp_ * kPlateGain;
     }
 
     // --- Spring: dispersive allpass chain in a damped feedback loop (metallic) ---
@@ -572,7 +576,7 @@ private:
             x = allpassTrue(springApOff(i), springApPos_[i], kSpringAp[i], x, 0.6f);
         pool_[static_cast<std::size_t>(dIdx)] = x;
         if (++springDelayPos_ >= kSpringDelay) springDelayPos_ = 0;
-        return x;
+        return x * kSpringGain;
     }
 
     // --- Gardner: series medium allpasses into a damped feedback delay (smooth room) ---
@@ -587,7 +591,7 @@ private:
             x = allpassTrue(gardnerApOff(i), gardnerApPos_[i], kGardnerAp[i], x, 0.55f);
         pool_[static_cast<std::size_t>(dIdx)] = x;
         if (++gardnerDelayPos_ >= kGardnerDelay) gardnerDelayPos_ = 0;
-        return gardnerDamp_;
+        return gardnerDamp_ * kGardnerGain;
     }
 
     // --- Schroeder: 4 parallel damped combs -> 2 series allpass (vintage) ---
@@ -615,7 +619,7 @@ private:
             if (++schroApPos_[i] >= kSchroederAp[i]) schroApPos_[i] = 0;
             x = out;
         }
-        return x;
+        return x * kSchroGain;
     }
 
     // --- Velvet: sparse-FIR diffuse tail. Circular input buffer in pool_ + fixed taps. ---
@@ -628,7 +632,7 @@ private:
             acc += pool_[static_cast<std::size_t>(idx)] * velvetGain_[k];
         }
         if (++velvetW_ >= kVelvetLen) velvetW_ = 0;
-        return acc;
+        return acc * kVelvetGain;
     }
 
     // Fixed tables (mode frequencies, velvet tap layout); then decay-dependent coeffs.
