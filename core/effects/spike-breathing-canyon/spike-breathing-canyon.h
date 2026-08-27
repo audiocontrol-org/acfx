@@ -50,14 +50,11 @@ inline constexpr ParameterDescriptor cont(std::uint8_t id, std::string_view name
 class SpikeBreathingCanyon {
 public:
     static constexpr int kLines    = 6;
-    static constexpr int kInternalDivisor = 4;      // 48k -> 12 kHz internal
+    static constexpr int kInternalDivisor = 3;      // 48k -> 16 kHz internal
     static constexpr int kPreMax   = 4200;          // ~0.52 s pre-delay @ 8 kHz
-    static constexpr int kLineCap  = 2600;          // per-line capacity (~217 ms @ 12 kHz)
+    static constexpr int kLineCap  = 2900;          // per-line capacity (~181 ms @ 16 kHz; holds preset delays x max size)
     static constexpr int kPitchBuf = 2048;
     static constexpr int kPitchWin = 1024;
-    static constexpr float kSweepMaxSamp = 90.0f;
-    static constexpr int kChorusMax = 1800;   // full-rate (48 kHz) wet-chorus line: up to ~30 ms + mod
-    static constexpr float kChorusModMs = 5.0f;
     // Base per-line delay lengths @ 8 kHz (the Delays 1-6 defaults, ~90-260 ms).
     static constexpr int kBase[kLines] = {727, 1013, 1279, 1523, 1789, 2069};
 
@@ -67,9 +64,8 @@ public:
         kPitch = 9, kShimmer = 10, kBreath = 11,
         kDelay1 = 12, kRate1 = 18, kDepth1 = 24, kPan1 = 30, kLevel1 = 36,
         kAlgo = 42, kShimLfoRate = 43, kShimLfoDepth = 44,
-        kChorusTime = 45, kChorusDepth = 46, kChorusRate = 47, kChorusFeedback = 48,
-        kDuckAmount = 49, kDuckRelease = 50, kTransient = 51,
-        kNumParams = 52,
+        kDuckAmount = 45, kDuckRelease = 46, kTransient = 47,
+        kNumParams = 48,
     };
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
     // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
@@ -89,9 +85,7 @@ public:
           for (int i = 0; i < kInDiff; ++i) diff_[i].prepare(c[i], rate); }
         { constexpr int c[kLines] = {131, 193, 239, 281, 337, 397};
           for (int i = 0; i < kLines; ++i) lineAP_[i].prepare(c[i], rate); }
-        // Wet-side chorus runs at the FULL output rate (not the 12 kHz tank rate).
-        for (int ch = 0; ch < 2; ++ch) chorusLine_[ch].prepare(kChorusMax, sampleRate_);
-        chorusModMax_ = kChorusModMs * 0.001f * sampleRate_;
+        sweepMaxSamp_ = 0.0075f * internalRate_;   // ~7.5 ms sweep depth, rate-relative
         // Envelope-follower coefficients (full output rate).
         duckAtk_   = 1.0f - std::exp(-1.0f / (0.005f * sampleRate_));  // ~5 ms duck attack
         transBase_ = 1.0f - std::exp(-1.0f / (0.010f * sampleRate_)); // ~10 ms transient baseline
@@ -110,11 +104,11 @@ public:
         for (int i = 0; i < kInDiff; ++i) diff_[i].reset();
         for (int i = 0; i < kLines; ++i) lineAP_[i].reset();
         pitchBuf_.fill(0); pitchW_ = 0; pitchO0_ = 0.0f; pitchO1_ = static_cast<float>(kPitchWin) * 0.5f;
-        aa_.reset(); hpf_.reset();
+        aa1_.reset(); aa2_.reset(); aa3_.reset(); hpf_.reset();
+        recL1_.reset(); recL2_.reset(); recR1_.reset(); recR2_.reset();
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
         loopDamp_ = 0.0f; breathPhase_ = 0.0f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
-        for (int ch = 0; ch < 2; ++ch) chorusLine_[ch].reset();
-        chorusLfoPhase_ = 0.0f; duckEnv_ = 0.0f; transEnv_ = 0.0f;
+        duckEnv_ = 0.0f; transEnv_ = 0.0f;
     }
 
     // Look up a descriptor by ParamId. kParams is ordered for UI grouping, NOT
@@ -156,10 +150,6 @@ public:
             case kShimLfoRate: { const float hz = 0.02f * std::pow(100.0f, v); // 0.02..2 Hz, log
                                  shimLfoInc_ = hz / internalRate_;               break; }
             case kShimLfoDepth: shimLfoDepth_ = v;                               break; // semitones (0..12)
-            case kChorusTime:     chorusBase_ = v * sampleRate_;                 break; // seconds -> samples @ full rate
-            case kChorusDepth:    chorusDepth_ = v;                              break;
-            case kChorusRate:     chorusLfoInc_ = v / sampleRate_;               break; // Hz -> phase/sample
-            case kChorusFeedback: chorusFb_ = v;                                 break;
             case kDuckAmount:  duckAmount_ = v;                                  break; // 0..1 wet attenuation by dry
             case kDuckRelease: duckRel_ = 1.0f - std::exp(-1.0f / (v * sampleRate_)); break; // release seconds
             case kTransient:   transAmount_ = v;                                 break; // 0..1 input transient softening
@@ -177,7 +167,7 @@ public:
 
         for (int n = 0; n < samples; ++n) {
             const float dryL = xL[n], dryR = xR[n];
-            float monoAA = aa_.process((dryL + dryR) * 0.5f);
+            float monoAA = aa3_.process(aa2_.process(aa1_.process((dryL + dryR) * 0.5f)));
 
             // Transient taming: a ~10 ms baseline follower; when the instantaneous
             // level spikes above it (a transient), pull the peak back toward the
@@ -211,7 +201,7 @@ public:
                     advanceSweep(i);
                     const float target = lineDelay_[i] * sizeScale_ * (0.25f + 1.5f * mDelayFromSize());
                     glideLen_[i] += glideCoef_ * (target - glideLen_[i]);   // smoothed delay time
-                    float rd = glideLen_[i] - lineDepth_[i] * mDepth_ * kSweepMaxSamp * sweepVal_[i];
+                    float rd = glideLen_[i] - lineDepth_[i] * mDepth_ * sweepMaxSamp_ * sweepVal_[i];
                     if (rd < 1.0f) rd = 1.0f;
                     if (rd > kLineCap - 1) rd = kLineCap - 1;
                     float s = lines_[i].readFractional(rd);
@@ -262,14 +252,6 @@ public:
             float woR = wetPrevR_ + (wetCurR_ - wetPrevR_) * frac;
             decimPhase_ = (decimPhase_ + 1) % kInternalDivisor;
 
-            // Wet-side stereo chorus (full rate): quadrature LFO, per-channel line.
-            const float clfoL = std::sin(kTwoPi * chorusLfoPhase_);
-            const float clfoR = std::sin(kTwoPi * (chorusLfoPhase_ + 0.25f));
-            chorusLfoPhase_ += chorusLfoInc_;
-            if (chorusLfoPhase_ >= 1.0f) chorusLfoPhase_ -= 1.0f;
-            woL = chorusSample(0, woL, clfoL);
-            woR = chorusSample(1, woR, clfoR);
-
             // Ducking: the dry input is the sidechain. When it's loud, pull the wet
             // down so the source stays on top of the reverb wash. Fast attack, an
             // adjustable release; on a 100%-wet send the sidechain is still the
@@ -281,6 +263,10 @@ public:
                 const float dg = 1.0f - duckAmount_ * sc;                     // max reduction == amount
                 woL *= dg; woR *= dg;
             }
+
+            // Reconstruction LP on the wet only (kills upsampling images; dry passes clean).
+            woL = recL2_.process(recL1_.process(woL));
+            woR = recR2_.process(recR1_.process(woR));
 
             xL[n] = dryL * (1.0f - mix_) + woL * mix_;
             if (channels > 1) xR[n] = dryR * (1.0f - mix_) + woR * mix_;
@@ -300,17 +286,6 @@ private:
             sweepCnt_[i] = period + (static_cast<int>(rng_ >> 3) & 63);
         }
         sweepVal_[i] += 0.01f * (sweepTarget_[i] - sweepVal_[i]);
-    }
-
-    // Wet-side modulated chorus (one per channel), same shape as the reverse
-    // reverb: a modulated delay tap mixed 50/50 with the input, with feedback.
-    float chorusSample(int ch, float x, float lfo) noexcept {
-        auto& line = chorusLine_[static_cast<std::size_t>(ch)];
-        float d = chorusBase_ + lfo * chorusDepth_ * chorusModMax_;
-        if (d < 1.0f) d = 1.0f;
-        const float tap = line.readFractional(d);
-        line.write(x + chorusFb_ * tap);
-        return x + 0.5f * tap;
     }
 
     static float softClip(float x) noexcept {
@@ -353,16 +328,33 @@ private:
         float process(float x) noexcept { const float y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2;
             x2 = x1; x1 = x; y2 = y1; y1 = y; return y; }
     };
+    static void designLP(Biquad& bq, float fc, float fs, float Q) noexcept {
+        const float w0 = 2*3.14159265f*fc/fs, c = std::cos(w0), s = std::sin(w0);
+        const float al = s/(2*Q), a0 = 1+al;
+        bq.b0=(1-c)*0.5f/a0; bq.b1=(1-c)/a0; bq.b2=(1-c)*0.5f/a0; bq.a1=-2*c/a0; bq.a2=(1-al)/a0;
+    }
+    static void designHP(Biquad& bq, float fc, float fs, float Q) noexcept {
+        const float w0 = 2*3.14159265f*fc/fs, c = std::cos(w0), s = std::sin(w0);
+        const float al = s/(2*Q), a0 = 1+al;
+        bq.b0=(1+c)*0.5f/a0; bq.b1=-(1+c)/a0; bq.b2=(1+c)*0.5f/a0; bq.a1=-2*c/a0; bq.a2=(1-al)/a0;
+    }
     void designFilters() noexcept {
-        const float rate = sampleRate_ / static_cast<float>(kInternalDivisor);
-        // anti-alias LP before decimation
-        { const float fc = rate * 0.5f * 0.85f, w0 = 2*3.14159265f*fc/sampleRate_, c = std::cos(w0), s = std::sin(w0);
-          const float al = s/(2*0.70710678f), a0 = 1+al;
-          aa_.b0=(1-c)*0.5f/a0; aa_.b1=(1-c)/a0; aa_.b2=(1-c)*0.5f/a0; aa_.a1=-2*c/a0; aa_.a2=(1-al)/a0; }
-        // loop HPF ~80 Hz (down-shift safety)
-        { const float fc = 80.0f, w0 = 2*3.14159265f*fc/rate, c = std::cos(w0), s = std::sin(w0);
-          const float al = s/(2*0.70710678f), a0 = 1+al;
-          hpf_.b0=(1+c)*0.5f/a0; hpf_.b1=-(1+c)/a0; hpf_.b2=(1+c)*0.5f/a0; hpf_.a1=-2*c/a0; hpf_.a2=(1-al)/a0; }
+        const float rate = internalRate_;
+        // 6th-order Butterworth anti-alias before decimation (Q of the three
+        // biquad sections). Steep enough that >Nyquist transient energy is gone
+        // before it can fold back as harsh aliasing.
+        const float aaFc = rate * 0.5f * 0.9f;
+        designLP(aa1_, aaFc, sampleRate_, 0.51764f);
+        designLP(aa2_, aaFc, sampleRate_, 0.70711f);
+        designLP(aa3_, aaFc, sampleRate_, 1.93185f);
+        // 4th-order Butterworth reconstruction LP on the wet output: removes the
+        // upsampling images the linear interpolator leaves above Nyquist.
+        const float recFc = rate * 0.5f * 0.9f;
+        designLP(recL1_, recFc, sampleRate_, 0.54120f);
+        designLP(recL2_, recFc, sampleRate_, 1.30656f);
+        designLP(recR1_, recFc, sampleRate_, 0.54120f);
+        designLP(recR2_, recFc, sampleRate_, 1.30656f);
+        designHP(hpf_, 80.0f, rate, 0.70711f);   // loop HPF ~80 Hz
     }
 
     // ---- parameter table (built with a constexpr helper for the 30 per-line rows) ----
@@ -376,7 +368,7 @@ private:
         bc_detail::cont(kMDepth, "Master/Sweep Depth", 0.0f, 1.0f, 0.79f),
         bc_detail::cont(kFeedback, "Master/Feedback", 0.0f, 1.0f, 0.81f),
         bc_detail::cont(kMix, "Master/Mix", 0.0f, 1.0f, 1.0f),
-        {ParamId{kPredelay}, "Global/Predelay", ParamUnit::seconds, 0.0f, 0.34f, 0.05f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kPredelay}, "Global/Predelay", ParamUnit::seconds, 0.0f, 0.26f, 0.05f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kDamping, "Global/Damping", 0.0f, 1.0f, 0.14f),
         bc_detail::cont(kGlide, "Global/Glide", 0.0f, 1.0f, 0.47f),
         {ParamId{kFreeze}, "Global/Freeze", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kOffOn},
@@ -385,10 +377,6 @@ private:
         bc_detail::cont(kShimLfoRate, "Shimmer/LFO Rate", 0.0f, 1.0f, 0.08f),
         {ParamId{kShimLfoDepth}, "Shimmer/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.12f),
-        {ParamId{kChorusTime}, "Chorus/Time", ParamUnit::seconds, 0.001f, 0.030f, 0.030f, ParamSkew::linear, ParamKind::continuous, 0},
-        bc_detail::cont(kChorusDepth, "Chorus/Depth", 0.0f, 1.0f, 0.44f),
-        {ParamId{kChorusRate}, "Chorus/Rate", ParamUnit::hz, 0.05f, 8.0f, 0.84f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kChorusFeedback}, "Chorus/Feedback", ParamUnit::none, 0.0f, 0.85f, 0.14f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kDuckAmount, "Duck/Amount", 0.0f, 1.0f, 0.67f),
         {ParamId{kDuckRelease}, "Duck/Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kTransient, "Input/Transient", 0.0f, 1.0f, 0.76f),
@@ -422,7 +410,9 @@ private:
     Diffuser lineAP_[kLines];      // per-line feedback diffusion (smooths the tail)
     std::array<std::int16_t, kPitchBuf> pitchBuf_{};
     int   pitchW_ = 0; float pitchO0_ = 0.0f, pitchO1_ = static_cast<float>(kPitchWin) * 0.5f, pitchRate_ = 2.0f;
-    Biquad aa_{}, hpf_{};
+    Biquad aa1_{}, aa2_{}, aa3_{}, hpf_{};        // 6th-order anti-alias + loop HPF
+    Biquad recL1_{}, recL2_{}, recR1_{}, recR2_{}; // 4th-order reconstruction LP (stereo)
+    float sweepMaxSamp_ = 120.0f;
     float dampA1_ = 0.2f, dampA2_ = 0.8f, loopDamp_ = 0.0f;
     float fbSample_ = 0.0f; int decimPhase_ = 0;
     float wetPrevL_ = 0, wetCurL_ = 0, wetPrevR_ = 0, wetCurR_ = 0;
@@ -433,10 +423,6 @@ private:
     bool  freeze_ = false; int algo_ = 0;
     float shimmer_ = 0.3f, breathDepth_ = 0.35f, mix_ = 1.0f;
     float shimLfoPhase_ = 0.0f, shimLfoInc_ = 0.0f, shimLfoDepth_ = 0.0f;
-    // Wet-side stereo chorus (full-rate int16 delay lines).
-    std::array<BoundedDelayLine<std::int16_t, kChorusMax>, 2> chorusLine_{};
-    float chorusBase_ = 672.0f, chorusDepth_ = 0.45f, chorusModMax_ = 240.0f;
-    float chorusFb_ = 0.0f, chorusLfoPhase_ = 0.0f, chorusLfoInc_ = 0.0f;
     // Ducking (dry->wet sidechain) + input transient softening.
     static constexpr float kDuckSens = 4.0f;   // scales dry envelope into the 0..1 duck range
     float duckAmount_ = 0.0f, duckEnv_ = 0.0f, duckAtk_ = 0.1f, duckRel_ = 0.01f;
