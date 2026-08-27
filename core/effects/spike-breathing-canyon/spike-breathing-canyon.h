@@ -80,7 +80,8 @@ public:
         kEqM1Freq = 59, kEqM1Gain = 60, kEqM1Q = 61,
         kEqM2Freq = 62, kEqM2Gain = 63, kEqM2Q = 64,
         kEqHiFreq = 65, kEqHiGain = 66,
-        kNumParams = 67,
+        kInputGain = 67, kOutputGain = 68, kGainLink = 69,
+        kNumParams = 70,
     };
     static constexpr int kEqBands = 4;   // 0 = low shelf, 1/2 = mid peaks, 3 = high shelf
     static constexpr float kFilterLfoMaxOct = 2.5f;  // cutoff LFO full-depth swing (+/- octaves)
@@ -199,6 +200,9 @@ public:
             case kEqM2Q:    eqQ_[2]    = v; designEqBand(2); break;
             case kEqHiFreq: eqFreq_[3] = v; designEqBand(3); break;
             case kEqHiGain: eqGain_[3] = v; designEqBand(3); break;
+            case kInputGain:  inputGainDb_  = v; updateGains(); break; // dB
+            case kOutputGain: outputGainDb_ = v; updateGains(); break; // dB (makeup)
+            case kGainLink:   gainLink_ = v >= 0.5f; updateGains(); break;
             case kAlgo: { int a = static_cast<int>(v + 0.5f); algo_ = a < 0 ? 0 : (a > 4 ? 4 : a); break; }
             case kShimLfoRate: { const float hz = 0.02f * std::pow(100.0f, v); // 0.02..2 Hz, log
                                  shimLfoInc_ = hz / internalRate_;               break; }
@@ -226,7 +230,7 @@ public:
         if (pendingModeInit_) reset();   // mode switched -> reinit shared storage + clear tank
 
         for (int n = 0; n < samples; ++n) {
-            const float dryL = xL[n], dryR = xR[n];
+            const float dryL = xL[n] * inGainLin_, dryR = xR[n] * inGainLin_;  // input trim
             float monoAA = aa3_.process(aa2_.process(aa1_.process((dryL + dryR) * 0.5f)));
 
             // Transient taming: a ~10 ms baseline follower; when the instantaneous
@@ -358,8 +362,8 @@ public:
             float outR = dryR * (1.0f - mix_) + woR * mix_;
             // Output 4-band EQ (low shelf -> mid1 -> mid2 -> high shelf).
             for (int b = 0; b < kEqBands; ++b) { outL = eqL_[b].process(outL); outR = eqR_[b].process(outR); }
-            xL[n] = outL;
-            if (channels > 1) xR[n] = outR;
+            xL[n] = outL * outGainLin_;                         // output makeup
+            if (channels > 1) xR[n] = outR * outGainLin_;
         }
     }
 
@@ -414,6 +418,14 @@ private:
             sweepCnt_[i] = period + (static_cast<int>(rng_ >> 3) & 63);
         }
         sweepVal_[i] += 0.01f * (sweepTarget_[i] - sweepVal_[i]);
+    }
+
+    // Input trim + output makeup. When linked, the output compensates the input
+    // (effectiveOut = output - input) so net level holds as you trim the input.
+    void updateGains() noexcept {
+        inGainLin_ = std::pow(10.0f, inputGainDb_ / 20.0f);
+        const float effOut = gainLink_ ? (outputGainDb_ - inputGainDb_) : outputGainDb_;
+        outGainLin_ = std::pow(10.0f, effOut / 20.0f);
     }
 
     static float softClip(float x) noexcept {
@@ -536,6 +548,10 @@ private:
     static constexpr std::array<ParameterDescriptor, kNumParams> kParams = {{
         // Ordered by signal pipeline; the five per-line arrays are kept adjacent
         // so the editor keeps them together in one column.
+        // -- Gain (input trim / output makeup, optionally linked) --
+        {ParamId{kInputGain}, "Gain/Input", ParamUnit::none, -24.0f, 24.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kOutputGain}, "Gain/Output", ParamUnit::none, -24.0f, 24.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kGainLink}, "Gain/Link", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kOffOn},
         // -- Dynamics --
         bc_detail::cont(kTransient, "Dynamics/Transient", 0.0f, 1.0f, 0.76f),
         bc_detail::cont(kDuckAmount, "Dynamics/Duck Amount", 0.0f, 1.0f, 0.32f),
@@ -655,6 +671,8 @@ private:
     float feedback_ = 0.8f, dampCut_ = 3000.0f, glideCoef_ = 0.1f;
     bool  freeze_ = false; int algo_ = 0;
     float shimmer_ = 0.3f, breathDepth_ = 0.35f, mix_ = 1.0f;
+    float inputGainDb_ = 0.0f, outputGainDb_ = 0.0f, inGainLin_ = 1.0f, outGainLin_ = 1.0f;
+    bool  gainLink_ = false;
     float shimLfoPhase_ = 0.0f, shimLfoInc_ = 0.0f, shimLfoDepth_ = 0.0f;
     // Ducking (dry->wet sidechain) + input transient softening.
     static constexpr float kDuckSens = 4.0f;   // scales dry envelope into the 0..1 duck range

@@ -107,6 +107,9 @@ inline constexpr CcBinding kCcBindings[] = {
     CcBinding{9, 64},
     CcBinding{33, 65},
     CcBinding{34, 66},
+    CcBinding{35, 67},   // gain param
+    CcBinding{36, 68},   // gain param
+    CcBinding{37, 69},   // gain param
     // -- Add further CC -> parameter-index bindings above this line. --
 };
 
