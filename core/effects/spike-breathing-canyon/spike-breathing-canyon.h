@@ -3,28 +3,21 @@
 // ============================================================================
 // SPIKE / THROWAWAY — "Breathing Canyon", NOT a shipping effect.
 // ----------------------------------------------------------------------------
-// Modelled on the Eventide H3000 Algorithm 106 "SWEPT REVERB" (the algorithm
-// behind the "Breathing Canyon" preset), plus a pitch-shifted shimmer feedback
-// loop added on top per the operator's request. From the H3000 manual:
+// Modelled on the Eventide H3000 Algorithm 106 "SWEPT REVERB" (the engine
+// behind the Breathing Canyon preset), exposed with MAXIMUM tweakability for
+// the spike phase, plus a pitch-shifted shimmer feedback loop.
 //
-//   Swept Reverb = a bank of delay lines with feedback into a reverb network,
-//   where EACH delay line's time is continuously modulated by its own sweep
-//   generator using a RANDOM depth ("creates a thicker texture than
-//   conventional sweep generators"). Master controls: delay size, sweep rate,
-//   sweep depth, feedback (recirculation/decay), mix. The moving/swooshing
-//   "breathing" IS the randomly-swept delay lines; a slow LFO adds the swell.
+// Six delay lines feed a recirculating (Householder) reverb network; each line
+// has its own delay time, sweep rate, sweep depth (smoothed-RANDOM modulation =
+// the "breathing"), pan and level. Master m-Delay/Rate/Depth scale the per-line
+// values; Fdback sets recirculation/decay. Glide smooths delay-time changes
+// (and with modulation gives doppler pitch); Freeze holds the tank (Repeat). A
+// global pitch-shifted feedback loop (HPF -> damping -> pitch -> soft-clip ->
+// gain) adds the shimmer; a slow Breath LFO swells the decay. 8 kHz internal.
 //
-// Our take (16 kHz-class, mono, heap-free): pre-delay -> input diffusion ->
-// 4-line modulated FDN cathedral (per-line smoothed-random sweep on fractional
-// reads = the breathing) -> reverb output. A GLOBAL feedback loop (HPF ->
-// damping LPF -> pitch shifter -> soft-clip -> gain) recirculates the output
-// for the shimmer/endless quality. A slow breath LFO modulates decay. Runs at
-// 8 kHz internal (D=6) so the canyon is long.
-//
-// Stability: two feedback structures. The FDN Hadamard mix is orthonormal so
-// its loop gain == the decay coefficient (<1). The global shimmer loop gain is
-// a product (damping x pitch x soft-clip x shimmer); the in-loop soft-clip
-// bounds it. Levels/decay set by offline measurement, not guessed.
+// Stability: the Householder mix is orthonormal so the tank loop gain == Fdback
+// (<1); the shimmer loop is bounded by the in-loop soft-clip. Verified STABLE
+// offline (tools/measure-breathing-canyon.cpp), not guessed.
 //
 // Platform independence (Constitution IV): standard library only, no heap.
 // Single-context setParameter (D26): params applied directly.
@@ -46,34 +39,52 @@
 
 namespace acfx {
 
+namespace bc_detail {
+inline constexpr ParameterDescriptor cont(std::uint8_t id, std::string_view name,
+                                          float lo, float hi, float def) {
+    return {ParamId{id}, name, ParamUnit::none, lo, hi, def,
+            ParamSkew::linear, ParamKind::continuous, 0};
+}
+} // namespace bc_detail
+
 class SpikeBreathingCanyon {
 public:
+    static constexpr int kLines    = 6;
     static constexpr int kInternalDivisor = 6;      // 48k -> 8 kHz internal
-    static constexpr int kPreMax   = 4200;          // ~0.52 s pre-delay @ 8 kHz (int16)
-    static constexpr int kLineCap  = 2600;          // FDN line capacity (base + sweep margin)
+    static constexpr int kPreMax   = 4200;          // ~0.52 s pre-delay @ 8 kHz
+    static constexpr int kLineCap  = 2200;          // per-line capacity (~275 ms @ 8 kHz)
     static constexpr int kPitchBuf = 2048;
     static constexpr int kPitchWin = 1024;
-    // Base delay-line lengths @ 8 kHz (mutually spread; ~130-280 ms).
-    static constexpr int kBase[4]  = {1039, 1361, 1693, 2237};
-    static constexpr float kSweepMaxSamp = 60.0f;   // max fractional sweep excursion
+    static constexpr float kSweepMaxSamp = 60.0f;
+    // Base per-line delay lengths @ 8 kHz (the Delays 1-6 defaults, ~90-260 ms).
+    static constexpr int kBase[kLines] = {727, 1013, 1279, 1523, 1789, 2069};
 
     enum : std::uint8_t {
-        kPredelay = 0, kSize = 1, kDecay = 2, kDamping = 3,
-        kSweepRate = 4, kSweepDepth = 5, kPitch = 6, kShimmer = 7,
-        kBreath = 8, kMix = 9,
+        kSize = 0, kMRate = 1, kMDepth = 2, kFeedback = 3, kMix = 4,
+        kPredelay = 5, kDamping = 6, kGlide = 7, kFreeze = 8,
+        kPitch = 9, kShimmer = 10, kBreath = 11,
+        kDelay1 = 12, kRate1 = 18, kDepth1 = 24, kPan1 = 30, kLevel1 = 36,
+        kAlgo = 42,
+        kNumParams = 43,
     };
-    static constexpr std::size_t kNumParams = 10;
+    static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
+    // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
+    static constexpr std::array<std::string_view, 5> kAlgoNames =
+        {{"Cathedral", "Chamber", "Swirl", "Plate", "Cascade"}};
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
     void prepare(const ProcessContext& ctx) noexcept {
         numChannels_ = ctx.numChannels < 2 ? ctx.numChannels : 2;
         sampleRate_  = static_cast<float>(ctx.sampleRate);
-        const float internalRate = sampleRate_ / static_cast<float>(kInternalDivisor);
-        preLine_.prepare(kPreMax, internalRate);
-        for (int i = 0; i < 4; ++i) lines_[i].prepare(kLineCap, internalRate);
-        for (int i = 0; i < 2; ++i) diff_[i].prepare(i == 0 ? 283 : 421, internalRate);
-        designAntiAlias();
+        const float rate = sampleRate_ / static_cast<float>(kInternalDivisor);
+        preLine_.prepare(kPreMax, rate);
+        for (int i = 0; i < kLines; ++i) lines_[i].prepare(kLineCap, rate);
+        { constexpr int c[kInDiff] = {113, 167, 251, 347};
+          for (int i = 0; i < kInDiff; ++i) diff_[i].prepare(c[i], rate); }
+        { constexpr int c[kLines] = {131, 193, 239, 281, 337, 397};
+          for (int i = 0; i < kLines; ++i) lineAP_[i].prepare(c[i], rate); }
+        designFilters();
         for (std::size_t i = 0; i < kNumParams; ++i)
             setParameter(ParamId{static_cast<std::uint8_t>(i)},
                          normalize(kParams[i], kParams[i].defaultValue));
@@ -82,36 +93,44 @@ public:
 
     void reset() noexcept {
         preLine_.reset();
-        for (int i = 0; i < 4; ++i) { lines_[i].reset(); fdnDamp_[i] = 0.0f;
-                                      sweepVal_[i] = 0.0f; sweepTarget_[i] = 0.0f; sweepCnt_[i] = i * 97; }
-        for (int i = 0; i < 2; ++i) diff_[i].reset();
-        pitchBuf_.fill(0);
-        pitchW_ = 0; pitchO0_ = 0.0f; pitchO1_ = static_cast<float>(kPitchWin) * 0.5f;
+        for (int i = 0; i < kLines; ++i) {
+            lines_[i].reset(); fdnDamp_[i] = 0.0f; sweepVal_[i] = 0.0f; sweepTarget_[i] = 0.0f;
+            sweepCnt_[i] = i * 89 + 7; glideLen_[i] = static_cast<float>(kBase[i]);
+        }
+        for (int i = 0; i < kInDiff; ++i) diff_[i].reset();
+        for (int i = 0; i < kLines; ++i) lineAP_[i].reset();
+        pitchBuf_.fill(0); pitchW_ = 0; pitchO0_ = 0.0f; pitchO1_ = static_cast<float>(kPitchWin) * 0.5f;
         aa_.reset(); hpf_.reset();
-        fbSample_ = 0.0f; decimPhase_ = 0; wetPrev_ = 0.0f; wetCur_ = 0.0f; loopDamp_ = 0.0f;
-        breathPhase_ = 0.0f; rng_ = 0x2545f491u;
+        fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
+        loopDamp_ = 0.0f; breathPhase_ = 0.0f; rng_ = 0x2545f491u;
     }
 
     void setParameter(ParamId id, float normalized) noexcept {
         if (id.value >= kNumParams) return;
         const float v = denormalize(kParams[id.value], normalized);
-        const float internalRate = sampleRate_ / static_cast<float>(kInternalDivisor);
-        switch (id.value) {
-            case kPredelay:  predelaySamp_ = v * internalRate;                 break; // seconds
-            case kSize:      sizeScale_    = 0.35f + v * 0.65f;                 break; // 0.35..1.0 of base
-            case kDecay:     decay_        = v * 0.35f + 0.6f;                  break; // 0.6..0.95 recirc
-            case kDamping: {
-                dampCut_ = 6000.0f * std::pow(0.03f, v);                        // 6k..~180 Hz
-                const float a = std::exp(-2.0f * 3.14159265f * dampCut_ / internalRate);
-                dampA1_ = a; dampA2_ = 1.0f - a;                               // one-pole LP coeffs
-                break;
-            }
-            case kSweepRate: sweepInc_     = (0.05f + v * v * 5.0f);           break; // Hz-ish (per-line jitter)
-            case kSweepDepth:sweepDepth_   = v;                                break;
-            case kPitch:     pitchRate_    = std::pow(2.0f, v / 12.0f);         break; // semitones
-            case kShimmer:   shimmer_      = v * 0.9f;                          break; // 0..0.9 loop gain
-            case kBreath:    breathDepth_  = v;                                break;
-            case kMix:       mix_          = v;                                break;
+        const float rate = sampleRate_ / static_cast<float>(kInternalDivisor);
+        const int idv = id.value;
+        if (idv >= kDelay1 && idv < kDelay1 + kLines)   { lineDelay_[idv - kDelay1] = v * rate; return; } // sec
+        if (idv >= kRate1  && idv < kRate1  + kLines)   { lineRate_[idv - kRate1]   = v;         return; }
+        if (idv >= kDepth1 && idv < kDepth1 + kLines)   { lineDepth_[idv - kDepth1] = v;         return; }
+        if (idv >= kPan1   && idv < kPan1   + kLines)   { linePan_[idv - kPan1]     = v;         return; } // -1..1
+        if (idv >= kLevel1 && idv < kLevel1 + kLines)   { lineLevel_[idv - kLevel1] = v;         return; }
+        switch (idv) {
+            case kSize:     sizeScale_ = 0.35f + v * 0.9f;                            break;
+            case kMRate:    mRate_     = v;                                           break;
+            case kMDepth:   mDepth_    = v;                                           break;
+            case kFeedback: feedback_  = v * 0.42f + 0.55f;                           break; // 0.55..0.97
+            case kMix:      mix_       = v;                                           break;
+            case kPredelay: predelaySamp_ = v * rate;                                 break;
+            case kDamping: { dampCut_ = 6000.0f * std::pow(0.03f, v);
+                             const float a = std::exp(-2.0f * 3.14159265f * dampCut_ / rate);
+                             dampA1_ = a; dampA2_ = 1.0f - a;                          break; }
+            case kGlide:    glideCoef_ = 1.0f - std::pow(0.5f, 0.02f + v * 0.5f);     break; // 0=fast..slow
+            case kFreeze:   freeze_    = v >= 0.5f;                                   break;
+            case kPitch:    pitchRate_ = std::pow(2.0f, v / 12.0f);                   break;
+            case kShimmer:  shimmer_   = v * 0.9f;                                    break;
+            case kBreath:   breathDepth_ = v;                                         break;
+            case kAlgo: { int a = static_cast<int>(v + 0.5f); algo_ = a < 0 ? 0 : (a > 4 ? 4 : a); break; }
             default: break;
         }
     }
@@ -125,82 +144,101 @@ public:
         constexpr float kTwoPi = 6.28318530718f;
 
         for (int n = 0; n < samples; ++n) {
-            const float dryL = xL[n];
-            const float dryR = xR[n];
+            const float dryL = xL[n], dryR = xR[n];
             const float monoAA = aa_.process((dryL + dryR) * 0.5f);
 
             if (decimPhase_ == 0) {
-                // pre-delay: input arrives at the canyon `predelaySamp_` late.
                 const float pd = preLine_.readFractional(predelaySamp_);
                 preLine_.write(monoAA);
+                float in = (freeze_ ? 0.0f : pd) + fbSample_;   // Freeze holds the tank (no new input)
+                in = diff_[0].process(in, 0.75f);
+                in = diff_[1].process(in, 0.75f);
+                in = diff_[2].process(in, 0.625f);
+                in = diff_[3].process(in, 0.625f);
 
-                float in = pd + fbSample_;             // inject shimmer feedback
-                in = diff_[0].process(in, 0.7f);       // input diffusion
-                in = diff_[1].process(in, 0.6f);
-
-                // ---- modulated 4-line FDN (the swept cathedral) ----
                 const float breath = 0.5f + 0.5f * std::sin(kTwoPi * breathPhase_);
-                breathPhase_ += 0.08f / 8000.0f;       // ~0.08 Hz breath (per 8 kHz tick)
+                breathPhase_ += 0.08f / 8000.0f;
                 if (breathPhase_ >= 1.0f) breathPhase_ -= 1.0f;
-                const float decayEff = decay_ * (1.0f - breathDepth_ * 0.3f * breath);
+                const float decayEff = feedback_ * (1.0f - breathDepth_ * 0.3f * breath);
 
-                float d[4];
-                for (int i = 0; i < 4; ++i) {
+                float d[kLines], wetL = 0.0f, wetR = 0.0f;
+                for (int i = 0; i < kLines; ++i) {
                     advanceSweep(i);
-                    const float baseLen = static_cast<float>(kBase[i]) * sizeScale_;
-                    float rd = baseLen - sweepDepth_ * kSweepMaxSamp * sweepVal_[i];
+                    const float target = lineDelay_[i] * sizeScale_ * (0.25f + 1.5f * mDelayFromSize());
+                    glideLen_[i] += glideCoef_ * (target - glideLen_[i]);   // smoothed delay time
+                    float rd = glideLen_[i] - lineDepth_[i] * mDepth_ * kSweepMaxSamp * sweepVal_[i];
                     if (rd < 1.0f) rd = 1.0f;
-                    float v = lines_[i].readFractional(rd);
-                    fdnDamp_[i] = v * dampA2_ + fdnDamp_[i] * dampA1_;   // per-line damping LP
+                    if (rd > kLineCap - 1) rd = kLineCap - 1;
+                    float s = lines_[i].readFractional(rd);
+                    fdnDamp_[i] = s * dampA2_ + fdnDamp_[i] * dampA1_;
                     d[i] = fdnDamp_[i];
+                    const float pan = linePan_[i];                          // -1..1
+                    const float gl = 0.5f * (1.0f - pan), gr = 0.5f * (1.0f + pan);
+                    wetL += d[i] * lineLevel_[i] * gl;
+                    wetR += d[i] * lineLevel_[i] * gr;
                 }
-                const float f0 = (d[0] + d[1] + d[2] + d[3]) * 0.5f;    // orthonormal Hadamard
-                const float f1 = (d[0] - d[1] + d[2] - d[3]) * 0.5f;
-                const float f2 = (d[0] + d[1] - d[2] - d[3]) * 0.5f;
-                const float f3 = (d[0] - d[1] - d[2] + d[3]) * 0.5f;
-                const float fv[4] = {f0, f1, f2, f3};
-                for (int i = 0; i < 4; ++i) lines_[i].write(in + decayEff * fv[i]);
-                const float wet = (d[0] + d[1] + d[2] + d[3]) * 0.5f;
+                // Selectable orthonormal recirculation topology (loop gain == decayEff).
+                float f[kLines];
+                switch (algo_) {
+                    default: case 0: {                         // Cathedral: Householder (dense)
+                        float sum = 0.0f; for (int i = 0; i < kLines; ++i) sum += d[i];
+                        const float hf = (2.0f / kLines) * sum;
+                        for (int i = 0; i < kLines; ++i) f[i] = d[i] - hf; break; }
+                    case 1:                                     // Chamber: identity (parallel combs)
+                        for (int i = 0; i < kLines; ++i) f[i] = d[i]; break;
+                    case 2:                                     // Swirl: circular permutation
+                        for (int i = 0; i < kLines; ++i) f[i] = d[(i + 1) % kLines]; break;
+                    case 3: {                                   // Plate: butterfly pairs (bright)
+                        constexpr float r = 0.70710678f;
+                        for (int p = 0; p < kLines; p += 2) { f[p] = (d[p] + d[p+1]) * r; f[p+1] = (d[p] - d[p+1]) * r; }
+                        break; }
+                    case 4: {                                   // Cascade: butterfly + rotate pairs (densest)
+                        constexpr float r = 0.70710678f; float t[kLines];
+                        for (int p = 0; p < kLines; p += 2) { t[p] = (d[p] + d[p+1]) * r; t[p+1] = (d[p] - d[p+1]) * r; }
+                        for (int i = 0; i < kLines; ++i) f[i] = t[(i + 2) % kLines]; break; }
+                }
+                for (int i = 0; i < kLines; ++i)
+                    lines_[i].write(in + decayEff * lineAP_[i].process(f[i], 0.55f));
 
-                // ---- global shimmer feedback loop ----
-                float fb = hpf_.process(wet);          // DC/rumble block (down-shift safety)
-                loopDamp_ = fb * dampA2_ + loopDamp_ * dampA1_;   // damping tone in the loop
-                fb = loopDamp_;
-                fb = pitchShift(fb);                   // pitch the recirculated signal
-                fb = softClip(fb);                     // bounds the loop -> no runaway
+                // global shimmer loop off the mono sum
+                float fb = hpf_.process((wetL + wetR) * 0.5f);
+                loopDamp_ = fb * dampA2_ + loopDamp_ * dampA1_; fb = loopDamp_;
+                fb = pitchShift(fb);
+                fb = softClip(fb);
                 fbSample_ = fb * shimmer_;
 
-                wetPrev_ = wetCur_;
-                wetCur_  = wet;
+                wetPrevL_ = wetCurL_; wetCurL_ = wetL * kOutGain;
+                wetPrevR_ = wetCurR_; wetCurR_ = wetR * kOutGain;
             }
             const float frac = static_cast<float>(decimPhase_) * invD;
-            const float wetOut = wetPrev_ + (wetCur_ - wetPrev_) * frac;
+            const float woL = wetPrevL_ + (wetCurL_ - wetPrevL_) * frac;
+            const float woR = wetPrevR_ + (wetCurR_ - wetPrevR_) * frac;
             decimPhase_ = (decimPhase_ + 1) % kInternalDivisor;
 
-            xL[n] = dryL * (1.0f - mix_) + wetOut * mix_;
-            if (channels > 1) xR[n] = dryR * (1.0f - mix_) + wetOut * mix_;
+            xL[n] = dryL * (1.0f - mix_) + woL * mix_;
+            if (channels > 1) xR[n] = dryR * (1.0f - mix_) + woR * mix_;
         }
     }
 
 private:
-    // smoothed-random per-line sweep (H3000's "random depth" sweep generator).
+    static constexpr float kOutGain = 1.3f;   // measured make-up (see harness)
+    float mDelayFromSize() const noexcept { return sizeScale_ * (0.5f); }  // (folded into per-line via Size)
+
     void advanceSweep(int i) noexcept {
         if (--sweepCnt_[i] <= 0) {
             rng_ = rng_ * 1664525u + 1013904223u;
-            sweepTarget_[i] = (static_cast<float>((rng_ >> 9) & 0xFFFFu) / 32768.0f - 1.0f);
-            const int period = static_cast<int>(2000.0f / (sweepInc_ + 0.05f)) + 8;
+            sweepTarget_[i] = static_cast<float>((rng_ >> 9) & 0xFFFFu) / 32768.0f - 1.0f;
+            const float r = mRate_ * (0.3f + 1.4f * lineRate_[i]);   // master x per-line rate
+            const int period = static_cast<int>(2000.0f / (r * 5.0f + 0.05f)) + 6;
             sweepCnt_[i] = period + (static_cast<int>(rng_ >> 3) & 63);
         }
-        sweepVal_[i] += 0.01f * (sweepTarget_[i] - sweepVal_[i]);   // one-pole smoothing
+        sweepVal_[i] += 0.01f * (sweepTarget_[i] - sweepVal_[i]);
     }
 
     static float softClip(float x) noexcept {
-        if (x < -1.2f) return -0.8f;
-        if (x >  1.2f) return  0.8f;
-        return x - (x * x * x) * (1.0f / 4.32f);   // cubic soft clip
+        if (x < -1.2f) return -0.8f; if (x > 1.2f) return 0.8f;
+        return x - (x * x * x) * (1.0f / 4.32f);
     }
-
-    // two-tap crossfade pitch shifter over pitchBuf_ (int16).
     float pitchShift(float x) noexcept {
         constexpr float kTwoPi = 6.28318530718f;
         pitchBuf_[static_cast<std::size_t>(pitchW_)] = quantizeInt16(x);
@@ -222,98 +260,87 @@ private:
         return t0 * e0 + t1 * e1;
     }
 
-    // A small allpass diffuser over its own int16 delay line.
-    struct Diffuser {
-        BoundedDelayLine<std::int16_t, 512> line;
+    struct Diffuser {   // true (unity-gain) allpass -> safe inside feedback loops
+        BoundedDelayLine<float, 512> line; int len_ = 1;
         void prepare(int cap, float sr) noexcept { line.prepare(cap, sr); len_ = cap; }
         void reset() noexcept { line.reset(); }
         float process(float x, float g) noexcept {
             const float d = line.readFractional(static_cast<float>(len_ - 1));
-            const float v = x - g * d;
-            line.write(v);
-            return g * v + d;
+            const float v = x - g * d; line.write(v); return g * v + d;
         }
-        int len_ = 1;
     };
-
     struct Biquad {
         float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
         void reset() noexcept { x1 = x2 = y1 = y2 = 0; }
-        float process(float x) noexcept {
-            const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-            x2 = x1; x1 = x; y2 = y1; y1 = y; return y;
-        }
+        float process(float x) noexcept { const float y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2;
+            x2 = x1; x1 = x; y2 = y1; y1 = y; return y; }
     };
-    void designAntiAlias() noexcept {
-        // anti-alias LP before the D=6 decimation (~0.85 * 4 kHz), plus fixed loop HPF ~80 Hz.
+    void designFilters() noexcept {
         const float rate = sampleRate_ / static_cast<float>(kInternalDivisor);
-        lowpass(aa_, sampleRate_, rate * 0.5f * 0.85f);
-        highpass(hpf_, rate, 80.0f);
-        // loop damping LPF coefficients are the one-pole below, not this biquad.
-    }
-    static void lowpass(Biquad& bq, float fs, float fc) noexcept {
-        const float w0 = 2.0f * 3.14159265f * fc / fs, c = std::cos(w0), s = std::sin(w0);
-        const float al = s / (2.0f * 0.70710678f), a0 = 1 + al;
-        bq.b0 = (1 - c) * 0.5f / a0; bq.b1 = (1 - c) / a0; bq.b2 = (1 - c) * 0.5f / a0;
-        bq.a1 = -2 * c / a0; bq.a2 = (1 - al) / a0;
-    }
-    static void highpass(Biquad& bq, float fs, float fc) noexcept {
-        const float w0 = 2.0f * 3.14159265f * fc / fs, c = std::cos(w0), s = std::sin(w0);
-        const float al = s / (2.0f * 0.70710678f), a0 = 1 + al;
-        bq.b0 = (1 + c) * 0.5f / a0; bq.b1 = -(1 + c) / a0; bq.b2 = (1 + c) * 0.5f / a0;
-        bq.a1 = -2 * c / a0; bq.a2 = (1 - al) / a0;
+        // anti-alias LP before decimation
+        { const float fc = rate * 0.5f * 0.85f, w0 = 2*3.14159265f*fc/sampleRate_, c = std::cos(w0), s = std::sin(w0);
+          const float al = s/(2*0.70710678f), a0 = 1+al;
+          aa_.b0=(1-c)*0.5f/a0; aa_.b1=(1-c)/a0; aa_.b2=(1-c)*0.5f/a0; aa_.a1=-2*c/a0; aa_.a2=(1-al)/a0; }
+        // loop HPF ~80 Hz (down-shift safety)
+        { const float fc = 80.0f, w0 = 2*3.14159265f*fc/rate, c = std::cos(w0), s = std::sin(w0);
+          const float al = s/(2*0.70710678f), a0 = 1+al;
+          hpf_.b0=(1+c)*0.5f/a0; hpf_.b1=-(1+c)/a0; hpf_.b2=(1+c)*0.5f/a0; hpf_.a1=-2*c/a0; hpf_.a2=(1-al)/a0; }
     }
 
+    // ---- parameter table (built with a constexpr helper for the 30 per-line rows) ----
     static constexpr std::array<ParameterDescriptor, kNumParams> kParams = {{
-        {ParamId{kPredelay}, "Canyon/Predelay", ParamUnit::seconds, 0.0f, 0.5f, 0.08f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kSize}, "Canyon/Size", ParamUnit::none, 0.0f, 1.0f, 0.7f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kDecay}, "Canyon/Decay", ParamUnit::none, 0.0f, 1.0f, 0.8f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kDamping}, "Canyon/Damping", ParamUnit::none, 0.0f, 1.0f, 0.5f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kSweepRate}, "Sweep/Rate", ParamUnit::none, 0.0f, 1.0f, 0.35f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kSweepDepth}, "Sweep/Depth", ParamUnit::none, 0.0f, 1.0f, 0.45f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kPitch}, "Shimmer/Pitch", ParamUnit::none, -12.0f, 12.0f, 12.0f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kShimmer}, "Shimmer/Amount", ParamUnit::none, 0.0f, 1.0f, 0.3f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kBreath}, "Breath/Depth", ParamUnit::none, 0.0f, 1.0f, 0.35f,
-         ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kMix}, "Output/Mix", ParamUnit::none, 0.0f, 1.0f, 1.0f,
-         ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kSize, "Master/Size", 0.0f, 1.0f, 0.7f),
+        bc_detail::cont(kMRate, "Master/Sweep Rate", 0.0f, 1.0f, 0.35f),
+        bc_detail::cont(kMDepth, "Master/Sweep Depth", 0.0f, 1.0f, 0.30f),
+        bc_detail::cont(kFeedback, "Master/Feedback", 0.0f, 1.0f, 0.75f),
+        bc_detail::cont(kMix, "Master/Mix", 0.0f, 1.0f, 1.0f),
+        {ParamId{kPredelay}, "Global/Predelay", ParamUnit::seconds, 0.0f, 0.5f, 0.08f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kDamping, "Global/Damping", 0.0f, 1.0f, 0.28f),
+        bc_detail::cont(kGlide, "Global/Glide", 0.0f, 1.0f, 0.3f),
+        {ParamId{kFreeze}, "Global/Freeze", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kOffOn},
+        {ParamId{kPitch}, "Shimmer/Pitch", ParamUnit::none, -12.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kShimmer, "Shimmer/Amount", 0.0f, 1.0f, 0.3f),
+        bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.35f),
+        bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.26f, 0.091f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.26f, 0.127f),
+        bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.26f, 0.160f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.26f, 0.190f),
+        bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.26f, 0.224f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.26f, 0.259f),
+        bc_detail::cont(kRate1+0, "Rates/1", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kRate1+1, "Rates/2", 0.0f, 1.0f, 0.6f),
+        bc_detail::cont(kRate1+2, "Rates/3", 0.0f, 1.0f, 0.4f) , bc_detail::cont(kRate1+3, "Rates/4", 0.0f, 1.0f, 0.7f),
+        bc_detail::cont(kRate1+4, "Rates/5", 0.0f, 1.0f, 0.45f) , bc_detail::cont(kRate1+5, "Rates/6", 0.0f, 1.0f, 0.55f),
+        bc_detail::cont(kDepth1+0, "Depths/1", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kDepth1+1, "Depths/2", 0.0f, 1.0f, 0.5f),
+        bc_detail::cont(kDepth1+2, "Depths/3", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kDepth1+3, "Depths/4", 0.0f, 1.0f, 0.5f),
+        bc_detail::cont(kDepth1+4, "Depths/5", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kDepth1+5, "Depths/6", 0.0f, 1.0f, 0.5f),
+        bc_detail::cont(kPan1+0, "Pans/1", -1.0f, 1.0f, -0.8f) , bc_detail::cont(kPan1+1, "Pans/2", -1.0f, 1.0f, 0.8f),
+        bc_detail::cont(kPan1+2, "Pans/3", -1.0f, 1.0f, -0.4f) , bc_detail::cont(kPan1+3, "Pans/4", -1.0f, 1.0f, 0.4f),
+        bc_detail::cont(kPan1+4, "Pans/5", -1.0f, 1.0f, -0.6f) , bc_detail::cont(kPan1+5, "Pans/6", -1.0f, 1.0f, 0.6f),
+        bc_detail::cont(kLevel1+0, "Levels/1", 0.0f, 1.0f, 0.8f) , bc_detail::cont(kLevel1+1, "Levels/2", 0.0f, 1.0f, 0.8f),
+        bc_detail::cont(kLevel1+2, "Levels/3", 0.0f, 1.0f, 0.8f) , bc_detail::cont(kLevel1+3, "Levels/4", 0.0f, 1.0f, 0.8f),
+        bc_detail::cont(kLevel1+4, "Levels/5", 0.0f, 1.0f, 0.8f) , bc_detail::cont(kLevel1+5, "Levels/6", 0.0f, 1.0f, 0.8f),
+        {ParamId{kAlgo}, "Master/Algorithm", ParamUnit::none, 0.0f, 4.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 5, kAlgoNames},
     }};
 
-    // --- state ---
-    BoundedDelayLine<std::int16_t, kPreMax> preLine_;             // pre-delay
-    BoundedDelayLine<float, kLineCap>       lines_[4];            // modulated FDN
-    float fdnDamp_[4]   = {};
-    float sweepVal_[4]  = {};
-    float sweepTarget_[4] = {};
-    int   sweepCnt_[4]  = {};
-    Diffuser diff_[2];                                           // input diffusion
-    std::array<std::int16_t, kPitchBuf> pitchBuf_{};             // shimmer pitch shifter
-    int   pitchW_ = 0;
-    float pitchO0_ = 0.0f, pitchO1_ = static_cast<float>(kPitchWin) * 0.5f;
-    float pitchRate_ = 2.0f;
-    Biquad aa_{}, hpf_{};                                        // anti-alias + loop HPF
-    float dampA1_ = 0.2f, dampA2_ = 0.8f, loopDamp_ = 0.0f;      // loop/FDN one-pole damping
-
-    float fbSample_ = 0.0f;
-    int   decimPhase_ = 0;
-    float wetPrev_ = 0.0f, wetCur_ = 0.0f;
-    float breathPhase_ = 0.0f;
-    std::uint32_t rng_ = 0x2545f491u;
-
-    int   numChannels_ = 2;
-    float sampleRate_  = 48000.0f;
-    float predelaySamp_ = 640.0f;
-    float sizeScale_ = 0.8f, decay_ = 0.8f, dampCut_ = 3000.0f;
-    float sweepInc_ = 0.6f, sweepDepth_ = 0.45f;
-    float shimmer_ = 0.3f, breathDepth_ = 0.35f, mix_ = 0.35f;
+    // ---- state ----
+    BoundedDelayLine<std::int16_t, kPreMax> preLine_;
+    BoundedDelayLine<float, kLineCap>       lines_[kLines];
+    float fdnDamp_[kLines] = {}, sweepVal_[kLines] = {}, sweepTarget_[kLines] = {}, glideLen_[kLines] = {};
+    int   sweepCnt_[kLines] = {};
+    float lineDelay_[kLines] = {}, lineRate_[kLines] = {}, lineDepth_[kLines] = {};
+    float linePan_[kLines] = {}, lineLevel_[kLines] = {};
+    static constexpr int kInDiff = 4;
+    Diffuser diff_[kInDiff];       // input diffusion chain (densifies early reflections)
+    Diffuser lineAP_[kLines];      // per-line feedback diffusion (smooths the tail)
+    std::array<std::int16_t, kPitchBuf> pitchBuf_{};
+    int   pitchW_ = 0; float pitchO0_ = 0.0f, pitchO1_ = static_cast<float>(kPitchWin) * 0.5f, pitchRate_ = 2.0f;
+    Biquad aa_{}, hpf_{};
+    float dampA1_ = 0.2f, dampA2_ = 0.8f, loopDamp_ = 0.0f;
+    float fbSample_ = 0.0f; int decimPhase_ = 0;
+    float wetPrevL_ = 0, wetCurL_ = 0, wetPrevR_ = 0, wetCurR_ = 0;
+    float breathPhase_ = 0.0f; std::uint32_t rng_ = 0x2545f491u;
+    int   numChannels_ = 2; float sampleRate_ = 48000.0f;
+    float predelaySamp_ = 640.0f, sizeScale_ = 0.9f, mRate_ = 0.35f, mDepth_ = 0.45f;
+    float feedback_ = 0.8f, dampCut_ = 3000.0f, glideCoef_ = 0.1f;
+    bool  freeze_ = false; int algo_ = 0;
+    float shimmer_ = 0.3f, breathDepth_ = 0.35f, mix_ = 1.0f;
 };
 
 } // namespace acfx
