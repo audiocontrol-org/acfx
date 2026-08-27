@@ -50,12 +50,12 @@ inline constexpr ParameterDescriptor cont(std::uint8_t id, std::string_view name
 class SpikeBreathingCanyon {
 public:
     static constexpr int kLines    = 6;
-    static constexpr int kInternalDivisor = 6;      // 48k -> 8 kHz internal
+    static constexpr int kInternalDivisor = 4;      // 48k -> 12 kHz internal
     static constexpr int kPreMax   = 4200;          // ~0.52 s pre-delay @ 8 kHz
-    static constexpr int kLineCap  = 2200;          // per-line capacity (~275 ms @ 8 kHz)
+    static constexpr int kLineCap  = 2600;          // per-line capacity (~217 ms @ 12 kHz)
     static constexpr int kPitchBuf = 2048;
     static constexpr int kPitchWin = 1024;
-    static constexpr float kSweepMaxSamp = 60.0f;
+    static constexpr float kSweepMaxSamp = 90.0f;
     // Base per-line delay lengths @ 8 kHz (the Delays 1-6 defaults, ~90-260 ms).
     static constexpr int kBase[kLines] = {727, 1013, 1279, 1523, 1789, 2069};
 
@@ -77,7 +77,8 @@ public:
     void prepare(const ProcessContext& ctx) noexcept {
         numChannels_ = ctx.numChannels < 2 ? ctx.numChannels : 2;
         sampleRate_  = static_cast<float>(ctx.sampleRate);
-        const float rate = sampleRate_ / static_cast<float>(kInternalDivisor);
+        internalRate_ = sampleRate_ / static_cast<float>(kInternalDivisor);
+        const float rate = internalRate_;
         preLine_.prepare(kPreMax, rate);
         for (int i = 0; i < kLines; ++i) lines_[i].prepare(kLineCap, rate);
         { constexpr int c[kInDiff] = {113, 167, 251, 347};
@@ -95,7 +96,7 @@ public:
         preLine_.reset();
         for (int i = 0; i < kLines; ++i) {
             lines_[i].reset(); fdnDamp_[i] = 0.0f; sweepVal_[i] = 0.0f; sweepTarget_[i] = 0.0f;
-            sweepCnt_[i] = i * 89 + 7; glideLen_[i] = static_cast<float>(kBase[i]);
+            sweepCnt_[i] = i * 89 + 7; glideLen_[i] = lineDelay_[i] > 1.0f ? lineDelay_[i] : static_cast<float>(kBase[i]);
         }
         for (int i = 0; i < kInDiff; ++i) diff_[i].reset();
         for (int i = 0; i < kLines; ++i) lineAP_[i].reset();
@@ -157,7 +158,7 @@ public:
                 in = diff_[3].process(in, 0.625f);
 
                 const float breath = 0.5f + 0.5f * std::sin(kTwoPi * breathPhase_);
-                breathPhase_ += 0.08f / 8000.0f;
+                breathPhase_ += 0.08f / internalRate_;
                 if (breathPhase_ >= 1.0f) breathPhase_ -= 1.0f;
                 const float decayEff = feedback_ * (1.0f - breathDepth_ * 0.3f * breath);
 
@@ -221,7 +222,7 @@ public:
     }
 
 private:
-    static constexpr float kOutGain = 1.3f;   // measured make-up (see harness)
+    static constexpr float kOutGain = 1.1f;   // measured make-up; keeps worst-case peak <~1.0 (see harness)
     float mDelayFromSize() const noexcept { return sizeScale_ * (0.5f); }  // (folded into per-line via Size)
 
     void advanceSweep(int i) noexcept {
@@ -229,7 +230,7 @@ private:
             rng_ = rng_ * 1664525u + 1013904223u;
             sweepTarget_[i] = static_cast<float>((rng_ >> 9) & 0xFFFFu) / 32768.0f - 1.0f;
             const float r = mRate_ * (0.3f + 1.4f * lineRate_[i]);   // master x per-line rate
-            const int period = static_cast<int>(2000.0f / (r * 5.0f + 0.05f)) + 6;
+            const int period = static_cast<int>(internalRate_ * 0.25f / (r * 5.0f + 0.05f)) + 6;
             sweepCnt_[i] = period + (static_cast<int>(rng_ >> 3) & 63);
         }
         sweepVal_[i] += 0.01f * (sweepTarget_[i] - sweepVal_[i]);
@@ -294,16 +295,16 @@ private:
         bc_detail::cont(kMDepth, "Master/Sweep Depth", 0.0f, 1.0f, 0.30f),
         bc_detail::cont(kFeedback, "Master/Feedback", 0.0f, 1.0f, 0.75f),
         bc_detail::cont(kMix, "Master/Mix", 0.0f, 1.0f, 1.0f),
-        {ParamId{kPredelay}, "Global/Predelay", ParamUnit::seconds, 0.0f, 0.5f, 0.08f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kPredelay}, "Global/Predelay", ParamUnit::seconds, 0.0f, 0.34f, 0.08f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kDamping, "Global/Damping", 0.0f, 1.0f, 0.28f),
         bc_detail::cont(kGlide, "Global/Glide", 0.0f, 1.0f, 0.3f),
         {ParamId{kFreeze}, "Global/Freeze", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kOffOn},
         {ParamId{kPitch}, "Shimmer/Pitch", ParamUnit::none, -12.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kShimmer, "Shimmer/Amount", 0.0f, 1.0f, 0.3f),
         bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.35f),
-        bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.26f, 0.091f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.26f, 0.127f),
-        bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.26f, 0.160f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.26f, 0.190f),
-        bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.26f, 0.224f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.26f, 0.259f),
+        bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.089f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.119f),
+        bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.146f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.171f),
+        bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.190f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.205f),
         bc_detail::cont(kRate1+0, "Rates/1", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kRate1+1, "Rates/2", 0.0f, 1.0f, 0.6f),
         bc_detail::cont(kRate1+2, "Rates/3", 0.0f, 1.0f, 0.4f) , bc_detail::cont(kRate1+3, "Rates/4", 0.0f, 1.0f, 0.7f),
         bc_detail::cont(kRate1+4, "Rates/5", 0.0f, 1.0f, 0.45f) , bc_detail::cont(kRate1+5, "Rates/6", 0.0f, 1.0f, 0.55f),
@@ -336,7 +337,7 @@ private:
     float fbSample_ = 0.0f; int decimPhase_ = 0;
     float wetPrevL_ = 0, wetCurL_ = 0, wetPrevR_ = 0, wetCurR_ = 0;
     float breathPhase_ = 0.0f; std::uint32_t rng_ = 0x2545f491u;
-    int   numChannels_ = 2; float sampleRate_ = 48000.0f;
+    int   numChannels_ = 2; float sampleRate_ = 48000.0f, internalRate_ = 12000.0f;
     float predelaySamp_ = 640.0f, sizeScale_ = 0.9f, mRate_ = 0.35f, mDepth_ = 0.45f;
     float feedback_ = 0.8f, dampCut_ = 3000.0f, glideCoef_ = 0.1f;
     bool  freeze_ = false; int algo_ = 0;
