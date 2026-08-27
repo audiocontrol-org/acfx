@@ -64,6 +64,9 @@ private:
     };
 
     void buildControls(PluginProcessor& processor);
+    // Gain Link: when on, mirror the two gain knobs (Output = -Input) so they
+    // move together in the UI and both values reach the DSP + hardware.
+    void syncLinkedGains(bool fromInput);
     // Assign sections to columns and compute the window size. Sections keep
     // their internal 5-wide knob grid; when the single-column height would run
     // off a laptop screen the sections are split into two balanced columns.
@@ -74,6 +77,10 @@ private:
     std::vector<std::unique_ptr<Choice>> choices_;
     std::vector<Section> sections_;
     juce::String title_;      // effect name shown in the header eyebrow
+    Knob*   inputGainKnob_  = nullptr;   // Gain/Input  (for Link mirroring)
+    Knob*   outputGainKnob_ = nullptr;   // Gain/Output
+    Choice* linkChoice_     = nullptr;   // Gain/Link
+    bool    updatingLink_   = false;     // recursion guard for the mirror
     int          numColumns_ = 1;
     int          contentW_   = 0;
     int          contentH_   = 0;

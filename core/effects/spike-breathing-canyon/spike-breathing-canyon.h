@@ -420,12 +420,13 @@ private:
         sweepVal_[i] += 0.01f * (sweepTarget_[i] - sweepVal_[i]);
     }
 
-    // Input trim + output makeup. When linked, the output compensates the input
-    // (effectiveOut = output - input) so net level holds as you trim the input.
+    // Input trim + output makeup, applied independently. The Link mode lives in
+    // the plugin editor (it mirrors Output = -Input so the knobs move together and
+    // both values reach the DSP / the hardware); net level holds because the two
+    // gains then cancel. gainLink_ is retained for state but not used here.
     void updateGains() noexcept {
-        inGainLin_ = std::pow(10.0f, inputGainDb_ / 20.0f);
-        const float effOut = gainLink_ ? (outputGainDb_ - inputGainDb_) : outputGainDb_;
-        outGainLin_ = std::pow(10.0f, effOut / 20.0f);
+        inGainLin_  = std::pow(10.0f, inputGainDb_  / 20.0f);
+        outGainLin_ = std::pow(10.0f, outputGainDb_ / 20.0f);
     }
 
     static float softClip(float x) noexcept {

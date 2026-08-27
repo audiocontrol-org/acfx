@@ -96,8 +96,31 @@ PluginEditor::PluginEditor(PluginProcessor& processor)
     title_ = processor.getName().trimCharactersAtStart("acfx ").toUpperCase();
 
     buildControls(processor);
+
+    // Gain Link: mirror the two gain knobs so they move together in the UI.
+    if (inputGainKnob_ != nullptr && outputGainKnob_ != nullptr && linkChoice_ != nullptr) {
+        inputGainKnob_->slider.onValueChange  = [this] { syncLinkedGains(true); };
+        outputGainKnob_->slider.onValueChange = [this] { syncLinkedGains(false); };
+        linkChoice_->box.onChange             = [this] { syncLinkedGains(true); }; // snap on toggle
+    }
+
     planLayout();
     setSize(contentW_, contentH_);
+}
+
+void PluginEditor::syncLinkedGains(bool fromInput) {
+    if (updatingLink_ || inputGainKnob_ == nullptr || outputGainKnob_ == nullptr || linkChoice_ == nullptr)
+        return;
+    if (linkChoice_->box.getSelectedItemIndex() != 1) return; // 0 = off, 1 = on
+    updatingLink_ = true;
+    // Sliders are normalized 0..1; mirroring (1 - v) gives Output(dB) = -Input(dB)
+    // over the symmetric +/-24 dB range. sendNotificationSync pushes to the param
+    // (and thus the DSP + MIDI CC), moving the other knob visibly.
+    if (fromInput)
+        outputGainKnob_->slider.setValue(1.0 - inputGainKnob_->slider.getValue(), juce::sendNotificationSync);
+    else
+        inputGainKnob_->slider.setValue(1.0 - outputGainKnob_->slider.getValue(), juce::sendNotificationSync);
+    updatingLink_ = false;
 }
 
 PluginEditor::~PluginEditor() { setLookAndFeel(nullptr); }
@@ -123,6 +146,7 @@ void PluginEditor::buildControls(PluginProcessor& processor) {
                 addAndMakeVisible(cell->label);
                 section.cells.push_back({true, static_cast<int>(choices_.size())});
                 choices_.push_back(std::move(cell));
+                if (section.name == "Gain" && label == "Link") linkChoice_ = choices_.back().get();
             } else if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(p)) {
                 auto cell = std::make_unique<Knob>();
                 cell->slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -138,6 +162,8 @@ void PluginEditor::buildControls(PluginProcessor& processor) {
                 addAndMakeVisible(cell->label);
                 section.cells.push_back({false, static_cast<int>(knobs_.size())});
                 knobs_.push_back(std::move(cell));
+                if (section.name == "Gain" && label == "Input")  inputGainKnob_  = knobs_.back().get();
+                if (section.name == "Gain" && label == "Output") outputGainKnob_ = knobs_.back().get();
             }
         }
         sections_.push_back(std::move(section));
