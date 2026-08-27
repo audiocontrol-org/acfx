@@ -156,37 +156,49 @@ void PluginEditor::planLayout() {
         total += secHeight(i);
     }
 
+    // Keep the per-line arrays (Delays/Rates/Depths/Pans/Levels) together: treat
+    // the contiguous run of them as one atomic block so they never split columns.
+    auto isLine = [&](int i) {
+        const juce::String& nm = sections_[static_cast<std::size_t>(i)].name;
+        return nm == "Delays" || nm == "Rates" || nm == "Depths" || nm == "Pans" || nm == "Levels";
+    };
+    int lineStart = -1, lineEnd = -1;
+    for (int i = 0; i < n; ++i) if (isLine(i)) { if (lineStart < 0) lineStart = i; lineEnd = i + 1; }
+    // A "block" starting at i is either the atomic line run or a single section.
+    auto blockAt = [&](int i) -> std::pair<int,int> {   // {height, nextIndex}
+        if (i == lineStart) {
+            int h = 0; for (int j = lineStart; j < lineEnd; ++j) h += secHeight(j);
+            return {h, lineEnd};
+        }
+        return {secHeight(i), i + 1};
+    };
+
     // How many columns: enough to keep each near kMaxColH, capped at kMaxCols.
     int want = (total + kMaxColH - 1) / kMaxColH;
     if (want < 1) want = 1;
     if (want > kMaxCols) want = kMaxCols;
-    if (want > n) want = n;
 
-    // Smallest max-column-height that packs the sections (in order) into `want`
-    // contiguous columns -> balanced columns. Binary search on the height.
     auto colsNeeded = [&](int H) {
-        int cols = 1, acc = 0;
-        for (int i = 0; i < n; ++i) {
-            const int h = secHeight(i);
-            if (h > H) return n + 1;                 // a single section taller than H
-            if (acc + h > H) { ++cols; acc = h; } else acc += h;
-        }
+        int cols = 1, acc = 0, i = 0;
+        while (i < n) { auto [h, ni] = blockAt(i);
+            if (acc > 0 && acc + h > H) { ++cols; acc = h; } else acc += h; i = ni; }
         return cols;
     };
+    // Lower bound must fit the tallest block (incl. the whole line run) in a column.
     int lo = 0, hi = total;
-    for (int i = 0; i < n; ++i) lo = juce::jmax(lo, secHeight(i));
+    for (int i = 0; i < n; ) { auto [h, ni] = blockAt(i); lo = juce::jmax(lo, h); i = ni; }
     while (lo < hi) { const int mid = (lo + hi) / 2; if (colsNeeded(mid) <= want) hi = mid; else lo = mid + 1; }
     const int limitH = lo;
 
-    // Assign sections to columns with that height limit; track real column count/heights.
     int col = 0, acc = 0, colHeight = 0, used = 1;
-    for (int i = 0; i < n; ++i) {
-        const int h = secHeight(i);
-        if (acc + h > limitH && col < want - 1) { ++col; acc = 0; }
-        sections_[static_cast<std::size_t>(i)].column = col;
+    for (int i = 0; i < n; ) {
+        auto [h, ni] = blockAt(i);
+        if (acc > 0 && acc + h > limitH && col < want - 1) { ++col; acc = 0; }
+        for (int j = i; j < ni; ++j) sections_[static_cast<std::size_t>(j)].column = col;
         acc += h;
         colHeight = juce::jmax(colHeight, acc);
         used = juce::jmax(used, col + 1);
+        i = ni;
     }
     numColumns_ = used;
 
