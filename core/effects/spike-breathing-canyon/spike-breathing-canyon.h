@@ -73,8 +73,12 @@ public:
         kDuckAmount = 45, kDuckRelease = 46, kTransient = 47,
         kMode = 48, kRevWindow = 49,
         kBreathRate = 50, kBreathShape = 51,
-        kNumParams = 52,
+        kFilterCutoff = 52, kFilterReso = 53,
+        kFilterLfoRate = 54, kFilterLfoCutoff = 55, kFilterLfoReso = 56,
+        kNumParams = 57,
     };
+    static constexpr float kFilterLfoMaxOct = 2.5f;  // cutoff LFO full-depth swing (+/- octaves)
+    static constexpr float kFilterLfoMaxQ   = 5.0f;  // resonance LFO full-depth swing (+/- Q)
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
     // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
     static constexpr std::array<std::string_view, 5> kAlgoNames =
@@ -119,6 +123,7 @@ public:
         pitchBuf_.fill(0); pitchW_ = 0; pitchO0_ = 0.0f; pitchO1_ = static_cast<float>(kPitchWin) * 0.5f;
         aa1_.reset(); aa2_.reset(); aa3_.reset(); hpf_.reset();
         recL1_.reset(); recL2_.reset(); recR1_.reset(); recR2_.reset();
+        filtL_.reset(); filtR_.reset(); filtLfoPhase_ = 0.0f;
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
         loopDamp_ = 0.0f; breathPhase_ = 0.0f; breathRand_ = 0.5f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
         duckEnv_ = 0.0f; transEnv_ = 0.0f; pendingModeInit_ = false;
@@ -172,6 +177,11 @@ public:
             case kBreath:   breathDepth_ = v;                                         break;
             case kBreathRate:  breathInc_ = v / internalRate_;                        break; // Hz -> phase/internal-sample
             case kBreathShape: { int sh = static_cast<int>(v + 0.5f); breathShape_ = sh < 0 ? 0 : (sh > 4 ? 4 : sh); break; }
+            case kFilterCutoff:    filtCutoff_ = v; designUserFilter(filtCutoff_, filtQ_);  break; // Hz
+            case kFilterReso:      filtQ_ = 0.5f + v * 5.5f; designUserFilter(filtCutoff_, filtQ_); break; // 0..1 -> Q 0.5..6
+            case kFilterLfoRate:   filtLfoInc_ = v / internalRate_;                        break; // Hz
+            case kFilterLfoCutoff: filtLfoCutoffDepth_ = v;                                break;
+            case kFilterLfoReso:   filtLfoResoDepth_ = v;                                  break;
             case kAlgo: { int a = static_cast<int>(v + 0.5f); algo_ = a < 0 ? 0 : (a > 4 ? 4 : a); break; }
             case kShimLfoRate: { const float hz = 0.02f * std::pow(100.0f, v); // 0.02..2 Hz, log
                                  shimLfoInc_ = hz / internalRate_;               break; }
@@ -291,6 +301,17 @@ public:
                 fb = pitchShift(fb, pitchRate_ * std::pow(2.0f, shimSemis / 12.0f));
                 fb = softClip(fb);
                 fbSample_ = fb * shimmer_;
+
+                // User resonant low-pass on the wet (with optional LFO on cutoff/reso).
+                if (filtLfoCutoffDepth_ > 0.001f || filtLfoResoDepth_ > 0.001f) {
+                    const float flfo = std::sin(kTwoPi * filtLfoPhase_);
+                    filtLfoPhase_ += filtLfoInc_; if (filtLfoPhase_ >= 1.0f) filtLfoPhase_ -= 1.0f;
+                    const float fc = filtCutoff_ * std::pow(2.0f, flfo * filtLfoCutoffDepth_ * kFilterLfoMaxOct);
+                    const float q  = filtQ_ + flfo * filtLfoResoDepth_ * kFilterLfoMaxQ;
+                    designUserFilter(fc, q);
+                }
+                wetL = filtL_.process(wetL);
+                wetR = filtR_.process(wetR);
 
                 wetPrevL_ = wetCurL_; wetCurL_ = wetL * kOutGain;
                 wetPrevR_ = wetCurR_; wetCurR_ = wetR * kOutGain;
@@ -424,6 +445,17 @@ private:
         const float al = s/(2*Q), a0 = 1+al;
         bq.b0=(1+c)*0.5f/a0; bq.b1=-(1+c)/a0; bq.b2=(1+c)*0.5f/a0; bq.a1=-2*c/a0; bq.a2=(1-al)/a0;
     }
+    // User resonant low-pass (stereo, shared coeffs / independent state). Runs at
+    // the internal rate on the wet; clamped safely below Nyquist.
+    void designUserFilter(float fc, float q) noexcept {
+        if (fc < 100.0f) fc = 100.0f;
+        const float nyq = internalRate_ * 0.49f;
+        if (fc > nyq) fc = nyq;
+        if (q < 0.3f) q = 0.3f; else if (q > 8.0f) q = 8.0f;
+        designLP(filtL_, fc, internalRate_, q);
+        filtR_.b0 = filtL_.b0; filtR_.b1 = filtL_.b1; filtR_.b2 = filtL_.b2;
+        filtR_.a1 = filtL_.a1; filtR_.a2 = filtL_.a2;
+    }
     void designFilters() noexcept {
         const float rate = internalRate_;
         // 6th-order Butterworth anti-alias before decimation (Q of the three
@@ -465,6 +497,11 @@ private:
         bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.12f),
         {ParamId{kBreathRate}, "Breath/Rate", ParamUnit::hz, 0.01f, 2.0f, 0.08f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kBreathShape}, "Breath/Shape", ParamUnit::none, 0.0f, 4.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 5, kBreathShapeNames},
+        {ParamId{kFilterCutoff}, "Filter/Cutoff", ParamUnit::hz, 200.0f, 7000.0f, 7000.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        bc_detail::cont(kFilterReso, "Filter/Resonance", 0.0f, 1.0f, 0.1f),
+        {ParamId{kFilterLfoRate}, "Filter/LFO Rate", ParamUnit::hz, 0.02f, 8.0f, 0.3f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        bc_detail::cont(kFilterLfoCutoff, "Filter/LFO Cutoff", 0.0f, 1.0f, 0.0f),
+        bc_detail::cont(kFilterLfoReso, "Filter/LFO Reso", 0.0f, 1.0f, 0.0f),
         bc_detail::cont(kDuckAmount, "Duck/Amount", 0.0f, 1.0f, 0.67f),
         {ParamId{kDuckRelease}, "Duck/Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kTransient, "Input/Transient", 0.0f, 1.0f, 0.76f),
@@ -510,6 +547,9 @@ private:
     int   pitchW_ = 0; float pitchO0_ = 0.0f, pitchO1_ = static_cast<float>(kPitchWin) * 0.5f, pitchRate_ = 2.0f;
     Biquad aa1_{}, aa2_{}, aa3_{}, hpf_{};        // 6th-order anti-alias + loop HPF
     Biquad recL1_{}, recL2_{}, recR1_{}, recR2_{}; // 4th-order reconstruction LP (stereo)
+    Biquad filtL_{}, filtR_{};                     // user resonant low-pass on the wet (stereo)
+    float filtCutoff_ = 7000.0f, filtQ_ = 0.7f;
+    float filtLfoInc_ = 0.0f, filtLfoPhase_ = 0.0f, filtLfoCutoffDepth_ = 0.0f, filtLfoResoDepth_ = 0.0f;
     float sweepMaxSamp_ = 120.0f;
     float dampA1_ = 0.2f, dampA2_ = 0.8f, loopDamp_ = 0.0f;
     float fbSample_ = 0.0f; int decimPhase_ = 0;
