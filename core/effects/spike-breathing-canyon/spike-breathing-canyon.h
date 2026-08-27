@@ -295,38 +295,39 @@ private:
 
     // ---- parameter table (built with a constexpr helper for the 30 per-line rows) ----
     static constexpr std::array<ParameterDescriptor, kNumParams> kParams = {{
-        bc_detail::cont(kSize, "Master/Size", 0.0f, 1.0f, 0.7f),
+        // Defaults are the operator's tuned preset (2026-08-26): a smooth, wide
+        // canyon with a touch of shimmer. Delays stay well-spread/coprime to
+        // avoid tail flutter (lines 3/4 sit at 0.079/0.081 -- both read "0.08"
+        // but are not exactly equal, which would re-introduce a degenerate line).
+        bc_detail::cont(kSize, "Master/Size", 0.0f, 1.0f, 1.0f),
         bc_detail::cont(kMRate, "Master/Sweep Rate", 0.0f, 1.0f, 0.35f),
         bc_detail::cont(kMDepth, "Master/Sweep Depth", 0.0f, 1.0f, 0.30f),
-        bc_detail::cont(kFeedback, "Master/Feedback", 0.0f, 1.0f, 0.75f),
+        bc_detail::cont(kFeedback, "Master/Feedback", 0.0f, 1.0f, 0.76f),
         bc_detail::cont(kMix, "Master/Mix", 0.0f, 1.0f, 1.0f),
-        {ParamId{kPredelay}, "Global/Predelay", ParamUnit::seconds, 0.0f, 0.34f, 0.08f, ParamSkew::linear, ParamKind::continuous, 0},
-        bc_detail::cont(kDamping, "Global/Damping", 0.0f, 1.0f, 0.28f),
-        bc_detail::cont(kGlide, "Global/Glide", 0.0f, 1.0f, 0.3f),
+        {ParamId{kPredelay}, "Global/Predelay", ParamUnit::seconds, 0.0f, 0.34f, 0.05f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kDamping, "Global/Damping", 0.0f, 1.0f, 0.16f),
+        bc_detail::cont(kGlide, "Global/Glide", 0.0f, 1.0f, 0.0f),
         {ParamId{kFreeze}, "Global/Freeze", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kOffOn},
         {ParamId{kPitch}, "Shimmer/Pitch", ParamUnit::none, -12.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
-        bc_detail::cont(kShimmer, "Shimmer/Amount", 0.0f, 1.0f, 0.3f),
-        bc_detail::cont(kShimLfoRate, "Shimmer/LFO Rate", 0.0f, 1.0f, 0.15f),
-        {ParamId{kShimLfoDepth}, "Shimmer/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
-        bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.35f),
-        // Prime sample counts @ 12 kHz (337,523,809,1117,1459,1801) -> mutually
-        // coprime, log-spaced over a wide ~5:1 range so FDN echoes never re-align
-        // into a periodic flutter. (Evenly-spaced defaults caused tail cycling.)
-        bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.0281f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.0436f),
-        bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.0674f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.0931f),
-        bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.1216f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.1501f),
-        bc_detail::cont(kRate1+0, "Rates/1", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kRate1+1, "Rates/2", 0.0f, 1.0f, 0.6f),
-        bc_detail::cont(kRate1+2, "Rates/3", 0.0f, 1.0f, 0.4f) , bc_detail::cont(kRate1+3, "Rates/4", 0.0f, 1.0f, 0.7f),
-        bc_detail::cont(kRate1+4, "Rates/5", 0.0f, 1.0f, 0.45f) , bc_detail::cont(kRate1+5, "Rates/6", 0.0f, 1.0f, 0.55f),
-        bc_detail::cont(kDepth1+0, "Depths/1", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kDepth1+1, "Depths/2", 0.0f, 1.0f, 0.5f),
-        bc_detail::cont(kDepth1+2, "Depths/3", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kDepth1+3, "Depths/4", 0.0f, 1.0f, 0.5f),
-        bc_detail::cont(kDepth1+4, "Depths/5", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kDepth1+5, "Depths/6", 0.0f, 1.0f, 0.5f),
-        bc_detail::cont(kPan1+0, "Pans/1", -1.0f, 1.0f, -0.8f) , bc_detail::cont(kPan1+1, "Pans/2", -1.0f, 1.0f, 0.8f),
-        bc_detail::cont(kPan1+2, "Pans/3", -1.0f, 1.0f, -0.4f) , bc_detail::cont(kPan1+3, "Pans/4", -1.0f, 1.0f, 0.4f),
-        bc_detail::cont(kPan1+4, "Pans/5", -1.0f, 1.0f, -0.6f) , bc_detail::cont(kPan1+5, "Pans/6", -1.0f, 1.0f, 0.6f),
-        bc_detail::cont(kLevel1+0, "Levels/1", 0.0f, 1.0f, 0.8f) , bc_detail::cont(kLevel1+1, "Levels/2", 0.0f, 1.0f, 0.8f),
-        bc_detail::cont(kLevel1+2, "Levels/3", 0.0f, 1.0f, 0.8f) , bc_detail::cont(kLevel1+3, "Levels/4", 0.0f, 1.0f, 0.8f),
-        bc_detail::cont(kLevel1+4, "Levels/5", 0.0f, 1.0f, 0.8f) , bc_detail::cont(kLevel1+5, "Levels/6", 0.0f, 1.0f, 0.8f),
+        bc_detail::cont(kShimmer, "Shimmer/Amount", 0.0f, 1.0f, 0.18f),
+        bc_detail::cont(kShimLfoRate, "Shimmer/LFO Rate", 0.0f, 1.0f, 0.08f),
+        {ParamId{kShimLfoDepth}, "Shimmer/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.12f),
+        bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.030f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.050f),
+        bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.079f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.081f),
+        bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.100f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.150f),
+        bc_detail::cont(kRate1+0, "Rates/1", 0.0f, 1.0f, 0.21f) , bc_detail::cont(kRate1+1, "Rates/2", 0.0f, 1.0f, 0.18f),
+        bc_detail::cont(kRate1+2, "Rates/3", 0.0f, 1.0f, 0.10f) , bc_detail::cont(kRate1+3, "Rates/4", 0.0f, 1.0f, 0.07f),
+        bc_detail::cont(kRate1+4, "Rates/5", 0.0f, 1.0f, 0.13f) , bc_detail::cont(kRate1+5, "Rates/6", 0.0f, 1.0f, 0.21f),
+        bc_detail::cont(kDepth1+0, "Depths/1", 0.0f, 1.0f, 0.00f) , bc_detail::cont(kDepth1+1, "Depths/2", 0.0f, 1.0f, 0.14f),
+        bc_detail::cont(kDepth1+2, "Depths/3", 0.0f, 1.0f, 0.29f) , bc_detail::cont(kDepth1+3, "Depths/4", 0.0f, 1.0f, 0.22f),
+        bc_detail::cont(kDepth1+4, "Depths/5", 0.0f, 1.0f, 0.50f) , bc_detail::cont(kDepth1+5, "Depths/6", 0.0f, 1.0f, 0.50f),
+        bc_detail::cont(kPan1+0, "Pans/1", -1.0f, 1.0f, -1.0f) , bc_detail::cont(kPan1+1, "Pans/2", -1.0f, 1.0f, -1.0f),
+        bc_detail::cont(kPan1+2, "Pans/3", -1.0f, 1.0f, 1.0f) , bc_detail::cont(kPan1+3, "Pans/4", -1.0f, 1.0f, 1.0f),
+        bc_detail::cont(kPan1+4, "Pans/5", -1.0f, 1.0f, -1.0f) , bc_detail::cont(kPan1+5, "Pans/6", -1.0f, 1.0f, 0.56f),
+        bc_detail::cont(kLevel1+0, "Levels/1", 0.0f, 1.0f, 0.69f) , bc_detail::cont(kLevel1+1, "Levels/2", 0.0f, 1.0f, 0.72f),
+        bc_detail::cont(kLevel1+2, "Levels/3", 0.0f, 1.0f, 0.17f) , bc_detail::cont(kLevel1+3, "Levels/4", 0.0f, 1.0f, 0.14f),
+        bc_detail::cont(kLevel1+4, "Levels/5", 0.0f, 1.0f, 0.33f) , bc_detail::cont(kLevel1+5, "Levels/6", 0.0f, 1.0f, 0.37f),
         {ParamId{kAlgo}, "Master/Algorithm", ParamUnit::none, 0.0f, 4.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 5, kAlgoNames},
     }};
 
