@@ -68,7 +68,8 @@ public:
         kDelay1 = 12, kRate1 = 18, kDepth1 = 24, kPan1 = 30, kLevel1 = 36,
         kAlgo = 42, kShimLfoRate = 43, kShimLfoDepth = 44,
         kChorusTime = 45, kChorusDepth = 46, kChorusRate = 47, kChorusFeedback = 48,
-        kNumParams = 49,
+        kDuckAmount = 49, kDuckRelease = 50, kTransient = 51,
+        kNumParams = 52,
     };
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
     // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
@@ -91,10 +92,12 @@ public:
         // Wet-side chorus runs at the FULL output rate (not the 12 kHz tank rate).
         for (int ch = 0; ch < 2; ++ch) chorusLine_[ch].prepare(kChorusMax, sampleRate_);
         chorusModMax_ = kChorusModMs * 0.001f * sampleRate_;
+        // Envelope-follower coefficients (full output rate).
+        duckAtk_   = 1.0f - std::exp(-1.0f / (0.005f * sampleRate_));  // ~5 ms duck attack
+        transBase_ = 1.0f - std::exp(-1.0f / (0.010f * sampleRate_)); // ~10 ms transient baseline
         designFilters();
-        for (std::size_t i = 0; i < kNumParams; ++i)
-            setParameter(ParamId{static_cast<std::uint8_t>(i)},
-                         normalize(kParams[i], kParams[i].defaultValue));
+        for (const ParameterDescriptor& d : kParams)
+            setParameter(d.id, normalize(d, d.defaultValue));
         reset();
     }
 
@@ -111,12 +114,22 @@ public:
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
         loopDamp_ = 0.0f; breathPhase_ = 0.0f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
         for (int ch = 0; ch < 2; ++ch) chorusLine_[ch].reset();
-        chorusLfoPhase_ = 0.0f;
+        chorusLfoPhase_ = 0.0f; duckEnv_ = 0.0f; transEnv_ = 0.0f;
+    }
+
+    // Look up a descriptor by ParamId. kParams is ordered for UI grouping, NOT
+    // by id, so we must NOT index it by id.value -- that would denormalize with
+    // the wrong descriptor's range (was the pan/pitch/delay range bug).
+    static const ParameterDescriptor* descriptorFor(std::uint8_t id) noexcept {
+        for (const ParameterDescriptor& d : kParams)
+            if (d.id.value == id) return &d;
+        return nullptr;
     }
 
     void setParameter(ParamId id, float normalized) noexcept {
-        if (id.value >= kNumParams) return;
-        const float v = denormalize(kParams[id.value], normalized);
+        const ParameterDescriptor* desc = descriptorFor(id.value);
+        if (desc == nullptr) return;
+        const float v = denormalize(*desc, normalized);
         const float rate = sampleRate_ / static_cast<float>(kInternalDivisor);
         const int idv = id.value;
         if (idv >= kDelay1 && idv < kDelay1 + kLines)   { lineDelay_[idv - kDelay1] = v * rate; return; } // sec
@@ -147,6 +160,9 @@ public:
             case kChorusDepth:    chorusDepth_ = v;                              break;
             case kChorusRate:     chorusLfoInc_ = v / sampleRate_;               break; // Hz -> phase/sample
             case kChorusFeedback: chorusFb_ = v;                                 break;
+            case kDuckAmount:  duckAmount_ = v;                                  break; // 0..1 wet attenuation by dry
+            case kDuckRelease: duckRel_ = 1.0f - std::exp(-1.0f / (v * sampleRate_)); break; // release seconds
+            case kTransient:   transAmount_ = v;                                 break; // 0..1 input transient softening
             default: break;
         }
     }
@@ -161,7 +177,20 @@ public:
 
         for (int n = 0; n < samples; ++n) {
             const float dryL = xL[n], dryR = xR[n];
-            const float monoAA = aa_.process((dryL + dryR) * 0.5f);
+            float monoAA = aa_.process((dryL + dryR) * 0.5f);
+
+            // Transient taming: a ~10 ms baseline follower; when the instantaneous
+            // level spikes above it (a transient), pull the peak back toward the
+            // baseline by Transient amount. Sustained level lets the baseline catch
+            // up, so only fast attacks are softened.
+            if (transAmount_ > 0.0001f) {
+                const float mag = std::fabs(monoAA);
+                transEnv_ += transBase_ * (mag - transEnv_);
+                if (mag > transEnv_ && mag > 1e-6f) {
+                    const float g = transEnv_ / mag;              // <1 on a transient
+                    monoAA *= 1.0f - transAmount_ * (1.0f - g);
+                }
+            }
 
             if (decimPhase_ == 0) {
                 const float pd = preLine_.readFractional(predelaySamp_);
@@ -240,6 +269,18 @@ public:
             if (chorusLfoPhase_ >= 1.0f) chorusLfoPhase_ -= 1.0f;
             woL = chorusSample(0, woL, clfoL);
             woR = chorusSample(1, woR, clfoR);
+
+            // Ducking: the dry input is the sidechain. When it's loud, pull the wet
+            // down so the source stays on top of the reverb wash. Fast attack, an
+            // adjustable release; on a 100%-wet send the sidechain is still the
+            // effect's input, so it works there too.
+            if (duckAmount_ > 0.0001f) {
+                const float dryMag = 0.5f * (std::fabs(dryL) + std::fabs(dryR));
+                duckEnv_ += (dryMag > duckEnv_ ? duckAtk_ : duckRel_) * (dryMag - duckEnv_);
+                float sc = duckEnv_ * kDuckSens; if (sc > 1.0f) sc = 1.0f;   // 0..1 sidechain
+                const float dg = 1.0f - duckAmount_ * sc;                     // max reduction == amount
+                woL *= dg; woR *= dg;
+            }
 
             xL[n] = dryL * (1.0f - mix_) + woL * mix_;
             if (channels > 1) xR[n] = dryR * (1.0f - mix_) + woR * mix_;
@@ -348,6 +389,9 @@ private:
         bc_detail::cont(kChorusDepth, "Chorus/Depth", 0.0f, 1.0f, 0.45f),
         {ParamId{kChorusRate}, "Chorus/Rate", ParamUnit::hz, 0.05f, 8.0f, 0.5f, ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kChorusFeedback}, "Chorus/Feedback", ParamUnit::none, 0.0f, 0.85f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kDuckAmount, "Duck/Amount", 0.0f, 1.0f, 0.0f),
+        {ParamId{kDuckRelease}, "Duck/Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kTransient, "Input/Transient", 0.0f, 1.0f, 0.0f),
         bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.030f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.050f),
         bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.079f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.081f),
         bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.100f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.150f),
@@ -393,6 +437,10 @@ private:
     std::array<BoundedDelayLine<std::int16_t, kChorusMax>, 2> chorusLine_{};
     float chorusBase_ = 672.0f, chorusDepth_ = 0.45f, chorusModMax_ = 240.0f;
     float chorusFb_ = 0.0f, chorusLfoPhase_ = 0.0f, chorusLfoInc_ = 0.0f;
+    // Ducking (dry->wet sidechain) + input transient softening.
+    static constexpr float kDuckSens = 4.0f;   // scales dry envelope into the 0..1 duck range
+    float duckAmount_ = 0.0f, duckEnv_ = 0.0f, duckAtk_ = 0.1f, duckRel_ = 0.01f;
+    float transAmount_ = 0.0f, transEnv_ = 0.0f, transBase_ = 0.05f;
 };
 
 } // namespace acfx
