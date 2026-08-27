@@ -60,6 +60,8 @@ inline constexpr CcBinding kCcBindings[] = {
     CcBinding{91, 18},   // CC91 -> flutter_depth
     CcBinding{92, 21},   // CC92 -> reverb algorithm (reverse-reverb: room/hall/plate)
     CcBinding{93, 42},   // CC93 -> reverb algorithm (breathing-canyon: Cathedral/Chamber/Swirl/Plate/Cascade)
+    CcBinding{94, 43},   // CC94 -> shimmer pitch LFO rate  (breathing-canyon)
+    CcBinding{95, 44},   // CC95 -> shimmer pitch LFO depth (breathing-canyon)
     // -- Add further CC -> parameter-index bindings above this line. --
 };
 

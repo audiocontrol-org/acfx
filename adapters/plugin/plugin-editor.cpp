@@ -27,7 +27,12 @@ constexpr int kSecHeadH  = 24;
 constexpr int kCellW     = 86;
 constexpr int kCellH     = 88;
 constexpr int kSecGap    = 8;
-constexpr int kWidth     = 2 * kPad + 5 * kCellW; // fits the widest section (5 cells)
+constexpr int kColCells  = 6;                 // cells per row within one column (a 6-line array = one clean row)
+constexpr int kColW      = kColCells * kCellW; // one column's content width
+constexpr int kColGap    = 20;                // gutter between the two columns
+// Above this single-column content height, split sections into two columns so
+// the window still fits a laptop screen.
+constexpr int kMaxColH   = 760;
 
 class AcfxLookAndFeel final : public juce::LookAndFeel_V4 {
 public:
@@ -85,15 +90,13 @@ PluginEditor::PluginEditor(PluginProcessor& processor)
     lnf_ = std::make_unique<AcfxLookAndFeel>();
     setLookAndFeel(lnf_.get());
 
-    buildControls(processor);
+    // Header eyebrow shows the effect's own name (was hardcoded), so every
+    // plugin built from this shared editor is labelled correctly.
+    title_ = processor.getName().trimCharactersAtStart("acfx ").toUpperCase();
 
-    int height = kHeaderH;
-    for (const Section& s : sections_) {
-        const int perRow = juce::jmax(1, (kWidth - 2 * kPad) / kCellW);
-        const int rows = (static_cast<int>(s.cells.size()) + perRow - 1) / perRow;
-        height += kSecHeadH + rows * kCellH + kSecGap;
-    }
-    setSize(kWidth, height + kPad);
+    buildControls(processor);
+    planLayout();
+    setSize(contentW_, contentH_);
 }
 
 PluginEditor::~PluginEditor() { setLookAndFeel(nullptr); }
@@ -140,20 +143,57 @@ void PluginEditor::buildControls(PluginProcessor& processor) {
     }
 }
 
-void PluginEditor::resized() {
-    auto area = getLocalBounds();
-    area.removeFromTop(kHeaderH);
-    area.removeFromLeft(kPad);
-    area.removeFromRight(kPad);
+void PluginEditor::planLayout() {
+    const int n = static_cast<int>(sections_.size());
+    auto secHeight = [&](int i) {
+        return kSecHeadH + sections_[static_cast<std::size_t>(i)].rows * kCellH + kSecGap;
+    };
+    int total = 0;
+    for (int i = 0; i < n; ++i) {
+        Section& s = sections_[static_cast<std::size_t>(i)];
+        s.rows = juce::jmax(1, (static_cast<int>(s.cells.size()) + kColCells - 1) / kColCells);
+        total += secHeight(i);
+    }
 
-    const int perRow = juce::jmax(1, area.getWidth() / kCellW);
+    numColumns_ = (total > kMaxColH && n > 1) ? 2 : 1;
+    int colHeight = total;
+    if (numColumns_ == 2) {
+        // Best contiguous split: first k sections in column 0, rest in column 1,
+        // minimising the taller column (balances by height, not section count).
+        int best = total, bestK = 1, left = 0;
+        for (int k = 0; k < n; ++k) {
+            left += secHeight(k);
+            const int taller = juce::jmax(left, total - left);
+            if (k < n - 1 && taller < best) { best = taller; bestK = k + 1; }
+        }
+        int c0 = 0, c1 = 0;
+        for (int i = 0; i < n; ++i) {
+            const bool right = i >= bestK;
+            sections_[static_cast<std::size_t>(i)].column = right ? 1 : 0;
+            (right ? c1 : c0) += secHeight(i);
+        }
+        colHeight = juce::jmax(c0, c1);
+    } else {
+        for (Section& s : sections_) s.column = 0;
+    }
+
+    contentW_ = 2 * kPad + numColumns_ * kColW + (numColumns_ - 1) * kColGap;
+    contentH_ = kHeaderH + colHeight + kPad;
+}
+
+void PluginEditor::resized() {
+    int colY[2] = {kHeaderH, kHeaderH};
+    const int colX[2] = {kPad, kPad + kColW + kColGap};
 
     for (Section& s : sections_) {
+        const int col = s.column;
+        auto area = juce::Rectangle<int>(colX[col], colY[col], kColW,
+                                         kSecHeadH + s.rows * kCellH);
         s.headerArea = area.removeFromTop(kSecHeadH);
         int i = 0;
         while (i < static_cast<int>(s.cells.size())) {
             auto rowArea = area.removeFromTop(kCellH);
-            for (int c = 0; c < perRow && i < static_cast<int>(s.cells.size()); ++c, ++i) {
+            for (int c = 0; c < kColCells && i < static_cast<int>(s.cells.size()); ++c, ++i) {
                 auto cellBounds = rowArea.removeFromLeft(kCellW);
                 const Cell& cell = s.cells[static_cast<std::size_t>(i)];
                 auto labelArea = cellBounds.removeFromTop(16);
@@ -168,7 +208,7 @@ void PluginEditor::resized() {
                 }
             }
         }
-        area.removeFromTop(kSecGap);
+        colY[col] += kSecHeadH + s.rows * kCellH + kSecGap;
     }
 }
 
@@ -194,7 +234,7 @@ void PluginEditor::paint(juce::Graphics& g) {
     g.drawText("acfx", titleArea.removeFromLeft(56), juce::Justification::centredLeft);
     g.setColour(kMuted);
     g.setFont(juce::Font(15.0f));
-    g.drawText("REVERSE REVERB", titleArea, juce::Justification::centredLeft);
+    g.drawText(title_, titleArea, juce::Justification::centredLeft);
 
     // Build stamp so you can confirm which version is loaded.
     g.setColour(kMuted);

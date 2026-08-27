@@ -59,14 +59,24 @@ private:
         juce::String          name;
         std::vector<Cell>     cells;
         juce::Rectangle<int>  headerArea; // filled by resized(), painted by paint()
+        int                   column = 0; // which layout column (filled by planLayout)
+        int                   rows   = 1; // wrapped rows of cells (filled by planLayout)
     };
 
     void buildControls(PluginProcessor& processor);
+    // Assign sections to columns and compute the window size. Sections keep
+    // their internal 5-wide knob grid; when the single-column height would run
+    // off a laptop screen the sections are split into two balanced columns.
+    void planLayout();
 
     std::unique_ptr<juce::LookAndFeel> lnf_;
     std::vector<std::unique_ptr<Knob>>   knobs_;
     std::vector<std::unique_ptr<Choice>> choices_;
     std::vector<Section> sections_;
+    juce::String title_;      // effect name shown in the header eyebrow
+    int          numColumns_ = 1;
+    int          contentW_   = 0;
+    int          contentH_   = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginEditor)
 };

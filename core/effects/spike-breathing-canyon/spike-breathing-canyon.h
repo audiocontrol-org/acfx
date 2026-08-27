@@ -64,8 +64,8 @@ public:
         kPredelay = 5, kDamping = 6, kGlide = 7, kFreeze = 8,
         kPitch = 9, kShimmer = 10, kBreath = 11,
         kDelay1 = 12, kRate1 = 18, kDepth1 = 24, kPan1 = 30, kLevel1 = 36,
-        kAlgo = 42,
-        kNumParams = 43,
+        kAlgo = 42, kShimLfoRate = 43, kShimLfoDepth = 44,
+        kNumParams = 45,
     };
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
     // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
@@ -103,7 +103,7 @@ public:
         pitchBuf_.fill(0); pitchW_ = 0; pitchO0_ = 0.0f; pitchO1_ = static_cast<float>(kPitchWin) * 0.5f;
         aa_.reset(); hpf_.reset();
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
-        loopDamp_ = 0.0f; breathPhase_ = 0.0f; rng_ = 0x2545f491u;
+        loopDamp_ = 0.0f; breathPhase_ = 0.0f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
     }
 
     void setParameter(ParamId id, float normalized) noexcept {
@@ -132,6 +132,9 @@ public:
             case kShimmer:  shimmer_   = v * 0.9f;                                    break;
             case kBreath:   breathDepth_ = v;                                         break;
             case kAlgo: { int a = static_cast<int>(v + 0.5f); algo_ = a < 0 ? 0 : (a > 4 ? 4 : a); break; }
+            case kShimLfoRate: { const float hz = 0.02f * std::pow(100.0f, v); // 0.02..2 Hz, log
+                                 shimLfoInc_ = hz / internalRate_;               break; }
+            case kShimLfoDepth: shimLfoDepth_ = v;                               break; // semitones (0..12)
             default: break;
         }
     }
@@ -204,7 +207,9 @@ public:
                 // global shimmer loop off the mono sum
                 float fb = hpf_.process((wetL + wetR) * 0.5f);
                 loopDamp_ = fb * dampA2_ + loopDamp_ * dampA1_; fb = loopDamp_;
-                fb = pitchShift(fb);
+                shimLfoPhase_ += shimLfoInc_; if (shimLfoPhase_ >= 1.0f) shimLfoPhase_ -= 1.0f;
+                const float shimSemis = shimLfoDepth_ * std::sin(kTwoPi * shimLfoPhase_);
+                fb = pitchShift(fb, pitchRate_ * std::pow(2.0f, shimSemis / 12.0f));
                 fb = softClip(fb);
                 fbSample_ = fb * shimmer_;
 
@@ -222,7 +227,7 @@ public:
     }
 
 private:
-    static constexpr float kOutGain = 1.1f;   // measured make-up; keeps worst-case peak <~1.0 (see harness)
+    static constexpr float kOutGain = 0.88f;  // measured make-up; keeps worst-case peak <~1.0 across all topologies (see harness)
     float mDelayFromSize() const noexcept { return sizeScale_ * (0.5f); }  // (folded into per-line via Size)
 
     void advanceSweep(int i) noexcept {
@@ -240,7 +245,7 @@ private:
         if (x < -1.2f) return -0.8f; if (x > 1.2f) return 0.8f;
         return x - (x * x * x) * (1.0f / 4.32f);
     }
-    float pitchShift(float x) noexcept {
+    float pitchShift(float x, float rate) noexcept {
         constexpr float kTwoPi = 6.28318530718f;
         pitchBuf_[static_cast<std::size_t>(pitchW_)] = quantizeInt16(x);
         auto rd = [&](float o) {
@@ -255,7 +260,7 @@ private:
         const float e0 = 0.5f * (1.0f - std::cos(kTwoPi * pitchO0_ / kPitchWin));
         const float e1 = 0.5f * (1.0f - std::cos(kTwoPi * pitchO1_ / kPitchWin));
         pitchW_ = (pitchW_ + 1) % kPitchBuf;
-        const float step = 1.0f - pitchRate_;
+        const float step = 1.0f - rate;
         pitchO0_ += step; if (pitchO0_ < 0) pitchO0_ += kPitchWin; else if (pitchO0_ >= kPitchWin) pitchO0_ -= kPitchWin;
         pitchO1_ += step; if (pitchO1_ < 0) pitchO1_ += kPitchWin; else if (pitchO1_ >= kPitchWin) pitchO1_ -= kPitchWin;
         return t0 * e0 + t1 * e1;
@@ -301,6 +306,8 @@ private:
         {ParamId{kFreeze}, "Global/Freeze", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kOffOn},
         {ParamId{kPitch}, "Shimmer/Pitch", ParamUnit::none, -12.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kShimmer, "Shimmer/Amount", 0.0f, 1.0f, 0.3f),
+        bc_detail::cont(kShimLfoRate, "Shimmer/LFO Rate", 0.0f, 1.0f, 0.15f),
+        {ParamId{kShimLfoDepth}, "Shimmer/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.35f),
         bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.089f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.119f),
         bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.146f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.171f),
@@ -342,6 +349,7 @@ private:
     float feedback_ = 0.8f, dampCut_ = 3000.0f, glideCoef_ = 0.1f;
     bool  freeze_ = false; int algo_ = 0;
     float shimmer_ = 0.3f, breathDepth_ = 0.35f, mix_ = 1.0f;
+    float shimLfoPhase_ = 0.0f, shimLfoInc_ = 0.0f, shimLfoDepth_ = 0.0f;
 };
 
 } // namespace acfx
