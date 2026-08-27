@@ -56,6 +56,8 @@ public:
     static constexpr int kPitchBuf = 2048;
     static constexpr int kPitchWin = 1024;
     static constexpr float kSweepMaxSamp = 90.0f;
+    static constexpr int kChorusMax = 1800;   // full-rate (48 kHz) wet-chorus line: up to ~30 ms + mod
+    static constexpr float kChorusModMs = 5.0f;
     // Base per-line delay lengths @ 8 kHz (the Delays 1-6 defaults, ~90-260 ms).
     static constexpr int kBase[kLines] = {727, 1013, 1279, 1523, 1789, 2069};
 
@@ -65,7 +67,8 @@ public:
         kPitch = 9, kShimmer = 10, kBreath = 11,
         kDelay1 = 12, kRate1 = 18, kDepth1 = 24, kPan1 = 30, kLevel1 = 36,
         kAlgo = 42, kShimLfoRate = 43, kShimLfoDepth = 44,
-        kNumParams = 45,
+        kChorusTime = 45, kChorusDepth = 46, kChorusRate = 47, kChorusFeedback = 48,
+        kNumParams = 49,
     };
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
     // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
@@ -85,6 +88,9 @@ public:
           for (int i = 0; i < kInDiff; ++i) diff_[i].prepare(c[i], rate); }
         { constexpr int c[kLines] = {131, 193, 239, 281, 337, 397};
           for (int i = 0; i < kLines; ++i) lineAP_[i].prepare(c[i], rate); }
+        // Wet-side chorus runs at the FULL output rate (not the 12 kHz tank rate).
+        for (int ch = 0; ch < 2; ++ch) chorusLine_[ch].prepare(kChorusMax, sampleRate_);
+        chorusModMax_ = kChorusModMs * 0.001f * sampleRate_;
         designFilters();
         for (std::size_t i = 0; i < kNumParams; ++i)
             setParameter(ParamId{static_cast<std::uint8_t>(i)},
@@ -104,6 +110,8 @@ public:
         aa_.reset(); hpf_.reset();
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
         loopDamp_ = 0.0f; breathPhase_ = 0.0f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
+        for (int ch = 0; ch < 2; ++ch) chorusLine_[ch].reset();
+        chorusLfoPhase_ = 0.0f;
     }
 
     void setParameter(ParamId id, float normalized) noexcept {
@@ -135,6 +143,10 @@ public:
             case kShimLfoRate: { const float hz = 0.02f * std::pow(100.0f, v); // 0.02..2 Hz, log
                                  shimLfoInc_ = hz / internalRate_;               break; }
             case kShimLfoDepth: shimLfoDepth_ = v;                               break; // semitones (0..12)
+            case kChorusTime:     chorusBase_ = v * sampleRate_;                 break; // seconds -> samples @ full rate
+            case kChorusDepth:    chorusDepth_ = v;                              break;
+            case kChorusRate:     chorusLfoInc_ = v / sampleRate_;               break; // Hz -> phase/sample
+            case kChorusFeedback: chorusFb_ = v;                                 break;
             default: break;
         }
     }
@@ -217,9 +229,17 @@ public:
                 wetPrevR_ = wetCurR_; wetCurR_ = wetR * kOutGain;
             }
             const float frac = static_cast<float>(decimPhase_) * invD;
-            const float woL = wetPrevL_ + (wetCurL_ - wetPrevL_) * frac;
-            const float woR = wetPrevR_ + (wetCurR_ - wetPrevR_) * frac;
+            float woL = wetPrevL_ + (wetCurL_ - wetPrevL_) * frac;
+            float woR = wetPrevR_ + (wetCurR_ - wetPrevR_) * frac;
             decimPhase_ = (decimPhase_ + 1) % kInternalDivisor;
+
+            // Wet-side stereo chorus (full rate): quadrature LFO, per-channel line.
+            const float clfoL = std::sin(kTwoPi * chorusLfoPhase_);
+            const float clfoR = std::sin(kTwoPi * (chorusLfoPhase_ + 0.25f));
+            chorusLfoPhase_ += chorusLfoInc_;
+            if (chorusLfoPhase_ >= 1.0f) chorusLfoPhase_ -= 1.0f;
+            woL = chorusSample(0, woL, clfoL);
+            woR = chorusSample(1, woR, clfoR);
 
             xL[n] = dryL * (1.0f - mix_) + woL * mix_;
             if (channels > 1) xR[n] = dryR * (1.0f - mix_) + woR * mix_;
@@ -239,6 +259,17 @@ private:
             sweepCnt_[i] = period + (static_cast<int>(rng_ >> 3) & 63);
         }
         sweepVal_[i] += 0.01f * (sweepTarget_[i] - sweepVal_[i]);
+    }
+
+    // Wet-side modulated chorus (one per channel), same shape as the reverse
+    // reverb: a modulated delay tap mixed 50/50 with the input, with feedback.
+    float chorusSample(int ch, float x, float lfo) noexcept {
+        auto& line = chorusLine_[static_cast<std::size_t>(ch)];
+        float d = chorusBase_ + lfo * chorusDepth_ * chorusModMax_;
+        if (d < 1.0f) d = 1.0f;
+        const float tap = line.readFractional(d);
+        line.write(x + chorusFb_ * tap);
+        return x + 0.5f * tap;
     }
 
     static float softClip(float x) noexcept {
@@ -313,6 +344,10 @@ private:
         bc_detail::cont(kShimLfoRate, "Shimmer/LFO Rate", 0.0f, 1.0f, 0.08f),
         {ParamId{kShimLfoDepth}, "Shimmer/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.12f),
+        {ParamId{kChorusTime}, "Chorus/Time", ParamUnit::seconds, 0.001f, 0.030f, 0.014f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kChorusDepth, "Chorus/Depth", 0.0f, 1.0f, 0.45f),
+        {ParamId{kChorusRate}, "Chorus/Rate", ParamUnit::hz, 0.05f, 8.0f, 0.5f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kChorusFeedback}, "Chorus/Feedback", ParamUnit::none, 0.0f, 0.85f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.030f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.050f),
         bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.079f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.081f),
         bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.100f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.150f),
@@ -354,6 +389,10 @@ private:
     bool  freeze_ = false; int algo_ = 0;
     float shimmer_ = 0.3f, breathDepth_ = 0.35f, mix_ = 1.0f;
     float shimLfoPhase_ = 0.0f, shimLfoInc_ = 0.0f, shimLfoDepth_ = 0.0f;
+    // Wet-side stereo chorus (full-rate int16 delay lines).
+    std::array<BoundedDelayLine<std::int16_t, kChorusMax>, 2> chorusLine_{};
+    float chorusBase_ = 672.0f, chorusDepth_ = 0.45f, chorusModMax_ = 240.0f;
+    float chorusFb_ = 0.0f, chorusLfoPhase_ = 0.0f, chorusLfoInc_ = 0.0f;
 };
 
 } // namespace acfx
