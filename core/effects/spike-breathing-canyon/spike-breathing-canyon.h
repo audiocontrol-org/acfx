@@ -309,9 +309,12 @@ private:
         bc_detail::cont(kShimLfoRate, "Shimmer/LFO Rate", 0.0f, 1.0f, 0.15f),
         {ParamId{kShimLfoDepth}, "Shimmer/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.35f),
-        bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.089f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.119f),
-        bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.146f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.171f),
-        bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.190f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.205f),
+        // Prime sample counts @ 12 kHz (337,523,809,1117,1459,1801) -> mutually
+        // coprime, log-spaced over a wide ~5:1 range so FDN echoes never re-align
+        // into a periodic flutter. (Evenly-spaced defaults caused tail cycling.)
+        bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.0281f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.0436f),
+        bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.0674f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.0931f),
+        bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.1216f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.1501f),
         bc_detail::cont(kRate1+0, "Rates/1", 0.0f, 1.0f, 0.5f) , bc_detail::cont(kRate1+1, "Rates/2", 0.0f, 1.0f, 0.6f),
         bc_detail::cont(kRate1+2, "Rates/3", 0.0f, 1.0f, 0.4f) , bc_detail::cont(kRate1+3, "Rates/4", 0.0f, 1.0f, 0.7f),
         bc_detail::cont(kRate1+4, "Rates/5", 0.0f, 1.0f, 0.45f) , bc_detail::cont(kRate1+5, "Rates/6", 0.0f, 1.0f, 0.55f),
