@@ -57,9 +57,19 @@ public:
     static constexpr int kPlateDiff[4]   = {113, 162, 241, 399};    // Plate: input diffusers
     static constexpr int kPlateLoopAp    = 683;                     // Plate: in-loop allpass
     static constexpr int kPlateLoopDelay = 2411;                    // Plate: loop delay
+    static constexpr int kSpringAp[6]      = {223, 293, 379, 457, 557, 673}; // Spring: dispersive chain
+    static constexpr int kSpringDelay      = 1201;
+    static constexpr int kGardnerAp[4]     = {1051, 337, 113, 61};  // Gardner: nested-ish room allpasses
+    static constexpr int kGardnerDelay     = 1789;
+    static constexpr int kSchroederComb[4] = {587, 673, 761, 853};  // Schroeder: 4 combs + 2 allpass
+    static constexpr int kSchroederAp[2]   = {223, 83};
+    static constexpr int kModalModes       = 32;                    // Modal: resonator bank (no pool use)
+    static constexpr int kVelvetLen        = 4800;                  // Velvet: ~0.3 s @ 16 kHz sparse FIR
+    static constexpr int kVelvetTaps       = 160;
     static constexpr float kGain  = 0.015f;
     static constexpr float kApFb  = 0.5f;
-    enum { kRoom = 0, kHall = 1, kPlate = 2 };   // reverb algorithms (share the pool)
+    enum { kRoom = 0, kHall = 1, kPlate = 2, kSpring = 3, kGardner = 4,
+           kSchroeder = 5, kModal = 6, kVelvet = 7 };   // algorithms (share the pool)
 
     static constexpr int   kPreMax   = 2880;   // 60 ms @ 48 kHz wet-side mod delay
     static constexpr float kModMaxMs = 5.0f;
@@ -76,7 +86,8 @@ public:
         kEqFreq = 18, kEqGain = 19, kEqQ = 20, kReverbAlgo = 21,
     };
     static constexpr std::size_t kNumParams = 22;
-    static constexpr std::array<std::string_view, 3> kAlgoLabels = {{"room", "hall", "plate"}};
+    static constexpr std::array<std::string_view, 8> kAlgoLabels =
+        {{"room", "hall", "plate", "spring", "gardner", "schroeder", "modal", "velvet"}};
     static constexpr std::array<std::string_view, 2> kModeLabels = {{"block", "granular"}};
     enum { kModeBlock = 0, kModeGranular = 1 };
 
@@ -94,6 +105,7 @@ public:
         designLowpass(aa_, sampleRate_, decimatedRate * 0.5f * 0.85f, 0.70710678f);
         const int cap = static_cast<int>(0.060f * sampleRate_) + 1;
         for (int ch = 0; ch < 2; ++ch) preLine_[ch].prepare(cap, sampleRate_);
+        initTankTables();   // modal frequencies + velvet tap layout (needs sampleRate_)
         for (std::size_t i = 0; i < kNumParams; ++i)
             setParameter(ParamId{static_cast<std::uint8_t>(i)},
                          normalize(kParams[i], kParams[i].defaultValue));
@@ -118,8 +130,8 @@ public:
         if (id.value >= kNumParams) return;
         const float v = denormalize(kParams[id.value], normalized);
         switch (id.value) {
-            case kDecay:     combFb_    = v * 0.28f + 0.7f;                 break;
-            case kDamping:   damp1_     = v * 0.4f; damp2_ = 1.0f - damp1_; break;
+            case kDecay:     combFb_ = v * 0.28f + 0.7f; updateTankCoeffs();  break;
+            case kDamping:   damp1_ = v * 0.4f; damp2_ = 1.0f - damp1_; updateTankCoeffs(); break;
             case kMix:       mix_       = v;                                break;
             case kDelayTime: baseDelay_ = v * sampleRate_;                  break;
             case kModDepth:  modDepth_  = v;                                break;
@@ -175,7 +187,8 @@ public:
             case kEqGain: eqGainDb_ = v; redesignEq(); break;
             case kEqQ:    eqQ_      = v; redesignEq(); break;
             case kReverbAlgo: {
-                const int a = v < 0.5f ? kRoom : (v < 1.5f ? kHall : kPlate);
+                int a = static_cast<int>(v + 0.5f);
+                if (a < 0) a = 0; if (a > kVelvet) a = kVelvet;
                 if (a != algo_) { algo_ = a; resetTank(); }   // clear tail on switch
                 break;
             }
@@ -417,13 +430,23 @@ private:
 
     // The three algorithms overlap in one shared pool (only one is active; a
     // switch clears it). Pool is sized to the largest algorithm's footprint.
-    static constexpr int kRoomSize  = [] { int t = 0; for (int i = 0; i < 8; ++i) t += kComb[i];
-                                                       for (int i = 0; i < 4; ++i) t += kAp[i]; return t; }();
-    static constexpr int kHallSize  = [] { int t = 0; for (int i = 0; i < 4; ++i) t += kFdn[i]; return t; }();
-    static constexpr int kPlateSize = [] { int t = 0; for (int i = 0; i < 4; ++i) t += kPlateDiff[i];
-                                                       return t + kPlateLoopAp + kPlateLoopDelay; }();
-    static constexpr int kTankPool  = (kRoomSize > kHallSize ? kRoomSize : kHallSize) > kPlateSize
-                                    ? (kRoomSize > kHallSize ? kRoomSize : kHallSize) : kPlateSize;
+    static constexpr int kRoomSize   = [] { int t = 0; for (int i = 0; i < 8; ++i) t += kComb[i];
+                                                        for (int i = 0; i < 4; ++i) t += kAp[i]; return t; }();
+    static constexpr int kHallSize   = [] { int t = 0; for (int i = 0; i < 4; ++i) t += kFdn[i]; return t; }();
+    static constexpr int kPlateSize  = [] { int t = 0; for (int i = 0; i < 4; ++i) t += kPlateDiff[i];
+                                                        return t + kPlateLoopAp + kPlateLoopDelay; }();
+    static constexpr int kSpringSize = [] { int t = 0; for (int i = 0; i < 6; ++i) t += kSpringAp[i];
+                                                        return t + kSpringDelay; }();
+    static constexpr int kGardnerSize= [] { int t = 0; for (int i = 0; i < 4; ++i) t += kGardnerAp[i];
+                                                        return t + kGardnerDelay; }();
+    static constexpr int kSchroSize  = [] { int t = 0; for (int i = 0; i < 4; ++i) t += kSchroederComb[i];
+                                                        for (int i = 0; i < 2; ++i) t += kSchroederAp[i]; return t; }();
+    static constexpr int kTankPool   = [] {
+        int m = kRoomSize;
+        for (int s : {kHallSize, kPlateSize, kSpringSize, kGardnerSize, kSchroSize, kVelvetLen})
+            if (s > m) m = s;
+        return m;
+    }();
 
     // Clear the tank buffer + all algorithm state (on reset / algorithm switch).
     void resetTank() noexcept {
@@ -432,13 +455,25 @@ private:
         for (int i = 0; i < 4; ++i) { apPos_[i] = 0; }
         for (int i = 0; i < 4; ++i) { fdnPos_[i] = 0; fdnDamp_[i] = 0.0f; platePos_[i] = 0; }
         plateLoopApPos_ = 0; plateLoopDelayPos_ = 0; plateDamp_ = 0.0f;
+        for (int i = 0; i < 6; ++i) springApPos_[i] = 0;
+        springDelayPos_ = 0; springDamp_ = 0.0f;
+        for (int i = 0; i < 4; ++i) { gardnerApPos_[i] = 0; schroCombPos_[i] = 0; schroCombStore_[i] = 0.0f; }
+        gardnerDelayPos_ = 0; gardnerDamp_ = 0.0f;
+        schroApPos_[0] = 0; schroApPos_[1] = 0;
+        for (int i = 0; i < kModalModes; ++i) { modalY1_[i] = 0.0f; modalY2_[i] = 0.0f; }
+        velvetW_ = 0;
     }
 
     float runTank(float fed) noexcept {
         switch (algo_) {
-            case kHall:  return runHall(fed);
-            case kPlate: return runPlate(fed);
-            default:     return runRoom(fed);
+            case kHall:      return runHall(fed);
+            case kPlate:     return runPlate(fed);
+            case kSpring:    return runSpring(fed);
+            case kGardner:   return runGardner(fed);
+            case kSchroeder: return runSchroeder(fed);
+            case kModal:     return runModal(fed);
+            case kVelvet:    return runVelvet(fed);
+            default:         return runRoom(fed);
         }
     }
 
@@ -527,6 +562,135 @@ private:
         return plateDamp_;
     }
 
+    // --- Spring: dispersive allpass chain in a damped feedback loop (metallic) ---
+    int springApOff(int i) const noexcept { int off = 0; for (int k = 0; k < i; ++k) off += kSpringAp[k]; return off; }
+    int springDelayOff() const noexcept { int off = 0; for (int k = 0; k < 6; ++k) off += kSpringAp[k]; return off; }
+    float runSpring(float fed) noexcept {
+        const int   dIdx = springDelayOff() + springDelayPos_;
+        const float d    = pool_[static_cast<std::size_t>(dIdx)];
+        springDamp_ = d * damp2_ + springDamp_ * damp1_;
+        float x = fed + combFb_ * springDamp_;
+        for (int i = 0; i < 6; ++i) {                        // dispersive allpass chain
+            const int idx = springApOff(i) + springApPos_[i];
+            const float buf = pool_[static_cast<std::size_t>(idx)];
+            const float out = -x + buf;
+            pool_[static_cast<std::size_t>(idx)] = x + buf * 0.6f;
+            if (++springApPos_[i] >= kSpringAp[i]) springApPos_[i] = 0;
+            x = out;
+        }
+        pool_[static_cast<std::size_t>(dIdx)] = x;
+        if (++springDelayPos_ >= kSpringDelay) springDelayPos_ = 0;
+        return x;
+    }
+
+    // --- Gardner: series medium allpasses into a damped feedback delay (smooth room) ---
+    int gardnerApOff(int i) const noexcept { int off = 0; for (int k = 0; k < i; ++k) off += kGardnerAp[k]; return off; }
+    int gardnerDelayOff() const noexcept { int off = 0; for (int k = 0; k < 4; ++k) off += kGardnerAp[k]; return off; }
+    float runGardner(float fed) noexcept {
+        const int   dIdx = gardnerDelayOff() + gardnerDelayPos_;
+        const float d    = pool_[static_cast<std::size_t>(dIdx)];
+        gardnerDamp_ = d * damp2_ + gardnerDamp_ * damp1_;
+        float x = fed + combFb_ * gardnerDamp_;
+        for (int i = 0; i < 4; ++i) {
+            const int idx = gardnerApOff(i) + gardnerApPos_[i];
+            const float buf = pool_[static_cast<std::size_t>(idx)];
+            const float out = -x + buf;
+            pool_[static_cast<std::size_t>(idx)] = x + buf * kApFb;
+            if (++gardnerApPos_[i] >= kGardnerAp[i]) gardnerApPos_[i] = 0;
+            x = out;
+        }
+        pool_[static_cast<std::size_t>(dIdx)] = x;
+        if (++gardnerDelayPos_ >= kGardnerDelay) gardnerDelayPos_ = 0;
+        return gardnerDamp_;
+    }
+
+    // --- Schroeder: 4 parallel damped combs -> 2 series allpass (vintage) ---
+    int schroCombOff(int i) const noexcept { int off = 0; for (int k = 0; k < i; ++k) off += kSchroederComb[k]; return off; }
+    int schroApOff(int i) const noexcept {
+        int off = 0; for (int k = 0; k < 4; ++k) off += kSchroederComb[k];
+        for (int k = 0; k < i; ++k) off += kSchroederAp[k]; return off;
+    }
+    float runSchroeder(float fed) noexcept {
+        float acc = 0.0f;
+        for (int i = 0; i < 4; ++i) {
+            const int idx = schroCombOff(i) + schroCombPos_[i];
+            const float y = pool_[static_cast<std::size_t>(idx)];
+            schroCombStore_[i] = y * damp2_ + schroCombStore_[i] * damp1_;
+            pool_[static_cast<std::size_t>(idx)] = fed + schroCombStore_[i] * combFb_;
+            if (++schroCombPos_[i] >= kSchroederComb[i]) schroCombPos_[i] = 0;
+            acc += y;
+        }
+        float x = acc * 0.25f;
+        for (int i = 0; i < 2; ++i) {
+            const int idx = schroApOff(i) + schroApPos_[i];
+            const float buf = pool_[static_cast<std::size_t>(idx)];
+            const float out = -x + buf;
+            pool_[static_cast<std::size_t>(idx)] = x + buf * kApFb;
+            if (++schroApPos_[i] >= kSchroederAp[i]) schroApPos_[i] = 0;
+            x = out;
+        }
+        return x;
+    }
+
+    // --- Modal: parallel 2-pole resonator bank (pitched/metallic). No pool use. ---
+    float runModal(float fed) noexcept {
+        float acc = 0.0f;
+        for (int i = 0; i < kModalModes; ++i) {
+            const float y = modalA1_[i] * modalY1_[i] - modalA2_[i] * modalY2_[i] + fed;
+            modalY2_[i] = modalY1_[i];
+            modalY1_[i] = y;
+            acc += y * modalGain_[i];
+        }
+        return acc;
+    }
+
+    // --- Velvet: sparse-FIR diffuse tail. Circular input buffer in pool_ + fixed taps. ---
+    float runVelvet(float fed) noexcept {
+        pool_[static_cast<std::size_t>(velvetW_)] = fed;
+        float acc = 0.0f;
+        for (int k = 0; k < kVelvetTaps; ++k) {
+            int idx = velvetW_ - velvetTap_[k];
+            if (idx < 0) idx += kVelvetLen;
+            acc += pool_[static_cast<std::size_t>(idx)] * velvetGain_[k];
+        }
+        if (++velvetW_ >= kVelvetLen) velvetW_ = 0;
+        return acc;
+    }
+
+    // Fixed tables (mode frequencies, velvet tap layout); then decay-dependent coeffs.
+    void initTankTables() noexcept {
+        const float rate = sampleRate_ / static_cast<float>(kInternalDivisor);
+        for (int i = 0; i < kModalModes; ++i) {
+            const float frac = static_cast<float>(i) / static_cast<float>(kModalModes - 1);
+            const float freq = 80.0f * std::pow(6000.0f / 80.0f, frac);   // 80 Hz .. 6 kHz log
+            float w = 2.0f * 3.14159265f * freq / rate;
+            if (w > 3.0f) w = 3.0f;
+            modalCos_[i] = std::cos(w);
+        }
+        std::uint32_t s = 0x1234567u;
+        for (int k = 0; k < kVelvetTaps; ++k) {
+            s = s * 1664525u + 1013904223u;
+            velvetTap_[k]  = 1 + static_cast<int>((s >> 8) % static_cast<std::uint32_t>(kVelvetLen - 1));
+            velvetSign_[k] = (s & 0x10000u) ? 1.0f : -1.0f;
+        }
+        updateTankCoeffs();
+    }
+    void updateTankCoeffs() noexcept {
+        const float r0 = 0.90f + combFb_ * 0.099f;                    // modal pole radius from decay
+        for (int i = 0; i < kModalModes; ++i) {
+            const float frac = static_cast<float>(i) / static_cast<float>(kModalModes - 1);
+            const float r = r0 * (1.0f - damp1_ * frac * 0.5f);       // damp the high modes
+            modalA1_[i]   = 2.0f * r * modalCos_[i];
+            modalA2_[i]   = r * r;
+            modalGain_[i] = (1.0f - r) * (2.0f / static_cast<float>(kModalModes));
+        }
+        const float tau = (0.05f + combFb_ * 0.5f) * static_cast<float>(kVelvetLen);
+        for (int k = 0; k < kVelvetTaps; ++k) {
+            const float env = std::exp(-static_cast<float>(velvetTap_[k]) / tau);
+            velvetGain_[k] = velvetSign_[k] * env * (1.6f / static_cast<float>(kVelvetTaps));
+        }
+    }
+
     static constexpr std::array<ParameterDescriptor, kNumParams> kParams = {{
         {ParamId{kDecay}, "Reverb/Decay", ParamUnit::none, 0.0f, 1.0f, 1.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
@@ -570,8 +734,8 @@ private:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kEqQ}, "Output/EQ Q", ParamUnit::none, 0.3f, 8.0f, 1.0f,
          ParamSkew::logarithmic, ParamKind::continuous, 0},
-        {ParamId{kReverbAlgo}, "Reverb/Algorithm", ParamUnit::none, 0.0f, 2.0f, 0.0f,
-         ParamSkew::linear, ParamKind::discrete, 3, kAlgoLabels},
+        {ParamId{kReverbAlgo}, "Reverb/Algorithm", ParamUnit::none, 0.0f, 7.0f, 0.0f,
+         ParamSkew::linear, ParamKind::discrete, 8, kAlgoLabels},
     }};
 
     // kParams stays in ParamId order (internal lookups + the shared CC map key
@@ -661,6 +825,25 @@ private:
     int   plateLoopApPos_    = 0;
     int   plateLoopDelayPos_ = 0;
     float plateDamp_         = 0.0f;
+    int   springApPos_[6]  = {};  // Spring
+    int   springDelayPos_  = 0;
+    float springDamp_      = 0.0f;
+    int   gardnerApPos_[4] = {};  // Gardner
+    int   gardnerDelayPos_ = 0;
+    float gardnerDamp_     = 0.0f;
+    int   schroCombPos_[4]   = {};// Schroeder
+    float schroCombStore_[4] = {};
+    int   schroApPos_[2]     = {};
+    float modalCos_[kModalModes]  = {}; // Modal (coeff tables + resonator state)
+    float modalA1_[kModalModes]   = {};
+    float modalA2_[kModalModes]   = {};
+    float modalGain_[kModalModes] = {};
+    float modalY1_[kModalModes]   = {};
+    float modalY2_[kModalModes]   = {};
+    int   velvetTap_[kVelvetTaps]  = {}; // Velvet (tap layout + gains)
+    float velvetSign_[kVelvetTaps] = {};
+    float velvetGain_[kVelvetTaps] = {};
+    int   velvetW_ = 0;
 
     int   decimPhase_ = 0;
     float wetPrev_    = 0.0f;
