@@ -196,6 +196,13 @@ void PluginEditor::paint(juce::Graphics& g) {
     g.setFont(juce::Font(15.0f));
     g.drawText("REVERSE REVERB", titleArea, juce::Justification::centredLeft);
 
+    // Build stamp so you can confirm which version is loaded.
+    g.setColour(kMuted);
+    g.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 10.0f, juce::Font::plain));
+    g.drawText(juce::String("build ") + __DATE__ + " " + __TIME__,
+               getLocalBounds().removeFromTop(kHeaderH).reduced(kPad, 6),
+               juce::Justification::bottomRight);
+
     g.setColour(kTrack);
     g.fillRect(getLocalBounds().removeFromTop(kHeaderH).removeFromBottom(1));
 
