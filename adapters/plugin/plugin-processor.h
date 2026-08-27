@@ -8,6 +8,7 @@
 
 #include ACFX_EFFECT_HEADER
 #include "plugin-editor.h"
+#include "plugin-midi-emitter.h"
 #include "plugin-parameters.h"
 #include "processor-node/processor-node.h"
 
@@ -73,6 +74,9 @@ private:
 
     EffectNode<AppEffect> node_;
     PluginParameters parameters_;
+    // Emits MIDI CC on parameter changes so the plugin UI can drive the hardware.
+    // Declared after parameters_ so it is destroyed (timer stopped) first.
+    std::unique_ptr<MidiCcEmitter> ccEmitter_;
 
     // Live harmonic readout (T031, US5, FR-014/FR-016): the RT capture probe --
     // the ONLY thing the audio thread touches (push(), in processBlock) -- plus

@@ -11,6 +11,13 @@ PluginProcessor::PluginProcessor()
                                .withInput("Input", juce::AudioChannelSet::stereo(), true)
                                .withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
     parameters_.build(*this, node_.parameters());
+
+    // Emit MIDI CC on parameter changes so the plugin UI can drive the hardware.
+    ccEmitter_ = std::make_unique<MidiCcEmitter>(
+        [this](const std::function<void(int, float)>& fn) {
+            parameters_.apply([&](ParamId id, float normalized) { fn(id.value, normalized); });
+        },
+        getName());
 }
 
 void PluginProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {

@@ -62,6 +62,51 @@ inline constexpr CcBinding kCcBindings[] = {
     CcBinding{93, 42},   // CC93 -> reverb algorithm (breathing-canyon: Cathedral/Chamber/Swirl/Plate/Cascade)
     CcBinding{94, 43},   // CC94 -> shimmer pitch LFO rate  (breathing-canyon)
     CcBinding{95, 44},   // CC95 -> shimmer pitch LFO depth (breathing-canyon)
+    // Full param coverage for plugin->hardware control (breathing canyon has 67
+    // params). These extend the map to every otherwise-unbound index using CCs
+    // that don't collide with the bindings above. See MidiCcEmitter in the plugin.
+    CcBinding{102, 22},
+    CcBinding{103, 23},
+    CcBinding{104, 24},
+    CcBinding{105, 25},
+    CcBinding{106, 26},
+    CcBinding{107, 27},
+    CcBinding{108, 28},
+    CcBinding{109, 29},
+    CcBinding{110, 30},
+    CcBinding{111, 31},
+    CcBinding{112, 32},
+    CcBinding{113, 33},
+    CcBinding{114, 34},
+    CcBinding{115, 35},
+    CcBinding{116, 36},
+    CcBinding{117, 37},
+    CcBinding{118, 38},
+    CcBinding{119, 39},
+    CcBinding{12, 40},
+    CcBinding{13, 41},
+    CcBinding{14, 45},
+    CcBinding{15, 46},
+    CcBinding{16, 47},
+    CcBinding{17, 48},
+    CcBinding{18, 49},
+    CcBinding{19, 50},
+    CcBinding{20, 51},
+    CcBinding{21, 52},
+    CcBinding{22, 53},
+    CcBinding{23, 54},
+    CcBinding{24, 55},
+    CcBinding{25, 56},
+    CcBinding{26, 57},
+    CcBinding{27, 58},
+    CcBinding{28, 59},
+    CcBinding{29, 60},
+    CcBinding{30, 61},
+    CcBinding{31, 62},
+    CcBinding{3, 63},
+    CcBinding{9, 64},
+    CcBinding{33, 65},
+    CcBinding{34, 66},
     // -- Add further CC -> parameter-index bindings above this line. --
 };
 

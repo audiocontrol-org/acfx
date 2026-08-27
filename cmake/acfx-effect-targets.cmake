@@ -70,6 +70,9 @@ function(acfx_add_effect_workbench)
   )
   _acfx_inject_effect(${ARG_NAME} "${ARG_EFFECT_TYPE}" "${ARG_EFFECT_HEADER}")
 
+  # Share the firmware's CC map (platform-independent) for the plugin's MIDI emitter.
+  target_include_directories(${ARG_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/adapters/nucleo/support)
+
   target_link_libraries(${ARG_NAME} PRIVATE
     acfx_core
     acfx_host
@@ -123,6 +126,9 @@ function(acfx_add_effect_plugin)
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
   )
+
+  # Share the firmware's CC map (platform-independent) for the plugin's MIDI emitter.
+  target_include_directories(${ARG_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/adapters/nucleo/support)
 
   # Add the CLAP format to the same target (research.md decision 7).
   clap_juce_extensions_plugin(TARGET ${ARG_NAME}
