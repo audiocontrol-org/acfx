@@ -75,8 +75,14 @@ public:
         kBreathRate = 50, kBreathShape = 51,
         kFilterCutoff = 52, kFilterReso = 53,
         kFilterLfoRate = 54, kFilterLfoCutoff = 55, kFilterLfoReso = 56,
-        kNumParams = 57,
+        // Output EQ: low shelf, two mid peaks, high shelf (Freq/Gain[/Q]).
+        kEqLoFreq = 57, kEqLoGain = 58,
+        kEqM1Freq = 59, kEqM1Gain = 60, kEqM1Q = 61,
+        kEqM2Freq = 62, kEqM2Gain = 63, kEqM2Q = 64,
+        kEqHiFreq = 65, kEqHiGain = 66,
+        kNumParams = 67,
     };
+    static constexpr int kEqBands = 4;   // 0 = low shelf, 1/2 = mid peaks, 3 = high shelf
     static constexpr float kFilterLfoMaxOct = 2.5f;  // cutoff LFO full-depth swing (+/- octaves)
     static constexpr float kFilterLfoMaxQ   = 5.0f;  // resonance LFO full-depth swing (+/- Q)
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
@@ -124,6 +130,7 @@ public:
         aa1_.reset(); aa2_.reset(); aa3_.reset(); hpf_.reset();
         recL1_.reset(); recL2_.reset(); recR1_.reset(); recR2_.reset();
         filtL_.reset(); filtR_.reset(); filtLfoPhase_ = 0.0f;
+        for (int b = 0; b < kEqBands; ++b) { eqL_[b].reset(); eqR_[b].reset(); }
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
         loopDamp_ = 0.0f; breathPhase_ = 0.0f; breathRand_ = 0.5f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
         duckEnv_ = 0.0f; transEnv_ = 0.0f; pendingModeInit_ = false;
@@ -182,6 +189,16 @@ public:
             case kFilterLfoRate:   filtLfoInc_ = v / internalRate_;                        break; // Hz
             case kFilterLfoCutoff: filtLfoCutoffDepth_ = v;                                break;
             case kFilterLfoReso:   filtLfoResoDepth_ = v;                                  break;
+            case kEqLoFreq: eqFreq_[0] = v; designEqBand(0); break;
+            case kEqLoGain: eqGain_[0] = v; designEqBand(0); break;
+            case kEqM1Freq: eqFreq_[1] = v; designEqBand(1); break;
+            case kEqM1Gain: eqGain_[1] = v; designEqBand(1); break;
+            case kEqM1Q:    eqQ_[1]    = v; designEqBand(1); break;
+            case kEqM2Freq: eqFreq_[2] = v; designEqBand(2); break;
+            case kEqM2Gain: eqGain_[2] = v; designEqBand(2); break;
+            case kEqM2Q:    eqQ_[2]    = v; designEqBand(2); break;
+            case kEqHiFreq: eqFreq_[3] = v; designEqBand(3); break;
+            case kEqHiGain: eqGain_[3] = v; designEqBand(3); break;
             case kAlgo: { int a = static_cast<int>(v + 0.5f); algo_ = a < 0 ? 0 : (a > 4 ? 4 : a); break; }
             case kShimLfoRate: { const float hz = 0.02f * std::pow(100.0f, v); // 0.02..2 Hz, log
                                  shimLfoInc_ = hz / internalRate_;               break; }
@@ -337,8 +354,12 @@ public:
             woL = recL2_.process(recL1_.process(woL));
             woR = recR2_.process(recR1_.process(woR));
 
-            xL[n] = dryL * (1.0f - mix_) + woL * mix_;
-            if (channels > 1) xR[n] = dryR * (1.0f - mix_) + woR * mix_;
+            float outL = dryL * (1.0f - mix_) + woL * mix_;
+            float outR = dryR * (1.0f - mix_) + woR * mix_;
+            // Output 4-band EQ (low shelf -> mid1 -> mid2 -> high shelf).
+            for (int b = 0; b < kEqBands; ++b) { outL = eqL_[b].process(outL); outR = eqR_[b].process(outR); }
+            xL[n] = outL;
+            if (channels > 1) xR[n] = outR;
         }
     }
 
@@ -456,6 +477,42 @@ private:
         filtR_.b0 = filtL_.b0; filtR_.b1 = filtL_.b1; filtR_.b2 = filtL_.b2;
         filtR_.a1 = filtL_.a1; filtR_.a2 = filtL_.a2;
     }
+    static void designPeaking(Biquad& bq, float fc, float fs, float gainDb, float Q) noexcept {
+        const float A = std::pow(10.0f, gainDb / 40.0f);
+        const float w0 = 2*3.14159265f*fc/fs, c = std::cos(w0), s = std::sin(w0);
+        const float al = s/(2*Q), a0 = 1 + al/A;
+        bq.b0=(1+al*A)/a0; bq.b1=(-2*c)/a0; bq.b2=(1-al*A)/a0; bq.a1=(-2*c)/a0; bq.a2=(1-al/A)/a0;
+    }
+    static void designLowShelf(Biquad& bq, float fc, float fs, float gainDb) noexcept {
+        const float A = std::pow(10.0f, gainDb / 40.0f), sqA = std::sqrt(A);
+        const float w0 = 2*3.14159265f*fc/fs, c = std::cos(w0), s = std::sin(w0);
+        const float al = s/(2*0.70710678f);
+        const float a0 = (A+1) + (A-1)*c + 2*sqA*al;
+        bq.b0=(     A*((A+1) - (A-1)*c + 2*sqA*al))/a0;
+        bq.b1=( 2.0f*A*((A-1) - (A+1)*c))/a0;
+        bq.b2=(     A*((A+1) - (A-1)*c - 2*sqA*al))/a0;
+        bq.a1=(  -2.0f*((A-1) + (A+1)*c))/a0;
+        bq.a2=(       ((A+1) + (A-1)*c - 2*sqA*al))/a0;
+    }
+    static void designHighShelf(Biquad& bq, float fc, float fs, float gainDb) noexcept {
+        const float A = std::pow(10.0f, gainDb / 40.0f), sqA = std::sqrt(A);
+        const float w0 = 2*3.14159265f*fc/fs, c = std::cos(w0), s = std::sin(w0);
+        const float al = s/(2*0.70710678f);
+        const float a0 = (A+1) - (A-1)*c + 2*sqA*al;
+        bq.b0=(     A*((A+1) + (A-1)*c + 2*sqA*al))/a0;
+        bq.b1=(-2.0f*A*((A-1) + (A+1)*c))/a0;
+        bq.b2=(     A*((A+1) + (A-1)*c - 2*sqA*al))/a0;
+        bq.a1=(   2.0f*((A-1) - (A+1)*c))/a0;
+        bq.a2=(       ((A+1) - (A-1)*c - 2*sqA*al))/a0;
+    }
+    void designEqBand(int b) noexcept {
+        Biquad& bq = eqL_[static_cast<std::size_t>(b)];
+        if (b == 0)       designLowShelf(bq, eqFreq_[0], sampleRate_, eqGain_[0]);
+        else if (b == 3)  designHighShelf(bq, eqFreq_[3], sampleRate_, eqGain_[3]);
+        else              designPeaking(bq, eqFreq_[b], sampleRate_, eqGain_[b], eqQ_[b]);
+        Biquad& r = eqR_[static_cast<std::size_t>(b)];
+        r.b0 = bq.b0; r.b1 = bq.b1; r.b2 = bq.b2; r.a1 = bq.a1; r.a2 = bq.a2;
+    }
     void designFilters() noexcept {
         const float rate = internalRate_;
         // 6th-order Butterworth anti-alias before decimation (Q of the three
@@ -502,9 +559,19 @@ private:
         {ParamId{kFilterLfoRate}, "Filter/LFO Rate", ParamUnit::hz, 0.02f, 8.0f, 0.3f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         bc_detail::cont(kFilterLfoCutoff, "Filter/LFO Cutoff", 0.0f, 1.0f, 0.0f),
         bc_detail::cont(kFilterLfoReso, "Filter/LFO Reso", 0.0f, 1.0f, 0.0f),
-        bc_detail::cont(kDuckAmount, "Duck/Amount", 0.0f, 1.0f, 0.67f),
-        {ParamId{kDuckRelease}, "Duck/Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
-        bc_detail::cont(kTransient, "Input/Transient", 0.0f, 1.0f, 0.76f),
+        {ParamId{kEqLoFreq}, "EQ/Low Freq", ParamUnit::hz, 20.0f, 500.0f, 120.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqLoGain}, "EQ/Low Gain", ParamUnit::none, -18.0f, 18.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kEqM1Freq}, "EQ/Mid1 Freq", ParamUnit::hz, 100.0f, 2000.0f, 600.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqM1Gain}, "EQ/Mid1 Gain", ParamUnit::none, -18.0f, 18.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kEqM1Q}, "EQ/Mid1 Q", ParamUnit::none, 0.3f, 8.0f, 0.8f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqM2Freq}, "EQ/Mid2 Freq", ParamUnit::hz, 500.0f, 7000.0f, 2500.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqM2Gain}, "EQ/Mid2 Gain", ParamUnit::none, -18.0f, 18.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        {ParamId{kEqM2Q}, "EQ/Mid2 Q", ParamUnit::none, 0.3f, 8.0f, 0.8f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqHiFreq}, "EQ/High Freq", ParamUnit::hz, 1500.0f, 7500.0f, 6000.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqHiGain}, "EQ/High Gain", ParamUnit::none, -18.0f, 18.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kDuckAmount, "Dynamics/Duck Amount", 0.0f, 1.0f, 0.67f),
+        {ParamId{kDuckRelease}, "Dynamics/Duck Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
+        bc_detail::cont(kTransient, "Dynamics/Transient", 0.0f, 1.0f, 0.76f),
         {ParamId{kMode}, "Reverse/Mode", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kModeNames},
         {ParamId{kRevWindow}, "Reverse/Window", ParamUnit::seconds, 0.05f, 0.36f, 0.25f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.030f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.050f),
@@ -550,6 +617,11 @@ private:
     Biquad filtL_{}, filtR_{};                     // user resonant low-pass on the wet (stereo)
     float filtCutoff_ = 7000.0f, filtQ_ = 0.7f;
     float filtLfoInc_ = 0.0f, filtLfoPhase_ = 0.0f, filtLfoCutoffDepth_ = 0.0f, filtLfoResoDepth_ = 0.0f;
+    // Output 4-band EQ (stereo; shared coeffs, independent state).
+    Biquad eqL_[kEqBands]{}, eqR_[kEqBands]{};
+    float eqFreq_[kEqBands] = {120.0f, 600.0f, 2500.0f, 6000.0f};
+    float eqGain_[kEqBands] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float eqQ_[kEqBands]    = {0.7f, 0.8f, 0.8f, 0.7f};
     float sweepMaxSamp_ = 120.0f;
     float dampA1_ = 0.2f, dampA2_ = 0.8f, loopDamp_ = 0.0f;
     float fbSample_ = 0.0f; int decimPhase_ = 0;

@@ -24,15 +24,16 @@ const juce::Colour kTrack       (0xff34383d);
 constexpr int kPad       = 16;
 constexpr int kHeaderH   = 52;
 constexpr int kSecHeadH  = 24;
-constexpr int kCellW     = 86;
-constexpr int kCellH     = 88;
+constexpr int kCellW     = 76;
+constexpr int kCellH     = 80;
 constexpr int kSecGap    = 8;
 constexpr int kColCells  = 6;                 // cells per row within one column (a 6-line array = one clean row)
 constexpr int kColW      = kColCells * kCellW; // one column's content width
-constexpr int kColGap    = 20;                // gutter between the two columns
-// Above this single-column content height, split sections into two columns so
-// the window still fits a laptop screen.
-constexpr int kMaxColH   = 760;
+constexpr int kColGap    = 20;                // gutter between columns
+constexpr int kMaxCols   = 3;                 // up to three columns before we stop adding
+// Target column height: sections split across columns so no column runs much
+// past this, keeping the window inside a laptop screen.
+constexpr int kMaxColH   = 720;
 
 class AcfxLookAndFeel final : public juce::LookAndFeel_V4 {
 public:
@@ -155,35 +156,48 @@ void PluginEditor::planLayout() {
         total += secHeight(i);
     }
 
-    numColumns_ = (total > kMaxColH && n > 1) ? 2 : 1;
-    int colHeight = total;
-    if (numColumns_ == 2) {
-        // Best contiguous split: first k sections in column 0, rest in column 1,
-        // minimising the taller column (balances by height, not section count).
-        int best = total, bestK = 1, left = 0;
-        for (int k = 0; k < n; ++k) {
-            left += secHeight(k);
-            const int taller = juce::jmax(left, total - left);
-            if (k < n - 1 && taller < best) { best = taller; bestK = k + 1; }
-        }
-        int c0 = 0, c1 = 0;
+    // How many columns: enough to keep each near kMaxColH, capped at kMaxCols.
+    int want = (total + kMaxColH - 1) / kMaxColH;
+    if (want < 1) want = 1;
+    if (want > kMaxCols) want = kMaxCols;
+    if (want > n) want = n;
+
+    // Smallest max-column-height that packs the sections (in order) into `want`
+    // contiguous columns -> balanced columns. Binary search on the height.
+    auto colsNeeded = [&](int H) {
+        int cols = 1, acc = 0;
         for (int i = 0; i < n; ++i) {
-            const bool right = i >= bestK;
-            sections_[static_cast<std::size_t>(i)].column = right ? 1 : 0;
-            (right ? c1 : c0) += secHeight(i);
+            const int h = secHeight(i);
+            if (h > H) return n + 1;                 // a single section taller than H
+            if (acc + h > H) { ++cols; acc = h; } else acc += h;
         }
-        colHeight = juce::jmax(c0, c1);
-    } else {
-        for (Section& s : sections_) s.column = 0;
+        return cols;
+    };
+    int lo = 0, hi = total;
+    for (int i = 0; i < n; ++i) lo = juce::jmax(lo, secHeight(i));
+    while (lo < hi) { const int mid = (lo + hi) / 2; if (colsNeeded(mid) <= want) hi = mid; else lo = mid + 1; }
+    const int limitH = lo;
+
+    // Assign sections to columns with that height limit; track real column count/heights.
+    int col = 0, acc = 0, colHeight = 0, used = 1;
+    for (int i = 0; i < n; ++i) {
+        const int h = secHeight(i);
+        if (acc + h > limitH && col < want - 1) { ++col; acc = 0; }
+        sections_[static_cast<std::size_t>(i)].column = col;
+        acc += h;
+        colHeight = juce::jmax(colHeight, acc);
+        used = juce::jmax(used, col + 1);
     }
+    numColumns_ = used;
 
     contentW_ = 2 * kPad + numColumns_ * kColW + (numColumns_ - 1) * kColGap;
     contentH_ = kHeaderH + colHeight + kPad;
 }
 
 void PluginEditor::resized() {
-    int colY[2] = {kHeaderH, kHeaderH};
-    const int colX[2] = {kPad, kPad + kColW + kColGap};
+    int colY[kMaxCols];
+    int colX[kMaxCols];
+    for (int c = 0; c < kMaxCols; ++c) { colY[c] = kHeaderH; colX[c] = kPad + c * (kColW + kColGap); }
 
     for (Section& s : sections_) {
         const int col = s.column;
