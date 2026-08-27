@@ -72,13 +72,16 @@ public:
         kAlgo = 42, kShimLfoRate = 43, kShimLfoDepth = 44,
         kDuckAmount = 45, kDuckRelease = 46, kTransient = 47,
         kMode = 48, kRevWindow = 49,
-        kNumParams = 50,
+        kBreathRate = 50, kBreathShape = 51,
+        kNumParams = 52,
     };
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
     // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
     static constexpr std::array<std::string_view, 5> kAlgoNames =
         {{"Cathedral", "Chamber", "Swirl", "Plate", "Cascade"}};
     static constexpr std::array<std::string_view, 2> kModeNames = {{"Normal", "Reverse"}};
+    static constexpr std::array<std::string_view, 5> kBreathShapeNames =
+        {{"Sine", "Triangle", "Ramp", "Square", "Random"}};
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
@@ -117,7 +120,7 @@ public:
         aa1_.reset(); aa2_.reset(); aa3_.reset(); hpf_.reset();
         recL1_.reset(); recL2_.reset(); recR1_.reset(); recR2_.reset();
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
-        loopDamp_ = 0.0f; breathPhase_ = 0.0f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
+        loopDamp_ = 0.0f; breathPhase_ = 0.0f; breathRand_ = 0.5f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
         duckEnv_ = 0.0f; transEnv_ = 0.0f; pendingModeInit_ = false;
     }
 
@@ -167,6 +170,8 @@ public:
             case kPitch:    pitchRate_ = std::pow(2.0f, v / 12.0f);                   break;
             case kShimmer:  shimmer_   = v * 0.9f;                                    break;
             case kBreath:   breathDepth_ = v;                                         break;
+            case kBreathRate:  breathInc_ = v / internalRate_;                        break; // Hz -> phase/internal-sample
+            case kBreathShape: { int sh = static_cast<int>(v + 0.5f); breathShape_ = sh < 0 ? 0 : (sh > 4 ? 4 : sh); break; }
             case kAlgo: { int a = static_cast<int>(v + 0.5f); algo_ = a < 0 ? 0 : (a > 4 ? 4 : a); break; }
             case kShimLfoRate: { const float hz = 0.02f * std::pow(100.0f, v); // 0.02..2 Hz, log
                                  shimLfoInc_ = hz / internalRate_;               break; }
@@ -221,9 +226,21 @@ public:
                 in = diff_[2].process(in, 0.625f);
                 in = diff_[3].process(in, 0.625f);
 
-                const float breath = 0.5f + 0.5f * std::sin(kTwoPi * breathPhase_);
-                breathPhase_ += 0.08f / internalRate_;
-                if (breathPhase_ >= 1.0f) breathPhase_ -= 1.0f;
+                float breath;   // 0..1 shaped LFO
+                switch (breathShape_) {
+                    default: case 0: breath = 0.5f + 0.5f * std::sin(kTwoPi * breathPhase_); break;   // sine
+                    case 1: breath = breathPhase_ < 0.5f ? 2.0f * breathPhase_               // triangle
+                                                          : 2.0f * (1.0f - breathPhase_); break;
+                    case 2: breath = breathPhase_; break;                                    // ramp up
+                    case 3: breath = breathPhase_ < 0.5f ? 0.0f : 1.0f; break;               // square
+                    case 4: breath = breathRand_; break;                                     // sample & hold
+                }
+                breathPhase_ += breathInc_;
+                if (breathPhase_ >= 1.0f) {
+                    breathPhase_ -= 1.0f;
+                    rng_ = rng_ * 1664525u + 1013904223u;
+                    breathRand_ = static_cast<float>((rng_ >> 9) & 0xFFFFu) / 65535.0f;      // new S&H value per cycle
+                }
                 const float decayEff = feedback_ * (1.0f - breathDepth_ * 0.3f * breath);
 
                 const int N = activeLines_;
@@ -446,6 +463,8 @@ private:
         bc_detail::cont(kShimLfoRate, "Shimmer/LFO Rate", 0.0f, 1.0f, 0.08f),
         {ParamId{kShimLfoDepth}, "Shimmer/LFO Depth", ParamUnit::none, 0.0f, 12.0f, 12.0f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kBreath, "Breath/Depth", 0.0f, 1.0f, 0.12f),
+        {ParamId{kBreathRate}, "Breath/Rate", ParamUnit::hz, 0.01f, 2.0f, 0.08f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kBreathShape}, "Breath/Shape", ParamUnit::none, 0.0f, 4.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 5, kBreathShapeNames},
         bc_detail::cont(kDuckAmount, "Duck/Amount", 0.0f, 1.0f, 0.67f),
         {ParamId{kDuckRelease}, "Duck/Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kTransient, "Input/Transient", 0.0f, 1.0f, 0.76f),
@@ -496,6 +515,7 @@ private:
     float fbSample_ = 0.0f; int decimPhase_ = 0;
     float wetPrevL_ = 0, wetCurL_ = 0, wetPrevR_ = 0, wetCurR_ = 0;
     float breathPhase_ = 0.0f; std::uint32_t rng_ = 0x2545f491u;
+    float breathInc_ = 0.08f / 16000.0f, breathRand_ = 0.5f; int breathShape_ = 0;
     int   numChannels_ = 2; float sampleRate_ = 48000.0f, internalRate_ = 12000.0f;
     float predelaySamp_ = 640.0f, sizeScale_ = 0.9f, mRate_ = 0.35f, mDepth_ = 0.45f;
     float feedback_ = 0.8f, dampCut_ = 3000.0f, glideCoef_ = 0.1f;
