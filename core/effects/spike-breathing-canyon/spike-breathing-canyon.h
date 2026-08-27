@@ -49,12 +49,18 @@ inline constexpr ParameterDescriptor cont(std::uint8_t id, std::string_view name
 
 class SpikeBreathingCanyon {
 public:
-    static constexpr int kLines    = 6;
+    static constexpr int kLines     = 6;   // max lines (Normal mode); param groups are sized to this
+    static constexpr int kBaseLines = 4;   // always-present lines
+    static constexpr int kExtraLines = kLines - kBaseLines; // present only in Normal mode
     static constexpr int kInternalDivisor = 3;      // 48k -> 16 kHz internal
     static constexpr int kPreMax   = 4200;          // ~0.52 s pre-delay @ 8 kHz
     static constexpr int kLineCap  = 2900;          // per-line capacity (~181 ms @ 16 kHz; holds preset delays x max size)
     static constexpr int kPitchBuf = 2048;
     static constexpr int kPitchWin = 1024;
+    // In Reverse mode the two extra lines are inactive, so their float storage is
+    // reused (via a union) as the int16 reverse-capture buffer -> zero extra RAM.
+    static constexpr int kCapSamples = kExtraLines * kLineCap * 2; // int16s fitting in extra float storage
+    static constexpr int kCapHalf    = kCapSamples / 2;            // block-reverse ping-pong half
     // Base per-line delay lengths @ 8 kHz (the Delays 1-6 defaults, ~90-260 ms).
     static constexpr int kBase[kLines] = {727, 1013, 1279, 1523, 1789, 2069};
 
@@ -65,12 +71,14 @@ public:
         kDelay1 = 12, kRate1 = 18, kDepth1 = 24, kPan1 = 30, kLevel1 = 36,
         kAlgo = 42, kShimLfoRate = 43, kShimLfoDepth = 44,
         kDuckAmount = 45, kDuckRelease = 46, kTransient = 47,
-        kNumParams = 48,
+        kMode = 48, kRevWindow = 49,
+        kNumParams = 50,
     };
     static constexpr std::array<std::string_view, 2> kOffOn = {{"off", "on"}};
     // Selectable FDN recirculation topologies (all orthonormal -> loop gain == Feedback).
     static constexpr std::array<std::string_view, 5> kAlgoNames =
         {{"Cathedral", "Chamber", "Swirl", "Plate", "Cascade"}};
+    static constexpr std::array<std::string_view, 2> kModeNames = {{"Normal", "Reverse"}};
 
     static constexpr span<const ParameterDescriptor> parameters() noexcept { return kParams; }
 
@@ -80,7 +88,7 @@ public:
         internalRate_ = sampleRate_ / static_cast<float>(kInternalDivisor);
         const float rate = internalRate_;
         preLine_.prepare(kPreMax, rate);
-        for (int i = 0; i < kLines; ++i) lines_[i].prepare(kLineCap, rate);
+        for (int i = 0; i < kBaseLines; ++i) lines_[i].prepare(kLineCap, rate);
         { constexpr int c[kInDiff] = {113, 167, 251, 347};
           for (int i = 0; i < kInDiff; ++i) diff_[i].prepare(c[i], rate); }
         { constexpr int c[kLines] = {131, 193, 239, 281, 337, 397};
@@ -97,10 +105,12 @@ public:
 
     void reset() noexcept {
         preLine_.reset();
+        for (int i = 0; i < kBaseLines; ++i) lines_[i].reset();
         for (int i = 0; i < kLines; ++i) {
-            lines_[i].reset(); fdnDamp_[i] = 0.0f; sweepVal_[i] = 0.0f; sweepTarget_[i] = 0.0f;
+            fdnDamp_[i] = 0.0f; sweepVal_[i] = 0.0f; sweepTarget_[i] = 0.0f;
             sweepCnt_[i] = i * 89 + 7; glideLen_[i] = lineDelay_[i] > 1.0f ? lineDelay_[i] : static_cast<float>(kBase[i]);
         }
+        initStorage();
         for (int i = 0; i < kInDiff; ++i) diff_[i].reset();
         for (int i = 0; i < kLines; ++i) lineAP_[i].reset();
         pitchBuf_.fill(0); pitchW_ = 0; pitchO0_ = 0.0f; pitchO1_ = static_cast<float>(kPitchWin) * 0.5f;
@@ -108,7 +118,18 @@ public:
         recL1_.reset(); recL2_.reset(); recR1_.reset(); recR2_.reset();
         fbSample_ = 0.0f; decimPhase_ = 0; wetPrevL_ = wetCurL_ = wetPrevR_ = wetCurR_ = 0.0f;
         loopDamp_ = 0.0f; breathPhase_ = 0.0f; shimLfoPhase_ = 0.0f; rng_ = 0x2545f491u;
-        duckEnv_ = 0.0f; transEnv_ = 0.0f;
+        duckEnv_ = 0.0f; transEnv_ = 0.0f; pendingModeInit_ = false;
+    }
+
+    // Initialise whichever union member the current mode uses (they share storage).
+    void initStorage() noexcept {
+        if (mode_ == 0) {
+            for (auto& e : extra_) { e.buf.fill(0.0f); e.wpos = 0; }
+        } else {
+            cap_.fill(0);
+            capSel_ = 0; capWrite_ = 0; capPlay_ = -1;
+            capFill_[0] = capFill_[1] = 0; capActive_ = false;
+        }
     }
 
     // Look up a descriptor by ParamId. kParams is ordered for UI grouping, NOT
@@ -153,6 +174,11 @@ public:
             case kDuckAmount:  duckAmount_ = v;                                  break; // 0..1 wet attenuation by dry
             case kDuckRelease: duckRel_ = 1.0f - std::exp(-1.0f / (v * sampleRate_)); break; // release seconds
             case kTransient:   transAmount_ = v;                                 break; // 0..1 input transient softening
+            case kMode: { const int m = v >= 0.5f ? 1 : 0;
+                          if (m != mode_) { mode_ = m; activeLines_ = m ? kBaseLines : kLines; pendingModeInit_ = true; }
+                          break; }
+            case kRevWindow: { int w = static_cast<int>(v * internalRate_);
+                               revPendingWindow_ = w < 64 ? 64 : (w > kCapHalf - 1 ? kCapHalf - 1 : w); break; }
             default: break;
         }
     }
@@ -164,6 +190,8 @@ public:
         float* xR = channels > 1 ? io.channel(1) : xL;
         const float invD = 1.0f / static_cast<float>(kInternalDivisor);
         constexpr float kTwoPi = 6.28318530718f;
+
+        if (pendingModeInit_) reset();   // mode switched -> reinit shared storage + clear tank
 
         for (int n = 0; n < samples; ++n) {
             const float dryL = xL[n], dryR = xR[n];
@@ -185,7 +213,9 @@ public:
             if (decimPhase_ == 0) {
                 const float pd = preLine_.readFractional(predelaySamp_);
                 preLine_.write(monoAA);
-                float in = (freeze_ ? 0.0f : pd) + fbSample_;   // Freeze holds the tank (no new input)
+                // Reverse mode: feed the tank the time-reversed recent input.
+                const float src = mode_ == 0 ? pd : reverseTick(pd);
+                float in = (freeze_ ? 0.0f : src) + fbSample_;   // Freeze holds the tank (no new input)
                 in = diff_[0].process(in, 0.75f);
                 in = diff_[1].process(in, 0.75f);
                 in = diff_[2].process(in, 0.625f);
@@ -196,15 +226,16 @@ public:
                 if (breathPhase_ >= 1.0f) breathPhase_ -= 1.0f;
                 const float decayEff = feedback_ * (1.0f - breathDepth_ * 0.3f * breath);
 
+                const int N = activeLines_;
                 float d[kLines], wetL = 0.0f, wetR = 0.0f;
-                for (int i = 0; i < kLines; ++i) {
+                for (int i = 0; i < N; ++i) {
                     advanceSweep(i);
                     const float target = lineDelay_[i] * sizeScale_ * (0.25f + 1.5f * mDelayFromSize());
                     glideLen_[i] += glideCoef_ * (target - glideLen_[i]);   // smoothed delay time
                     float rd = glideLen_[i] - lineDepth_[i] * mDepth_ * sweepMaxSamp_ * sweepVal_[i];
                     if (rd < 1.0f) rd = 1.0f;
                     if (rd > kLineCap - 1) rd = kLineCap - 1;
-                    float s = lines_[i].readFractional(rd);
+                    float s = lineRead(i, rd);
                     fdnDamp_[i] = s * dampA2_ + fdnDamp_[i] * dampA1_;
                     d[i] = fdnDamp_[i];
                     const float pan = linePan_[i];                          // -1..1
@@ -216,24 +247,24 @@ public:
                 float f[kLines];
                 switch (algo_) {
                     default: case 0: {                         // Cathedral: Householder (dense)
-                        float sum = 0.0f; for (int i = 0; i < kLines; ++i) sum += d[i];
-                        const float hf = (2.0f / kLines) * sum;
-                        for (int i = 0; i < kLines; ++i) f[i] = d[i] - hf; break; }
+                        float sum = 0.0f; for (int i = 0; i < N; ++i) sum += d[i];
+                        const float hf = (2.0f / N) * sum;
+                        for (int i = 0; i < N; ++i) f[i] = d[i] - hf; break; }
                     case 1:                                     // Chamber: identity (parallel combs)
-                        for (int i = 0; i < kLines; ++i) f[i] = d[i]; break;
+                        for (int i = 0; i < N; ++i) f[i] = d[i]; break;
                     case 2:                                     // Swirl: circular permutation
-                        for (int i = 0; i < kLines; ++i) f[i] = d[(i + 1) % kLines]; break;
+                        for (int i = 0; i < N; ++i) f[i] = d[(i + 1) % N]; break;
                     case 3: {                                   // Plate: butterfly pairs (bright)
                         constexpr float r = 0.70710678f;
-                        for (int p = 0; p < kLines; p += 2) { f[p] = (d[p] + d[p+1]) * r; f[p+1] = (d[p] - d[p+1]) * r; }
+                        for (int p = 0; p < N; p += 2) { f[p] = (d[p] + d[p+1]) * r; f[p+1] = (d[p] - d[p+1]) * r; }
                         break; }
                     case 4: {                                   // Cascade: butterfly + rotate pairs (densest)
                         constexpr float r = 0.70710678f; float t[kLines];
-                        for (int p = 0; p < kLines; p += 2) { t[p] = (d[p] + d[p+1]) * r; t[p+1] = (d[p] - d[p+1]) * r; }
-                        for (int i = 0; i < kLines; ++i) f[i] = t[(i + 2) % kLines]; break; }
+                        for (int p = 0; p < N; p += 2) { t[p] = (d[p] + d[p+1]) * r; t[p+1] = (d[p] - d[p+1]) * r; }
+                        for (int i = 0; i < N; ++i) f[i] = t[(i + 2) % N]; break; }
                 }
-                for (int i = 0; i < kLines; ++i)
-                    lines_[i].write(in + decayEff * lineAP_[i].process(f[i], 0.55f));
+                for (int i = 0; i < N; ++i)
+                    lineWrite(i, in + decayEff * lineAP_[i].process(f[i], 0.55f));
 
                 // global shimmer loop off the mono sum
                 float fb = hpf_.process((wetL + wetR) * 0.5f);
@@ -276,6 +307,44 @@ public:
 private:
     static constexpr float kOutGain = 0.88f;  // measured make-up; keeps worst-case peak <~1.0 across all topologies (see harness)
     float mDelayFromSize() const noexcept { return sizeScale_ * (0.5f); }  // (folded into per-line via Size)
+
+    // Line read/write dispatch: lines 0..3 use lines_[]; lines 4..5 use the
+    // union's float storage (Normal mode only -- Reverse never touches them).
+    float lineRead(int i, float delay) noexcept {
+        if (i < kBaseLines) return lines_[i].readFractional(delay);
+        FloatLine& L = extra_[static_cast<std::size_t>(i - kBaseLines)];
+        float clamped = delay < 0.0f ? 0.0f : (delay > kLineCap - 1 ? kLineCap - 1 : delay);
+        int di = static_cast<int>(clamped); float fr = clamped - static_cast<float>(di);
+        int newer = (L.wpos - 1 - di + 2 * kLineCap) % kLineCap;
+        int older = (L.wpos - 2 - di + 2 * kLineCap) % kLineCap;
+        return (1.0f - fr) * L.buf[static_cast<std::size_t>(newer)]
+             + fr * L.buf[static_cast<std::size_t>(older)];
+    }
+    void lineWrite(int i, float x) noexcept {
+        if (i < kBaseLines) { lines_[i].write(x); return; }
+        FloatLine& L = extra_[static_cast<std::size_t>(i - kBaseLines)];
+        L.buf[static_cast<std::size_t>(L.wpos)] = x; L.wpos = (L.wpos + 1) % kLineCap;
+    }
+
+    // Block reverse (ping-pong): capture the input into one half while playing the
+    // previously-filled half backward. Runs at the internal (16 kHz) rate.
+    float reverseTick(float x) noexcept {
+        cap_[static_cast<std::size_t>(capSel_ * kCapHalf + capWrite_)] = quantizeInt16(x);
+        ++capWrite_;
+        float rev = 0.0f;
+        if (capActive_ && capPlay_ >= 0) {
+            rev = dequantizeInt16(cap_[static_cast<std::size_t>((capSel_ ^ 1) * kCapHalf + capPlay_)]);
+            --capPlay_;
+        }
+        if (capWrite_ >= revWindowLen_) {
+            capFill_[capSel_] = capWrite_;
+            capSel_ ^= 1; capWrite_ = 0;
+            capPlay_ = capFill_[capSel_ ^ 1] - 1;
+            capActive_ = true;
+            revWindowLen_ = revPendingWindow_;
+        }
+        return rev;
+    }
 
     void advanceSweep(int i) noexcept {
         if (--sweepCnt_[i] <= 0) {
@@ -380,6 +449,8 @@ private:
         bc_detail::cont(kDuckAmount, "Duck/Amount", 0.0f, 1.0f, 0.67f),
         {ParamId{kDuckRelease}, "Duck/Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kTransient, "Input/Transient", 0.0f, 1.0f, 0.76f),
+        {ParamId{kMode}, "Reverse/Mode", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kModeNames},
+        {ParamId{kRevWindow}, "Reverse/Window", ParamUnit::seconds, 0.05f, 0.36f, 0.25f, ParamSkew::linear, ParamKind::continuous, 0},
         bc_detail::cont(kDelay1+0, "Delays/1", 0.0f, 0.21f, 0.030f) , bc_detail::cont(kDelay1+1, "Delays/2", 0.0f, 0.21f, 0.050f),
         bc_detail::cont(kDelay1+2, "Delays/3", 0.0f, 0.21f, 0.079f) , bc_detail::cont(kDelay1+3, "Delays/4", 0.0f, 0.21f, 0.081f),
         bc_detail::cont(kDelay1+4, "Delays/5", 0.0f, 0.21f, 0.100f) , bc_detail::cont(kDelay1+5, "Delays/6", 0.0f, 0.21f, 0.120f),
@@ -400,7 +471,15 @@ private:
 
     // ---- state ----
     BoundedDelayLine<std::int16_t, kPreMax> preLine_;
-    BoundedDelayLine<float, kLineCap>       lines_[kLines];
+    // Trivial float circular buffer (bit-identical to BoundedDelayLine<float>);
+    // trivial so it can live in a union with the int16 capture buffer.
+    struct FloatLine { std::array<float, kLineCap> buf; int wpos; };
+    BoundedDelayLine<float, kLineCap>       lines_[kBaseLines];
+    union {
+        std::array<FloatLine, kExtraLines>       extra_;   // Normal mode: lines 5-6
+        std::array<std::int16_t, kCapSamples>    cap_;     // Reverse mode: capture buffer
+    };
+    int activeLines_ = kLines;
     float fdnDamp_[kLines] = {}, sweepVal_[kLines] = {}, sweepTarget_[kLines] = {}, glideLen_[kLines] = {};
     int   sweepCnt_[kLines] = {};
     float lineDelay_[kLines] = {}, lineRate_[kLines] = {}, lineDepth_[kLines] = {};
@@ -427,6 +506,13 @@ private:
     static constexpr float kDuckSens = 4.0f;   // scales dry envelope into the 0..1 duck range
     float duckAmount_ = 0.0f, duckEnv_ = 0.0f, duckAtk_ = 0.1f, duckRel_ = 0.01f;
     float transAmount_ = 0.0f, transEnv_ = 0.0f, transBase_ = 0.05f;
+    // Reverse mode (block ping-pong capture into the union's cap_).
+    int   mode_ = 0;                 // 0 = Normal, 1 = Reverse
+    bool  pendingModeInit_ = false;  // reinit union storage on next process after a mode switch
+    int   capSel_ = 0, capWrite_ = 0, capPlay_ = -1;
+    int   capFill_[2] = {0, 0};
+    bool  capActive_ = false;
+    int   revWindowLen_ = 4000, revPendingWindow_ = 4000;
 };
 
 } // namespace acfx
