@@ -538,16 +538,16 @@ private:
         // so the editor keeps them together in one column.
         // -- Dynamics --
         bc_detail::cont(kTransient, "Dynamics/Transient", 0.0f, 1.0f, 0.76f),
-        bc_detail::cont(kDuckAmount, "Dynamics/Duck Amount", 0.0f, 1.0f, 0.67f),
+        bc_detail::cont(kDuckAmount, "Dynamics/Duck Amount", 0.0f, 1.0f, 0.32f),
         {ParamId{kDuckRelease}, "Dynamics/Duck Release", ParamUnit::seconds, 0.02f, 1.0f, 0.20f, ParamSkew::linear, ParamKind::continuous, 0},
         // -- Reverse --
-        {ParamId{kMode}, "Reverse/Mode", ParamUnit::none, 0.0f, 1.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 2, kModeNames},
+        {ParamId{kMode}, "Reverse/Mode", ParamUnit::none, 0.0f, 1.0f, 1.0f, ParamSkew::linear, ParamKind::discrete, 2, kModeNames},
         {ParamId{kRevWindow}, "Reverse/Window", ParamUnit::seconds, 0.05f, 0.36f, 0.25f, ParamSkew::linear, ParamKind::continuous, 0},
         // -- Master --
         bc_detail::cont(kSize, "Master/Size", 0.0f, 1.0f, 1.0f),
         bc_detail::cont(kMRate, "Master/Sweep Rate", 0.0f, 1.0f, 0.35f),
         bc_detail::cont(kMDepth, "Master/Sweep Depth", 0.0f, 1.0f, 0.79f),
-        bc_detail::cont(kFeedback, "Master/Feedback", 0.0f, 1.0f, 0.81f),
+        bc_detail::cont(kFeedback, "Master/Feedback", 0.0f, 1.0f, 1.0f),
         bc_detail::cont(kMix, "Master/Mix", 0.0f, 1.0f, 1.0f),
         {ParamId{kAlgo}, "Master/Algorithm", ParamUnit::none, 0.0f, 4.0f, 0.0f, ParamSkew::linear, ParamKind::discrete, 5, kAlgoNames},
         // -- Global --
@@ -602,9 +602,9 @@ private:
         bc_detail::cont(kFilterLfoCutoff, "Filter/LFO Cutoff", 0.0f, 1.0f, 0.0f),
         bc_detail::cont(kFilterLfoReso, "Filter/LFO Reso", 0.0f, 1.0f, 0.0f),
         // -- Output EQ --
-        {ParamId{kEqLoFreq}, "EQ/Low Freq", ParamUnit::hz, 20.0f, 500.0f, 120.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqLoFreq}, "EQ/Low Freq", ParamUnit::hz, 20.0f, 500.0f, 82.9f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kEqLoGain}, "EQ/Low Gain", ParamUnit::none, -18.0f, 18.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kEqM1Freq}, "EQ/Mid1 Freq", ParamUnit::hz, 100.0f, 2000.0f, 600.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
+        {ParamId{kEqM1Freq}, "EQ/Mid1 Freq", ParamUnit::hz, 100.0f, 2000.0f, 302.7f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kEqM1Gain}, "EQ/Mid1 Gain", ParamUnit::none, -18.0f, 18.0f, 0.0f, ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kEqM1Q}, "EQ/Mid1 Q", ParamUnit::none, 0.3f, 8.0f, 0.8f, ParamSkew::logarithmic, ParamKind::continuous, 0},
         {ParamId{kEqM2Freq}, "EQ/Mid2 Freq", ParamUnit::hz, 500.0f, 7000.0f, 2500.0f, ParamSkew::logarithmic, ParamKind::continuous, 0},
