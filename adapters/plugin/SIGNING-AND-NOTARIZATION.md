@@ -7,6 +7,26 @@ distribution of `acfx Reverse Reverb`; every step here fixed a concrete failure.
 The order matters: **build → sign → notarize → staple → package**. You cannot
 notarize an unsigned build, and you cannot staple before notarization succeeds.
 
+## Just use the script
+
+`scripts/release-plugin.sh` does the whole flow (build → sign → notarize →
+staple → package, and optionally cut a GitHub release). Run it from a **real
+terminal** (not a sandbox — see the keychain note). Examples:
+
+```
+scripts/release-plugin.sh --clean                       # build, sign, notarize, package
+scripts/release-plugin.sh --no-notarize                 # fast local dev build
+scripts/release-plugin.sh --clean --release <tag> --notes notes.md   # + publish
+```
+
+The manual steps below are what the script encodes, for reference / debugging.
+
+**RELEASES ARE IMMUTABLE.** A published release's bits never change — a new
+build is always a NEW release with a NEW tag (npm-style). Never re-upload or
+`--clobber` an asset, never move a released tag. The script refuses `--release`
+against an existing tag; if a release truly must go, delete it explicitly
+(`gh release delete <tag> --cleanup-tag`) and cut a fresh one.
+
 ## Prerequisites (one time)
 
 - A **Developer ID Application** certificate in your login keychain
