@@ -60,3 +60,16 @@ acfx_add_effect_plugin(
   SOURCES ${_acfx_plugin_sources}
 )
 target_link_libraries(acfx_plugin_reverse_reverb PRIVATE acfx_analysis)
+
+# SPIKE / THROWAWAY — "Breathing Canyon" plugin.
+acfx_add_effect_plugin(
+  NAME acfx_plugin_breathing_canyon
+  EFFECT_TYPE acfx::SpikeBreathingCanyon
+  EFFECT_HEADER effects/spike-breathing-canyon/spike-breathing-canyon.h
+  PRODUCT "acfx Breathing Canyon"
+  PLUGIN_CODE Abcy
+  CLAP_ID org.acfx.breathing-canyon
+  CLAP_FEATURES audio-effect reverb
+  SOURCES ${_acfx_plugin_sources}
+)
+target_link_libraries(acfx_plugin_breathing_canyon PRIVATE acfx_analysis)

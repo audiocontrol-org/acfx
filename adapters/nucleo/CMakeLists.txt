@@ -283,3 +283,15 @@ acfx_add_effect_nucleo(
   LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
                  acfx::nucleo_tinyusb
 )
+
+# SPIKE / THROWAWAY — "Breathing Canyon" (Eventide H3000 Swept Reverb-inspired:
+# randomly-swept multi-delay cathedral + pitch-shifted shimmer feedback).
+acfx_add_effect_nucleo(
+  NAME acfx_nucleo_spike_breathing_canyon
+  EFFECT_TYPE acfx::SpikeBreathingCanyon
+  EFFECT_HEADER effects/spike-breathing-canyon/spike-breathing-canyon.h
+  SOURCE ${_nucleo_main}
+  LINKER_SCRIPT ${_nucleo_lds}
+  LINK_LIBRARIES acfx::nucleo_platform acfx::nucleo_support acfx::nucleo_usb
+                 acfx::nucleo_tinyusb
+)
