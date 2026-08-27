@@ -283,7 +283,7 @@ private:
          ParamSkew::linear, ParamKind::continuous, 0},
         {ParamId{kBreath}, "Breath/Depth", ParamUnit::none, 0.0f, 1.0f, 0.35f,
          ParamSkew::linear, ParamKind::continuous, 0},
-        {ParamId{kMix}, "Output/Mix", ParamUnit::none, 0.0f, 1.0f, 0.35f,
+        {ParamId{kMix}, "Output/Mix", ParamUnit::none, 0.0f, 1.0f, 1.0f,
          ParamSkew::linear, ParamKind::continuous, 0},
     }};
 
