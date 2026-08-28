@@ -1,0 +1,23 @@
+# Group/Label	description  (source for the generated plugin README)
+Reverse/Mode	How the reversed audio is captured and played back (block vs granular reverse).
+Reverse/Window	Length of the captured segment that gets reversed - the reverse-swell time.
+Pitch/Amount	Pitch-shift interval applied to the reversed stream (semitones).
+Pitch/Blend	Blend between the unpitched reversed signal and the pitch-shifted copy.
+Pitch/LFO Rate	Speed of the LFO that modulates the pitch (vibrato).
+Pitch/LFO Depth	How far the pitch is modulated by the LFO (semitones).
+Filter/Cutoff	Resonant low-pass cutoff on the reversed/pitched stream (tames clang).
+Filter/Resonance	Filter resonance (emphasis at the cutoff).
+Filter/LFO Rate	Speed of the filter LFO.
+Filter/LFO Cutoff	How far the LFO sweeps the filter cutoff.
+Filter/LFO Reso	How far the LFO sweeps the filter resonance.
+Reverb/Algorithm	Reverb tank algorithm (room / hall / plate / spring / etc.).
+Reverb/Decay	Reverb feedback / decay - the tail length.
+Reverb/Damping	Darkens the reverb tail by rolling off highs.
+Chorus/Time	Base delay time of the wet-side chorus.
+Chorus/Depth	Chorus modulation depth.
+Chorus/Rate	Chorus LFO speed.
+Chorus/Feedback	Chorus feedback amount.
+Output/Mix	Dry/wet balance (use 100% wet on a send).
+Output/EQ Freq	Output parametric EQ centre frequency.
+Output/EQ Gain	Output EQ gain (cut/boost).
+Output/EQ Q	Output EQ bandwidth (higher Q = narrower).

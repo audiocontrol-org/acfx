@@ -1,0 +1,71 @@
+# Group/Label	description  (source for the generated plugin README)
+Gain/Input	Trim the level entering the effect; pull it down to tame a hot input before the tank and shimmer.
+Gain/Output	Makeup gain on the final output.
+Gain/Link	When on, the two gain knobs mirror (Output = -Input) so the net level holds as you trim the input.
+Dynamics/Transient	Softens fast input attacks to reduce harsh transient artifacts.
+Dynamics/Duck Amount	How much the dry input ducks the wet, so the source stays on top of the reverb wash.
+Dynamics/Duck Release	How quickly the wet recovers after the input quietens.
+Reverse/Mode	Normal reverb, or Reverse: capture the input and play it backward into the tank (the reverse-swell sound).
+Reverse/Window	Length of the captured block that gets reversed (Reverse mode).
+Master/Size	Scales the reverb delay-line lengths - the perceived size of the space.
+Master/Sweep Rate	Speed of the per-line random sweep that makes the room move (the 'breathing').
+Master/Sweep Depth	How far the delay lines are swept - the amount of spatial movement.
+Master/Feedback	Tank recirculation - the decay time / tail length.
+Master/Mix	Dry/wet balance (use 100% wet on a send).
+Master/Algorithm	Reverb recirculation character: Cathedral (dense), Chamber, Swirl, Plate, Cascade.
+Global/Predelay	Gap before the reverb starts - distance / throw.
+Global/Damping	Darkens the tail by rolling off highs in the feedback loop.
+Global/Glide	Portamento time for delay-length changes; moving Size or Delays glides (with a pitch bend) instead of jumping.
+Global/Freeze	Holds the tank for infinite sustain (stops taking new input).
+Delays/1	Delay time of reverb line 1. The six lengths are spread and coprime to avoid a periodic tail flutter.
+Delays/2	Delay time of reverb line 2.
+Delays/3	Delay time of reverb line 3.
+Delays/4	Delay time of reverb line 4.
+Delays/5	Delay time of reverb line 5 (inactive in Reverse mode).
+Delays/6	Delay time of reverb line 6 (inactive in Reverse mode).
+Rates/1	Per-line sweep rate for line 1 (scales the master Sweep Rate).
+Rates/2	Per-line sweep rate for line 2.
+Rates/3	Per-line sweep rate for line 3.
+Rates/4	Per-line sweep rate for line 4.
+Rates/5	Per-line sweep rate for line 5.
+Rates/6	Per-line sweep rate for line 6.
+Depths/1	Per-line sweep depth for line 1 (scales the master Sweep Depth).
+Depths/2	Per-line sweep depth for line 2.
+Depths/3	Per-line sweep depth for line 3.
+Depths/4	Per-line sweep depth for line 4.
+Depths/5	Per-line sweep depth for line 5.
+Depths/6	Per-line sweep depth for line 6.
+Pans/1	Stereo position of line 1 in the output (-1 left ... +1 right).
+Pans/2	Stereo position of line 2.
+Pans/3	Stereo position of line 3.
+Pans/4	Stereo position of line 4.
+Pans/5	Stereo position of line 5.
+Pans/6	Stereo position of line 6.
+Levels/1	Output level of line 1 in the wet mix.
+Levels/2	Output level of line 2.
+Levels/3	Output level of line 3.
+Levels/4	Output level of line 4.
+Levels/5	Output level of line 5.
+Levels/6	Output level of line 6.
+Breath/Depth	Amount of the slow LFO that swells the decay up and down.
+Breath/Rate	Speed of the breath LFO.
+Breath/Shape	Breath LFO waveform: Sine, Triangle, Ramp, Square, or Random (sample & hold).
+Shimmer/Pitch	Interval of the pitch-shifted shimmer feedback (semitones; +12 = octave up).
+Shimmer/Amount	How much pitched signal recirculates - shimmer build-up.
+Shimmer/LFO Rate	Speed of the LFO that modulates the shimmer pitch (vibrato/drift).
+Shimmer/LFO Depth	How far the shimmer pitch is modulated (semitones).
+Filter/Cutoff	Resonant low-pass cutoff applied to the wet.
+Filter/Resonance	Filter resonance (emphasis at the cutoff).
+Filter/LFO Rate	Speed of the filter LFO.
+Filter/LFO Cutoff	How far the LFO sweeps the filter cutoff (+/- octaves).
+Filter/LFO Reso	How far the LFO sweeps the filter resonance.
+EQ/Low Freq	Output low-shelf corner frequency.
+EQ/Low Gain	Output low-shelf gain (cut/boost).
+EQ/Mid1 Freq	Output EQ mid band 1 centre frequency.
+EQ/Mid1 Gain	Output EQ mid band 1 gain.
+EQ/Mid1 Q	Output EQ mid band 1 bandwidth (higher Q = narrower).
+EQ/Mid2 Freq	Output EQ mid band 2 centre frequency.
+EQ/Mid2 Gain	Output EQ mid band 2 gain.
+EQ/Mid2 Q	Output EQ mid band 2 bandwidth.
+EQ/High Freq	Output high-shelf corner frequency.
+EQ/High Gain	Output high-shelf gain (cut/boost).

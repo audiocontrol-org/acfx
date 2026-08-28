@@ -70,6 +70,19 @@ reinstall target product: (plugin target)
     done
     echo "reinstalled {{product}}"
 
+# Preview a plugin's generated parameter + MIDI-CC README to stdout. Edit the
+# per-parameter text in docs/plugin-readme/<name>.tsv; ranges/defaults/CCs come
+# from the code. e.g. `just readme acfx_plugin_breathing_canyon | glow -`
+readme target:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    IFS=$'\t' read -r product hdr typ desc < <(awk -F'\t' -v t="{{target}}" '$1==t{print $2"\t"$3"\t"$4"\t"$5}' docs/plugin-readme/targets.tsv)
+    [ -n "${desc:-}" ] || { echo "unknown target {{target}} (see docs/plugin-readme/targets.tsv)" >&2; exit 2; }
+    gen="$(mktemp -d)/gen"
+    c++ -std=c++20 -O2 -I core -I adapters/nucleo/support \
+        -DACFX_EFFECT_HEADER="\"$hdr\"" -DACFX_EFFECT_TYPE="$typ" tools/gen-plugin-readme.cpp -o "$gen"
+    "$gen" "$desc" "$product"
+
 # --- releases (signed + notarized; run from a real terminal for the keychain) ---
 
 # One plugin -> one immutable release. Extra flags pass through (e.g. --clean).

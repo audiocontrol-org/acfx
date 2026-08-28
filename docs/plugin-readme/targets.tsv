@@ -1,0 +1,3 @@
+# target	product	effect_header	effect_type	descriptions_tsv  (single source for README generation)
+acfx_plugin_breathing_canyon	acfx Breathing Canyon	effects/spike-breathing-canyon/spike-breathing-canyon.h	acfx::SpikeBreathingCanyon	docs/plugin-readme/breathing-canyon.tsv
+acfx_plugin_reverse_reverb	acfx Reverse Reverb	effects/spike-reverse-reverb/spike-reverse-reverb.h	acfx::SpikeReverseReverb	docs/plugin-readme/reverse-reverb.tsv

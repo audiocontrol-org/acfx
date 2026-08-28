@@ -97,6 +97,22 @@ else
   step "Skipping notarization (--no-notarize)"
 fi
 
+step "Generate parameter + MIDI-CC README (into the bundle)"
+# Single source of the target -> effect-header/type/descriptions mapping.
+MAP="$REPO_ROOT/docs/plugin-readme/targets.tsv"
+IFS=$'\t' read -r RH RT RD < <(awk -F'\t' -v t="$TARGET" '$1==t{print $3"\t"$4"\t"$5}' "$MAP")
+if [ -n "${RD:-}" ] && [ -f "$REPO_ROOT/$RD" ]; then
+  gen="$(mktemp -d)/gen-readme"
+  c++ -std=c++20 -O2 -I "$REPO_ROOT/core" -I "$REPO_ROOT/adapters/nucleo/support" \
+      -DACFX_EFFECT_HEADER="\"$RH\"" -DACFX_EFFECT_TYPE="$RT" \
+      "$REPO_ROOT/tools/gen-plugin-readme.cpp" -o "$gen"
+  # gen exits non-zero if any parameter lacks a description -- fail the release.
+  "$gen" "$REPO_ROOT/$RD" "$PRODUCT" > "$STAGE/README.md"
+  echo "   README.md ($(wc -l < "$STAGE/README.md") lines)"
+else
+  echo "   no descriptions mapping for $TARGET in targets.tsv -- skipping README" >&2
+fi
+
 step "Package (bundles only)"
 ZIP="$DIST_DIR/${TARGET}-macOS.zip"
 ( cd "$DIST_DIR" && ditto -c -k --sequesterRsrc --keepParent "$PRODUCT" "$(basename "$ZIP")" )
