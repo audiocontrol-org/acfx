@@ -63,17 +63,19 @@ export CPM_SOURCE_CACHE="$REPO_ROOT/external/.cpm-cache"
 touch "$REPO_ROOT/adapters/plugin/plugin-editor.cpp"
 cmake --preset desktop -DCMAKE_OSX_ARCHITECTURES="$ARCHS" \
       -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" >/dev/null
-cmake --build --preset desktop --target "${TARGET}_VST3" "${TARGET}_AU" -j
+cmake --build --preset desktop --target "${TARGET}_VST3" "${TARGET}_AU" "${TARGET}_Standalone" -j
 
 ART="$BUILD_DIR/adapters/plugin/${TARGET}_artefacts/RelWithDebInfo"
 AU="$STAGE/AU/$PRODUCT.component"
 VST3="$STAGE/VST3/$PRODUCT.vst3"
+APP="$STAGE/Standalone/$PRODUCT.app"
 
 step "Stage + sign (Developer ID, hardened runtime, timestamp)"
-rm -rf "$DIST_DIR"; mkdir -p "$STAGE/AU" "$STAGE/VST3"
+rm -rf "$DIST_DIR"; mkdir -p "$STAGE/AU" "$STAGE/VST3" "$STAGE/Standalone"
 cp -R "$ART/AU/$PRODUCT.component" "$STAGE/AU/"
 cp -R "$ART/VST3/$PRODUCT.vst3" "$STAGE/VST3/"
-for b in "$AU" "$VST3"; do
+cp -R "$ART/Standalone/$PRODUCT.app" "$STAGE/Standalone/"
+for b in "$AU" "$VST3" "$APP"; do
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$b"
   codesign --verify --strict "$b"
   echo "   signed: ${b#$STAGE/}"
@@ -84,7 +86,7 @@ echo "   x86_64 min: $(otool -arch x86_64 -l "$AU/Contents/MacOS/$PRODUCT" 2>/de
 
 if [ "$DO_NOTARIZE" = 1 ]; then
   step "Notarize + staple (Apple; a few minutes)"
-  for b in "$AU" "$VST3"; do
+  for b in "$AU" "$VST3" "$APP"; do
     z="$(mktemp -d)/n.zip"; ditto -c -k --keepParent "$b" "$z"
     xcrun notarytool submit "$z" --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m \
       | grep -E "id:|status:" || true
@@ -96,7 +98,7 @@ else
 fi
 
 step "Package (bundles only)"
-ZIP="$DIST_DIR/${TARGET}-macOS-AU-VST3.zip"
+ZIP="$DIST_DIR/${TARGET}-macOS.zip"
 ( cd "$DIST_DIR" && ditto -c -k --sequesterRsrc --keepParent "$PRODUCT" "$(basename "$ZIP")" )
 echo "   $ZIP"
 
@@ -115,7 +117,7 @@ if [ "$DO_RELEASE" = 1 ]; then
   fi
   gh release create "$RELEASE_TAG" --target "$SHA" --prerelease \
     --title "$PRODUCT ($RELEASE_TAG)" ${NOTES_FILE:+--notes-file "$NOTES_FILE"} \
-    "$ZIP#$PRODUCT (macOS AU + VST3, signed & notarized)"
+    "$ZIP#$PRODUCT (macOS AU + VST3 + Standalone, signed & notarized)"
   echo "   https://github.com/$REPO/releases/tag/$RELEASE_TAG"
 fi
 
