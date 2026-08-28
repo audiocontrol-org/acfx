@@ -33,6 +33,43 @@ target with no per-target `#ifdef` forks.
 Builds use CMake presets. Each preset fetches only the dependencies it needs
 (CPM-pinned in [`cmake/dependencies.cmake`](cmake/dependencies.cmake)).
 
+### Everyday tasks & releases (`just`)
+
+The common workflow is driven by [`just`](https://just.systems) recipes in the
+[`justfile`](justfile) — a command runner **on top of** CMake (CMake stays the
+C++ build system; `just` orchestrates). Install once: `brew install just`. List
+everything with `just --list`.
+
+```bash
+just fw spike_breathing_canyon                       # build a nucleo firmware image
+just flash spike_breathing_canyon                    # build + flash + report SRAM usage
+just plugin acfx_plugin_breathing_canyon             # build VST3 + AU + Standalone
+just reinstall acfx_plugin_breathing_canyon "acfx Breathing Canyon"  # dev-sign + install AU/VST3 locally
+```
+
+Releases are Developer-ID **signed + Apple notarized + stapled**, universal, and
+**immutable** (a new build is always a new tag). Run these from a **real
+terminal** — notarization needs the login-session keychain, so they will not work
+from a sandboxed/headless context:
+
+```bash
+# one plugin -> one release
+just release acfx_plugin_breathing_canyon "acfx Breathing Canyon" breathing-canyon-2026-08-27 --clean
+# both experimental plugins (AU+VST3+Standalone each) -> one release
+just release-experimental acfx-plugins-2026-08-27 notes.md
+```
+
+The release recipes delegate to [`scripts/release-plugin.sh`](scripts/release-plugin.sh)
+(single plugin) and [`scripts/release-plugins.sh`](scripts/release-plugins.sh)
+(bundle), which encode the codesign/notarytool detail; see the
+[**Signing & notarization runbook**](adapters/plugin/SIGNING-AND-NOTARIZATION.md).
+Machine specifics (toolchain path, signing identity, archs, min-OS) are `justfile`
+variables you can override on the command line, e.g.
+`just arm_toolchain=/path/to/bin fw <effect>`.
+
+The CMake presets below are the lower-level commands the recipes wrap — use them
+directly when you need something the recipes don't cover.
+
 ### Host tests (no hardware) — quickstart Scenario A
 
 ```bash
