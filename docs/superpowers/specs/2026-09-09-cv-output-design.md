@@ -2,6 +2,11 @@
 
 Status: **draft, awaiting operator review**. 2026-09-09.
 
+> **Revised the same day.** The VCO node was measured after this document was
+> first written, and the measurements invalidated its central premise. The
+> superseded reasoning is marked below rather than deleted, because the way it
+> was wrong is worth keeping.
+
 ## Provenance of this document
 
 Recorded explicitly because an earlier capture of this feature blurred it.
@@ -66,28 +71,64 @@ matter:
 **PA4 is the only usable DAC channel.** PA5 carries DAC2 but is the
 NUCLEO-F446RE's LD2, which the existing acfx adapter uses for fault indication.
 
-**The target pin's operating voltage is unknown.** It is not specified in any
-PT2399 datasheet revision, it has not been measured, and the available evidence
-is contradictory between roughly 2.5 V and roughly 4 V.
+**The target pin has now been measured.** See the `pedals` repository at
+`docs/measurements/2026-09-09-vco-characterization.md`.
 
-### Why the output range cannot be a constant
+```
+Voc  = 2.414 V   behind   Rint = 341 ohm      (a half-supply node)
+VCO current spans 45:1 across the delay control: 1.80 mA down to 40 uA
+pin 6 voltage moves only 1.80 V to 2.40 V
+fck proportional to I^0.79       delay = 684332 / fck
+```
 
-The DAC is 3.3 V. With the STM32F4 output buffer enabled it swings roughly 0.2 V
-to 3.1 V. Through a 22k series resistor:
+### What this overturned
 
-| Target pin sits at | DAC at 0.2 V | DAC at 3.1 V |
-| --- | --- | --- |
-| 2.5 V | 105 uA out | 27 uA in |
-| 4.0 V | 173 uA out | 41 uA **out** |
+This document originally argued that the output window must be a declared
+parameter because the pin's voltage was unknown and might sit near 4 V, making a
+3.3 V DAC swing one-directional. **That premise was wrong.** The pin sits near
+half supply, and the 4 V figure came from a third-party inference that
+measurement refuted.
 
-At the lower figure the swing is lopsided about four to one. At the higher figure
-the DAC can only ever pull current out, so modulation shortens the delay and
-never lengthens it.
+The conclusion survives, for a different and stronger reason, but the mechanism
+changes completely.
 
-**The firmware must therefore not assume a symmetric swing.** A usable output
-window is a declared parameter, so that a measurement changes a parameter default
-rather than a code path. Hardcoding a range would bake in an assumption already
-known to be unsupportable.
+**Fixed-resistor injection into the pin does not work at all.** A fixed series
+resistor delivers roughly constant current into an operating point that varies
+45:1, so modulation depth varies 45:1 inversely: 4% of nominal at the short-delay
+end, and 250% at the long end where the injection exceeds the oscillator's own
+current and swamps it. No resistor value fixes this; it is structural.
+
+**The working topology drives the low end of the resistance chain**, replacing
+ground, so that
+
+```
+I = (Voc - Vdrive) / (Rint + R_ext)
+```
+
+and fractional depth becomes independent of the delay setting. A 1.0 V drive
+gives 41% current reduction at both extremes, which through the 0.79 exponent is
+a **51% delay change at both extremes**.
+
+### Consequences for this firmware
+
+**The DAC cannot drive the node directly.** At the short-delay end the drive must
+sink **1.80 mA**. A buffered STM32 DAC output is typically specified into 5 kOhm
+or more, roughly 0.66 mA. A buffer able to sink a few milliamps is required, and
+its presence is a hardware precondition for this firmware doing anything useful.
+Confirm against the F446 datasheet, which is held in neither repository.
+
+**The output range stays a declared parameter**, but now because the useful drive
+window is bounded by what the buffer can sink and by how much delay change is
+wanted, not because the target voltage is unknown. The firmware still must not
+assume a symmetric swing: `Vdrive` cannot go below ground, so modulation
+lengthens delay from the knob setting and does not shorten it.
+
+**The failure mode is now dangerous rather than benign.** Under injection, a dead
+MCU meant no modulation. Under bottom-drive it leaves the chain's low end
+floating and **the delay stops oscillating entirely**. The hardware carries a
+jumper selecting drive or ground; the firmware should additionally bring the DAC
+to a defined level early in startup rather than leaving the pin high-impedance
+through initialisation.
 
 ## Architecture
 
