@@ -33,7 +33,8 @@ yes or no; none of it should be read as agreed:
   operator requirement. It is in this document only as a question.
 
 **Forced by a fact, not a preference:** the output range is a declared parameter
-rather than a constant. See *Why the output range cannot be a constant*.
+rather than a constant. See *What this overturned* under Hardware context - the
+original reason for this was wrong, but a stronger one replaced it.
 
 **Superseded:** the `cv-output` entry in `DESIGN-INBOX.md` was captured under the
 stack-control regime before the operator directed that this feature follow the
